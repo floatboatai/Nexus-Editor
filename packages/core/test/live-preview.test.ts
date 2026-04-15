@@ -71,4 +71,59 @@ describe("live preview", () => {
     expect(container.querySelector("[data-heading='custom']")?.textContent).toBe("HEADING");
     editor.destroy();
   });
+
+  it("passes the raw markdown source into custom renderers", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Text **bold**",
+      livePreview: {
+        renderers: {
+          strong({ source }) {
+            const element = document.createElement("span");
+            element.setAttribute("data-source", source);
+            return element;
+          }
+        }
+      }
+    });
+
+    expect(container.querySelector("[data-source]")?.getAttribute("data-source")).toBe("**bold**");
+    editor.destroy();
+  });
+
+  it("uses default renderers for node types that are not overridden", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Text **bold** *italic*",
+      livePreview: {
+        renderers: {
+          strong({ text }) {
+            const element = document.createElement("span");
+            element.textContent = text.toUpperCase();
+            return element;
+          }
+        }
+      }
+    });
+
+    expect(container.querySelector("span")?.textContent).toBe("BOLD");
+    expect(container.querySelector("em")?.textContent).toBe("italic");
+    editor.destroy();
+  });
+
+  it("re-renders live preview decorations after document updates", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Text **bold**",
+      livePreview: true
+    });
+
+    editor.setDocument("Text **changed**");
+
+    expect(container.querySelector("strong")?.textContent).toBe("changed");
+    editor.destroy();
+  });
 });

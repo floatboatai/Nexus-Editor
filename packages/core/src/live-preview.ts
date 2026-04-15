@@ -1,12 +1,12 @@
 import { RangeSetBuilder, type Extension, type SelectionRange } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
-import type { Content, Parent, Root } from "mdast";
+import type { Root } from "mdast";
 
+import { collectLivePreviewRanges } from "./live-preview-ranges";
+import { renderLivePreviewNode } from "./live-preview-renderers";
 import type {
   LivePreviewConfig,
-  LivePreviewNode,
   LivePreviewNodeType,
-  LivePreviewRenderContext,
   LivePreviewRenderer,
   ParserLike
 } from "./types";
@@ -54,116 +54,6 @@ function normalizeConfig(
   };
 }
 
-function getText(node: Content): string {
-  if ("value" in node && typeof node.value === "string") {
-    return node.value;
-  }
-
-  if (node.type === "image") {
-    return node.alt ?? "";
-  }
-
-  if ("children" in node && Array.isArray(node.children)) {
-    return node.children.map((child) => getText(child)).join("");
-  }
-
-  return "";
-}
-
-function createDefaultRenderer(context: LivePreviewRenderContext): HTMLElement {
-  switch (context.node.type) {
-    case "strong": {
-      const element = document.createElement("strong");
-      element.textContent = context.text;
-      return element;
-    }
-    case "emphasis": {
-      const element = document.createElement("em");
-      element.textContent = context.text;
-      return element;
-    }
-    case "inlineCode": {
-      const element = document.createElement("code");
-      element.textContent = context.text;
-      return element;
-    }
-    case "link": {
-      const element = document.createElement("a");
-      element.textContent = context.text;
-      element.href = context.node.url;
-      element.rel = "noopener noreferrer";
-      return element;
-    }
-    case "heading": {
-      const element = document.createElement(`h${context.node.depth}`);
-      element.textContent = context.text;
-      element.style.display = "block";
-      return element;
-    }
-    case "blockquote": {
-      const element = document.createElement("blockquote");
-      element.textContent = context.text;
-      element.style.display = "block";
-      return element;
-    }
-    case "image": {
-      const wrapper = document.createElement("span");
-      const label = document.createElement("span");
-      const element = document.createElement("img");
-      wrapper.setAttribute("data-live-preview-image", context.node.url);
-      element.src = context.node.url;
-      element.alt = context.node.alt ?? "";
-      label.textContent = context.node.alt ?? context.node.url;
-      wrapper.appendChild(label);
-      wrapper.appendChild(element);
-      return wrapper;
-    }
-  }
-}
-
-function renderNode(
-  node: LivePreviewNode,
-  source: string,
-  renderers: Partial<Record<LivePreviewNodeType, LivePreviewRenderer>>
-): HTMLElement {
-  const context: LivePreviewRenderContext = {
-    node,
-    nodeType: node.type,
-    source,
-    text: getText(node)
-  };
-
-  return renderers[node.type]?.(context) ?? createDefaultRenderer(context);
-}
-
-function isLivePreviewNode(node: Content): node is LivePreviewNode {
-  return (
-    node.type === "blockquote" ||
-    node.type === "emphasis" ||
-    node.type === "heading" ||
-    node.type === "inlineCode" ||
-    node.type === "link" ||
-    node.type === "strong"
-  );
-}
-
-function selectionIntersects(
-  from: number,
-  to: number,
-  selection: readonly SelectionRange[]
-): boolean {
-  return selection.some((range) => {
-    const rangeFrom = Math.min(range.anchor, range.head);
-    const rangeTo = Math.max(range.anchor, range.head);
-
-    if (range.empty) {
-      return range.anchor >= from && range.anchor < to;
-    }
-
-    return rangeFrom < to && from < rangeTo;
-  });
-}
-
 function createWidget(element: HTMLElement): WidgetType {
   return new (class extends WidgetType {
     toDOM() {
@@ -174,77 +64,6 @@ function createWidget(element: HTMLElement): WidgetType {
       return false;
     }
   })();
-}
-
-function addImageDecorations(
-  doc: string,
-  selection: readonly SelectionRange[],
-  builder: RangeSetBuilder<Decoration>,
-  renderers: Partial<Record<LivePreviewNodeType, LivePreviewRenderer>>
-) {
-  const pattern = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g;
-
-  for (const match of doc.matchAll(pattern)) {
-    const from = match.index ?? 0;
-    const source = match[0];
-    const to = from + source.length;
-
-    if (selectionIntersects(from, to, selection)) {
-      continue;
-    }
-
-    const widget = createWidget(
-      renderNode(
-        {
-          type: "image",
-          alt: match[1] || null,
-          url: match[2],
-          title: match[3] || null
-        },
-        source,
-        renderers
-      )
-    );
-
-    builder.add(
-      from,
-      to,
-      Decoration.replace({
-        widget
-      })
-    );
-  }
-}
-
-function visit(
-  node: Parent | Root,
-  doc: string,
-  selection: readonly SelectionRange[],
-  builder: RangeSetBuilder<Decoration>,
-  renderers: Partial<Record<LivePreviewNodeType, LivePreviewRenderer>>
-): void {
-  for (const child of node.children) {
-    const from = child.position?.start.offset;
-    const to = child.position?.end.offset;
-
-    if (typeof from === "number" && typeof to === "number" && isLivePreviewNode(child)) {
-      if (!selectionIntersects(from, to, selection)) {
-        const widget = createWidget(renderNode(child, doc.slice(from, to), renderers));
-        builder.add(
-          from,
-          to,
-          Decoration.replace({
-            widget
-          })
-        );
-        continue;
-      }
-    }
-
-    if ("children" in child && Array.isArray(child.children)) {
-      visit(child, doc, selection, builder, renderers);
-    }
-  }
 }
 
 function buildDecorations(
@@ -259,9 +78,17 @@ function buildDecorations(
   const doc = view.state.doc.toString();
   const ast = parseDocument(parser, doc);
   const builder = new RangeSetBuilder<Decoration>();
+  const ranges = collectLivePreviewRanges(ast, doc, view.state.selection.ranges);
 
-  visit(ast, doc, view.state.selection.ranges, builder, config.renderers);
-  addImageDecorations(doc, view.state.selection.ranges, builder, config.renderers);
+  for (const range of ranges) {
+    builder.add(
+      range.from,
+      range.to,
+      Decoration.replace({
+        widget: createWidget(renderLivePreviewNode(range.node, range.source, config.renderers))
+      })
+    );
+  }
 
   return builder.finish();
 }
