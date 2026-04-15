@@ -1,9 +1,18 @@
 {
   "compilerOptions": {
+    "baseUrl": ".",
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
+    "paths": {
+      "@nexus/core": ["packages/core/src/index.ts"],
+      "@nexus/react": ["packages/react/src/index.ts"],
+      "@nexus/vue": ["packages/vue/src/index.ts"],
+      "@nexus/preset-gfm": ["packages/preset-gfm/src/index.ts"],
+      "@nexus/plugin-slash": ["packages/plugin-slash/src/index.ts"],
+      "@nexus/plugin-history": ["packages/plugin-history/src/index.ts"]
+    },
     "strict": true,
     "declaration": true,
     "esModuleInterop": true,

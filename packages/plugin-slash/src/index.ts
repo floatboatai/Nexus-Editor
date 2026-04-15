@@ -1,10 +1,4 @@
-import type { NexusPlugin } from "@nexus/core";
-
-export interface SlashCommandDef {
-  id: string;
-  title: string;
-  keywords?: string[];
-}
+import type { NexusPlugin, SlashCommandDef } from "@nexus/core";
 
 export interface SlashMatch {
   from: number;

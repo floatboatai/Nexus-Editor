@@ -20,6 +20,7 @@ export interface EditorConfig {
 export interface EditorAPI {
   getDocument(): string;
   getAst(): Root;
+  getSlashCommands(): SlashCommandDef[];
   setDocument(next: string): void;
   focus(): void;
   blur(): void;
@@ -27,9 +28,16 @@ export interface EditorAPI {
   destroy(): void;
 }
 
+export interface SlashCommandDef {
+  id: string;
+  title: string;
+  keywords?: string[];
+}
+
 export interface NexusPlugin {
   name: string;
   shortcuts?: Array<{ key: string; run: (editor: EditorAPI) => boolean }>;
+  slashCommands?: SlashCommandDef[];
   remarkPlugins?: Array<Plugin<[], Root, Root>>;
   cmExtensions?: Extension[];
 }

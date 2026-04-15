@@ -42,6 +42,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
   const plugins = config.plugins ?? [];
   const parser = config.parser ?? createParser(plugins);
   const shortcuts = plugins.flatMap((plugin) => plugin.shortcuts ?? []);
+  const slashCommands = plugins.flatMap((plugin) => plugin.slashCommands ?? []);
   const cmExtensions = plugins.flatMap((plugin) => plugin.cmExtensions ?? []);
   const parseDelayMs = config.parseDelayMs ?? 0;
   let destroyed = false;
@@ -135,6 +136,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
     },
     getAst() {
       return currentAst;
+    },
+    getSlashCommands() {
+      return slashCommands;
     },
     setDocument(next) {
       if (destroyed) {

@@ -3,5 +3,6 @@ export type {
   EditorAPI,
   EditorConfig,
   NexusPlugin,
+  SlashCommandDef,
   ParserLike
 } from "./types";

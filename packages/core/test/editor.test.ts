@@ -259,6 +259,26 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("aggregates slash commands from registered plugins", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      plugins: [
+        {
+          name: "slash-a",
+          slashCommands: [{ id: "heading", title: "Heading" }]
+        },
+        {
+          name: "slash-b",
+          slashCommands: [{ id: "table", title: "Table" }]
+        }
+      ]
+    });
+
+    expect(editor.getSlashCommands().map((command) => command.id)).toEqual(["heading", "table"]);
+    editor.destroy();
+  });
+
   it("stops emitting updates after destroy", () => {
     const container = document.createElement("div");
     const docs: string[] = [];
