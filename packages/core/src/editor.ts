@@ -1,5 +1,7 @@
 import { EditorState } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, keymap, dropCursor } from "@codemirror/view";
+import { indentWithTab } from "@codemirror/commands";
+import { closeBrackets } from "@codemirror/autocomplete";
 import type { Root } from "mdast";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
@@ -158,6 +160,45 @@ export function createEditor(config: EditorConfig): EditorAPI {
             }
           }
         }),
+        keymap.of([indentWithTab]),
+        closeBrackets(),
+        dropCursor(),
+        EditorView.domEventHandlers({
+          drop(event) {
+            if (!config.onAssetUpload || destroyed) return false;
+            const files = event.dataTransfer?.files;
+            if (!files || files.length === 0) return false;
+
+            event.preventDefault();
+            for (const file of Array.from(files)) {
+              config.onAssetUpload(file).then((url) => {
+                if (url) {
+                  const isImage = file.type.startsWith("image/");
+                  const md = isImage ? `![${file.name}](${url})` : `[${file.name}](${url})`;
+                  view.dispatch(view.state.replaceSelection(md));
+                }
+              });
+            }
+            return true;
+          },
+          paste(event) {
+            if (!config.onAssetUpload || destroyed) return false;
+            const files = event.clipboardData?.files;
+            if (!files || files.length === 0) return false;
+
+            event.preventDefault();
+            for (const file of Array.from(files)) {
+              config.onAssetUpload(file).then((url) => {
+                if (url) {
+                  const isImage = file.type.startsWith("image/");
+                  const md = isImage ? `![${file.name}](${url})` : `[${file.name}](${url})`;
+                  view.dispatch(view.state.replaceSelection(md));
+                }
+              });
+            }
+            return true;
+          },
+        }),
         ...createLivePreviewExtension(parser, config.livePreview),
         ...createWidgetExtension(parser, widgetDefs),
         ...shortcutExtensions,
@@ -172,6 +213,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
     },
     getAst() {
       return currentAst;
+    },
+    getSelection() {
+      const sel = view.state.selection.main;
+      return { anchor: sel.anchor, head: sel.head };
     },
     getSlashCommands() {
       return slashCommands;
@@ -204,6 +249,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
           insert: next
         }
       });
+    },
+    replaceSelection(text) {
+      if (destroyed) return;
+      view.dispatch(view.state.replaceSelection(text));
     },
     focus() {
       if (destroyed) {
@@ -242,6 +291,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
       } catch {
         return null;
       }
+    },
+    getDocumentStats() {
+      const doc = view.state.doc.toString();
+      const characters = doc.length;
+      const words = doc.trim() === "" ? 0 : doc.trim().split(/\s+/).length;
+      const lines = view.state.doc.lines;
+      return { characters, words, lines };
     },
     destroy() {
       destroyed = true;

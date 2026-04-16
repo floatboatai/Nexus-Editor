@@ -57,6 +57,13 @@ export function createDefaultRenderer(context: LivePreviewRenderContext): HTMLEl
       element.textContent = context.text;
       element.href = context.node.url;
       element.rel = "noopener noreferrer";
+      element.title = `${context.node.url} (Ctrl+Click to open)`;
+      element.addEventListener("click", (e) => {
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          window.open(context.node.url, "_blank", "noopener,noreferrer");
+        }
+      });
       return element;
     }
     case "heading": {
@@ -70,6 +77,16 @@ export function createDefaultRenderer(context: LivePreviewRenderContext): HTMLEl
     case "blockquote": {
       const element = document.createElement("blockquote");
       element.textContent = context.text;
+      element.style.display = "block";
+      return element;
+    }
+    case "delete": {
+      const element = document.createElement("del");
+      element.textContent = context.text;
+      return element;
+    }
+    case "thematicBreak": {
+      const element = document.createElement("hr");
       element.style.display = "block";
       return element;
     }

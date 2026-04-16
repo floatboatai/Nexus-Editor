@@ -1,5 +1,5 @@
 import type { Extension } from "@codemirror/state";
-import type { Blockquote, Heading, Image, InlineCode, Link, Root, Strong, Emphasis } from "mdast";
+import type { Blockquote, Delete, Heading, Image, InlineCode, Link, Root, Strong, Emphasis, ThematicBreak } from "mdast";
 import type { Plugin } from "unified";
 
 export interface ParserLike {
@@ -8,12 +8,14 @@ export interface ParserLike {
 
 export type LivePreviewNode =
   | Blockquote
+  | Delete
   | Emphasis
   | Heading
   | Image
   | InlineCode
   | Link
-  | Strong;
+  | Strong
+  | ThematicBreak;
 
 export type LivePreviewNodeType = LivePreviewNode["type"];
 
@@ -64,10 +66,12 @@ export interface EditorEventMap {
 export interface EditorAPI {
   getDocument(): string;
   getAst(): Root;
+  getSelection(): { anchor: number; head: number };
   getSlashCommands(): SlashCommandDef[];
   uploadAsset(file: File): Promise<string | null>;
   setSelection(anchor: number, head?: number): void;
   setDocument(next: string): void;
+  replaceSelection(text: string): void;
   focus(): void;
   blur(): void;
   runShortcut(key: string): boolean;
@@ -75,6 +79,7 @@ export interface EditorAPI {
   on<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
   off<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
   getCoordsAtPos(pos: number): { left: number; right: number; top: number; bottom: number } | null;
+  getDocumentStats(): { characters: number; words: number; lines: number };
 }
 
 export interface SlashCommandDef {

@@ -1,5 +1,5 @@
 {
-  "name": "@nexus/core",
+  "name": "@nexus/plugin-toolbar",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,18 +11,11 @@
       "import": "./dist/index.js"
     }
   },
-  "files": [
-    "dist"
-  ],
+  "files": ["dist"],
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean"
   },
   "dependencies": {
-    "@codemirror/autocomplete": "^6.18.0",
-    "@codemirror/commands": "^6.10.0",
-    "@codemirror/state": "^6.5.2",
-    "@codemirror/view": "^6.36.1",
-    "remark-parse": "^11.0.0",
-    "unified": "^11.0.5"
+    "@nexus/core": "workspace:*"
   }
 }

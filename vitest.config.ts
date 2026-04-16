@@ -10,7 +10,8 @@ export default defineConfig({
       "@nexus/preset-gfm": path.resolve(__dirname, "packages/preset-gfm/src/index.ts"),
       "@nexus/plugin-slash": path.resolve(__dirname, "packages/plugin-slash/src/index.ts"),
       "@nexus/plugin-history": path.resolve(__dirname, "packages/plugin-history/src/index.ts"),
-      "@nexus/plugin-search": path.resolve(__dirname, "packages/plugin-search/src/index.ts")
+      "@nexus/plugin-search": path.resolve(__dirname, "packages/plugin-search/src/index.ts"),
+      "@nexus/plugin-toolbar": path.resolve(__dirname, "packages/plugin-toolbar/src/index.ts")
     }
   },
   test: {

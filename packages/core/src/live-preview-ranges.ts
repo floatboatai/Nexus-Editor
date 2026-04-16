@@ -13,11 +13,13 @@ export interface LivePreviewRange {
 function isLivePreviewNode(node: Content): node is LivePreviewNode {
   return (
     node.type === "blockquote" ||
+    node.type === "delete" ||
     node.type === "emphasis" ||
     node.type === "heading" ||
     node.type === "inlineCode" ||
     node.type === "link" ||
-    node.type === "strong"
+    node.type === "strong" ||
+    node.type === "thematicBreak"
   );
 }
 

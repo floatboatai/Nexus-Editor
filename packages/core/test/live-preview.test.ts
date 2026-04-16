@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { createGfmPreset } from "../../preset-gfm/src/index";
 import { createEditor } from "../src/index";
 
 describe("live preview", () => {
@@ -48,6 +49,31 @@ describe("live preview", () => {
     expect(container.querySelector("[data-live-preview-image]")?.getAttribute("data-live-preview-image")).toBe(
       "https://example.com/image.png"
     );
+    editor.destroy();
+  });
+
+  it("renders strikethrough as del element when GFM is enabled", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Text ~~deleted~~",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    expect(container.querySelector("del")?.textContent).toBe("deleted");
+    editor.destroy();
+  });
+
+  it("renders thematic break as hr element", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Text\n\n---\n\nMore",
+      livePreview: true
+    });
+
+    expect(container.querySelector("hr")).not.toBeNull();
     editor.destroy();
   });
 

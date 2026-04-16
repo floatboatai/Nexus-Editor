@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "packageManager": "pnpm@9.15.4",
   "scripts": {
-    "build": "pnpm --filter @nexus/core build && pnpm --filter @nexus/react build && pnpm --filter @nexus/vue build && pnpm --filter @nexus/preset-gfm build && pnpm --filter @nexus/plugin-slash build && pnpm --filter @nexus/plugin-history build && pnpm --filter @nexus/plugin-search build",
+    "build": "pnpm --filter @nexus/core build && pnpm --filter @nexus/react build && pnpm --filter @nexus/vue build && pnpm --filter @nexus/preset-gfm build && pnpm --filter @nexus/plugin-slash build && pnpm --filter @nexus/plugin-history build && pnpm --filter @nexus/plugin-search build && pnpm --filter @nexus/plugin-toolbar build",
     "test": "vitest run",
     "dev:electron-demo": "pnpm --filter @nexus/electron-demo dev",
     "build:electron-demo": "pnpm --filter @nexus/electron-demo build"

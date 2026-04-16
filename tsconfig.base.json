@@ -12,7 +12,8 @@
       "@nexus/preset-gfm": ["packages/preset-gfm/src/index.ts"],
       "@nexus/plugin-slash": ["packages/plugin-slash/src/index.ts"],
       "@nexus/plugin-history": ["packages/plugin-history/src/index.ts"],
-      "@nexus/plugin-search": ["packages/plugin-search/src/index.ts"]
+      "@nexus/plugin-search": ["packages/plugin-search/src/index.ts"],
+      "@nexus/plugin-toolbar": ["packages/plugin-toolbar/src/index.ts"]
     },
     "strict": true,
     "declaration": true,
