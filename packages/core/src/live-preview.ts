@@ -234,16 +234,14 @@ function buildCodeBlockDecorations(
     }
     decos.push(Decoration.line({ attributes: lineAttrs }).range(lineStart));
 
-    // Fence lines: muted in edit, transparent in view (never replace — keeps DOM intact)
+    // Fence lines: muted in edit, replaced in view
     if (isFenced && (isFirstLine || isLastLine) && lineEnd > lineStart) {
       if (cursorOnCode) {
         decos.push(Decoration.mark({
           attributes: { style: "color:var(--nexus-text-faint,#bbb);" }
         }).range(lineStart, lineEnd));
       } else {
-        decos.push(Decoration.mark({
-          attributes: { style: "color:transparent;" }
-        }).range(lineStart, lineEnd));
+        decos.push(Decoration.replace({}).range(lineStart, lineEnd));
       }
     }
 
