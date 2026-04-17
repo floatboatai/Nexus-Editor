@@ -234,15 +234,16 @@ function buildCodeBlockDecorations(
     }
     decos.push(Decoration.line({ attributes: lineAttrs }).range(lineStart));
 
-    // Fence lines: muted when editing (cursor inside block), hidden when viewing
+    // Fence lines: muted when editing, invisible when viewing (visibility:hidden
+    // keeps line height stable — no heightmap change, no scroll desync)
     if (isFenced && (isFirstLine || isLastLine) && lineEnd > lineStart) {
-      if (cursorOnCode) {
-        decos.push(Decoration.mark({
-          attributes: { style: "color:var(--nexus-text-faint,#bbb);" }
-        }).range(lineStart, lineEnd));
-      } else {
-        decos.push(Decoration.replace({}).range(lineStart, lineEnd));
-      }
+      decos.push(Decoration.mark({
+        attributes: {
+          style: cursorOnCode
+            ? "color:var(--nexus-text-faint,#bbb);"
+            : "visibility:hidden;"
+        }
+      }).range(lineStart, lineEnd));
     }
 
     // Language label widget — appended after first fence line text in view mode
