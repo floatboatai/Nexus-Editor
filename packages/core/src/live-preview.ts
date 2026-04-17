@@ -516,13 +516,13 @@ function buildDecorations(
         // Hide opening marker — mark as transparent so cursor can step through
         if (openLen > 0) {
           decos.push(Decoration.mark({
-            attributes: { style: "color:transparent;font-size:0;vertical-align:text-top;letter-spacing:-1em;" }
+            attributes: { style: "color:transparent;" }
           }).range(range.from, range.from + openLen));
         }
         // Hide closing marker
         if (closeLen > 0) {
           decos.push(Decoration.mark({
-            attributes: { style: "color:transparent;font-size:0;vertical-align:text-top;letter-spacing:-1em;" }
+            attributes: { style: "color:transparent;" }
           }).range(range.to - closeLen, range.to));
         }
         // Apply style to visible text
