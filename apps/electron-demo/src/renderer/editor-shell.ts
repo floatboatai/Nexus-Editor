@@ -2,6 +2,7 @@ import { createEditor, type EditorAPI } from "@nexus/core";
 import { createGfmPreset } from "@nexus/preset-gfm";
 import { createHistoryPlugin } from "@nexus/plugin-history";
 import { createToolbarPlugin, createToolbarUI, type ToolbarUI } from "@nexus/plugin-toolbar";
+import { createSearchPlugin } from "@nexus/plugin-search";
 import type { AppState } from "./state";
 import { type EditorSettings, settingsToTheme } from "./settings";
 
@@ -26,7 +27,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   const editor = createEditor({
     container,
     initialValue: state.content,
-    plugins: [createGfmPreset(), createHistoryPlugin(), createToolbarPlugin()],
+    plugins: [createGfmPreset(), createHistoryPlugin(), createToolbarPlugin(), createSearchPlugin()],
     livePreview: settings.livePreview,
     theme: settingsToTheme(settings),
     tabSize: settings.tabSize,

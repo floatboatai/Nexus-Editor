@@ -56,6 +56,9 @@ importers:
       '@nexus/plugin-history':
         specifier: workspace:*
         version: link:../../packages/plugin-history
+      '@nexus/plugin-search':
+        specifier: workspace:*
+        version: link:../../packages/plugin-search
       '@nexus/plugin-toolbar':
         specifier: workspace:*
         version: link:../../packages/plugin-toolbar

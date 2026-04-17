@@ -1,12 +1,16 @@
 import { createState, type AppState } from "./state";
 import { createEditorShell, type EditorShell } from "./editor-shell";
 import { loadSettings, createSettingsPanel, type EditorSettings } from "./settings";
+import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
+import { createSearchBar, type SearchBar } from "./search-bar";
 
 const state: AppState = createState();
 let settings: EditorSettings = loadSettings();
 let shell: EditorShell;
+let outline: OutlinePanel;
+let searchBar: SearchBar;
 
-function createToolbar(): HTMLElement {
+function createAppToolbar(): HTMLElement {
   const toolbar = document.createElement("div");
   toolbar.className = "toolbar";
 
@@ -25,13 +29,25 @@ function createToolbar(): HTMLElement {
   const spacer = document.createElement("div");
   spacer.style.flex = "1";
 
+  const outlineBtn = document.createElement("button");
+  outlineBtn.textContent = "\u2630"; // ☰
+  outlineBtn.title = "Toggle outline";
+  outlineBtn.style.fontSize = "14px";
+  outlineBtn.addEventListener("click", toggleOutline);
+
+  const searchBtn = document.createElement("button");
+  searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
+  searchBtn.title = "Search (Ctrl+F)";
+  searchBtn.style.fontSize = "14px";
+  searchBtn.addEventListener("click", () => searchBar.open());
+
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "\u2699"; // ⚙
   settingsBtn.title = "Settings";
   settingsBtn.style.fontSize = "16px";
   settingsBtn.addEventListener("click", handleSettings);
 
-  toolbar.append(openBtn, saveBtn, saveAsBtn, spacer, settingsBtn);
+  toolbar.append(openBtn, saveBtn, saveAsBtn, spacer, outlineBtn, searchBtn, settingsBtn);
   return toolbar;
 }
 
@@ -48,8 +64,10 @@ function renderStatus(): void {
 
   const pathLabel = state.filePath ?? "Untitled";
   const dirtyMark = state.dirty ? " [modified]" : "";
+  const stats = shell?.editor.getDocumentStats();
+  const statsText = stats ? ` | ${stats.words} words, ${stats.lines} lines` : "";
   const errorText = state.error ? ` — Error: ${state.error}` : "";
-  el.textContent = `${pathLabel}${dirtyMark}${errorText}`;
+  el.textContent = `${pathLabel}${dirtyMark}${statsText}${errorText}`;
 }
 
 async function handleOpen(): Promise<void> {
@@ -103,22 +121,59 @@ function handleSettings(): void {
   });
 }
 
+function toggleOutline(): void {
+  const panel = outline.element;
+  if (panel.style.display === "none") {
+    panel.style.display = "";
+    outline.update();
+  } else {
+    panel.style.display = "none";
+  }
+}
+
 function boot(): void {
   const root = document.getElementById("app");
   if (!root) throw new Error("Missing #app element");
 
-  const toolbar = createToolbar();
+  // Top bar
+  const appToolbar = createAppToolbar();
   const statusLine = createStatusLine();
+
+  // Main area: outline sidebar + editor column
+  const mainArea = document.createElement("div");
+  mainArea.className = "main-area";
+
+  const editorColumn = document.createElement("div");
+  editorColumn.className = "editor-column";
+
   const editorContainer = document.createElement("div");
   editorContainer.className = "editor-container";
 
-  root.append(toolbar, statusLine, editorContainer);
+  root.append(appToolbar, mainArea, statusLine);
 
+  // Create editor first so outline/search can reference it
   shell = createEditorShell({
     container: editorContainer,
     state,
     settings,
     onStateChange: renderStatus,
+  });
+
+  // Outline panel (left sidebar)
+  outline = createOutlinePanel(shell.editor);
+
+  // Search bar (above editor)
+  searchBar = createSearchBar(shell.editor);
+
+  editorColumn.append(searchBar.element, editorContainer);
+  mainArea.append(outline.element, editorColumn);
+
+  // Ctrl+F → open search
+  document.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+      e.preventDefault();
+      searchBar.open();
+    }
   });
 
   renderStatus();

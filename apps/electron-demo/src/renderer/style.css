@@ -22,6 +22,7 @@ body,
   padding: 8px 12px;
   background: #f0f0f0;
   border-bottom: 1px solid #ddd;
+  flex-shrink: 0;
 }
 
 .toolbar button {
@@ -29,12 +30,17 @@ body,
   cursor: pointer;
 }
 
-.status-line {
-  padding: 4px 12px;
-  font-size: 13px;
-  color: #666;
-  background: #fafafa;
-  border-bottom: 1px solid #eee;
+.main-area {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.editor-column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .editor-container {
@@ -44,4 +50,13 @@ body,
 
 .editor-container .cm-editor {
   height: 100%;
+}
+
+.status-line {
+  padding: 4px 12px;
+  font-size: 13px;
+  color: #666;
+  background: #fafafa;
+  border-top: 1px solid #eee;
+  flex-shrink: 0;
 }
