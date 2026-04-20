@@ -3,6 +3,7 @@ import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemir
 import hljs from "highlight.js";
 import type { Code, FootnoteDefinition, FootnoteReference, Heading, List, Root, Table } from "mdast";
 
+import { createLivePreviewDiagnostics } from "./live-preview-diag";
 import { collectLivePreviewRanges, selectionIntersects, selectionOnSameLine } from "./live-preview-ranges";
 import { renderLivePreviewNode } from "./live-preview-renderers";
 import { EditableTableWidget, isTableEditing } from "./live-preview-table";
@@ -53,11 +54,76 @@ function normalizeConfig(
   };
 }
 
-function createWidget(element: HTMLElement, swallowEvents = false): WidgetType {
+function createWidget(element: HTMLElement, swallowEvents = false, heightHint?: number): WidgetType {
   return new (class extends WidgetType {
     toDOM() { return element; }
     ignoreEvent() { return swallowEvents; }
+    // For block widgets, giving CM6 a pre-measure height prevents the heightmap
+    // from assigning 0 and then jumping to the real height on first measure.
+    // That jump shifts every click resolution below the widget until remeasured.
+    get estimatedHeight(): number { return heightHint ?? -1; }
   })();
+}
+
+class CodeCopyWidget extends WidgetType {
+  constructor(private readonly code: string, private readonly lang: string) { super(); }
+  eq(other: CodeCopyWidget): boolean { return other.code === this.code && other.lang === this.lang; }
+  ignoreEvent(): boolean { return true; }
+  toDOM(): HTMLElement {
+    // CM6 measures inline widget DOM elements via offsetHeight and uses that to
+    // size the line box. A <button> with position:absolute still has a measurable
+    // offsetHeight (~18px), which CM6 treats as the widget's contribution to line
+    // height. This makes fence lines 18px instead of the default 21px, causing
+    // cumulative click-drift in long documents.
+    //
+    // Fix: wrap in a zero-height span. The span has line-height:0 + no flow content
+    // → offsetHeight=0 → CM6 sees 0 contribution. The button overflows visually
+    // via overflow:visible and is anchored by the parent line's position:relative.
+    const wrapper = document.createElement("span");
+    wrapper.style.cssText = "line-height:0;font-size:0;overflow:visible;display:inline;";
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    const defaultLabel = this.lang || "Copy";
+    btn.textContent = defaultLabel;
+    btn.title = "Copy code";
+    btn.setAttribute("aria-label", "Copy code");
+    btn.style.cssText = [
+      "position:absolute",
+      "top:4px",
+      "right:8px",
+      "padding:1px 8px",
+      "font-size:11px",
+      "font-family:system-ui,sans-serif",
+      "line-height:1.6",
+      "background:var(--nexus-bg)",
+      "border:1px solid var(--nexus-border-subtle)",
+      "border-radius:3px",
+      "color:var(--nexus-text-muted)",
+      "cursor:pointer",
+      "opacity:0.7",
+      "z-index:1",
+      "user-select:none",
+      "transition:opacity .15s"
+    ].join(";");
+    btn.addEventListener("mouseenter", () => { btn.style.opacity = "1"; });
+    btn.addEventListener("mouseleave", () => { btn.style.opacity = "0.7"; });
+    btn.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); });
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        await navigator.clipboard.writeText(this.code);
+        btn.textContent = "Copied";
+        setTimeout(() => { btn.textContent = defaultLabel; }, 1200);
+      } catch {
+        btn.textContent = "Failed";
+        setTimeout(() => { btn.textContent = defaultLabel; }, 1200);
+      }
+    });
+    wrapper.appendChild(btn);
+    return wrapper;
+  }
 }
 
 const BLOCK_NODE_TYPES = new Set(["blockquote", "thematicBreak"]);
@@ -211,11 +277,23 @@ function buildCodeBlockDecorations(
   const firstNewline = source.indexOf("\n");
   const isFenced = /^[ \t]*(`{3,}|~{3,})/.test(source);
 
-  // ── All lines use same base style — identical height in edit & view mode ──
-  const BASE = "background:var(--nexus-bg-subtle);font-family:monospace;font-size:0.9em;";
+  // ── CRITICAL: line decorations must NOT change font-family/font-size ──
+  // CM6's heightmap estimates offscreen lines using the default line height
+  // (derived from cm-content's font). If Decoration.line sets font-family:monospace,
+  // measured code lines may differ from the default, and offscreen code lines are
+  // estimated at the default height → cumulative click-drift that scales linearly
+  // with the number of offscreen code lines.
+  //
+  // Fix: background + border-radius on Decoration.line (height-neutral).
+  //      font-family:monospace on Decoration.mark (affects glyph rendering only;
+  //      inline box height still equals inherited line-height × font-size = default).
+  // line-height:1.4em locks the line box to exactly the same height as regular text lines.
+  // Without it, fence lines whose entire content is inside a monospace Decoration.mark
+  // can render 2-3px shorter (font metric difference), causing cumulative click drift.
+  const LINE_BG = "background:var(--nexus-bg-subtle);line-height:1.4em;";
+  const MONO_MARK = "font-family:monospace;";
   const codeValue = range.node.value;
   const lang = range.node.lang;
-  const langText = lang ? lang.charAt(0).toUpperCase() + lang.slice(1) : "";
 
   let lineOffset = range.from;
   for (let li = 0; li < lines.length; li++) {
@@ -224,25 +302,43 @@ function buildCodeBlockDecorations(
     const isFirstLine = li === 0;
     const isLastLine = li === lines.length - 1;
 
-    // Line style — border-radius + optional language label via CSS pseudo-element
+    // Line decoration: ONLY background + border-radius (no font changes).
+    // position:relative on first fence line anchors the absolute copy button.
     const radius = isFirstLine ? "border-radius:4px 4px 0 0;" : isLastLine ? "border-radius:0 0 4px 4px;" : "";
-    const lineAttrs: Record<string, string> = { style: BASE + radius };
+    const firstLineExtra = isFirstLine && isFenced ? "position:relative;" : "";
+    const lineAttrs: Record<string, string> = { style: LINE_BG + radius + firstLineExtra };
     if (isFirstLine) {
       lineAttrs.role = "code";
       if (lang) lineAttrs["aria-label"] = `Code block: ${lang}`;
     }
     decos.push(Decoration.line({ attributes: lineAttrs }).range(lineStart));
 
-    // Fence lines: always color:transparent in view, color:faint in edit.
-    // Pure mark decoration — no widgets, no replace, no DOM changes between modes.
+    // Fence lines: transparent + monospace via mark; visible when cursor in block.
     if (isFenced && (isFirstLine || isLastLine) && lineEnd > lineStart) {
       decos.push(Decoration.mark({
         attributes: {
-          style: cursorOnCode
+          style: MONO_MARK + (cursorOnCode
             ? "color:var(--nexus-text-faint,#bbb);"
-            : "color:transparent;cursor:text;"
+            : "color:transparent;cursor:text;")
         }
       }).range(lineStart, lineEnd));
+    }
+
+    // Content lines (non-fence): monospace via mark.
+    if (!(isFenced && (isFirstLine || isLastLine)) && lineEnd > lineStart) {
+      decos.push(Decoration.mark({
+        attributes: { style: MONO_MARK }
+      }).range(lineStart, lineEnd));
+    }
+
+    // Copy button: always present, absolute-positioned inside first fence line.
+    if (isFenced && isFirstLine && codeValue) {
+      decos.push(
+        Decoration.widget({
+          widget: new CodeCopyWidget(codeValue, lang ?? ""),
+          side: 1
+        }).range(lineEnd)
+      );
     }
 
     lineOffset = lineEnd + 1;
@@ -316,7 +412,7 @@ function getInlineMarkerStyle(nodeType: string, source: string): InlineMarkerSty
       for (let i = 0; i < source.length && source[i] === "`"; i++) ticks++;
       return {
         openLen: ticks, closeLen: ticks,
-        style: "font-family:monospace;font-size:0.9em;background:var(--nexus-bg-muted);padding:1px 4px;border-radius:3px"
+        style: "font-family:monospace;background:var(--nexus-bg-muted);padding:1px 4px;border-radius:3px"
       };
     }
     case "link": {
@@ -384,25 +480,13 @@ function buildDecorations(
     } else if (range.node.type === "code" && !config.renderers.code) {
       buildCodeBlockDecorations(range as { from: number; to: number; node: Code; source: string }, selection, decos);
     } else if (range.node.type === "image") {
-      const cursorOnImage = selectionIntersects(range.from, range.to, selection);
-      if (cursorOnImage) {
-        decos.push(Decoration.mark({ attributes: { style: "color: var(--nexus-text-faint)" } }).range(range.from, range.to));
-        const preview = document.createElement("span");
-        const img = document.createElement("img");
-        img.src = range.node.url;
-        img.alt = range.node.alt ?? "";
-        img.referrerPolicy = "no-referrer";
-        img.style.display = "block";
-        img.style.maxWidth = "100%";
-        preview.appendChild(img);
-        decos.push(Decoration.widget({ widget: createWidget(preview), side: 1 }).range(range.to));
-      } else {
-        decos.push(
-          Decoration.replace({
-            widget: createWidget(renderLivePreviewNode(range.node, range.source, config.renderers))
-          }).range(range.from, range.to)
-        );
-      }
+      // Always render as widget — cursor toggle between inline-preview and replace-widget
+      // caused vertical layout shifts that made click positions drift after selection change.
+      decos.push(
+        Decoration.replace({
+          widget: createWidget(renderLivePreviewNode(range.node, range.source, config.renderers))
+        }).range(range.from, range.to)
+      );
     } else if (range.node.type === "link" && !config.renderers.link) {
       const inlineStyle = getInlineMarkerStyle("link", range.source);
       if (inlineStyle) {
@@ -420,25 +504,14 @@ function buildDecorations(
         decos.push(Decoration.replace({ widget: createWidget(span) }).range(range.from, range.to));
       }
     } else if (range.node.type === "definition") {
-      // Link reference definitions [id]: url — hide via line CSS (not replace, avoids viewport instability)
-      const cursorOnDef = selectionIntersects(range.from, range.to, selection);
-      if (cursorOnDef) {
-        decos.push(Decoration.mark({ attributes: { style: "color:var(--nexus-text-faint);font-size:0.85em" } }).range(range.from, range.to));
-      } else {
-        const HIDE_LINE = "height:0;padding:0;margin:0;overflow:hidden;font-size:0;line-height:0;min-height:0;";
-        // Hide each line of the definition via CSS collapse + text replace
-        const defSource = range.source;
-        const defLines = defSource.split("\n");
-        let lineOffset = range.from;
-        for (const defLine of defLines) {
-          const lineEnd = lineOffset + defLine.length;
-          decos.push(Decoration.line({ attributes: { style: HIDE_LINE } }).range(lineOffset));
-          if (lineEnd > lineOffset) {
-            decos.push(Decoration.replace({}).range(lineOffset, lineEnd));
-          }
-          lineOffset = lineEnd + 1;
-        }
-      }
+      // Link reference definitions [id]: url — always render with muted color.
+      // Previously collapsed line height to 0 when cursor off; that HEIGHT:0↔FULL toggle
+      // was the single biggest click-drift source. Heights must stay constant regardless
+      // of cursor to keep CM6's measurement cache and click-position resolution stable.
+      decos.push(
+        Decoration.mark({ attributes: { style: "color:var(--nexus-text-faint)" } })
+          .range(range.from, range.to)
+      );
     } else if (range.node.type === "footnoteReference") {
       const ref = range.node as FootnoteReference;
       const sup = document.createElement("sup");
@@ -449,7 +522,7 @@ function buildDecorations(
       const def = range.node as FootnoteDefinition;
       const defText = range.source.replace(/^\[\^\w+\]:\s*/, "");
       const el = document.createElement("div");
-      el.style.cssText = "font-size:0.85em;color:var(--nexus-text-muted);border-top:1px solid var(--nexus-border);padding-top:4px;margin-top:4px;";
+      el.style.cssText = "font-size:0.85em;color:var(--nexus-text-muted);border-top:1px solid var(--nexus-border);padding-top:8px;";
       const marker = document.createElement("sup");
       marker.textContent = def.identifier;
       marker.style.cssText = "color:var(--nexus-accent);margin-right:4px;";
@@ -487,16 +560,29 @@ function buildDecorations(
           }
         }
       } else {
-        const cursorOnLine = selectionOnSameLine(range.from, range.to, doc, selection);
-        if (!cursorOnLine) {
-          const isBlock = BLOCK_NODE_TYPES.has(range.node.type);
-          decos.push(
-            Decoration.replace({
-              widget: createWidget(renderLivePreviewNode(range.node, range.source, config.renderers), isBlock),
-              block: isBlock
-            }).range(range.from, range.to)
-          );
+        // Block fallback for blockquote/thematicBreak: always render as widget.
+        // Cursor-toggle between widget and raw caused block-height shifts
+        // (widget margins differ from raw-line height), destabilizing click resolution.
+        const isBlock = BLOCK_NODE_TYPES.has(range.node.type);
+        // Pre-measure height estimate so CM6's heightmap doesn't start at 0 and
+        // jump to the real value on first render (source of post-widget click drift).
+        // thematicBreak: 8 padding-top + 1 line + 8 padding-bottom = 17px.
+        // blockquote: source line count × 21px + 16px padding.
+        let heightHint: number | undefined;
+        if (isBlock) {
+          if (range.node.type === "thematicBreak") {
+            heightHint = 17;
+          } else {
+            const lineCount = range.source.split("\n").length;
+            heightHint = lineCount * 21 + 16;
+          }
         }
+        decos.push(
+          Decoration.replace({
+            widget: createWidget(renderLivePreviewNode(range.node, range.source, config.renderers), isBlock, heightHint),
+            block: isBlock
+          }).range(range.from, range.to)
+        );
       }
     }
   }
@@ -583,31 +669,5 @@ export function createLivePreviewExtension(
     }
   });
 
-  // Diagnostic: log click position resolution and scroll state
-  const clickDiag = EditorView.domEventHandlers({
-    mousedown(event, view) {
-      const rect = view.dom.getBoundingClientRect();
-      const x = event.clientX;
-      const y = event.clientY;
-      const pos = view.posAtCoords({ x, y });
-      const scrollTop = view.scrollDOM.scrollTop;
-      const docHeight = view.contentHeight;
-      const viewportFrom = view.viewport.from;
-      const viewportTo = view.viewport.to;
-      console.log(`[CLICK-DIAG] click=(${x.toFixed(0)},${y.toFixed(0)}) pos=${pos} scroll=${scrollTop.toFixed(0)} docH=${docHeight} viewport=[${viewportFrom},${viewportTo}]`);
-
-      // After decorations rebuild, check if scroll shifted
-      requestAnimationFrame(() => {
-        const newScroll = view.scrollDOM.scrollTop;
-        const newPos = view.state.selection.main.head;
-        if (Math.abs(newScroll - scrollTop) > 2) {
-          console.warn(`[CLICK-DIAG] SCROLL SHIFTED! before=${scrollTop.toFixed(0)} after=${newScroll.toFixed(0)} delta=${(newScroll - scrollTop).toFixed(0)}`);
-        }
-        console.log(`[CLICK-DIAG] after-rAF: cursorPos=${newPos} scroll=${newScroll.toFixed(0)}`);
-      });
-      return false;
-    }
-  });
-
-  return [field, viewCapture, linkHandler, clickDiag];
+  return [field, viewCapture, linkHandler, createLivePreviewDiagnostics()];
 }
