@@ -32,6 +32,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "react": path.resolve(__dirname, "node_modules/react"),
+      "react-dom": path.resolve(__dirname, "node_modules/react-dom"),
       "@floatboat/nexus-core": path.resolve(
         __dirname,
         "../../packages/core/src/index.ts"
@@ -51,6 +53,10 @@ export default defineConfig({
       "@floatboat/nexus-plugin-search": path.resolve(
         __dirname,
         "../../packages/plugin-search/src/index.ts"
+      ),
+      "@floatboat/nexus-react": path.resolve(
+        __dirname,
+        "../../packages/react/src/index.ts"
       ),
     },
   },
