@@ -1,0 +1,69 @@
+---
+description: Nexus Editor monorepo 工具链、目录、发布与 Agent 协作总则（详细）
+alwaysApply: true
+---
+
+# Nexus Editor — Monorepo 总则（详细）
+
+## 1. 工具链与版本（须与 CI 一致）
+
+| 项目 | 约定 | 依据 |
+|------|------|------|
+| 包管理器 | **仅 pnpm**，勿用 npm/yarn 写 lockfile | 根 `package.json` 的 `packageManager`（当前 **pnpm@9.15.4**） |
+| Node | CI：**Node 22** | `.github/workflows/ci.yml` 的 `NODE_VERSION` |
+| 本地安装 | `pnpm install`；对齐流水线时用 **`pnpm install --frozen-lockfile`** | CI `Install dependencies` 步骤 |
+| TypeScript | **5.x**，各包 `extends` **`tsconfig.base.json`** | 根 `devDependencies` |
+
+协作建议：重大改动前用 **Node 22 + frozen lockfile** 跑一遍测试与构建，减少「本地能过、CI 不过」。
+
+## 2. 常用脚本（仓库根目录）
+
+- **`pnpm test`**：全仓 Vitest（配置见根 **`vitest.config.ts`**）。
+- **`pnpm build`**：按固定顺序构建所有发布包（见根 `package.json` 的 `build` 脚本）；**新增可发布包且需要纳入发版流程时，必须在该脚本链末尾追加对应的 `pnpm --filter ... build`**。
+- **`pnpm dev:electron-demo`**：启动 **`apps/electron-demo`**（Vite + Electron；详见 Electron 规则文件）。
+- **`pnpm build:electron-demo`**：仅构建演示应用。
+- **`pnpm publish:packages`**：向 npm 发布 **`packages/*`**（`--no-git-checks` 等选项已写在脚本里）；发布前确保版本号、`CHANGELOG`（若有）与构建产物符合团队流程。
+
+## 3. 目录与职责
+
+- **`packages/core`**：**@floatboat/nexus-core**，编辑器内核（CodeMirror 6、Lezer Markdown、live preview、插件模型 **`NexusPlugin`**、`EditorAPI` 等）。**业务无关的可复用行为优先放这里或独立插件包**，避免堆在 app 里。
+- **`packages/react` / `packages/vue`**：框架适配层（`Editor` 组件、`useEditor`），依赖 core，保持薄封装。
+- **`packages/preset-*`**：可选预设（如 **@floatboat/nexus-preset-gfm**），通过 **`remarkPlugins`** 等与 core 组合。
+- **`packages/plugin-*`**：独立 **`NexusPlugin`** 实现，依赖 **`@floatboat/nexus-core`: `workspace:*`**。
+- **`apps/*`**：私有应用（如 **electron-demo**），可用 **`workspace:*`** 引用上述包；**不写进** `publish:packages` 的 filter。
+
+## 4. 包命名与 `package.json` 约定
+
+- **作用域**：统一 **`@floatboat/nexus-...`**。
+- **可发布库**：包含 **`"type": "module"`**、`main`/`types` 指向 **`dist`**、`exports["."]` 同时给出 `types` + `import`、`files: ["dist"]`、`publishConfig.access: "public"`（与现有包对齐）。
+- **构建脚本**：单入口库沿用 **`tsup src/index.ts --format esm --dts --clean`**；除非有特殊理由，勿引入第二种打包方式。
+- **内部依赖**：包与包之间一律 **`workspace:*`**，勿写死版本号指向本地路径以外的假想版本。
+
+## 5. 路径别名（极易漏）
+
+Monorepo 内 TypeScript 路径 **`tsconfig.base.json` → `paths`** 与 Vitest **`vitest.config.ts` → `resolve.alias`** 必须**同步**维护。
+
+- **新增**需在仓库内被 **`import "@floatboat/nexus-xxx"`** 解析到**源码**的包时：**两处都要加**指向 **`packages/<name>/src/index.ts`**（或该包真实入口）。
+- 修改包入口路径时同样双改。
+- 提交前在 IDE 与 **`pnpm test`** 中验证别名未断裂。
+
+当前 Vitest 中的 alias 列表以 **`vitest.config.ts`** 为准；若某 workspace 包未列入 alias，测试里直接引用该包可能导致解析失败——**新增包时一并补上**。
+
+## 6. 配置文件索引
+
+- **`pnpm-workspace.yaml`**：`packages/*`、`apps/*`。
+- **`.npmrc`**：`link-workspace-packages=true`、`access=public`（勿随意改成破坏 workspace 链接的选项）。
+- **根 `vitest.config.ts`**：默认 **`environment: "jsdom"`**；别名见上一节。
+
+## 7. Agent / 协作开发约束
+
+- **最小改动**：只修改完成任务所需的文件与行；禁止顺带大范围格式化、重命名、删注释或与需求无关的重构。
+- **分层**：可复用逻辑 → **`packages/`**；宿主集成（窗口、文件系统、CLI）→ **`apps/`**。
+- **文档**：**勿擅自**新建或长篇修改 **README / docs**，除非用户明确要求。
+- **破坏性变更**：若改动 **`EditorAPI`**、`NexusPlugin` 形状或公开导出，须评估 **semver**、同步所有调用方（core / react / vue / plugins / electron-demo），并补充或更新测试。
+- **依赖新增**：优先已有栈（CodeMirror 6、remark/unified、Vitest）；新增重量级依赖前确认许可证与包体积影响。
+
+## 8. Electron 与网络（环境备忘）
+
+- Electron 二进制由 **`electron`** 包的 **`postinstall`** 下载；若环境有 TLS/代理问题，可参考应用包中的 **`electron:download`** 脚本，并结合 **`NODE_OPTIONS=--use-system-ca`**、镜像（如 **`ELECTRON_MIRROR`**）等排查。
+- **勿**在文档化的命令中默认开启 **`ELECTRON_SKIP_BINARY_DOWNLOAD`**，否则易导致运行时找不到 **`electron.exe`**。

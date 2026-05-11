@@ -1,0 +1,51 @@
+---
+description: apps/electron-demo 架构、脚本与开发注意事项（详细）
+globs: "apps/electron-demo/**/*"
+alwaysApply: false
+---
+
+# Nexus Editor — Electron 演示应用（详细）
+
+应用路径：**`apps/electron-demo`**（包名 **`@floatboat/nexus-electron-demo`**，**`private: true`**）。
+
+## 1. 进程与构建分工
+
+- **渲染进程**：**Vite**（**`vite.config.ts`**），开发 **`pnpm dev:renderer`** 或随 **`dev`** 并行启动。
+- **主进程 / preload**：源码在 **`electron/`**（如 **`main.ts`**、**`preload.ts`**）；开发脚本 **`scripts/dev-electron.mjs`** 会用 **tsup** 生成 **`dist-electron/`** 再 **`spawn` Electron**。
+- **生产构建**：**`pnpm build`**（应用内脚本）= **tsup**（CJS、**`platform: node`**、**`external: electron`**）+ **`vite build`**。
+
+修改 **`dev-electron.mjs`** 时保持 **ESM**（**`type: module`**）与现有 **环境变量**（如 **`VITE_DEV_SERVER_URL`**）约定一致。
+
+## 2. 常用脚本（在应用目录或通过 filter）
+
+| 脚本 | 用途 |
+|------|------|
+| **`dev`** | 并行 **Vite + Electron** |
+| **`dev:renderer`** | 仅 Vite |
+| **`dev:electron`** | 仅编译并启动 Electron |
+| **`electron:download`** | 仅运行 **`electron/install.js`**（网络/TLS 异常时补二进制） |
+| **`build`** | 主进程/preload + 前端资源 |
+| **`start`** | **`electron dist-electron/main.js`**（需先 build） |
+| **`test`** | Vitest，配置 **`../../vitest.config.ts`** |
+| **`dist` / `dist:win` 等** | **electron-builder** 打包 |
+
+根目录 **`pnpm dev:electron-demo`** = **`pnpm --filter @floatboat/nexus-electron-demo dev`**。
+
+## 3. 依赖与 workspace
+
+- **运行时依赖**：Nexus 各 **`workspace:*`** 包、**highlight.js** 等见 **`package.json`**。
+- **开发依赖**：**electron**、**electron-builder**、**vite**、**tsup** 等；勿把仅 app 需要的工具放到 **`packages/core`**。
+
+## 4. 安全与 IPC
+
+- **preload** 暴露给渲染进程的 API 须 **最小表面**；新增 IPC 时遵循现有 **channel 命名** 与 **上下文隔离** 模式（见 **`electron/preload.ts`** 与 **`main.ts`** 已有写法）。
+- **勿**在 preload 或渲染层暴露任意 **Node full access**，除非有明确安全评审。
+
+## 5. 与内核开发的衔接
+
+- 编辑器行为、wikilink、插件：**优先改 `packages/core` 或对应 `plugin-*`**，electron-demo 只做 **宿主能力**（读盘、窗口、菜单）。
+- 若演示应用需要「仅演示用」的 hack，用注释标明 **demo-only**，避免被误认为公共 API。
+
+## 6. electron-builder
+
+- 配置在 **`package.json` → `build`**（**`appId`**、**`files`**、平台 target 等）；修改打包范围时确保 **`dist`** / **`dist-electron`** 与 **`files`** 数组一致，避免空包或体积异常。

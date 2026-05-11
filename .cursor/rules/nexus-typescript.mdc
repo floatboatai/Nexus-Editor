@@ -1,0 +1,62 @@
+---
+description: TypeScript / Vue / React 实现细节、插件模型与代码风格（详细）
+globs: "**/*.{ts,tsx,vue}"
+alwaysApply: false
+---
+
+# Nexus Editor — TypeScript / Vue / React（详细）
+
+## 1. 语言与模块
+
+- **`strict: true`**，目标 **ES2022**，**ESM**，**`moduleResolution`: Bundler**（见 **`tsconfig.base.json`**）。
+- **Node 内置模块**：优先 **`node:path`**、**`node:fs`** 等形式（与现有 **`vitest.config.ts`**、脚本一致）。
+- **类型**：导出公共类型用 **`export type { ... }`**；避免无故 **`any`**；与 MDAST 交互处可依赖 **`mdast`** 类型。
+
+本仓库**未**统一配置 ESLint/Prettier；**以相邻文件为准**（缩进、引号、分号、导出风格保持一致）。
+
+## 2. 文件与导出组织
+
+- **库入口**：每个包以 **`src/index.ts`**（React 含 **`tsx`** 时再导出）作为对外 API；**对外暴露的符号须在此集中导出**，避免深层路径被外部依赖。
+- **框架适配包**（**`packages/react`**、**`packages/vue`**）：结构对齐——**`Editor` 组件** + **`useEditor`** + **`types`**，见现有 **`src/index.ts`** 导出模式。
+- **命名**：插件工厂函数推荐 **`createXxxPlugin`**；配置类型 **`XxxOptions`**；事件/API 与 **`EditorAPI`**、**`EditorEventMap`** 对齐命名。
+
+## 3. 插件模型 `NexusPlugin`（核心）
+
+定义位置：**`packages/core/src/types.ts`**。
+
+| 字段 | 含义 | 注意 |
+|------|------|------|
+| **`name`** | 插件唯一标识字符串 | **必填**；建议稳定、可读（如 **`plugin-slash`**），便于调试与配置合并 |
+| **`shortcuts`** | CodeMirror 风格快捷键 → 调用 **`EditorAPI`** | `run` 返回 **`boolean`**（是否处理） |
+| **`slashCommands`** | 斜杠命令列表 | 与 core 内 **`SlashCommandDef`** 一致 |
+| **`remarkPlugins`** | **remark / unified** 插件数组 | 参与 **Markdown→HTML** 等管线；注意与 **preset-gfm** 等叠加顺序 |
+| **`cmExtensions`** | **CodeMirror 6** `Extension[]` | 编辑器行为扩展的主力入口 |
+| **`widgets`** | Live preview **widget** | **`WidgetDefinition`**：`nodeType`、`render`、`destroy` 等 |
+
+**实现约定**
+
+- 新插件放在 **`packages/plugin-<feature>/`**，**依赖 `@floatboat/nexus-core`**，**不要**复制 **`createEditor`** 内部管线。
+- 插件内部需要编辑器能力时，通过 **`EditorAPI`**（传入回调或 shortcut）扩展，避免直接依赖 React/Vue。
+- **`remarkPlugins`**：保持纯 remark/unified 约定；避免在插件里假设 Electron 或 DOM 全局（除非该包明确仅用于浏览器且文档说明）。
+
+## 4. CodeMirror 与 Markdown 管线
+
+- **内核**使用 **CM6** + **Lezer Markdown**；与文档结构相关的逻辑优先与 **`packages/core`** 中 **`markdown-*`**、**`wikilinks`**、**`live-preview`** 等模块保持一致。
+- **`packages/core/src/editor.ts`** 中 **`unified()`** 管线对 **`remarkPlugins`** 的迭代顺序有既定假设；**新增 remark 插件**时验证：**TOC**、**live preview**、**导出 HTML** 是否仍正确。
+- **性能**：避免在每次按键路径上重建昂贵 **`unified()`** 处理器；遵循现有 **「构建一次 parser/processor」** 的模式（参见 core 内注释与实现）。
+
+## 5. React / Vue 侧
+
+- 保持 **受控/非受控** 与 **`useEditor`** 的配置传递方式与现有测试一致（**`packages/react/test`**、**`packages/vue/test`**）。
+- **不要**在 **`packages/core`** 中引入 **`react`** / **`vue`** 依赖；框架相关代码只在 **`packages/react`**、**`packages/vue`**。
+
+## 6. 路径与跨平台
+
+- 任何 **持久路径**、**测试期望值**、**展示给用户的路径**：使用 **`path.join`**、**`path.normalize`** 或统一 **`/`** 比较策略；**避免**把 Windows **`\`** 或 POSIX **`/`** 硬编码进跨平台逻辑。
+- 参考 **`apps/electron-demo/test/sample-vault.test.ts`** 一类用例中的路径处理方式（若修改链接解析、vault 路径，须兼顾 Win/Linux/macOS）。
+
+## 7. 注释与错误处理
+
+- **注释**：解释「非显而易见的约束、性能原因、与 CM/remark 的边界」； obvious 代码不写长篇注释。
+- **`try/catch`**：与 core 一致——仅在边界（解析失败fallback等）使用；**禁止**空 `catch`。
+- **`editor.ts`** 等处已有 **Annotation**、**updateListener** 等微妙行为；改动前阅读相邻注释，避免破坏 **silent doc change**、**onChange** 与 **AST** 同步语义。

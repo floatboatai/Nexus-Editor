@@ -10,6 +10,7 @@
     "dev": "npm-run-all --parallel dev:renderer dev:electron",
     "dev:renderer": "vite",
     "dev:electron": "node scripts/dev-electron.mjs",
+    "electron:download": "node ./node_modules/electron/install.js",
     "build": "tsup electron/main.ts electron/preload.ts --outDir dist-electron --format cjs --platform node --external electron --clean && vite build",
     "start": "electron dist-electron/main.js",
     "test": "vitest run --config ../../vitest.config.ts",

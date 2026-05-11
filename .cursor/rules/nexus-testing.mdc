@@ -1,0 +1,39 @@
+---
+description: Vitest 测试、fixture 与路径断言约定（详细）
+globs: "**/*.{test,spec}.{ts,tsx}"
+alwaysApply: false
+---
+
+# Nexus Editor — 测试（详细）
+
+## 1. 运行方式
+
+- **全仓**：仓库根目录 **`pnpm test`**（**Vitest** **`vitest run`**）。
+- **单文件调试**：可在根目录使用 **`pnpm exec vitest run path/to/file.test.ts`**，或在包目录借助现有 **`pnpm test`**（如 electron-demo 使用 **`vitest run --config ../../vitest.config.ts`**）。
+
+## 2. 配置与解析
+
+- 主配置：**根目录 `vitest.config.ts`**。
+- **默认环境**：**`jsdom`**（适合编辑器 DOM、React/Vue 组件）。
+- **`@floatboat/nexus-*` 别名**：必须在 **`vitest.config.ts` → `resolve.alias`** 中与 **`tsconfig.base.json` → `paths`** 指向**同一源码入口**；新增 workspace 包时**同步更新**。
+
+## 3. 测试放置位置
+
+- **包内单元测试**：放在对应包的 **`test/`** 或与源码相邻的 **`*.test.ts` / `*.test.tsx`**（与现有包保持一致）。
+- **应用逻辑测试**：如 **`apps/electron-demo/test`**；涉及 **sample-vault** 等 fixture 时，保持 fixture 目录结构与测试描述同步更新。
+
+## 4. 编写约定
+
+- **路径断言**：不要假设分隔符始终是 **`/`** 或 **`\`**；比较前 **`path.normalize`**、**`path.relative`**，或对「相对 vault 的路径」统一用一种分隔符约定后再断言。
+- **快照**：谨慎使用；Markdown/编辑器输出若有意稳定可快照，否则优先明确断言关键字段。
+- **异步**：wikilink 索引、文件 IO 等已有 **`async`** 测试模式；新增异步用例使用 **`async/await`**，避免漂浮的 Promise。
+- **性能日志**：部分 core 测试会 **`stdout`** 打印 perf；勿无故断言 console 内容，除非测试目标就是日志。
+
+## 5. 提交前
+
+- 改动触及 **链接解析、路径、文件监听、Electron IPC** 时：除 **`pnpm test`** 外，考虑在目标 OS 上手动跑关键场景（Windows 与 Unix 路径差异历史上曾暴露问题）。
+
+## 6. 不做什么
+
+- 不为通过测试而 **`NODE_TLS_REJECT_UNAUTHORIZED=0`** 等弱化安全默认。
+- 不引入与现有 **`vitest` + `jsdom`** 重复的第二个测试框架，除非团队明确迁移。
