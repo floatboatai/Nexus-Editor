@@ -93,6 +93,28 @@ function extractToc(ast: Root): TocEntry[] {
   return entries;
 }
 
+/**
+ * 计数单词数，支持中英文混排
+ * - 中文：每个中文字符算一个词
+ * - 英文：按空格和标点分隔
+ */
+function countWords(text: string): number {
+  if (!text || text.trim() === "") return 0;
+  
+  let count = 0;
+  
+  // 匹配中文汉字
+  const chineseChars = text.match(/[\u4e00-\u9fa5]/g);
+  count += chineseChars ? chineseChars.length : 0;
+  
+  // 匹配英文单词（移除中文后）
+  const textWithoutChinese = text.replace(/[\u4e00-\u9fa5]/g, " ");
+  const englishWords = textWithoutChinese.match(/[a-zA-Z]+/g);
+  count += englishWords ? englishWords.length : 0;
+  
+  return count;
+}
+
 function createParser(plugins: NexusPlugin[]): ParserLike {
   // Build the unified pipeline ONCE, not per-parse call. Each
   // `unified().use(...)` chain resolves plugin graphs, initializes extensions,
@@ -500,9 +522,57 @@ export function createEditor(config: EditorConfig): EditorAPI {
     getDocumentStats() {
       const doc = view.state.doc.toString();
       const characters = doc.length;
-      const words = doc.trim() === "" ? 0 : doc.trim().split(/\s+/).length;
+      const charactersNoSpace = doc.replace(/\s/g, "").length;
+      
+      // 单词计数：支持中英文混排
+      const words = countWords(doc);
       const lines = view.state.doc.lines;
-      return { characters, words, lines };
+      
+      // 段落数：空行分隔的块
+      const paragraphs = doc.split(/\n\s*\n/).filter(p => p.trim().length > 0).length;
+      
+      // 阅读时间：中文约300字/分钟，英文约200词/分钟
+      const readTime = Math.max(1, Math.ceil(words / 300));
+      
+      // 从AST提取标题、代码块、链接、图片统计
+      const ast = currentAst;
+      const headings = { h1: 0, h2: 0, h3: 0, h4: 0, h5: 0, h6: 0 };
+      let codeBlocks = 0;
+      let links = 0;
+      let images = 0;
+      
+      function countNodes(node: any): void {
+        if (!node || !node.children) return;
+        for (const child of node.children) {
+          if (child.type === "heading") {
+            const level = child.depth;
+            if (level >= 1 && level <= 6) {
+              headings[`h${level}` as keyof typeof headings]++;
+            }
+          } else if (child.type === "code" && child.lang) {
+            codeBlocks++;
+          } else if (child.type === "link") {
+            links++;
+          } else if (child.type === "image") {
+            images++;
+          }
+          countNodes(child);
+        }
+      }
+      countNodes(ast);
+      
+      return {
+        characters,
+        charactersNoSpace,
+        words,
+        lines,
+        paragraphs,
+        readTime,
+        headings,
+        codeBlocks,
+        links,
+        images,
+      };
     },
     destroy() {
       destroyed = true;

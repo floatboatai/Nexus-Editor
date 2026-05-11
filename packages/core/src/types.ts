@@ -118,6 +118,36 @@ export interface TocEntry {
   to: number;
 }
 
+export interface DocumentStats {
+  /** 字符数（含空格） */
+  characters: number;
+  /** 字符数（不含空格） */
+  charactersNoSpace: number;
+  /** 单词数 */
+  words: number;
+  /** 行数 */
+  lines: number;
+  /** 段落数 */
+  paragraphs: number;
+  /** 估算阅读时间（分钟） */
+  readTime: number;
+  /** 标题统计 */
+  headings: {
+    h1: number;
+    h2: number;
+    h3: number;
+    h4: number;
+    h5: number;
+    h6: number;
+  };
+  /** 代码块数量 */
+  codeBlocks: number;
+  /** 链接数量 */
+  links: number;
+  /** 图片数量 */
+  images: number;
+}
+
 export interface EditorAPI {
   getDocument(): string;
   getAst(): Root;
@@ -146,7 +176,7 @@ export interface EditorAPI {
   on<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
   off<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
   getCoordsAtPos(pos: number): { left: number; right: number; top: number; bottom: number } | null;
-  getDocumentStats(): { characters: number; words: number; lines: number };
+  getDocumentStats(): DocumentStats;
 }
 
 export interface SlashCommandDef {

@@ -1,4 +1,5 @@
 export { createEditor } from "./editor";
+export { createStatsPanel } from "./stats-panel";
 export { markdownAutoPair } from "./markdown-autopair";
 export { markdownFold, markdownFoldService } from "./markdown-fold";
 export { markdownKeymap, handleMarkdownEnter } from "./markdown-keymap";
@@ -14,6 +15,7 @@ export {
 } from "./wikilinks";
 export type {
   CodeHighlightToken,
+  DocumentStats,
   EditorAPI,
   EditorConfig,
   EditorEventMap,

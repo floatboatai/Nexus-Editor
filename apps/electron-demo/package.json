@@ -28,6 +28,9 @@
     "@floatboat/nexus-plugin-search": "workspace:*",
     "@floatboat/nexus-plugin-toolbar": "workspace:*",
     "@floatboat/nexus-preset-gfm": "workspace:*",
+    "@floatboat/nexus-react": "workspace:*",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "highlight.js": "^11.11.0"
   },
   "devDependencies": {
