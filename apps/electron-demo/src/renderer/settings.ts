@@ -1,8 +1,12 @@
 import { lightTheme, darkTheme, type NexusTheme } from "@floatboat/nexus-core";
+import { t, subscribeLocale } from "./i18n/runtime";
+import type { MessageId } from "./i18n/messages";
 
 export interface EditorSettings {
   /** "light" | "dark" */
   colorScheme: "light" | "dark";
+  /** `"system"` follows OS/browser; otherwise a BCP 47 tag (e.g. `en`, `zh-CN`). */
+  language: string;
   fontSize: number;
   fontFamily: string;
   fontFamilyMono: string;
@@ -19,6 +23,7 @@ const STORAGE_KEY = "nexus-editor-settings";
 export function defaultSettings(): EditorSettings {
   return {
     colorScheme: "light",
+    language: "system",
     fontSize: 15,
     fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
     fontFamilyMono: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
@@ -54,6 +59,45 @@ export function settingsToTheme(settings: EditorSettings): NexusTheme {
     fontFamilyMono: settings.fontFamilyMono,
     contentMaxWidth: settings.contentMaxWidth || undefined,
   };
+}
+
+const UI_LANGUAGE_VALUES = ["system", "en", "zh-CN", "zh-TW", "ja", "ko", "fr", "de", "es"] as const;
+
+const LANG_VALUE_TO_MSG: Record<string, MessageId> = {
+  system: "lang_system",
+  en: "lang_en",
+  "zh-CN": "lang_zh_cn",
+  "zh-TW": "lang_zh_tw",
+  ja: "lang_ja",
+  ko: "lang_ko",
+  fr: "lang_fr",
+  de: "lang_de",
+  es: "lang_es",
+};
+
+function uiLanguageOptions(): { value: string; label: string }[] {
+  return UI_LANGUAGE_VALUES.map((value) => ({
+    value,
+    label: t(LANG_VALUE_TO_MSG[value] ?? "lang_en"),
+  }));
+}
+
+/** Resolved BCP 47 language tag for `<html lang>` (after applying "system"). */
+export function effectiveUiLanguage(settings: EditorSettings): string {
+  const raw = String(settings.language ?? "system").trim();
+  if (!raw || raw === "system") {
+    try {
+      return navigator.language || "en";
+    } catch {
+      return "en";
+    }
+  }
+  return raw;
+}
+
+/** Sync `<html lang>` with settings (spellcheck, screen readers, font selection). */
+export function applyUiLanguage(settings: EditorSettings): void {
+  document.documentElement.lang = effectiveUiLanguage(settings);
 }
 
 // ── Settings Panel UI ──
@@ -152,7 +196,11 @@ function createToggle(value: boolean, onChange: (v: boolean) => void): HTMLEleme
   return btn;
 }
 
-function createSelect(options: string[], value: string, onChange: (v: string) => void): HTMLElement {
+function createLabeledSelect(
+  options: { value: string; label: string }[],
+  value: string,
+  onChange: (v: string) => void,
+): HTMLElement {
   const sel = document.createElement("select");
   sel.style.cssText = `
     padding: 4px 8px; border-radius: 6px; font-size: 13px;
@@ -161,11 +209,18 @@ function createSelect(options: string[], value: string, onChange: (v: string) =>
     color: var(--nexus-text, #24292e);
     cursor: pointer; flex-shrink: 0;
   `;
-  for (const opt of options) {
+  for (const { value: v, label } of options) {
     const o = document.createElement("option");
-    o.value = opt;
-    o.textContent = opt;
-    if (opt === value) o.selected = true;
+    o.value = v;
+    o.textContent = label;
+    if (v === value) o.selected = true;
+    sel.appendChild(o);
+  }
+  if (!options.some((o) => o.value === value)) {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = value;
+    o.selected = true;
     sel.appendChild(o);
   }
   sel.addEventListener("change", () => onChange(sel.value));
@@ -214,31 +269,45 @@ function createTextInput(value: string, placeholder: string, onChange: (v: strin
   return input;
 }
 
-function row(title: string, desc: string, control: HTMLElement): HTMLElement {
+interface I18nPart {
+  element: HTMLElement;
+  update(): void;
+}
+
+function rowI18n(titleId: MessageId, descId: MessageId, control: HTMLElement): I18nPart {
   const el = document.createElement("div");
   el.style.cssText = ROW_STYLES;
 
   const labelWrap = document.createElement("div");
   labelWrap.style.cssText = LABEL_STYLES;
 
-  const t = document.createElement("div");
-  t.style.cssText = LABEL_TITLE_STYLES;
-  t.textContent = title;
+  const titleEl = document.createElement("div");
+  titleEl.style.cssText = LABEL_TITLE_STYLES;
 
-  const d = document.createElement("div");
-  d.style.cssText = LABEL_DESC_STYLES;
-  d.textContent = desc;
+  const descEl = document.createElement("div");
+  descEl.style.cssText = LABEL_DESC_STYLES;
 
-  labelWrap.append(t, d);
+  labelWrap.append(titleEl, descEl);
   el.append(labelWrap, control);
-  return el;
+
+  return {
+    element: el,
+    update() {
+      titleEl.textContent = t(titleId);
+      descEl.textContent = t(descId);
+    },
+  };
 }
 
-function sectionTitle(text: string): HTMLElement {
+function sectionTitleI18n(id: MessageId): I18nPart {
   const el = document.createElement("div");
   el.style.cssText = SECTION_TITLE_STYLES;
-  el.textContent = text;
-  return el;
+  return {
+    element: el,
+    update() {
+      el.textContent = t(id);
+    },
+  };
 }
 
 export function createSettingsPanel(settings: EditorSettings, onChange: OnChange): SettingsPanelResult {
@@ -248,42 +317,101 @@ export function createSettingsPanel(settings: EditorSettings, onChange: OnChange
   const dialog = document.createElement("div");
   dialog.style.cssText = DIALOG_STYLES;
 
-  // Header
   const header = document.createElement("div");
   header.style.cssText = HEADER_STYLES;
   const titleEl = document.createElement("span");
-  titleEl.textContent = "Settings";
   const closeBtn = document.createElement("button");
   closeBtn.style.cssText = CLOSE_BTN_STYLES;
   closeBtn.innerHTML = "&times;";
-  closeBtn.title = "Close";
   header.append(titleEl, closeBtn);
 
-  // Body
   const body = document.createElement("div");
   body.style.cssText = SECTION_STYLES;
 
   const s = { ...settings };
+  const i18nParts: I18nPart[] = [];
+  const push = (part: I18nPart) => {
+    i18nParts.push(part);
+    body.appendChild(part.element);
+  };
+
   const emit = () => { saveSettings(s); onChange(s); };
 
-  // -- Display section --
-  body.appendChild(sectionTitle("Display"));
-  body.appendChild(row("Color scheme", "Light or dark theme", createSelect(["light", "dark"], s.colorScheme, (v) => { s.colorScheme = v as "light" | "dark"; emit(); })));
-  body.appendChild(row("Line numbers", "Show line numbers in the gutter", createToggle(s.lineNumbers, (v) => { s.lineNumbers = v; emit(); })));
-  body.appendChild(row("Live preview", "Render markdown in real-time", createToggle(s.livePreview, (v) => { s.livePreview = v; emit(); })));
-  body.appendChild(row("Indent guides", "Show indentation guide lines", createToggle(s.indentGuides, (v) => { s.indentGuides = v; emit(); })));
-  body.appendChild(row("Content max width", "Limit line width for readability (e.g. 720px)", createTextInput(s.contentMaxWidth, "e.g. 720px", (v) => { s.contentMaxWidth = v; emit(); })));
-  body.appendChild(row("Text direction", "Left-to-right or right-to-left", createSelect(["ltr", "rtl"], s.direction, (v) => { s.direction = v as "ltr" | "rtl"; emit(); })));
+  push(sectionTitleI18n("settings_section_display"));
 
-  // -- Font section --
-  body.appendChild(sectionTitle("Font"));
-  body.appendChild(row("Font size", "Editor text size in pixels", createNumberInput(s.fontSize, 10, 28, 1, (v) => { s.fontSize = v; emit(); })));
-  body.appendChild(row("Body font", "Font for prose content", createTextInput(s.fontFamily, "system-ui, sans-serif", (v) => { s.fontFamily = v; emit(); })));
-  body.appendChild(row("Code font", "Monospace font for code blocks", createTextInput(s.fontFamilyMono, "ui-monospace, monospace", (v) => { s.fontFamilyMono = v; emit(); })));
+  const langSelect = createLabeledSelect(uiLanguageOptions(), String(s.language), (v) => {
+    s.language = v;
+    emit();
+  }) as HTMLSelectElement;
+  push(rowI18n("settings_language", "settings_language_desc", langSelect));
 
-  // -- Behavior section --
-  body.appendChild(sectionTitle("Behavior"));
-  body.appendChild(row("Tab size", "Number of spaces per tab", createNumberInput(s.tabSize, 1, 8, 1, (v) => { s.tabSize = v; emit(); })));
+  const schemeSelect = createLabeledSelect(
+    [
+      { value: "light", label: t("settings_scheme_light") },
+      { value: "dark", label: t("settings_scheme_dark") },
+    ],
+    s.colorScheme,
+    (v) => { s.colorScheme = v as "light" | "dark"; emit(); },
+  ) as HTMLSelectElement;
+  push(rowI18n("settings_color_scheme", "settings_color_scheme_desc", schemeSelect));
+
+  push(rowI18n("settings_line_numbers", "settings_line_numbers_desc", createToggle(s.lineNumbers, (v) => { s.lineNumbers = v; emit(); })));
+  push(rowI18n("settings_live_preview", "settings_live_preview_desc", createToggle(s.livePreview, (v) => { s.livePreview = v; emit(); })));
+  push(rowI18n("settings_indent_guides", "settings_indent_guides_desc", createToggle(s.indentGuides, (v) => { s.indentGuides = v; emit(); })));
+
+  const maxWidthInput = createTextInput(s.contentMaxWidth, t("settings_max_width_ph"), (v) => { s.contentMaxWidth = v; emit(); }) as HTMLInputElement;
+  push(rowI18n("settings_max_width", "settings_max_width_desc", maxWidthInput));
+
+  const dirSelect = createLabeledSelect(
+    [
+      { value: "ltr", label: t("settings_dir_ltr") },
+      { value: "rtl", label: t("settings_dir_rtl") },
+    ],
+    s.direction,
+    (v) => { s.direction = v as "ltr" | "rtl"; emit(); },
+  ) as HTMLSelectElement;
+  push(rowI18n("settings_text_direction", "settings_text_direction_desc", dirSelect));
+
+  push(sectionTitleI18n("settings_section_font"));
+  push(rowI18n("settings_font_size", "settings_font_size_desc", createNumberInput(s.fontSize, 10, 28, 1, (v) => { s.fontSize = v; emit(); })));
+
+  const bodyFontInput = createTextInput(s.fontFamily, t("settings_body_font_ph"), (v) => { s.fontFamily = v; emit(); }) as HTMLInputElement;
+  push(rowI18n("settings_body_font", "settings_body_font_desc", bodyFontInput));
+
+  const codeFontInput = createTextInput(s.fontFamilyMono, t("settings_code_font_ph"), (v) => { s.fontFamilyMono = v; emit(); }) as HTMLInputElement;
+  push(rowI18n("settings_code_font", "settings_code_font_desc", codeFontInput));
+
+  push(sectionTitleI18n("settings_section_behavior"));
+  push(rowI18n("settings_tab_size", "settings_tab_size_desc", createNumberInput(s.tabSize, 1, 8, 1, (v) => { s.tabSize = v; emit(); })));
+
+  function syncLangSelectLabels(): void {
+    for (let i = 0; i < langSelect.options.length; i++) {
+      const o = langSelect.options[i];
+      const mid = LANG_VALUE_TO_MSG[o.value];
+      if (mid) o.textContent = t(mid);
+    }
+  }
+
+  function syncSchemeAndDirLabels(): void {
+    if (schemeSelect.options[0]) schemeSelect.options[0].textContent = t("settings_scheme_light");
+    if (schemeSelect.options[1]) schemeSelect.options[1].textContent = t("settings_scheme_dark");
+    if (dirSelect.options[0]) dirSelect.options[0].textContent = t("settings_dir_ltr");
+    if (dirSelect.options[1]) dirSelect.options[1].textContent = t("settings_dir_rtl");
+  }
+
+  function syncAllText(): void {
+    titleEl.textContent = t("settings_title");
+    closeBtn.title = t("settings_close_tip");
+    for (const p of i18nParts) p.update();
+    syncLangSelectLabels();
+    syncSchemeAndDirLabels();
+    maxWidthInput.placeholder = t("settings_max_width_ph");
+    bodyFontInput.placeholder = t("settings_body_font_ph");
+    codeFontInput.placeholder = t("settings_code_font_ph");
+  }
+
+  syncAllText();
+  const unsubLocale = subscribeLocale(syncAllText);
 
   dialog.append(header, body);
   backdrop.appendChild(dialog);
@@ -300,6 +428,7 @@ export function createSettingsPanel(settings: EditorSettings, onChange: OnChange
   return {
     element: backdrop,
     destroy() {
+      unsubLocale();
       document.removeEventListener("keydown", handleEsc);
       close();
     },

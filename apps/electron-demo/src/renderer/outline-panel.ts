@@ -1,8 +1,10 @@
 import type { EditorAPI, TocEntry } from "@floatboat/nexus-core";
+import { t } from "./i18n/runtime";
 
 export interface OutlinePanel {
   element: HTMLElement;
   update(): void;
+  applyI18n(): void;
   destroy(): void;
 }
 
@@ -67,7 +69,10 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
 
   const header = document.createElement("div");
   header.style.cssText = HEADER_STYLES;
-  header.textContent = "Outline";
+  function applyHeader(): void {
+    header.textContent = t("outline_title");
+  }
+  applyHeader();
 
   const list = document.createElement("div");
   list.style.cssText = LIST_STYLES;
@@ -80,7 +85,7 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
     if (entries.length === 0) {
       const empty = document.createElement("div");
       empty.style.cssText = EMPTY_STYLES;
-      empty.textContent = "No headings";
+      empty.textContent = t("outline_empty");
       list.appendChild(empty);
       return;
     }
@@ -121,6 +126,10 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
   return {
     element: panel,
     update,
+    applyI18n() {
+      applyHeader();
+      update();
+    },
     destroy() {
       editor.off("change", update);
       panel.remove();

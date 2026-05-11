@@ -1,6 +1,7 @@
 import { createState, type AppState } from "./state";
 import { createEditorShell, type EditorShell } from "./editor-shell";
-import { loadSettings, createSettingsPanel, type EditorSettings } from "./settings";
+import { loadSettings, createSettingsPanel, applyUiLanguage, effectiveUiLanguage, type EditorSettings } from "./settings";
+import { setUiLocale, subscribeLocale, t } from "./i18n/runtime";
 import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
 import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
@@ -12,36 +13,34 @@ installLongTaskWatch(50);
 
 const state: AppState = createState();
 let settings: EditorSettings = loadSettings();
+setUiLocale(effectiveUiLanguage(settings));
+
 let shell: EditorShell;
 let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+let refreshAppToolbarI18n: (() => void) | null = null;
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
 
-function createAppToolbar(): HTMLElement {
+function createAppToolbar(): { element: HTMLElement; updateLabels: () => void } {
   const toolbar = document.createElement("div");
   toolbar.className = "toolbar";
 
   const vaultBtn = document.createElement("button");
-  vaultBtn.textContent = "Vault";
-  vaultBtn.title = "Open a folder as a vault";
   vaultBtn.addEventListener("click", () => {
     void vault.promptPickVault();
   });
 
   const openBtn = document.createElement("button");
-  openBtn.textContent = "Open";
   openBtn.addEventListener("click", handleOpen);
 
   const saveBtn = document.createElement("button");
-  saveBtn.textContent = "Save";
   saveBtn.addEventListener("click", handleSave);
 
   const saveAsBtn = document.createElement("button");
-  saveAsBtn.textContent = "Save As";
   saveAsBtn.addEventListener("click", handleSaveAs);
 
   const spacer = document.createElement("div");
@@ -49,33 +48,42 @@ function createAppToolbar(): HTMLElement {
 
   const vaultToggleBtn = document.createElement("button");
   vaultToggleBtn.textContent = "\uD83D\uDCD1"; // 📑
-  vaultToggleBtn.title = "Toggle vault panel";
   vaultToggleBtn.style.fontSize = "14px";
   vaultToggleBtn.addEventListener("click", toggleVault);
 
   const outlineBtn = document.createElement("button");
   outlineBtn.textContent = "\u2630"; // ☰
-  outlineBtn.title = "Toggle outline";
   outlineBtn.style.fontSize = "14px";
   outlineBtn.addEventListener("click", toggleOutline);
 
   const backlinksBtn = document.createElement("button");
   backlinksBtn.textContent = "\uD83D\uDD17"; // 🔗
-  backlinksBtn.title = "Toggle backlinks panel";
   backlinksBtn.style.fontSize = "14px";
   backlinksBtn.addEventListener("click", toggleBacklinks);
 
   const searchBtn = document.createElement("button");
   searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
-  searchBtn.title = "Search (Ctrl+F)";
   searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
 
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "\u2699"; // ⚙
-  settingsBtn.title = "Settings";
   settingsBtn.style.fontSize = "16px";
   settingsBtn.addEventListener("click", handleSettings);
+
+  function updateLabels(): void {
+    vaultBtn.textContent = t("toolbar_vault");
+    vaultBtn.title = t("toolbar_vault_tip");
+    openBtn.textContent = t("toolbar_open");
+    saveBtn.textContent = t("toolbar_save");
+    saveAsBtn.textContent = t("toolbar_save_as");
+    vaultToggleBtn.title = t("toolbar_tip_vault_panel");
+    outlineBtn.title = t("toolbar_tip_outline");
+    backlinksBtn.title = t("toolbar_tip_backlinks");
+    searchBtn.title = t("toolbar_tip_search");
+    settingsBtn.title = t("toolbar_tip_settings");
+  }
+  updateLabels();
 
   toolbar.append(
     vaultBtn,
@@ -89,7 +97,7 @@ function createAppToolbar(): HTMLElement {
     searchBtn,
     settingsBtn
   );
-  return toolbar;
+  return { element: toolbar, updateLabels };
 }
 
 function createStatusLine(): HTMLElement {
@@ -103,20 +111,22 @@ function renderStatus(): void {
   const el = document.getElementById("status-line");
   if (!el) return;
 
-  const pathLabel = state.activeFile ?? state.filePath ?? "Untitled";
-  const dirtyMark = state.dirty ? " [modified]" : "";
+  const pathLabel = state.activeFile ?? state.filePath ?? t("status_untitled");
+  const dirtyMark = state.dirty ? t("status_modified") : "";
   const stats = shell?.editor.getDocumentStats();
-  const statsText = stats ? ` | ${stats.words} words, ${stats.lines} lines` : "";
-  const vaultLabel = state.vaultPath
-    ? ` | Vault: ${state.vaultPath.split(/[\\/]/).pop()}`
+  const statsText = stats
+    ? t("status_stats", { words: stats.words, lines: stats.lines })
     : "";
-  const errorText = state.error ? ` — Error: ${state.error}` : "";
+  const vaultLabel = state.vaultPath
+    ? t("status_vault", { name: state.vaultPath.split(/[\\/]/).pop() ?? "" })
+    : "";
+  const errorText = state.error ? t("status_error", { message: state.error }) : "";
   el.textContent = `${pathLabel}${dirtyMark}${statsText}${vaultLabel}${errorText}`;
 }
 
 async function confirmDiscardIfDirty(): Promise<boolean> {
   if (!state.dirty) return true;
-  return window.confirm("You have unsaved changes. Discard them and switch files?");
+  return window.confirm(t("confirm_discard_unsaved"));
 }
 
 async function handleOpen(): Promise<void> {
@@ -174,9 +184,15 @@ async function handleSaveAs(): Promise<void> {
   renderStatus();
 }
 
+function applyLocaleFromSettings(next: EditorSettings): void {
+  applyUiLanguage(next);
+  setUiLocale(effectiveUiLanguage(next));
+}
+
 function handleSettings(): void {
   createSettingsPanel(settings, (next) => {
     settings = next;
+    applyLocaleFromSettings(settings);
     shell.applySettings(settings);
   });
 }
@@ -299,7 +315,7 @@ async function handleWikilinkNavigate(target: string, opts: { unresolved: boolea
       return;
     }
     if (!state.vaultPath) {
-      state.error = "Open a vault before following wiki links.";
+      state.error = t("error_open_vault_for_wikilinks");
       renderStatus();
       return;
     }
@@ -346,6 +362,7 @@ function boot(): void {
   if (!root) throw new Error("Missing #app element");
 
   const appToolbar = createAppToolbar();
+  refreshAppToolbarI18n = appToolbar.updateLabels;
   const statusLine = createStatusLine();
 
   const mainArea = document.createElement("div");
@@ -357,7 +374,9 @@ function boot(): void {
   const editorContainer = document.createElement("div");
   editorContainer.className = "editor-container";
 
-  root.append(appToolbar, mainArea, statusLine);
+  root.append(appToolbar.element, mainArea, statusLine);
+
+  applyLocaleFromSettings(settings);
 
   shell = createEditorShell({
     container: editorContainer,
@@ -405,6 +424,15 @@ function boot(): void {
     index: linkIndex,
     onOpenFile: (filePath) => void handleVaultFileOpen(filePath),
     getActiveFile: () => state.activeFile,
+  });
+
+  subscribeLocale(() => {
+    refreshAppToolbarI18n?.();
+    outline.applyI18n();
+    searchBar.applyI18n();
+    vault.applyI18n();
+    backlinks.applyI18n();
+    renderStatus();
   });
 
   editorColumn.append(searchBar.element, editorContainer);
