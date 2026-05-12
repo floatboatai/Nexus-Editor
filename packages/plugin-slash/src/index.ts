@@ -18,6 +18,11 @@ export interface SlashPlugin extends NexusPlugin {
   slashCommands: SlashCommandDef[];
 }
 
+export interface SlashPluginOptions {
+  /** Maximum number of commands returned after filtering. Default: no limit */
+  limit?: number;
+}
+
 export function getSlashMatch(doc: string, cursor: number): SlashMatch | null {
   const beforeCursor = doc.slice(0, cursor);
   const lineStart = beforeCursor.lastIndexOf("\n") + 1;
@@ -47,29 +52,53 @@ export function getSlashMatch(doc: string, cursor: number): SlashMatch | null {
   };
 }
 
+type MatchPriority = 0 | 1 | 2;
+
+function getMatchPriority(command: SlashCommandDef, query: string): MatchPriority | null {
+  const normalizedQuery = query.trim().toLowerCase();
+  const titleLower = command.title.toLowerCase();
+
+  if (titleLower === normalizedQuery) return 0;
+  if (titleLower.startsWith(normalizedQuery)) return 1;
+  if ((command.keywords ?? []).some((kw) => kw.toLowerCase().includes(normalizedQuery))) return 2;
+  if (titleLower.includes(normalizedQuery)) return 2;
+  return null;
+}
+
 export function filterSlashCommands(
   commands: SlashCommandDef[],
-  query: string
+  query: string,
+  limit?: number
 ): SlashCommandDef[] {
   const normalizedQuery = query.trim().toLowerCase();
 
   if (!normalizedQuery) {
-    return commands;
+    return limit != null ? commands.slice(0, limit) : commands;
   }
 
-  return commands.filter((command) => {
-    const haystacks = [command.title, ...(command.keywords ?? [])].map((value) =>
-      value.toLowerCase()
-    );
+  const scored: Array<{ command: SlashCommandDef; priority: MatchPriority }> = [];
 
-    return haystacks.some((value) => value.includes(normalizedQuery));
+  for (const command of commands) {
+    const priority = getMatchPriority(command, normalizedQuery);
+    if (priority !== null) {
+      scored.push({ command, priority });
+    }
+  }
+
+  scored.sort((a, b) => {
+    if (a.priority !== b.priority) return a.priority - b.priority;
+    return a.command.title.localeCompare(b.command.title);
   });
+
+  const result = scored.map((entry) => entry.command);
+  return limit != null ? result.slice(0, limit) : result;
 }
 
 export function getSlashState(
   doc: string,
   cursor: number,
-  commands: SlashCommandDef[]
+  commands: SlashCommandDef[],
+  limit?: number
 ): SlashState {
   const match = getSlashMatch(doc, cursor);
 
@@ -88,11 +117,14 @@ export function getSlashState(
     from: match.from,
     to: match.to,
     query: match.query,
-    commands: filterSlashCommands(commands, match.query)
+    commands: filterSlashCommands(commands, match.query, limit)
   };
 }
 
-export function createSlashPlugin(commands: SlashCommandDef[]): SlashPlugin {
+export function createSlashPlugin(
+  commands: SlashCommandDef[],
+  options?: SlashPluginOptions
+): SlashPlugin {
   return {
     name: "plugin-slash",
     slashCommands: commands
