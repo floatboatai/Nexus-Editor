@@ -143,6 +143,34 @@ describe("createToolbarPlugin", () => {
     expect(editor.getDocument()).toBe("hello **world**");
     editor.destroy();
   });
+
+  it("registers every formatting action as a slash command", () => {
+    const plugin = createToolbarPlugin();
+    const ids = (plugin.slashCommands ?? []).map((c) => c.id);
+    // Spot-check the four user-facing categories; the full catalogue is
+    // documented in src/index.ts and intentionally not pinned here so
+    // adding more commands later isn't a test churn.
+    expect(ids).toEqual(expect.arrayContaining(["h1", "h2", "bold", "image", "hr"]));
+    for (const cmd of plugin.slashCommands ?? []) {
+      expect(typeof cmd.run).toBe("function");
+    }
+  });
+
+  it("executes a slash command through the editor's command list", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "hello world",
+      plugins: [createToolbarPlugin()],
+    });
+
+    editor.setSelection(6, 11);
+    const bold = editor.getSlashCommands().find((c) => c.id === "bold");
+    expect(bold).toBeDefined();
+    expect(bold?.run?.(editor)).toBe(true);
+    expect(editor.getDocument()).toBe("hello **world**");
+    editor.destroy();
+  });
 });
 
 describe("createToolbarUI", () => {
