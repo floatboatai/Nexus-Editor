@@ -3,6 +3,7 @@ import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promi
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { assertPathInsideVault } from "./vault-path";
 
 // Must be called before app ready — declares our custom scheme as privileged
 // so images served via nexus-vault:// pass fetch/<img> with credentials / CORS.
@@ -128,13 +129,7 @@ function assertInsideVault(target: string): string {
   if (!activeVault) {
     throw new Error("No active vault");
   }
-  const resolved = path.resolve(target);
-  const rel = path.relative(activeVault, resolved);
-  if (rel === "" || rel === "." ) return resolved;
-  if (rel.startsWith("..") || path.isAbsolute(rel)) {
-    throw new Error(`Path escapes vault: ${target}`);
-  }
-  return resolved;
+  return assertPathInsideVault(activeVault, target);
 }
 
 async function scanDirectory(dir: string): Promise<VaultNode[]> {
