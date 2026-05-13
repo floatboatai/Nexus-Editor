@@ -29,23 +29,8 @@ module.exports = __toCommonJS(main_exports);
 var import_electron = require("electron");
 var import_promises = require("fs/promises");
 var import_node_fs = require("fs");
-var import_node_path2 = __toESM(require("path"));
-var import_node_url = require("url");
-
-// electron/vault-path.ts
 var import_node_path = __toESM(require("path"));
-function assertPathInsideVault(vaultRoot, target) {
-  const root = import_node_path.default.resolve(vaultRoot);
-  const resolved = import_node_path.default.resolve(target);
-  const rel = import_node_path.default.relative(root, resolved);
-  if (rel === "" || rel === ".") return resolved;
-  if (rel.startsWith("..") || import_node_path.default.isAbsolute(rel)) {
-    throw new Error(`Path escapes vault: ${target}`);
-  }
-  return resolved;
-}
-
-// electron/main.ts
+var import_node_url = require("url");
 import_electron.protocol.registerSchemesAsPrivileged([
   {
     scheme: "nexus-vault",
@@ -71,7 +56,7 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      preload: import_node_path2.default.join(__dirname, "preload.js")
+      preload: import_node_path.default.join(__dirname, "preload.js")
     }
   });
   mainWindow.once("ready-to-show", () => {
@@ -81,7 +66,7 @@ function createWindow() {
   if (devUrl) {
     mainWindow.loadURL(devUrl);
   } else {
-    mainWindow.loadFile(import_node_path2.default.join(__dirname, "../dist/index.html"));
+    mainWindow.loadFile(import_node_path.default.join(__dirname, "../dist/index.html"));
   }
   mainWindow.webContents.on("before-input-event", (_event, input) => {
     const meta = input.meta || input.control;
@@ -132,7 +117,13 @@ function assertInsideVault(target) {
   if (!activeVault) {
     throw new Error("No active vault");
   }
-  return assertPathInsideVault(activeVault, target);
+  const resolved = import_node_path.default.resolve(target);
+  const rel = import_node_path.default.relative(activeVault, resolved);
+  if (rel === "" || rel === ".") return resolved;
+  if (rel.startsWith("..") || import_node_path.default.isAbsolute(rel)) {
+    throw new Error(`Path escapes vault: ${target}`);
+  }
+  return resolved;
 }
 async function scanDirectory(dir) {
   const entries = await (0, import_promises.readdir)(dir, { withFileTypes: true });
@@ -141,7 +132,7 @@ async function scanDirectory(dir) {
     if (entry.name.startsWith(".") && SKIP_DIRS.has(entry.name)) continue;
     if (SKIP_DIRS.has(entry.name)) continue;
     if (entry.name.startsWith(".")) continue;
-    const childPath = import_node_path2.default.join(dir, entry.name);
+    const childPath = import_node_path.default.join(dir, entry.name);
     if (entry.isDirectory()) {
       const children = await scanDirectory(childPath);
       if (children.length > 0) {
@@ -155,7 +146,7 @@ async function scanDirectory(dir) {
       continue;
     }
     if (entry.isFile()) {
-      const ext = import_node_path2.default.extname(entry.name).toLowerCase();
+      const ext = import_node_path.default.extname(entry.name).toLowerCase();
       if (!SUPPORTED_EXT.has(ext)) continue;
       nodes.push({ name: entry.name, path: childPath, kind: "file" });
     }
@@ -199,7 +190,7 @@ function startWatcher(vaultPath) {
   }
 }
 function vaultStatePath() {
-  return import_node_path2.default.join(import_electron.app.getPath("userData"), "vault.json");
+  return import_node_path.default.join(import_electron.app.getPath("userData"), "vault.json");
 }
 async function readVaultState() {
   const file = vaultStatePath();
@@ -227,7 +218,7 @@ import_electron.ipcMain.handle("vault:pick", async () => {
   return { path: result.filePaths[0] };
 });
 import_electron.ipcMain.handle("vault:list", async (_event, vaultPath) => {
-  const abs = import_node_path2.default.resolve(vaultPath);
+  const abs = import_node_path.default.resolve(vaultPath);
   const info = await (0, import_promises.stat)(abs);
   if (!info.isDirectory()) throw new Error(`Not a directory: ${abs}`);
   activeVault = abs;
@@ -244,12 +235,12 @@ async function collectFiles(dir, acc) {
   for (const entry of entries) {
     if (entry.name.startsWith(".")) continue;
     if (SKIP_DIRS.has(entry.name)) continue;
-    const childPath = import_node_path2.default.join(dir, entry.name);
+    const childPath = import_node_path.default.join(dir, entry.name);
     if (entry.isDirectory()) {
       await collectFiles(childPath, acc);
       continue;
     }
-    if (entry.isFile() && SUPPORTED_EXT.has(import_node_path2.default.extname(entry.name).toLowerCase())) {
+    if (entry.isFile() && SUPPORTED_EXT.has(import_node_path.default.extname(entry.name).toLowerCase())) {
       acc.push(childPath);
     }
   }
@@ -291,19 +282,19 @@ import_electron.ipcMain.handle(
     const baseNameRaw = segments.pop();
     const subDirs = segments.join("/");
     const parent = assertInsideVault(
-      subDirs ? import_node_path2.default.join(parentDir, subDirs) : parentDir
+      subDirs ? import_node_path.default.join(parentDir, subDirs) : parentDir
     );
     if (subDirs) {
       await (0, import_promises.mkdir)(parent, { recursive: true });
     }
-    const hasExt = SUPPORTED_EXT.has(import_node_path2.default.extname(baseNameRaw).toLowerCase());
+    const hasExt = SUPPORTED_EXT.has(import_node_path.default.extname(baseNameRaw).toLowerCase());
     const baseName = hasExt ? baseNameRaw : `${baseNameRaw}.md`;
-    const ext = import_node_path2.default.extname(baseName);
+    const ext = import_node_path.default.extname(baseName);
     const stem = baseName.slice(0, baseName.length - ext.length);
-    let candidate = import_node_path2.default.join(parent, baseName);
+    let candidate = import_node_path.default.join(parent, baseName);
     let suffix = 1;
     while ((0, import_node_fs.existsSync)(candidate)) {
-      candidate = import_node_path2.default.join(parent, `${stem}-${suffix}${ext}`);
+      candidate = import_node_path.default.join(parent, `${stem}-${suffix}${ext}`);
       suffix += 1;
     }
     const finalPath = assertInsideVault(candidate);
@@ -316,7 +307,7 @@ import_electron.ipcMain.handle(
   async (_event, parentDir, name) => {
     const parent = assertInsideVault(parentDir);
     const safeName = name.trim() || "new-folder";
-    const target = assertInsideVault(import_node_path2.default.join(parent, safeName));
+    const target = assertInsideVault(import_node_path.default.join(parent, safeName));
     if ((0, import_node_fs.existsSync)(target)) {
       throw new Error(`Folder already exists: ${safeName}`);
     }
@@ -328,13 +319,13 @@ import_electron.ipcMain.handle(
   "vault:rename",
   async (_event, oldPath, newName) => {
     const src = assertInsideVault(oldPath);
-    const parent = import_node_path2.default.dirname(src);
+    const parent = import_node_path.default.dirname(src);
     const trimmed = newName.trim();
     if (!trimmed) throw new Error("New name cannot be empty");
     if (trimmed.includes("/") || trimmed.includes("\\")) {
       throw new Error("New name cannot contain path separators");
     }
-    const target = assertInsideVault(import_node_path2.default.join(parent, trimmed));
+    const target = assertInsideVault(import_node_path.default.join(parent, trimmed));
     if ((0, import_node_fs.existsSync)(target) && target !== src) {
       throw new Error(`Target already exists: ${trimmed}`);
     }
@@ -372,9 +363,9 @@ import_electron.app.whenReady().then(() => {
       const url = new URL(request.url);
       const relPath = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
       if (!relPath) return new Response("Empty path", { status: 400 });
-      const abs = import_node_path2.default.resolve(activeVault, relPath);
-      const rel = import_node_path2.default.relative(activeVault, abs);
-      if (rel.startsWith("..") || import_node_path2.default.isAbsolute(rel)) {
+      const abs = import_node_path.default.resolve(activeVault, relPath);
+      const rel = import_node_path.default.relative(activeVault, abs);
+      if (rel.startsWith("..") || import_node_path.default.isAbsolute(rel)) {
         return new Response("Path escapes vault", { status: 403 });
       }
       if (!(0, import_node_fs.existsSync)(abs)) return new Response("Not found", { status: 404 });
