@@ -220,4 +220,41 @@ describe("@floatboat/nexus-plugin-search", () => {
     editor.destroy();
     container.remove();
   });
+
+  // ── Whole-word matching ──
+
+  it("supports whole-word matching", () => {
+    // "cat" should match "cat" but not "scatter"
+    expect(findSearchMatches("cat scatter cat", "cat", { wholeWord: true })).toEqual([
+      { from: 0, to: 3, text: "cat" },
+      { from: 12, to: 15, text: "cat" }
+    ]);
+  });
+
+  it("supports whole-word matching with case sensitivity", () => {
+    expect(findSearchMatches("Cat cat CAT", "cat", { wholeWord: true, caseSensitive: true })).toEqual([
+      { from: 4, to: 7, text: "cat" }
+    ]);
+  });
+
+  // ── Regex search ──
+
+  it("supports regex search", () => {
+    // Find all words
+    expect(findSearchMatches("apple banana apple", "\\w+", { regexp: true })).toEqual([
+      { from: 0, to: 5, text: "apple" },
+      { from: 6, to: 12, text: "banana" },
+      { from: 13, to: 18, text: "apple" }
+    ]);
+  });
+
+  it("supports regex search with case sensitivity", () => {
+    expect(findSearchMatches("Alpha alpha ALPHA", "alpha", { regexp: true, caseSensitive: true })).toEqual([
+      { from: 6, to: 11, text: "alpha" }
+    ]);
+  });
+
+  it("returns empty array for invalid regex", () => {
+    expect(findSearchMatches("test", "[invalid", { regexp: true })).toEqual([]);
+  });
 });

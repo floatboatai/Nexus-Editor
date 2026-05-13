@@ -7,6 +7,8 @@ import {
   toggleInlineCode,
   insertLink,
   toggleHeading,
+  toggleOrderedList,
+  toggleUnorderedList,
   createToolbarPlugin,
   createToolbarUI,
 } from "../src/index";
@@ -169,6 +171,125 @@ describe("createToolbarUI", () => {
     expect(document.getElementById(button?.getAttribute("aria-describedby") ?? "")).toBeNull();
 
     toolbar.destroy();
+    editor.destroy();
+  });
+});
+
+// ── Multi-line List Toggle ──
+
+describe("toggleOrderedList", () => {
+  it("converts single line to ordered list", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "Line 1\nLine 2\nLine 3" });
+
+    editor.setSelection(0, 6); // Select "Line 1"
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. Line 1\nLine 2\nLine 3");
+    editor.destroy();
+  });
+
+  it("converts multiple lines to ordered list", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "Line 1\nLine 2\nLine 3" });
+
+    // Select lines 1 and 2
+    editor.setSelection(0, 13);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. Line 1\n2. Line 2\nLine 3");
+    editor.destroy();
+  });
+
+  it("converts all lines to ordered list", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "Line 1\nLine 2\nLine 3" });
+
+    // Select all lines
+    editor.setSelection(0, 20);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. Line 1\n2. Line 2\n3. Line 3");
+    editor.destroy();
+  });
+
+  it("removes ordered list markers when all lines are ordered lists", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "1. Line 1\n2. Line 2\n3. Line 3" });
+
+    // Select all lines
+    editor.setSelection(0, 26);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("Line 1\nLine 2\nLine 3");
+    editor.destroy();
+  });
+
+  it("converts unordered list to ordered list", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- Line 1\n- Line 2" });
+
+    editor.setSelection(0, 16);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. Line 1\n2. Line 2");
+    editor.destroy();
+  });
+});
+
+describe("toggleUnorderedList", () => {
+  it("converts single line to unordered list", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "Line 1\nLine 2\nLine 3" });
+
+    editor.setSelection(0, 6);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("- Line 1\nLine 2\nLine 3");
+    editor.destroy();
+  });
+
+  it("converts multiple lines to unordered list", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "Line 1\nLine 2\nLine 3" });
+
+    editor.setSelection(0, 13);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("- Line 1\n- Line 2\nLine 3");
+    editor.destroy();
+  });
+
+  it("removes unordered list markers when all lines are unordered lists", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- Line 1\n- Line 2\n- Line 3" });
+
+    editor.setSelection(0, 23);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("Line 1\nLine 2\nLine 3");
+    editor.destroy();
+  });
+
+  it("converts ordered list to unordered list", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "1. Line 1\n2. Line 2" });
+
+    editor.setSelection(0, 18);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("- Line 1\n- Line 2");
+    editor.destroy();
+  });
+
+  it("handles mixed list types in selection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "1. Line 1\n- Line 2\nLine 3" });
+
+    editor.setSelection(0, 24);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("- Line 1\n- Line 2\n- Line 3");
     editor.destroy();
   });
 });

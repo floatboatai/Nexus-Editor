@@ -151,12 +151,23 @@ export interface EditorAPI {
   off<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
   getCoordsAtPos(pos: number): { left: number; right: number; top: number; bottom: number } | null;
   getDocumentStats(): { characters: number; words: number; lines: number };
+  /**
+   * Returns the currently selected text.
+   * Returns an empty string if there is no selection or the selection is collapsed.
+   */
+  getSelectedText(): string;
 }
 
 export interface SlashCommandDef {
   id: string;
   title: string;
   keywords?: string[];
+  /**
+   * Optional priority for sorting commands.
+   * Higher values appear first in the list.
+   * Default is 0.
+   */
+  priority?: number;
 }
 
 export interface WidgetDefinition {

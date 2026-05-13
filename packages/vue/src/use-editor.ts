@@ -16,6 +16,9 @@ export function useEditor(config: UseEditorConfig): UseEditorResult {
       container: containerRef.value,
       ...config
     });
+
+    // Call onReady callback if provided
+    config.onReady?.(editor.value);
   });
 
   onBeforeUnmount(() => {

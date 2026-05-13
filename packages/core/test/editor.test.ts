@@ -407,4 +407,56 @@ describe("createEditor", () => {
     expect(html).toContain("console.log(1)");
     editor.destroy();
   });
+
+  // ── getSelectedText ──
+
+  it("returns empty string when no selection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Hello world"
+    });
+
+    expect(editor.getSelectedText()).toBe("");
+    editor.destroy();
+  });
+
+  it("returns selected text when selection exists", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Hello world"
+    });
+
+    editor.setSelection(0, 5);
+    expect(editor.getSelectedText()).toBe("Hello");
+    editor.destroy();
+  });
+
+  it("returns selected text for multi-line selection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Line 1\nLine 2\nLine 3"
+    });
+
+    editor.setSelection(0, 13);
+    expect(editor.getSelectedText()).toBe("Line 1\nLine 2");
+    editor.destroy();
+  });
+
+  it("returns empty string after selection is cleared", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Hello world"
+    });
+
+    editor.setSelection(0, 5);
+    expect(editor.getSelectedText()).toBe("Hello");
+
+    editor.setSelection(6);
+    expect(editor.getSelectedText()).toBe("");
+    editor.destroy();
+  });
 });

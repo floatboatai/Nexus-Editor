@@ -25,6 +25,8 @@ export interface SearchMatch {
 
 export interface SearchOptions {
   caseSensitive?: boolean;
+  wholeWord?: boolean;
+  regexp?: boolean;
 }
 
 export interface SearchPluginOptions {
@@ -88,8 +90,29 @@ export function findSearchMatches(
     return [];
   }
 
-  const flags = options.caseSensitive ? "g" : "gi";
-  const pattern = new RegExp(escapeRegExp(query), flags);
+  const { caseSensitive = false, wholeWord = false, regexp = false } = options;
+  const flags = caseSensitive ? "g" : "gi";
+
+  let pattern: RegExp;
+
+  try {
+    if (regexp) {
+      // Use query as raw regex
+      pattern = new RegExp(query, flags);
+    } else {
+      // Escape special characters
+      let escaped = escapeRegExp(query);
+      if (wholeWord) {
+        // Add word boundaries
+        escaped = `\\b${escaped}\\b`;
+      }
+      pattern = new RegExp(escaped, flags);
+    }
+  } catch (e) {
+    // Invalid regex, return empty
+    return [];
+  }
+
   const matches: SearchMatch[] = [];
 
   for (const match of doc.matchAll(pattern)) {

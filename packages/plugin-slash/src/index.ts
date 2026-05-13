@@ -47,23 +47,65 @@ export function getSlashMatch(doc: string, cursor: number): SlashMatch | null {
   };
 }
 
+export interface FilterSlashCommandsOptions {
+  limit?: number;
+}
+
+function calculateMatchScore(command: SlashCommandDef, query: string): number {
+  const title = command.title.toLowerCase();
+  const keywords = (command.keywords ?? []).map((k) => k.toLowerCase());
+  const normalizedQuery = query.toLowerCase();
+
+  let score = 0;
+
+  // Title exact match
+  if (title === normalizedQuery) score = 100;
+  // Title starts with query
+  else if (title.startsWith(normalizedQuery)) score = 80;
+  // Title contains query
+  else if (title.includes(normalizedQuery)) score = 60;
+  // Keyword starts with query
+  else if (keywords.some((k) => k.startsWith(normalizedQuery))) score = 50;
+  // Keyword contains query
+  else if (keywords.some((k) => k.includes(normalizedQuery))) score = 30;
+  else return 0; // No match
+
+  // Add priority bonus
+  score += (command.priority ?? 0);
+
+  return score;
+}
+
 export function filterSlashCommands(
   commands: SlashCommandDef[],
-  query: string
+  query: string,
+  options: FilterSlashCommandsOptions = {}
 ): SlashCommandDef[] {
+  const { limit = 10 } = options;
   const normalizedQuery = query.trim().toLowerCase();
 
   if (!normalizedQuery) {
-    return commands;
+    // No query: sort by priority only, then apply limit
+    return [...commands]
+      .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
+      .slice(0, limit);
   }
 
-  return commands.filter((command) => {
-    const haystacks = [command.title, ...(command.keywords ?? [])].map((value) =>
-      value.toLowerCase()
-    );
+  // Calculate scores and filter
+  const scored = commands
+    .map((cmd) => ({
+      cmd,
+      score: calculateMatchScore(cmd, normalizedQuery)
+    }))
+    .filter((s) => s.score > 0)
+    .sort((a, b) => {
+      // Higher score first
+      if (b.score !== a.score) return b.score - a.score;
+      // Same score: sort by priority
+      return (b.cmd.priority ?? 0) - (a.cmd.priority ?? 0);
+    });
 
-    return haystacks.some((value) => value.includes(normalizedQuery));
-  });
+  return scored.map((s) => s.cmd).slice(0, limit);
 }
 
 export function getSlashState(
