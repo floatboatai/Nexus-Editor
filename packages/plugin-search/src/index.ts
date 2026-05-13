@@ -25,6 +25,7 @@ export interface SearchMatch {
 
 export interface SearchOptions {
   caseSensitive?: boolean;
+  regexp?: boolean;
 }
 
 export interface SearchPluginOptions {
@@ -36,6 +37,10 @@ export interface SearchPluginOptions {
    * Enable case-sensitive search by default.
    */
   caseSensitive?: boolean;
+  /**
+   * Enable regular expression search by default.
+   */
+  regexp?: boolean;
   /**
    * Highlight viewport matches for the current selection.
    */
@@ -79,6 +84,17 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function createSearchPattern(query: string, options: SearchOptions): RegExp | null {
+  const flags = options.caseSensitive ? "g" : "gi";
+  const source = options.regexp ? query : escapeRegExp(query);
+
+  try {
+    return new RegExp(source, flags);
+  } catch {
+    return null;
+  }
+}
+
 export function findSearchMatches(
   doc: string,
   query: string,
@@ -88,8 +104,11 @@ export function findSearchMatches(
     return [];
   }
 
-  const flags = options.caseSensitive ? "g" : "gi";
-  const pattern = new RegExp(escapeRegExp(query), flags);
+  const pattern = createSearchPattern(query, options);
+  if (!pattern) {
+    return [];
+  }
+
   const matches: SearchMatch[] = [];
 
   for (const match of doc.matchAll(pattern)) {
@@ -116,8 +135,12 @@ export function replaceAllMatches(
     return doc;
   }
 
-  const flags = options.caseSensitive ? "g" : "gi";
-  return doc.replace(new RegExp(escapeRegExp(query), flags), replacement);
+  const pattern = createSearchPattern(query, options);
+  if (!pattern) {
+    return doc;
+  }
+
+  return doc.replace(pattern, replacement);
 }
 
 function resolveLabel(
@@ -539,6 +562,7 @@ export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlug
     search({
       top: options.top ?? true,
       caseSensitive: options.caseSensitive ?? false,
+      regexp: options.regexp ?? false,
       literal: true,
       createPanel: (view) => new NexusSearchPanel(view, options.top ?? true, options.labels)
     }),

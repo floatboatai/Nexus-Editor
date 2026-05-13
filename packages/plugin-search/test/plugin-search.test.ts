@@ -21,8 +21,43 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("treats search text literally by default", () => {
+    expect(findSearchMatches("a.b axb a.b", "a.b")).toEqual([
+      { from: 0, to: 3, text: "a.b" },
+      { from: 8, to: 11, text: "a.b" }
+    ]);
+  });
+
+  it("supports regular expression search", () => {
+    expect(findSearchMatches("hello hullo hxllo", "h.llo", { regexp: true })).toEqual([
+      { from: 0, to: 5, text: "hello" },
+      { from: 6, to: 11, text: "hullo" },
+      { from: 12, to: 17, text: "hxllo" }
+    ]);
+  });
+
+  it("supports case-sensitive regular expression search", () => {
+    expect(findSearchMatches("ABC abc Abc", "a.c", { regexp: true, caseSensitive: true })).toEqual([
+      { from: 4, to: 7, text: "abc" }
+    ]);
+  });
+
+  it("returns no matches for invalid regular expressions", () => {
+    expect(findSearchMatches("alpha beta", "[", { regexp: true })).toEqual([]);
+  });
+
   it("replaces all matches in a document", () => {
     expect(replaceAllMatches("cat scatter cat", "cat", "dog")).toBe("dog sdogter dog");
+  });
+
+  it("supports capture groups in regular expression replacements", () => {
+    expect(
+      replaceAllMatches("width=10 height=20", "(\\w+)=(\\d+)", "$1: $2", { regexp: true })
+    ).toBe("width: 10 height: 20");
+  });
+
+  it("returns the original document when replacing with an invalid regular expression", () => {
+    expect(replaceAllMatches("alpha beta", "[", "x", { regexp: true })).toBe("alpha beta");
   });
 
   it("creates a search plugin descriptor", () => {
@@ -111,6 +146,46 @@ describe("@floatboat/nexus-plugin-search", () => {
     replaceToggle?.click();
     expect(replaceToggle?.getAttribute("aria-expanded")).toBe("false");
     expect(replaceRow?.hidden).toBe(true);
+
+    editor.destroy();
+    container.remove();
+  });
+
+  it("can enable regular expression search by default in the search panel", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({
+      container,
+      initialValue: "alpha beta",
+      plugins: [createSearchPlugin({ regexp: true })]
+    });
+
+    const content = container.querySelector<HTMLElement>(".cm-content");
+    expect(content).not.toBeNull();
+    content?.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "f",
+        code: "KeyF",
+        metaKey: true,
+        bubbles: true,
+        cancelable: true
+      })
+    );
+    if (!container.querySelector('[data-test-id="markdown-search-bar"]')) {
+      content?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "f",
+          code: "KeyF",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true
+        })
+      );
+    }
+
+    const regexpToggle = container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-regexp-toggle"]');
+    expect(regexpToggle).not.toBeNull();
+    expect(regexpToggle?.checked).toBe(true);
 
     editor.destroy();
     container.remove();
