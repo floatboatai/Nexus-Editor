@@ -129,6 +129,7 @@ export interface EditorAPI {
   exportHTML(): string;
   setTheme(theme: import("./theme").NexusTheme): void;
   getSelection(): { anchor: number; head: number };
+  getSelectedText(): string;
   getSlashCommands(): SlashCommandDef[];
   uploadAsset(file: File): Promise<string | null>;
   setSelection(anchor: number, head?: number): void;

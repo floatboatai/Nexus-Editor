@@ -289,6 +289,36 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("returns selected text from the primary selection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello **world**" });
+
+    editor.setSelection(8, 13);
+
+    expect(editor.getSelectedText()).toBe("world");
+    editor.destroy();
+  });
+
+  it("returns selected text in document order for reversed selections", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.setSelection(11, 6);
+
+    expect(editor.getSelectedText()).toBe("world");
+    editor.destroy();
+  });
+
+  it("returns an empty string when the selection is collapsed", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.setSelection(5);
+
+    expect(editor.getSelectedText()).toBe("");
+    editor.destroy();
+  });
+
   it("delegates asset uploads through the configured host hook", async () => {
     const container = document.createElement("div");
     const file = new File(["image"], "image.png", { type: "image/png" });
