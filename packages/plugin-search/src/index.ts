@@ -15,6 +15,7 @@ import {
 } from "@codemirror/search";
 import { keymap, runScopeHandlers, type EditorView, type Panel, type ViewUpdate } from "@codemirror/view";
 
+import { fuzzyFilter, type FuzzyMatch } from "@floatboat/nexus-core";
 import type { NexusPlugin } from "@floatboat/nexus-core";
 
 export interface SearchMatch {
@@ -25,6 +26,7 @@ export interface SearchMatch {
 
 export interface SearchOptions {
   caseSensitive?: boolean;
+  fuzzy?: boolean;
 }
 
 export interface SearchPluginOptions {
@@ -36,6 +38,10 @@ export interface SearchPluginOptions {
    * Enable case-sensitive search by default.
    */
   caseSensitive?: boolean;
+  /**
+   * Enable fuzzy search by default.
+   */
+  fuzzy?: boolean;
   /**
    * Highlight viewport matches for the current selection.
    */
@@ -53,6 +59,7 @@ export interface SearchPluginLabels {
   all: string;
   matchCase: string;
   regexp: string;
+  fuzzy: string;
   byWord: string;
   replaceNext: string;
   replaceAll: string;
@@ -69,6 +76,7 @@ const DEFAULT_LABELS: SearchPluginLabels = {
   all: "All",
   matchCase: "Match case",
   regexp: "Regexp",
+  fuzzy: "Fuzzy",
   byWord: "By word",
   replaceNext: "Replace",
   replaceAll: "Replace all",
@@ -86,6 +94,32 @@ export function findSearchMatches(
 ): SearchMatch[] {
   if (!query) {
     return [];
+  }
+
+  if (options.fuzzy) {
+    // Split document into lines and fuzzy-match each line.
+    // This provides a "fuzzy find" experience similar to VS Code's Ctrl+P.
+    const lines = doc.split("\n");
+    const results: SearchMatch[] = [];
+    let offset = 0;
+
+    for (const line of lines) {
+      const match = fuzzyFilter(query, [line]);
+      if (match.length > 0) {
+        // Use the highest-scoring match for this line.
+        const best = match[0];
+        for (const idx of best.indices) {
+          results.push({
+            from: offset + idx,
+            to: offset + idx + 1,
+            text: line[idx]
+          });
+        }
+      }
+      offset += line.length + 1; // +1 for the newline character
+    }
+
+    return results;
   }
 
   const flags = options.caseSensitive ? "g" : "gi";
@@ -144,6 +178,7 @@ function resolveLabels(view: EditorView, labels: Partial<SearchPluginLabels> | u
     all: resolveLabel(view, labels, "all", DEFAULT_LABELS.all),
     matchCase: resolveLabel(view, labels, "matchCase", DEFAULT_LABELS.matchCase),
     regexp: resolveLabel(view, labels, "regexp", DEFAULT_LABELS.regexp),
+    fuzzy: resolveLabel(view, labels, "fuzzy", DEFAULT_LABELS.fuzzy),
     byWord: resolveLabel(view, labels, "byWord", DEFAULT_LABELS.byWord),
     replaceNext: resolveLabel(view, labels, "replaceNext", DEFAULT_LABELS.replaceNext),
     replaceAll: resolveLabel(view, labels, "replaceAll", DEFAULT_LABELS.replaceAll),
@@ -324,6 +359,7 @@ class NexusSearchPanel implements Panel {
   private readonly caseField: HTMLInputElement;
   private readonly regexpField: HTMLInputElement;
   private readonly wholeWordField: HTMLInputElement;
+  private readonly fuzzyField: HTMLInputElement;
   private readonly labels: SearchPluginLabels;
   private readonly replaceRow?: HTMLDivElement;
   private readonly replaceToggle?: IconButtonElements;
@@ -332,7 +368,8 @@ class NexusSearchPanel implements Panel {
   constructor(
     private readonly view: EditorView,
     readonly top: boolean,
-    labels: Partial<SearchPluginLabels> | undefined
+    labels: Partial<SearchPluginLabels> | undefined,
+    private readonly fuzzyDefault: boolean
   ) {
     this.query = getSearchQuery(view.state);
     const resolvedLabels = resolveLabels(view, labels);
@@ -355,6 +392,7 @@ class NexusSearchPanel implements Panel {
     this.caseField = this.createCheckbox("markdown-search-case-toggle", "case", this.query.caseSensitive);
     this.regexpField = this.createCheckbox("markdown-search-regexp-toggle", "re", this.query.regexp);
     this.wholeWordField = this.createCheckbox("markdown-search-word-toggle", "word", this.query.wholeWord);
+    this.fuzzyField = this.createCheckbox("markdown-search-fuzzy-toggle", "fuzzy", fuzzyDefault);
 
     this.dom = document.createElement("div");
     this.dom.className = "cm-search nexus-search-panel";
@@ -386,6 +424,7 @@ class NexusSearchPanel implements Panel {
       this.searchField,
       createLabel(this.caseField, resolvedLabels.matchCase),
       createLabel(this.regexpField, resolvedLabels.regexp),
+      createLabel(this.fuzzyField, resolvedLabels.fuzzy),
       createLabel(this.wholeWordField, resolvedLabels.byWord),
       navigationGroup
     ];
@@ -531,6 +570,7 @@ class NexusSearchPanel implements Panel {
     this.caseField.checked = query.caseSensitive;
     this.regexpField.checked = query.regexp;
     this.wholeWordField.checked = query.wholeWord;
+    // fuzzyField is not part of CM6 SearchQuery; it's our own state.
   }
 }
 
@@ -540,7 +580,7 @@ export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlug
       top: options.top ?? true,
       caseSensitive: options.caseSensitive ?? false,
       literal: true,
-      createPanel: (view) => new NexusSearchPanel(view, options.top ?? true, options.labels)
+      createPanel: (view) => new NexusSearchPanel(view, options.top ?? true, options.labels, options.fuzzy ?? false)
     }),
     keymap.of(searchKeymap)
   ];
