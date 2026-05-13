@@ -32,12 +32,15 @@ export function normalizeDocKey(filePath: string | null): string {
 }
 
 export function summarizeSnapshot(content: string): string {
-  const firstLine = content
+  const lines = content
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .find((line) => line.length > 0);
-  if (!firstLine) return "(empty document)";
-  return firstLine.length > 96 ? `${firstLine.slice(0, 93)}...` : firstLine;
+    .filter((line) => line.length > 0);
+
+  if (lines.length === 0) return "(empty document)";
+
+  const preferred = lines.find((line) => !line.startsWith("#")) ?? lines[0];
+  return preferred.length > 96 ? `${preferred.slice(0, 93)}...` : preferred;
 }
 
 export function createSnapshotEntry(input: CreateSnapshotInput): SnapshotEntry {

@@ -15,8 +15,9 @@ describe("snapshot helpers", () => {
     expect(normalizeDocKey("C:\\vault\\note.md")).toBe("C:/vault/note.md");
   });
 
-  it("summarizes the first non-empty line", () => {
-    expect(summarizeSnapshot("\n\n# Heading\nbody")).toBe("# Heading");
+  it("prefers the first non-heading line in the summary", () => {
+    expect(summarizeSnapshot("\n\n# Heading\nbody")).toBe("body");
+    expect(summarizeSnapshot("\n\n# Heading")).toBe("# Heading");
     expect(summarizeSnapshot("")).toBe("(empty document)");
   });
 

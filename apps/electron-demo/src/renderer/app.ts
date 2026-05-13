@@ -234,17 +234,26 @@ function toggleBacklinks(): void {
 }
 
 function toggleHistory(): void {
+  if (historyPanel.element.style.display === "none" && backlinks.element.style.display !== "none") {
+    backlinks.element.style.display = "none";
+  }
+  if (historyPanel.element.style.display === "none" && outline.element.style.display !== "none") {
+    outline.element.style.display = "none";
+  }
   togglePanel(historyPanel.element, () => historyPanel.update());
 }
 
 async function createSnapshot(): Promise<void> {
   try {
     state.error = null;
+    const currentDoc = shell.editor.getDocument();
     await window.nexusDemo.snapshots.create({
       filePath: state.activeFile ?? state.filePath,
-      content: state.content,
+      content: currentDoc,
     });
     await refreshSnapshots();
+    state.error = `Snapshot created (${new Date().toLocaleTimeString()})`;
+    renderStatus();
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
     renderStatus();
@@ -267,6 +276,9 @@ async function restoreSnapshot(snapshot: SnapshotEntry): Promise<void> {
     }
     backlinks.refresh();
     await refreshSnapshots();
+    historyPanel.element.style.display = "none";
+    shell.editor.focus();
+    state.error = `Restored snapshot: ${snapshot.title}`;
     renderStatus();
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
@@ -282,7 +294,10 @@ function reuseSnapshot(snapshot: SnapshotEntry): void {
   state.dirty = true;
   vault.setActiveFile(null);
   backlinks.refresh();
+  historyPanel.element.style.display = "none";
+  shell.editor.focus();
   void refreshSnapshots();
+  state.error = `Reused snapshot as new draft: ${snapshot.title}`;
   renderStatus();
 }
 
@@ -500,6 +515,7 @@ function boot(): void {
       reuseSnapshot(snapshot);
     },
   });
+  historyPanel.element.style.display = "none";
 
   editorColumn.append(searchBar.element, editorContainer);
   mainArea.append(vault.element, editorColumn, outline.element, backlinks.element, historyPanel.element);
