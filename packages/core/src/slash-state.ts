@@ -117,14 +117,30 @@ function scoreCommand(
 
 export function filterSlashCommands(
   commands: SlashCommandDef[],
-  query: string
+  query: string,
+  maxResults?: number
 ): SlashCommandDef[] {
   if (query === "") {
-    // Empty query is the "menu just opened" case — keep the registration
-    // order so the host can choose a "frequently used first" layout via
-    // its plugin order instead of being overridden by an alphabetical
-    // sort it didn't ask for.
-    return commands.slice();
+    const sorted = commands
+      .map((cmd, index) => ({
+        cmd,
+        prio: cmd.priority ?? 0,
+        index,
+      }))
+      .sort((a, b) => {
+        if (b.prio !== a.prio) return b.prio - a.prio;
+        const titleCmp = a.cmd.title.localeCompare(b.cmd.title, undefined, {
+          sensitivity: "base",
+        });
+        if (titleCmp !== 0) return titleCmp;
+        return a.index - b.index;
+      });
+
+    let result = sorted.map((s) => s.cmd);
+    if (maxResults !== undefined && maxResults > 0) {
+      result = result.slice(0, maxResults);
+    }
+    return result;
   }
 
   const q = query.toLowerCase();
@@ -136,18 +152,21 @@ export function filterSlashCommands(
   }
 
   scored.sort((a, b) => {
+    const pa = a.cmd.priority ?? 0;
+    const pb = b.cmd.priority ?? 0;
+    if (pa !== pb) return pb - pa;
     if (b.score !== a.score) return b.score - a.score;
     if (a.tiebreaker !== b.tiebreaker) return a.tiebreaker - b.tiebreaker;
-    // Final stability key: alphabetical title, then original registration
-    // order. Two commands with identical scores AND identical
-    // tiebreakers (e.g. same length, same offset) will sort by title so
-    // snapshots stay deterministic across runs.
     const titleCmp = a.cmd.title.localeCompare(b.cmd.title);
     if (titleCmp !== 0) return titleCmp;
     return a.index - b.index;
   });
 
-  return scored.map((s) => s.cmd);
+  let result = scored.map((s) => s.cmd);
+  if (maxResults !== undefined && maxResults > 0) {
+    result = result.slice(0, maxResults);
+  }
+  return result;
 }
 
 export function computeSlashState(
@@ -163,9 +182,6 @@ export function computeSlashState(
 
   const filtered = filterSlashCommands(commands, match.query);
   const limit = options?.limit ?? DEFAULT_LIMIT;
-  // A negative limit is treated as "no cap" so callers can opt out with
-  // `{ limit: Infinity }` or `{ limit: -1 }` without us having to invent
-  // a separate sentinel.
   const capped = limit < 0 ? filtered : filtered.slice(0, limit);
 
   return {
