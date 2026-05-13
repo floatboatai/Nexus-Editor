@@ -18,7 +18,31 @@ export interface FuzzyMatch {
   indices: number[];
 }
 
-// Score bonuses — tuned to prefer word boundaries and contiguous runs.
+/**
+ * Scoring constants — tuned to reflect human intuition about relevance.
+ *
+ * - SCORE_WORD_BOUNDARY (80):  Strong bonus for matching at the start of a word
+ *   (after space, hyphen, underscore, dot, slash). Matches like "H" in "Hello World"
+ *   should rank higher than "h" in the middle of a word.
+ *
+ * - SCORE_PREFIX_BONUS (60):   Bonus when the query matches from the very first
+ *   character of the candidate. "He" matching "Hello" is a strong signal.
+ *
+ * - SCORE_CONTIGUOUS_BONUS (10): Small bonus for consecutive matched characters.
+ *   "He" in "Help" (contiguous) should score slightly higher than "H" and "e"
+ *   separated by other letters.
+ *
+ * - SCORE_CHARACTER (1):       Base score per matched character. Provides a
+ *   positive floor so longer matches outrank shorter ones.
+ *
+ * - PENALTY_GAP (-2):          Penalty per skipped character between matched
+ *   positions. Discourages large gaps (e.g. "hlg" matching across 10 chars)
+ *   while still allowing non-contiguous matches.
+ *
+ * These values are calibrated so that a word-boundary match always beats a
+ * non-boundary match, regardless of gap penalty accumulation. See the test
+ * suite (fuzzy.test.ts) for the expected ordering invariants.
+ */
 const SCORE_CHARACTER = 1;
 const SCORE_WORD_BOUNDARY = 80;
 const SCORE_CONTIGUOUS_BONUS = 10;
