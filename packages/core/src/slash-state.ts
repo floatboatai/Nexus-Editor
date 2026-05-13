@@ -115,6 +115,13 @@ function scoreCommand(
   return null;
 }
 
+/**
+ * Filter and rank slash commands by query relevance and priority.
+ *
+ * @param maxResults  Optional cap on returned commands. A value of 0 or
+ *   `undefined` returns all results (no limit). Use a positive number to
+ *   restrict output.
+ */
 export function filterSlashCommands(
   commands: SlashCommandDef[],
   query: string,
