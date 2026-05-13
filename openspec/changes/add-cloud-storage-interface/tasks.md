@@ -8,30 +8,31 @@
 
 ## 2. Interface Design
 
-- [ ] 2.1 Decide whether the contract lives in `@floatboat/nexus-core` as dependency-free types or in a new storage package.
-- [ ] 2.2 Finalize `NoteVaultAdapter`, `NoteVaultRef`, `NoteVaultNode`, capability, write-result, and error types.
-- [ ] 2.3 Define revision/etag semantics for optimistic writes.
-- [ ] 2.4 Define optional watch/change event semantics.
-- [ ] 2.5 Define unsupported-operation, auth-required, permission-denied, conflict, offline, and unknown error shapes.
+- [x] 2.1 Decide whether the contract lives in `@floatboat/nexus-core` as dependency-free types or in a new storage package.
+- [x] 2.2 Finalize `NoteVaultAdapter`, `NoteVaultRef`, `NoteVaultNode`, capability, write-result, and error types.
+- [x] 2.3 Define revision/etag semantics for optimistic writes.
+- [x] 2.4 Define optional watch/change event semantics.
+- [x] 2.5 Define unsupported-operation, auth-required, permission-denied, conflict, offline, and unknown error shapes.
 
 ## 3. Future Implementation
 
-- [ ] 3.1 Add exported TypeScript contract in the approved package/module.
-- [ ] 3.2 Add in-memory adapter for contract tests.
-- [ ] 3.3 Adapt electron-demo local vault behavior behind the contract without changing current user flows.
-- [ ] 3.4 Preserve path-escape validation in the local filesystem adapter.
-- [ ] 3.5 Document host-owned provider responsibilities and cloud SDK non-goals.
+- [x] 3.1 Add exported TypeScript contract in the approved package/module.
+- [x] 3.2 Add in-memory adapter for contract tests.
+- [x] 3.3 Adapt electron-demo local vault behavior behind the contract without changing current user flows.
+- [x] 3.4 Preserve path-escape validation in the local filesystem adapter.
+- [x] 3.5 Document host-owned provider responsibilities and cloud SDK non-goals.
 
 ## 4. Future Tests
 
-- [ ] 4.1 Contract tests cover list/read/write/create/rename/delete.
-- [ ] 4.2 Conflict tests cover stale revision/etag writes.
-- [ ] 4.3 Capability tests cover unsupported watch/trash/rename operations.
-- [ ] 4.4 Boundary tests prove local filesystem refs cannot escape the vault root.
-- [ ] 4.5 Electron-demo smoke test covers existing vault workflows after refactor.
+- [x] 4.1 Contract tests cover list/read/write/create/rename/delete.
+- [x] 4.2 Conflict tests cover stale revision/etag writes.
+- [x] 4.3 Capability tests cover unsupported watch/trash/rename operations.
+- [x] 4.4 Boundary tests prove local filesystem refs cannot escape the vault root.
+- [x] 4.5 Renderer adapter integration tests cover vault open, file open, root file creation, and trash delete through the vault panel.
+- [ ] 4.6 Electron-demo smoke test covers existing vault workflows after refactor.
 
 ## 5. Documentation / Roadmap
 
 - [x] 5.1 Update `docs/ROADMAP.md` and `docs/ROADMAP.zh.md` with this OpenSpec change id.
-- [ ] 5.2 Add README/API docs in the implementation PR if public types are introduced.
+- [x] 5.2 Add README/API docs in the implementation PR if public types are introduced.
 - [ ] 5.3 Keep implementation PR separate from this proposal PR.

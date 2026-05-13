@@ -169,7 +169,7 @@ pnpm dev:electron-demo
 
 | 包名 | 说明 |
 |---|---|
-| `@floatboat/nexus-core` | 编辑器引擎 —— CM6 状态机、AST 管道、实时预览、事件系统、Widget API |
+| `@floatboat/nexus-core` | 编辑器引擎 —— CM6 状态机、AST 管道、实时预览、事件系统、Widget API、存储适配器契约 |
 | `@floatboat/nexus-react` | React 绑定 —— `useEditor` Hook 与 `<Editor />` 组件 |
 | `@floatboat/nexus-vue` | Vue 3 绑定 —— `useEditor` 组合式函数 |
 | `@floatboat/nexus-preset-gfm` | GitHub Flavored Markdown 预设（表格、删除线、任务列表） |
@@ -192,7 +192,7 @@ pnpm dev:electron-demo
 - **插件系统** —— 三层架构：快捷键与斜杠命令、remark 插件与 Widget、原生 CM6 扩展。
 - **事件系统** —— 订阅 `change`、`focus`、`blur`、`selectionChange`、`slashMenuChange`。
 - **Widget API** —— 为任意 AST 节点类型（代码块、表格、图表等）渲染自定义组件。
-- **本地优先** —— 为 Electron / Tauri 设计，内置文件 IO 钩子与防抖解析。
+- **本地优先** —— 面向 Electron / Tauri 和云端宿主，通过 provider-neutral 的存储适配器契约接入。
 
 ---
 
@@ -247,6 +247,37 @@ const myPlugin: NexusPlugin = {
   cmExtensions: [myCodeMirrorExtension],
 };
 ```
+
+</details>
+
+<details>
+<summary><b>存储适配器契约</b> —— 宿主拥有 note vault IO</summary>
+
+`@floatboat/nexus-core` 导出无依赖的存储类型。Core 不读文件、不调用 Electron、不使用浏览器存储，也不处理云服务登录；宿主负责提供 `NoteVaultAdapter`。
+
+```ts
+import {
+  readAllNoteVaultFiles,
+  type NoteVaultAdapter,
+} from "@floatboat/nexus-core";
+
+const adapter: NoteVaultAdapter = {
+  id: "my-provider",
+  label: "My notes",
+  capabilities: { createFile: true, createFolder: true, trash: true, watch: false },
+  list: async () => [],
+  read: async (ref) => ({ ref: { ...ref, kind: "file" }, content: "" }),
+  write: async (ref, content, opts) => ({ ref: { ...ref, kind: "file" } }),
+  createFile: async (parent, name, content = "") => ({ providerId: "my-provider", id: name, kind: "file" }),
+  createFolder: async (parent, name) => ({ providerId: "my-provider", id: name, kind: "folder" }),
+  rename: async (ref, name) => ({ ...ref, name }),
+  delete: async (ref, opts) => {},
+};
+
+const files = await readAllNoteVaultFiles(adapter);
+```
+
+Ref 由 provider 拥有，所以本地适配器可以使用经过边界校验的路径，云端适配器也可以使用不透明 ID。常见失败场景通过 `NoteVaultError` code 表达，例如 `auth-required`、`permission-denied`、`conflict`、`offline`、`unsupported-operation`。
 
 </details>
 
