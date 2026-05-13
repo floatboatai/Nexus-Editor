@@ -85,6 +85,21 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("returns selected text from the current main selection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello **world**" });
+
+    editor.setSelection(6, 15);
+    expect(editor.getSelectedText()).toBe("**world**");
+
+    editor.setSelection(15, 6);
+    expect(editor.getSelectedText()).toBe("**world**");
+
+    editor.setSelection(5);
+    expect(editor.getSelectedText()).toBe("");
+    editor.destroy();
+  });
+
   it("keeps the editor usable when the parser throws", () => {
     const container = document.createElement("div");
     const docs: string[] = [];
