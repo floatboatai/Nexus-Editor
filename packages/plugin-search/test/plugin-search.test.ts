@@ -21,8 +21,33 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("keeps searches literal by default instead of fuzzy", () => {
+    expect(findSearchMatches("Nexus Editor", "nxed")).toEqual([]);
+  });
+
+  it("supports fuzzy ordered-subsequence search", () => {
+    expect(findSearchMatches("Nexus Editor\nMarkdown Guide", "nxed", { fuzzy: true })).toEqual([
+      { from: 0, to: 8, text: "Nexus Ed" }
+    ]);
+  });
+
+  it("keeps fuzzy search within a single line", () => {
+    expect(findSearchMatches("ne\nxd", "nxd", { fuzzy: true })).toEqual([]);
+  });
+
+  it("supports case-sensitive fuzzy search", () => {
+    expect(findSearchMatches("Nexus Editor", "ne", { fuzzy: true, caseSensitive: true })).toEqual([]);
+    expect(findSearchMatches("Nexus Editor", "NE", { fuzzy: true, caseSensitive: true })).toEqual([
+      { from: 0, to: 7, text: "Nexus E" }
+    ]);
+  });
+
   it("replaces all matches in a document", () => {
     expect(replaceAllMatches("cat scatter cat", "cat", "dog")).toBe("dog sdogter dog");
+  });
+
+  it("replaces fuzzy match windows in a document", () => {
+    expect(replaceAllMatches("Nexus Ed note", "nxed", "Match", { fuzzy: true })).toBe("Match note");
   });
 
   it("creates a search plugin descriptor", () => {

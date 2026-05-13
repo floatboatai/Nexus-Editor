@@ -25,6 +25,11 @@ export interface SearchMatch {
 
 export interface SearchOptions {
   caseSensitive?: boolean;
+  /**
+   * Treat the query as an ordered subsequence and return the smallest
+   * line-local text window containing those characters.
+   */
+  fuzzy?: boolean;
 }
 
 export interface SearchPluginOptions {
@@ -79,6 +84,87 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function normalizeSearchText(value: string, options: SearchOptions): string {
+  return options.caseSensitive ? value : value.toLowerCase();
+}
+
+function findFuzzyWindow(
+  text: string,
+  query: string,
+  options: SearchOptions,
+  fromIndex: number
+): { from: number; to: number } | null {
+  const haystack = normalizeSearchText(text, options);
+  const needle = normalizeSearchText(query, options);
+  let queryIndex = 0;
+  let end = -1;
+
+  for (let index = fromIndex; index < haystack.length; index += 1) {
+    if (haystack[index] !== needle[queryIndex]) {
+      continue;
+    }
+
+    queryIndex += 1;
+    if (queryIndex === needle.length) {
+      end = index;
+      break;
+    }
+  }
+
+  if (end < 0) {
+    return null;
+  }
+
+  queryIndex = needle.length - 1;
+  let start = end;
+
+  for (let index = end; index >= fromIndex; index -= 1) {
+    if (haystack[index] !== needle[queryIndex]) {
+      continue;
+    }
+
+    start = index;
+    queryIndex -= 1;
+    if (queryIndex < 0) {
+      break;
+    }
+  }
+
+  return { from: start, to: end + 1 };
+}
+
+function findFuzzySearchMatches(doc: string, query: string, options: SearchOptions): SearchMatch[] {
+  const matches: SearchMatch[] = [];
+  let lineStart = 0;
+
+  for (let index = 0; index <= doc.length; index += 1) {
+    if (index !== doc.length && doc[index] !== "\n") {
+      continue;
+    }
+
+    const line = doc.slice(lineStart, index);
+    let cursor = 0;
+
+    while (cursor < line.length) {
+      const window = findFuzzyWindow(line, query, options, cursor);
+      if (!window) {
+        break;
+      }
+
+      matches.push({
+        from: lineStart + window.from,
+        to: lineStart + window.to,
+        text: line.slice(window.from, window.to)
+      });
+      cursor = window.to;
+    }
+
+    lineStart = index + 1;
+  }
+
+  return matches;
+}
+
 export function findSearchMatches(
   doc: string,
   query: string,
@@ -86,6 +172,10 @@ export function findSearchMatches(
 ): SearchMatch[] {
   if (!query) {
     return [];
+  }
+
+  if (options.fuzzy) {
+    return findFuzzySearchMatches(doc, query, options);
   }
 
   const flags = options.caseSensitive ? "g" : "gi";
@@ -114,6 +204,22 @@ export function replaceAllMatches(
 ): string {
   if (!query) {
     return doc;
+  }
+
+  if (options.fuzzy) {
+    const matches = findFuzzySearchMatches(doc, query, options);
+    if (matches.length === 0) {
+      return doc;
+    }
+
+    let next = "";
+    let cursor = 0;
+    for (const match of matches) {
+      next += doc.slice(cursor, match.from);
+      next += replacement;
+      cursor = match.to;
+    }
+    return next + doc.slice(cursor);
   }
 
   const flags = options.caseSensitive ? "g" : "gi";
