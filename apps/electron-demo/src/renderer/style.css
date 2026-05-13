@@ -99,3 +99,7 @@ body,
 .cm-editor .hljs-deletion { color: #dc322f; }
 .cm-editor .hljs-variable,
 .cm-editor .hljs-template-variable { color: #cb4b16; }
+
+.nexus-history-panel button:hover {
+  background: var(--nexus-bg-muted, #f5f5f5);
+}

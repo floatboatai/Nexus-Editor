@@ -6,7 +6,9 @@ import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
+import { createHistoryPanel, type HistoryPanel } from "./history-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
+import type { SnapshotEntry } from "../../electron/snapshots";
 
 installLongTaskWatch(50);
 
@@ -17,6 +19,7 @@ let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+let historyPanel: HistoryPanel;
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
@@ -71,6 +74,19 @@ function createAppToolbar(): HTMLElement {
   searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
 
+  const snapshotBtn = document.createElement("button");
+  snapshotBtn.textContent = "Snapshot";
+  snapshotBtn.title = "Create a manual snapshot";
+  snapshotBtn.addEventListener("click", () => {
+    void createSnapshot();
+  });
+
+  const historyBtn = document.createElement("button");
+  historyBtn.textContent = "\u23F2"; // ⏲
+  historyBtn.title = "Toggle history";
+  historyBtn.style.fontSize = "14px";
+  historyBtn.addEventListener("click", toggleHistory);
+
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "\u2699"; // ⚙
   settingsBtn.title = "Settings";
@@ -87,6 +103,8 @@ function createAppToolbar(): HTMLElement {
     outlineBtn,
     backlinksBtn,
     searchBtn,
+    snapshotBtn,
+    historyBtn,
     settingsBtn
   );
   return toolbar;
@@ -119,6 +137,17 @@ async function confirmDiscardIfDirty(): Promise<boolean> {
   return window.confirm("You have unsaved changes. Discard them and switch files?");
 }
 
+async function refreshSnapshots(): Promise<void> {
+  try {
+    state.snapshots = await window.nexusDemo.snapshots.list(state.activeFile ?? state.filePath);
+  } catch (err) {
+    state.error = err instanceof Error ? err.message : String(err);
+    state.snapshots = [];
+  }
+  historyPanel?.update();
+  renderStatus();
+}
+
 async function handleOpen(): Promise<void> {
   try {
     state.error = null;
@@ -131,6 +160,7 @@ async function handleOpen(): Promise<void> {
     shell.loadDocument(result.content);
     vault.setActiveFile(result.path);
     backlinks.refresh();
+    await refreshSnapshots();
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
   }
@@ -168,6 +198,7 @@ async function handleSaveAs(): Promise<void> {
     state.activeFile = result.path;
     state.dirty = false;
     vault.setActiveFile(result.path);
+    await refreshSnapshots();
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
   }
@@ -202,6 +233,59 @@ function toggleBacklinks(): void {
   togglePanel(backlinks.element, () => backlinks.refresh());
 }
 
+function toggleHistory(): void {
+  togglePanel(historyPanel.element, () => historyPanel.update());
+}
+
+async function createSnapshot(): Promise<void> {
+  try {
+    state.error = null;
+    await window.nexusDemo.snapshots.create({
+      filePath: state.activeFile ?? state.filePath,
+      content: state.content,
+    });
+    await refreshSnapshots();
+  } catch (err) {
+    state.error = err instanceof Error ? err.message : String(err);
+    renderStatus();
+  }
+}
+
+async function restoreSnapshot(snapshot: SnapshotEntry): Promise<void> {
+  try {
+    state.error = null;
+    if (!(await confirmDiscardIfDirty())) return;
+    shell.loadDocument(snapshot.content);
+    if (snapshot.filePath) {
+      state.filePath = snapshot.filePath;
+      state.activeFile = snapshot.filePath;
+      vault.setActiveFile(snapshot.filePath);
+    } else {
+      state.filePath = null;
+      state.activeFile = null;
+      vault.setActiveFile(null);
+    }
+    backlinks.refresh();
+    await refreshSnapshots();
+    renderStatus();
+  } catch (err) {
+    state.error = err instanceof Error ? err.message : String(err);
+    renderStatus();
+  }
+}
+
+function reuseSnapshot(snapshot: SnapshotEntry): void {
+  state.error = null;
+  shell.loadDocument(snapshot.content);
+  state.filePath = null;
+  state.activeFile = null;
+  state.dirty = true;
+  vault.setActiveFile(null);
+  backlinks.refresh();
+  void refreshSnapshots();
+  renderStatus();
+}
+
 async function handleVaultFileOpen(filePath: string): Promise<void> {
   const total = perfStart("open-file", { filePath });
   try {
@@ -226,6 +310,7 @@ async function handleVaultFileOpen(filePath: string): Promise<void> {
     const bl = perfStart("open-file.backlinks.refresh");
     backlinks.refresh();
     perfEnd(bl);
+    await refreshSnapshots();
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
   }
@@ -406,9 +491,18 @@ function boot(): void {
     onOpenFile: (filePath) => void handleVaultFileOpen(filePath),
     getActiveFile: () => state.activeFile,
   });
+  historyPanel = createHistoryPanel({
+    getSnapshots: () => state.snapshots,
+    onRestore: (snapshot) => {
+      void restoreSnapshot(snapshot);
+    },
+    onReuse: (snapshot) => {
+      reuseSnapshot(snapshot);
+    },
+  });
 
   editorColumn.append(searchBar.element, editorContainer);
-  mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
+  mainArea.append(vault.element, editorColumn, outline.element, backlinks.element, historyPanel.element);
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {
@@ -423,6 +517,7 @@ function boot(): void {
   });
 
   renderStatus();
+  void refreshSnapshots();
   perfEnd(bootScope);
 
   // Defer vault restore until after first paint so the window pops open with

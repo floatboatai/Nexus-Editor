@@ -1,4 +1,5 @@
 import type { LinkIndex } from "./link-index";
+import type { SnapshotEntry } from "../../electron/snapshots";
 
 export interface AppState {
   filePath: string | null;
@@ -9,6 +10,7 @@ export interface AppState {
   vaultTree: VaultNode[];
   activeFile: string | null;
   linkIndex: LinkIndex | null;
+  snapshots: SnapshotEntry[];
 }
 
 export function createState(): AppState {
@@ -21,5 +23,6 @@ export function createState(): AppState {
     vaultTree: [],
     activeFile: null,
     linkIndex: null,
+    snapshots: [],
   };
 }

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { SnapshotEntry } from "./snapshots";
 
 export interface DemoFileHandle {
   path: string;
@@ -32,11 +33,21 @@ export interface VaultBridge {
   onChanged(cb: (payload: { vault: string }) => void): () => void;
 }
 
+export interface SnapshotBridge {
+  create(input: {
+    filePath: string | null;
+    content: string;
+    title?: string;
+  }): Promise<SnapshotEntry>;
+  list(filePath: string | null): Promise<SnapshotEntry[]>;
+}
+
 export interface DemoBridge {
   openFile(): Promise<DemoFileHandle | null>;
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
   vault: VaultBridge;
+  snapshots: SnapshotBridge;
 }
 
 const vaultBridge: VaultBridge = {
@@ -93,6 +104,14 @@ const bridge: DemoBridge = {
     return ipcRenderer.invoke("demo:save-file-as", content);
   },
   vault: vaultBridge,
+  snapshots: {
+    create(input) {
+      return ipcRenderer.invoke("snapshot:create", input);
+    },
+    list(filePath) {
+      return ipcRenderer.invoke("snapshot:list", filePath);
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld("nexusDemo", bridge);

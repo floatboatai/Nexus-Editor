@@ -3,6 +3,17 @@ import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promi
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  addSnapshot,
+  createEmptySnapshotStore,
+  createSnapshotEntry,
+  DEFAULT_SNAPSHOT_LIMIT,
+  listSnapshots,
+  normalizeDocKey,
+  parseSnapshotStore,
+  type SnapshotEntry,
+  type SnapshotStore,
+} from "./snapshots";
 
 // Must be called before app ready — declares our custom scheme as privileged
 // so images served via nexus-vault:// pass fetch/<img> with credentials / CORS.
@@ -238,6 +249,25 @@ async function writeVaultState(state: VaultState): Promise<void> {
   await writeFile(vaultStatePath(), JSON.stringify(state, null, 2), "utf-8");
 }
 
+function snapshotStorePath(): string {
+  return path.join(app.getPath("userData"), "snapshots.json");
+}
+
+async function readSnapshotStore(): Promise<SnapshotStore> {
+  const file = snapshotStorePath();
+  if (!existsSync(file)) return createEmptySnapshotStore();
+  try {
+    const raw = await readFile(file, "utf-8");
+    return parseSnapshotStore(raw);
+  } catch {
+    return createEmptySnapshotStore();
+  }
+}
+
+async function writeSnapshotStore(store: SnapshotStore): Promise<void> {
+  await writeFile(snapshotStorePath(), JSON.stringify(store, null, 2), "utf-8");
+}
+
 // -- vault IPC handlers -------------------------------------------------------
 
 ipcMain.handle("vault:pick", async () => {
@@ -412,6 +442,28 @@ ipcMain.handle("vault:set-last", async (_event, vaultPath: string) => {
   const recents = [vaultPath, ...current.recents.filter((r) => r !== vaultPath)].slice(0, 10);
   await writeVaultState({ lastVault: vaultPath, recents });
   return { ok: true };
+});
+
+ipcMain.handle(
+  "snapshot:create",
+  async (_event, input: { filePath: string | null; content: string; title?: string }): Promise<SnapshotEntry> => {
+    const store = await readSnapshotStore();
+    const docKey = normalizeDocKey(input.filePath);
+    const entry = createSnapshotEntry({
+      docKey,
+      filePath: input.filePath,
+      content: input.content,
+      title: input.title,
+    });
+    const nextStore = addSnapshot(store, entry, DEFAULT_SNAPSHOT_LIMIT);
+    await writeSnapshotStore(nextStore);
+    return entry;
+  }
+);
+
+ipcMain.handle("snapshot:list", async (_event, filePath: string | null): Promise<SnapshotEntry[]> => {
+  const store = await readSnapshotStore();
+  return listSnapshots(store, normalizeDocKey(filePath));
 });
 
 app.whenReady().then(() => {
