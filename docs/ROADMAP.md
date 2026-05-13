@@ -25,7 +25,7 @@ This document maps every planned feature to **package ownership / priority / sta
 | 2  | Whole-word matching | `plugin-search` | P1 | planned | No | Extension of existing search options |
 | 15 | Regex search | `plugin-search` | P1 | in-progress | No | Watch escape edge cases — PR #9 in review |
 | 16 | Command / search history | `plugin-search` + `plugin-slash` | P2 | planned | Yes | Needs persistence (localStorage or host-injected) |
-| 17 | Fuzzy search | `plugin-search` | P2 | planned | No | Evaluate fzf-like algorithm vs. third-party lib |
+| 17 | Fuzzy search | `plugin-search` | P2 | in-progress | No | Evaluate fzf-like algorithm vs. third-party lib |
 | 3  | Slash command sorting + limit | `plugin-slash` | P0 | done | Yes | Landed alongside the floating menu UI — see `openspec/changes/add-slash-menu-ui` |
 | 27 | Slash command floating menu UI | `plugin-slash` + `electron-demo` | P0 | done | Yes | `createSlashMenuUI(editor, options)` — see `openspec/changes/add-slash-menu-ui` |
 
