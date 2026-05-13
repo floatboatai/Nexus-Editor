@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createEditor } from "@floatboat/nexus-core";
 import {
   createSearchPlugin,
@@ -43,7 +43,12 @@ describe("@floatboat/nexus-plugin-search", () => {
   });
 
   it("returns no matches for invalid regular expressions", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
     expect(findSearchMatches("alpha beta", "[", { regexp: true })).toEqual([]);
+    expect(warn).toHaveBeenCalledOnce();
+
+    warn.mockRestore();
   });
 
   it("replaces all matches in a document", () => {
@@ -57,7 +62,12 @@ describe("@floatboat/nexus-plugin-search", () => {
   });
 
   it("returns the original document when replacing with an invalid regular expression", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
     expect(replaceAllMatches("alpha beta", "[", "x", { regexp: true })).toBe("alpha beta");
+    expect(warn).toHaveBeenCalledOnce();
+
+    warn.mockRestore();
   });
 
   it("creates a search plugin descriptor", () => {

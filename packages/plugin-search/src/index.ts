@@ -90,7 +90,10 @@ function createSearchPattern(query: string, options: SearchOptions): RegExp | nu
 
   try {
     return new RegExp(source, flags);
-  } catch {
+  } catch (error) {
+    if (options.regexp) {
+      console.warn("[@floatboat/nexus-plugin-search] Invalid regular expression treated as no matches.", error);
+    }
     return null;
   }
 }
@@ -563,7 +566,7 @@ export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlug
       top: options.top ?? true,
       caseSensitive: options.caseSensitive ?? false,
       regexp: options.regexp ?? false,
-      literal: true,
+      literal: !(options.regexp ?? false),
       createPanel: (view) => new NexusSearchPanel(view, options.top ?? true, options.labels)
     }),
     keymap.of(searchKeymap)
