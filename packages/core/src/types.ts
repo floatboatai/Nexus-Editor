@@ -163,23 +163,9 @@ export interface SlashCommandDef {
   id: string;
   title: string;
   keywords?: string[];
-  /**
-   * Optional muted second line shown in the menu UI under the title.
-   * Hosts that don't render a UI may ignore this field.
-   */
   description?: string;
-  /**
-   * Optional execution hook invoked by the slash menu UI after the user
-   * confirms this command. The trigger text (`/query`) is removed by the
-   * UI before `run` is called, so commands can treat the caret as a
-   * clean insertion point. Return value is currently advisory — the
-   * menu always closes on confirm.
-   *
-   * Commands without `run` remain valid metadata entries; hosts that
-   * keep their own id-to-action registry can dispatch via the menu UI's
-   * `onCommand` override instead.
-   */
   run?: (editor: EditorAPI) => boolean | void;
+  priority?: number;
 }
 
 export interface WidgetDefinition {

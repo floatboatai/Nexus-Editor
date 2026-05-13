@@ -30,6 +30,7 @@ export interface SlashPlugin extends NexusPlugin {
   slashCommands: SlashCommandDef[];
 }
 
+ 
 export function createSlashPlugin(commands: SlashCommandDef[]): SlashPlugin {
   return {
     name: "plugin-slash",
