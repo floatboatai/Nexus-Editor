@@ -3,6 +3,7 @@ import { EditorView } from "@codemirror/view";
 import type { Plugin } from "unified";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createEditor } from "../src/index";
+import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -388,6 +389,98 @@ describe("createEditor", () => {
     const editor = createEditor({ container, initialValue: "Just text." });
 
     expect(editor.getTableOfContents()).toEqual([]);
+    editor.destroy();
+  });
+
+  // ── getSelectedText ──
+
+  it("returns empty string when selection is collapsed", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.setSelection(5);
+    expect(editor.getSelectedText()).toBe("");
+    editor.destroy();
+  });
+
+  it("returns the selected slice of the document", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.setSelection(6, 11);
+    expect(editor.getSelectedText()).toBe("world");
+    editor.destroy();
+  });
+
+  it("normalizes reversed selection (head < anchor)", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.setSelection(11, 6); // anchor=11, head=6
+    expect(editor.getSelectedText()).toBe("world");
+    editor.destroy();
+  });
+
+  it("preserves newlines in multi-line selection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "line one\nline two\nline three" });
+
+    editor.setSelection(0, 17); // "line one\nline two"
+    expect(editor.getSelectedText()).toBe("line one\nline two");
+    editor.destroy();
+  });
+
+  // ── replaceRange ──
+
+  it("replaceRange: replaces document content in the given range", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.replaceRange(6, 11, "earth");
+    expect(editor.getDocument()).toBe("hello earth");
+    editor.destroy();
+  });
+
+  it("replaceRange: repositions selection in the same dispatch", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.replaceRange(0, 5, "hi", { anchor: 0, head: 2 });
+    expect(editor.getDocument()).toBe("hi world");
+    expect(editor.getSelection()).toMatchObject({ anchor: 0, head: 2 });
+    editor.destroy();
+  });
+
+  it("replaceRange: collapsed range (from === to) inserts without deleting", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.replaceRange(5, 5, ",");
+    expect(editor.getDocument()).toBe("hello, world");
+    editor.destroy();
+  });
+
+  it("replaceRange: silent suppresses onChange but getAst() stays consistent", () => {
+    const container = document.createElement("div");
+    const onChange = vi.fn();
+    const editor = createEditor({ container, initialValue: "hello world", onChange });
+
+    onChange.mockClear();
+    editor.replaceRange(0, 11, "# Title", undefined, { silent: true });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(editor.getAst().type).toBe("root");
+    editor.destroy();
+  });
+
+  it("replaceRange: produces exactly one undo entry", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world", plugins: [createHistoryPlugin()] });
+
+    editor.replaceRange(6, 11, "earth");
+    expect(editor.getDocument()).toBe("hello earth");
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("hello world");
+    expect(editor.undo()).toBe(false);
     editor.destroy();
   });
 

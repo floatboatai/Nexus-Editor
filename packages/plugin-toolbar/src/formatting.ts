@@ -1,26 +1,74 @@
 import type { EditorAPI } from "@floatboat/nexus-core";
 
-/** Get the current line containing the anchor position. */
-function getCurrentLine(doc: string, anchor: number): { lineStart: number; lineEnd: number; line: string } {
-  const lineStart = doc.lastIndexOf("\n", anchor - 1) + 1;
-  const lineEndIdx = doc.indexOf("\n", anchor);
-  const lineEnd = lineEndIdx === -1 ? doc.length : lineEndIdx;
-  return { lineStart, lineEnd, line: doc.slice(lineStart, lineEnd) };
+interface LineRange {
+  lineStart: number;
+  lineEnd: number;
+  line: string;
+}
+
+/**
+ * Returns every line that overlaps the half-open range [from, to).
+ * When from === to (collapsed cursor) the single anchor line is returned.
+ * A line whose start equals `to` exactly is excluded — this matches the
+ * standard editor convention where selecting to column 0 of the next line
+ * does not include that line.
+ */
+function getLinesInRange(doc: string, from: number, to: number): LineRange[] {
+  const results: LineRange[] = [];
+  let pos = doc.lastIndexOf("\n", from - 1) + 1; // start of the first covered line
+
+  while (true) {
+    const lineEndIdx = doc.indexOf("\n", pos);
+    const lineEnd = lineEndIdx === -1 ? doc.length : lineEndIdx;
+
+    if (pos < to || results.length === 0) {
+      results.push({ lineStart: pos, lineEnd, line: doc.slice(pos, lineEnd) });
+    }
+
+    if (lineEndIdx === -1 || lineEndIdx >= to) break;
+    pos = lineEndIdx + 1;
+  }
+
+  return results;
+}
+
+/**
+ * Writes `newLines` back over the span covered by `lines` in ONE atomic
+ * transaction, then sets the selection in the same dispatch so a single
+ * undo reverts both the edit and the cursor move.
+ *
+ *   Single-line  → collapsed cursor at end of the transformed line
+ *                  (preserves existing single-cursor toggle behaviour)
+ *   Multi-line   → selection covers the entire transformed block, so the
+ *                  user can immediately chain another toggle on the same
+ *                  range without re-selecting.
+ *
+ * Do NOT split this into separate replaceRange + setSelection calls —
+ * that would re-introduce the two-dispatch undo bug this function was
+ * extracted to fix. Case 4 of the atomic-undo test suite is the
+ * load-bearing regression guard for this constraint.
+ */
+function applyLines(editor: EditorAPI, lines: LineRange[], newLines: string[]): boolean {
+  const first = lines[0];
+  const last = lines[lines.length - 1];
+  const newBlock = newLines.join("\n");
+  const selection = lines.length === 1
+    ? { anchor: first.lineStart + newLines[0].length }
+    : { anchor: first.lineStart, head: first.lineStart + newBlock.length };
+  editor.replaceRange(first.lineStart, last.lineEnd, newBlock, selection);
+  return true;
 }
 
 /** Toggle a line prefix (e.g., "> " for blockquote). */
 function toggleLinePrefix(editor: EditorAPI, prefix: string): boolean {
   const doc = editor.getDocument();
   const { anchor } = editor.getSelection();
-  const { lineStart, lineEnd, line } = getCurrentLine(doc, anchor);
+  const lineStart = doc.lastIndexOf("\n", anchor - 1) + 1;
+  const lineEndIdx = doc.indexOf("\n", anchor);
+  const lineEnd = lineEndIdx === -1 ? doc.length : lineEndIdx;
+  const line = doc.slice(lineStart, lineEnd);
 
-  let newLine: string;
-  if (line.startsWith(prefix)) {
-    newLine = line.slice(prefix.length);
-  } else {
-    newLine = prefix + line;
-  }
-
+  const newLine = line.startsWith(prefix) ? line.slice(prefix.length) : prefix + line;
   const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
   editor.setDocument(newDoc);
   editor.setSelection(lineStart + newLine.length);
@@ -33,46 +81,43 @@ export function toggleBlockquote(editor: EditorAPI): boolean {
 
 export function toggleOrderedList(editor: EditorAPI): boolean {
   const doc = editor.getDocument();
-  const { anchor } = editor.getSelection();
-  const { lineStart, lineEnd, line } = getCurrentLine(doc, anchor);
+  const { anchor, head } = editor.getSelection();
+  const from = Math.min(anchor, head);
+  const to = Math.max(anchor, head);
+  const lines = getLinesInRange(doc, from, to);
 
-  const olMatch = line.match(/^\d+\.\s/);
-  let newLine: string;
-  if (olMatch) {
-    newLine = line.slice(olMatch[0].length);
-  } else {
-    // Remove other list markers if present
-    const ulMatch = line.match(/^[-*+]\s/);
-    const content = ulMatch ? line.slice(ulMatch[0].length) : line;
-    newLine = "1. " + content;
-  }
+  const allMarked = lines.every(({ line }) => /^\d+\.\s/.test(line));
 
-  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
-  editor.setDocument(newDoc);
-  editor.setSelection(lineStart + newLine.length);
-  return true;
+  let counter = 1;
+  const newLines = lines.map(({ line }) => {
+    if (allMarked) {
+      return line.replace(/^\d+\.\s/, "");
+    }
+    const content = line.replace(/^(?:\d+\.\s|[-*+]\s)/, "");
+    return `${counter++}. ${content}`;
+  });
+
+  return applyLines(editor, lines, newLines);
 }
 
 export function toggleUnorderedList(editor: EditorAPI): boolean {
   const doc = editor.getDocument();
-  const { anchor } = editor.getSelection();
-  const { lineStart, lineEnd, line } = getCurrentLine(doc, anchor);
+  const { anchor, head } = editor.getSelection();
+  const from = Math.min(anchor, head);
+  const to = Math.max(anchor, head);
+  const lines = getLinesInRange(doc, from, to);
 
-  const ulMatch = line.match(/^[-*+]\s/);
-  let newLine: string;
-  if (ulMatch) {
-    newLine = line.slice(ulMatch[0].length);
-  } else {
-    // Remove ordered list marker if present
-    const olMatch = line.match(/^\d+\.\s/);
-    const content = olMatch ? line.slice(olMatch[0].length) : line;
-    newLine = "- " + content;
-  }
+  const allMarked = lines.every(({ line }) => /^[-*+]\s/.test(line));
 
-  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
-  editor.setDocument(newDoc);
-  editor.setSelection(lineStart + newLine.length);
-  return true;
+  const newLines = lines.map(({ line }) => {
+    if (allMarked) {
+      return line.replace(/^[-*+]\s/, "");
+    }
+    const content = line.replace(/^(?:\d+\.\s|[-*+]\s)/, "");
+    return `- ${content}`;
+  });
+
+  return applyLines(editor, lines, newLines);
 }
 
 export function insertCodeBlock(editor: EditorAPI): boolean {
