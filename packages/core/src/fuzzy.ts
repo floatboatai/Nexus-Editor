@@ -39,9 +39,14 @@ export interface FuzzyMatch {
  *   positions. Discourages large gaps (e.g. "hlg" matching across 10 chars)
  *   while still allowing non-contiguous matches.
  *
- * These values are calibrated so that a word-boundary match always beats a
- * non-boundary match, regardless of gap penalty accumulation. See the test
- * suite (fuzzy.test.ts) for the expected ordering invariants.
+ * These values are calibrated so that a word-boundary match typically beats a
+ * non-boundary match on short-to-medium candidates (the common case for
+ * editor fuzzy-find queries, which are usually 2-6 characters). On
+ * unusually long candidates the linear gap penalty can accumulate enough to
+ * overcome the fixed boundary bonus; this is an acceptable trade-off that
+ * keeps the implementation simple without requiring per-candidate normalisation.
+ * See the test suite (fuzzy.test.ts) for the expected ordering invariants
+ * on typical inputs.
  */
 const SCORE_CHARACTER = 1;
 const SCORE_WORD_BOUNDARY = 80;

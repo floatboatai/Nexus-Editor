@@ -3,6 +3,7 @@ import {
   findNext,
   findPrevious,
   getSearchQuery,
+  gotoLine,
   highlightSelectionMatches,
   openSearchPanel,
   replaceAll,
@@ -13,9 +14,9 @@ import {
   selectMatches,
   setSearchQuery
 } from "@codemirror/search";
-import { keymap, runScopeHandlers, type EditorView, type Panel, type ViewUpdate } from "@codemirror/view";
+import { keymap, runScopeHandlers, type EditorState, type EditorView, type Panel, type ViewUpdate } from "@codemirror/view";
 
-import { fuzzyFilter, type FuzzyMatch } from "@floatboat/nexus-core";
+import { fuzzyMatch, fuzzyFilter, type FuzzyMatch } from "@floatboat/nexus-core";
 import type { NexusPlugin } from "@floatboat/nexus-core";
 
 export interface SearchMatch {
@@ -98,23 +99,26 @@ export function findSearchMatches(
 
   if (options.fuzzy) {
     // Split document into lines and fuzzy-match each line.
-    // This provides a "fuzzy find" experience similar to VS Code's Ctrl+P.
-    const lines = doc.split("\n");
+    // Returns one SearchMatch span per line hit (matching the regex path's
+    // "one match = one span" contract), using the full range from the
+    // first to the last matched character so that navigation, replace,
+    // and count all behave correctly.
+    //
+    // Normalize CRLF → LF so Windows line endings don't leak into
+    // SearchMatch.text as stray \r characters.
+    const normalized = doc.replace(/\r\n/g, "\n");
+    const lines = normalized.split("\n");
     const results: SearchMatch[] = [];
     let offset = 0;
 
     for (const line of lines) {
-      const match = fuzzyFilter(query, [line]);
-      if (match.length > 0) {
-        // Use the highest-scoring match for this line.
-        const best = match[0];
-        for (const idx of best.indices) {
-          results.push({
-            from: offset + idx,
-            to: offset + idx + 1,
-            text: line[idx]
-          });
-        }
+      const match = fuzzyMatch(query, line);
+      if (match !== null && match.indices.length > 0) {
+        results.push({
+          from: offset + match.indices[0],
+          to: offset + match.indices[match.indices.length - 1] + 1,
+          text: line.slice(match.indices[0], match.indices[match.indices.length - 1] + 1)
+        });
       }
       offset += line.length + 1; // +1 for the newline character
     }
@@ -148,6 +152,23 @@ export function replaceAllMatches(
 ): string {
   if (!query) {
     return doc;
+  }
+
+  if (options.fuzzy) {
+    // Fuzzy replace: find all fuzzy match spans and substitute them
+    // left-to-right, adjusting offsets after each replacement.
+    const matches = findSearchMatches(doc, query, options);
+    if (matches.length === 0) return doc;
+
+    let result = doc;
+    let shift = 0;
+    for (const m of matches) {
+      const from = m.from + shift;
+      const to = m.to + shift;
+      result = result.slice(0, from) + replacement + result.slice(to);
+      shift += replacement.length - (to - from);
+    }
+    return result;
   }
 
   const flags = options.caseSensitive ? "g" : "gi";
@@ -350,6 +371,161 @@ function createSearchRow(testId: string): HTMLDivElement {
   return row;
 }
 
+/**
+ * Fuzzy-search-aware navigation helpers.
+ *
+ * When a search panel has fuzzy mode enabled, CM6's built-in findNext/
+ * findPrevious (which only understand regex/literal SearchQuery) will not
+ * find the right results.  These wrappers detect the active panel's fuzzy
+ * state and delegate to our `findSearchMatches` matcher when appropriate.
+ */
+
+/** Weak registry so panels are GC'd once detached. */
+const activePanels = new WeakSet<NexusSearchPanel>();
+
+/** Returns the fuzzy state of the currently focused search panel for *view*. */
+function isPanelFuzzyForView(view: EditorView): boolean {
+  // The search panel's DOM is accessible via the search facet's panel
+  // property, but the most reliable way is to iterate known panels.
+  // We store panels in a WeakSet so we can check membership without
+  // holding strong references.
+  //
+  // Fallback: if we cannot determine the state, default to non-fuzzy
+  // (safe — falls back to standard CM6 search).
+  for (const panel of document.querySelectorAll(".nexus-search-panel")) {
+    const checkbox = panel.querySelector<HTMLInputElement>(
+      'input[name="fuzzy"]'
+    );
+    if (checkbox && panel.contains(view.dom)) {
+      return checkbox.checked;
+    }
+  }
+  return false;
+}
+
+/**
+ * Move the cursor to the next match, using fuzzy search when the panel
+ * has fuzzy enabled.
+ */
+function fuzzyAwareFindNext(view: EditorView): void {
+  if (!isPanelFuzzyForView(view)) {
+    findNext(view);
+    return;
+  }
+
+  const query = getSearchQuery(view.state);
+  if (!query.search) return;
+
+  const doc = view.state.doc.toString();
+  const matches = findSearchMatches(doc, query.search, { fuzzy: true });
+  const cursor = view.state.selection.main.head;
+
+  // Find the first match that starts after (or at) the current cursor.
+  const next = matches.find((m) => m.from >= cursor) ?? matches[0];
+  if (!next) return;
+
+  view.dispatch({
+    selection: { anchor: next.from, head: next.to },
+    effects: setSearchQuery.of(query),
+    scrollIntoView: true
+  });
+}
+
+/**
+ * Move the cursor to the previous match, using fuzzy search when the panel
+ * has fuzzy enabled.
+ */
+function fuzzyAwareFindPrevious(view: EditorView): void {
+  if (!isPanelFuzzyForView(view)) {
+    findPrevious(view);
+    return;
+  }
+
+  const query = getSearchQuery(view.state);
+  if (!query.search) return;
+
+  const doc = view.state.doc.toString();
+  const matches = findSearchMatches(doc, query.search, { fuzzy: true });
+  const cursor = view.state.selection.main.head;
+
+  // Find the last match that starts before the current cursor.
+  const prev = [...matches].reverse().find((m) => m.from < cursor) ?? matches[matches.length - 1];
+  if (!prev) return;
+
+  view.dispatch({
+    selection: { anchor: prev.from, head: prev.to },
+    effects: setSearchQuery.of(query),
+    scrollIntoView: true
+  });
+}
+
+/**
+ * Select all matches, using fuzzy search when the panel has fuzzy enabled.
+ */
+function fuzzyAwareSelectMatches(view: EditorView): void {
+  if (!isPanelFuzzyForView(view)) {
+    selectMatches(view);
+    return;
+  }
+
+  const query = getSearchQuery(view.state);
+  if (!query.search) return;
+
+  const doc = view.state.doc.toString();
+  const matches = findSearchMatches(doc, query.search, { fuzzy: true });
+  if (matches.length === 0) return;
+
+  const ranges = matches.map((m) => ({ anchor: m.from, head: m.to }));
+  view.dispatch({
+    selection: ranges,
+    effects: setSearchQuery.of(query)
+  });
+}
+
+/**
+ * Replace the current selection with the replacement text, using fuzzy
+ * navigation to advance to the next match afterwards.
+ */
+function fuzzyAwareReplaceNext(view: EditorView): void {
+  if (!isPanelFuzzyForView(view)) {
+    replaceNext(view);
+    return;
+  }
+
+  const query = getSearchQuery(view.state);
+  if (!query.search || !view.state.selection.main.empty) return;
+
+  const sel = view.state.selection.main;
+  view.dispatch({
+    changes: { from: sel.from, to: sel.head, insert: query.replace }
+  });
+
+  // Advance to next match
+  fuzzyAwareFindNext(view);
+}
+
+/**
+ * Replace all matches, using fuzzy search when the panel has fuzzy enabled.
+ */
+function fuzzyAwareReplaceAll(view: EditorView): void {
+  if (!isPanelFuzzyForView(view)) {
+    replaceAll(view);
+    return;
+  }
+
+  const query = getSearchQuery(view.state);
+  if (!query.search) return;
+
+  const doc = view.state.doc.toString();
+  const replaced = replaceAllMatches(doc, query.search, query.replace, { fuzzy: true });
+
+  if (replaced !== doc) {
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: replaced }
+    });
+  }
+}
+
 class NexusSearchPanel implements Panel {
   readonly dom: HTMLElement;
   readonly pos = 80;
@@ -371,6 +547,9 @@ class NexusSearchPanel implements Panel {
     labels: Partial<SearchPluginLabels> | undefined,
     private readonly fuzzyDefault: boolean
   ) {
+    // Register this panel so fuzzy-aware helpers can query its state.
+    activePanels.add(this);
+
     this.query = getSearchQuery(view.state);
     const resolvedLabels = resolveLabels(view, labels);
     this.labels = resolvedLabels;
@@ -414,10 +593,10 @@ class NexusSearchPanel implements Panel {
     navigationGroup.className = "nexus-search-button-group";
     navigationGroup.append(
       createIconButton("markdown-search-prev", "prev", resolvedLabels.previous, "previous", () =>
-        findPrevious(view)
+        fuzzyAwareFindPrevious(view)
       ),
-      createIconButton("markdown-search-next", "next", resolvedLabels.next, "next", () => findNext(view)),
-      createIconButton("markdown-search-all", "select", resolvedLabels.all, "all", () => selectMatches(view))
+      createIconButton("markdown-search-next", "next", resolvedLabels.next, "next", () => fuzzyAwareFindNext(view)),
+      createIconButton("markdown-search-all", "select", resolvedLabels.all, "all", () => fuzzyAwareSelectMatches(view))
     );
 
     const searchRowChildren: HTMLElement[] = [
@@ -444,14 +623,14 @@ class NexusSearchPanel implements Panel {
       replaceRow.append(
         this.replaceField,
         createIconButton("markdown-search-replace", "replace", resolvedLabels.replaceNext, "replace", () =>
-          replaceNext(view)
+          fuzzyAwareReplaceNext(view)
         ),
         createIconButton(
           "markdown-search-replace-all",
           "replaceAll",
           resolvedLabels.replaceAll,
           "replaceAll",
-          () => replaceAll(view)
+          () => fuzzyAwareReplaceAll(view)
         )
       );
       this.setReplaceExpanded(false);
@@ -552,14 +731,14 @@ class NexusSearchPanel implements Panel {
     if (event.key === "Enter" && event.target === this.searchField) {
       event.preventDefault();
       this.commit();
-      (event.shiftKey ? findPrevious : findNext)(this.view);
+      (event.shiftKey ? fuzzyAwareFindPrevious : fuzzyAwareFindNext)(this.view);
       return;
     }
 
     if (event.key === "Enter" && event.target === this.replaceField) {
       event.preventDefault();
       this.commit();
-      replaceNext(this.view);
+      fuzzyAwareReplaceNext(this.view);
     }
   }
 
