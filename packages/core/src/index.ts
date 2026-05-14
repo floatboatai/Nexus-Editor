@@ -1,4 +1,15 @@
 export { createEditor } from "./editor";
+export {
+  analyzeDocumentStructure,
+  type DocumentStructureAnalysis,
+  type DocumentStructureHeading,
+  type DocumentStructureInput,
+  type DocumentStructureIssue,
+  type DocumentStructureIssueType,
+  type DocumentStructureOptions,
+  type DocumentStructureSection,
+  type DocumentStructureStats,
+} from "./document-structure";
 export { markdownAutoPair } from "./markdown-autopair";
 export { markdownFold, markdownFoldService } from "./markdown-fold";
 export { markdownKeymap, handleMarkdownEnter } from "./markdown-keymap";
