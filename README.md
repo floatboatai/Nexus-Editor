@@ -169,7 +169,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 
 | Package | Description |
 |---|---|
-| `@floatboat/nexus-core` | Editor engine — CM6 state, AST pipeline, live preview, events, widget API |
+| `@floatboat/nexus-core` | Editor engine — CM6 state, AST pipeline, live preview, events, widget API, storage adapter contract |
 | `@floatboat/nexus-react` | React binding — `useEditor` hook and `<Editor />` component |
 | `@floatboat/nexus-vue` | Vue 3 binding — `useEditor` composable |
 | `@floatboat/nexus-preset-gfm` | GitHub Flavored Markdown preset (tables, strikethrough, task lists) |
@@ -192,7 +192,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 - **Plugin System** — three tiers: shortcuts & slash commands, remark plugins & widgets, raw CM6 extensions.
 - **Event System** — subscribe to `change`, `focus`, `blur`, `selectionChange`, `slashMenuChange`.
 - **Widget API** — render custom components for any AST node type (code blocks, tables, diagrams).
-- **Local-First** — built for Electron/Tauri with file IO hooks and debounced parsing.
+- **Local-First** — built for Electron/Tauri and cloud-capable hosts through a provider-neutral storage adapter contract.
 
 ---
 
@@ -247,6 +247,38 @@ const myPlugin: NexusPlugin = {
   cmExtensions: [myCodeMirrorExtension],
 };
 ```
+
+</details>
+
+<details>
+<summary><b>Storage adapter contract</b> — host-owned note vault IO</summary>
+
+`@floatboat/nexus-core` exports dependency-free storage types. Core does not read files, call Electron, use browser storage, or authenticate to cloud providers; hosts provide a `NoteVaultAdapter`.
+
+```ts
+import {
+  readAllNoteVaultFiles,
+  type NoteVaultAdapter,
+} from "@floatboat/nexus-core";
+
+const adapter: NoteVaultAdapter = {
+  id: "my-provider",
+  label: "My notes",
+  capabilities: { createFile: true, createFolder: true, trash: true, watch: false },
+  list: async () => [],
+  read: async (ref) => ({ ref: { ...ref, kind: "file" }, content: "" }),
+  write: async (ref, content, opts) => ({ ref: { ...ref, kind: "file" } }),
+  createFile: async (parent, name, content = "") => ({ providerId: "my-provider", id: name, kind: "file" }),
+  createFolder: async (parent, name) => ({ providerId: "my-provider", id: name, kind: "folder" }),
+  rename: async (ref, name) => ({ ...ref, name }),
+  delete: async (ref, opts) => {},
+};
+
+const files = await readAllNoteVaultFiles(adapter);
+```
+
+Refs are provider-owned, so local adapters can use validated paths while cloud adapters can use opaque IDs. Common failure modes are represented with `NoteVaultError` codes such as `auth-required`, `permission-denied`, `conflict`, `offline`, and `unsupported-operation`.
+Adapters can optionally implement `readAll` for batched startup/indexing reads; otherwise `readAllNoteVaultFiles` falls back to bounded-concurrency `list` + `read`.
 
 </details>
 
