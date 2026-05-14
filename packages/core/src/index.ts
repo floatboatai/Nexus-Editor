@@ -20,6 +20,11 @@ export {
   type WikilinksOptions,
   type WikiLinkNavigateOptions,
 } from "./wikilinks";
+export {
+  fuzzyFilter,
+  fuzzyMatch,
+  type FuzzyMatch,
+} from "./fuzzy";
 export type {
   CodeHighlightToken,
   EditorAPI,

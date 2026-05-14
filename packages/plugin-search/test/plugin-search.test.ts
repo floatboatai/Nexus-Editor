@@ -221,3 +221,39 @@ describe("@floatboat/nexus-plugin-search", () => {
     container.remove();
   });
 });
+
+describe("findSearchMatches fuzzy", () => {
+  it("returns fuzzy matches when fuzzy option is enabled", () => {
+    const doc = "Highlight Text\nBold\nHorizontal Rule";
+    const results = findSearchMatches(doc, "hl", { fuzzy: true });
+    // "Highlight" contains h=0, l=3 → should match the first line
+    expect(results.length).toBeGreaterThan(0);
+    // Check that matches are from the "Highlight Text" line
+    const fromPositions = results.map((r) => r.from);
+    expect(fromPositions.some((f) => f < 15)).toBe(true);
+  });
+
+  it("returns empty when fuzzy query matches nothing", () => {
+    const doc = "Hello World";
+    expect(findSearchMatches(doc, "zzz", { fuzzy: true })).toEqual([]);
+  });
+
+  it("returns empty for empty query in fuzzy mode", () => {
+    const doc = "Hello World";
+    expect(findSearchMatches(doc, "", { fuzzy: true })).toEqual([]);
+  });
+
+  it("does not use fuzzy matching when fuzzy option is not set", () => {
+    const doc = "Hello World";
+    const results = findSearchMatches(doc, "hl");
+    // Without fuzzy, "hl" should not match "Hello" (it's not a substring)
+    expect(results).toEqual([]);
+  });
+
+  it("fuzzy matches across multiple lines", () => {
+    const doc = "Heading One\nBold Text\nHorizontal Rule";
+    const results = findSearchMatches(doc, "h", { fuzzy: true });
+    // Both "Heading One" and "Horizontal Rule" have 'h' at a word boundary
+    expect(results.length).toBeGreaterThan(0);
+  });
+});
