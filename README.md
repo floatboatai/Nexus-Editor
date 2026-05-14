@@ -206,6 +206,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 ```ts
 editor.getDocument()          // current Markdown string
 editor.getAst()               // current mdast Root
+editor.getSelectedText()      // currently selected text (empty string if no selection)
 editor.setDocument(md)        // replace entire document
 editor.setSelection(pos)      // move cursor
 editor.focus() / editor.blur()

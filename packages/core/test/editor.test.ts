@@ -407,4 +407,96 @@ describe("createEditor", () => {
     expect(html).toContain("console.log(1)");
     editor.destroy();
   });
+
+  // ── getSelectedText ──
+
+  it("returns empty string when no text is selected", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Hello world"
+    });
+
+    expect(editor.getSelectedText()).toBe("");
+    editor.destroy();
+  });
+
+  it("returns selected text for single-line selection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Hello world"
+    });
+
+    editor.setSelection(0, 5);
+    expect(editor.getSelectedText()).toBe("Hello");
+
+    editor.setSelection(6, 11);
+    expect(editor.getSelectedText()).toBe("world");
+
+    editor.destroy();
+  });
+
+  it("returns selected text for multi-line selection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Line 1\nLine 2\nLine 3"
+    });
+
+    editor.setSelection(0, 13);
+    expect(editor.getSelectedText()).toBe("Line 1\nLine 2");
+
+    editor.setSelection(7, 20);
+    expect(editor.getSelectedText()).toBe("Line 2\nLine 3");
+
+    editor.destroy();
+  });
+
+  it("returns selected text with markdown formatting", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "# Heading\n\n**bold** and *italic*"
+    });
+
+    editor.setSelection(0, 9);
+    expect(editor.getSelectedText()).toBe("# Heading");
+
+    editor.setSelection(11, 19);
+    expect(editor.getSelectedText()).toBe("**bold**");
+
+    editor.setSelection(11, 32);
+    expect(editor.getSelectedText()).toBe("**bold** and *italic*");
+
+    editor.destroy();
+  });
+
+  it("returns empty string when editor is destroyed", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Hello world"
+    });
+
+    editor.setSelection(0, 5);
+    expect(editor.getSelectedText()).toBe("Hello");
+
+    editor.destroy();
+    expect(editor.getSelectedText()).toBe("");
+  });
+
+  it("handles reversed selection (head before anchor)", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Hello world"
+    });
+
+    // Reversed selection: anchor=11, head=6
+    editor.setSelection(11, 6);
+    expect(editor.getSelectedText()).toBe("world");
+
+    editor.destroy();
+  });
 });
