@@ -7,6 +7,9 @@ import {
   toggleInlineCode,
   insertLink,
   toggleHeading,
+  toggleUnorderedList,
+  toggleOrderedList,
+  toggleBlockquote,
   createToolbarPlugin,
   createToolbarUI,
 } from "../src/index";
@@ -197,6 +200,122 @@ describe("createToolbarUI", () => {
     expect(document.getElementById(button?.getAttribute("aria-describedby") ?? "")).toBeNull();
 
     toolbar.destroy();
+    editor.destroy();
+  });
+});
+
+// ── Multi-line toggle tests ───────────────────────────────────────────────────
+
+describe("toggleUnorderedList — multi-line", () => {
+  it("adds - marker to all lines when none have it", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "foo\nbar\nbaz" });
+    editor.setSelection(0, 11);
+    toggleUnorderedList(editor);
+    expect(editor.getDocument()).toBe("- foo\n- bar\n- baz");
+    editor.destroy();
+  });
+
+  it("adds - marker to all lines when only some have it (mixed state)", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "foo\n- bar\nbaz" });
+    editor.setSelection(0, 13);
+    toggleUnorderedList(editor);
+    expect(editor.getDocument()).toBe("- foo\n- bar\n- baz");
+    editor.destroy();
+  });
+
+  it("removes - marker from all lines when all have it", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- foo\n- bar\n- baz" });
+    editor.setSelection(0, 17);
+    toggleUnorderedList(editor);
+    expect(editor.getDocument()).toBe("foo\nbar\nbaz");
+    editor.destroy();
+  });
+
+  it("converts ordered list markers to unordered on multi-line", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "1. foo\n2. bar" });
+    editor.setSelection(0, 13);
+    toggleUnorderedList(editor);
+    expect(editor.getDocument()).toBe("- foo\n- bar");
+    editor.destroy();
+  });
+
+  it("single-line behavior is unchanged (backward compat)", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello" });
+    editor.setSelection(2);
+    toggleUnorderedList(editor);
+    expect(editor.getDocument()).toBe("- hello");
+    editor.destroy();
+  });
+});
+
+describe("toggleOrderedList — multi-line", () => {
+  it("adds incrementing numbered markers to all lines", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "foo\nbar\nbaz" });
+    editor.setSelection(0, 11);
+    toggleOrderedList(editor);
+    expect(editor.getDocument()).toBe("1. foo\n2. bar\n3. baz");
+    editor.destroy();
+  });
+
+  it("removes numbered markers when all lines have them", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "1. foo\n2. bar\n3. baz" });
+    editor.setSelection(0, 20);
+    toggleOrderedList(editor);
+    expect(editor.getDocument()).toBe("foo\nbar\nbaz");
+    editor.destroy();
+  });
+
+  it("adds ordered markers when only some lines have them (mixed state)", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "foo\n2. bar\nbaz" });
+    editor.setSelection(0, 14);
+    toggleOrderedList(editor);
+    expect(editor.getDocument()).toBe("1. foo\n2. bar\n3. baz");
+    editor.destroy();
+  });
+
+  it("single-line behavior is unchanged (backward compat)", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello" });
+    editor.setSelection(2);
+    toggleOrderedList(editor);
+    expect(editor.getDocument()).toBe("1. hello");
+    editor.destroy();
+  });
+});
+
+describe("toggleBlockquote — multi-line", () => {
+  it("adds > prefix to all lines when none have it", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "foo\nbar" });
+    editor.setSelection(0, 7);
+    toggleBlockquote(editor);
+    expect(editor.getDocument()).toBe("> foo\n> bar");
+    editor.destroy();
+  });
+
+  it("removes > prefix from all lines when all have it", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "> foo\n> bar" });
+    editor.setSelection(0, 11);
+    toggleBlockquote(editor);
+    expect(editor.getDocument()).toBe("foo\nbar");
+    editor.destroy();
+  });
+
+  it("single-line behavior is unchanged (backward compat)", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello" });
+    editor.setSelection(2);
+    toggleBlockquote(editor);
+    expect(editor.getDocument()).toBe("> hello");
     editor.destroy();
   });
 });
