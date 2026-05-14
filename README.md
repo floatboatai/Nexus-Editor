@@ -224,6 +224,20 @@ editor.getCoordsAtPos(pos)     // { left, right, top, bottom } | null
 </details>
 
 <details>
+<summary><b>Document structure analysis</b></summary>
+
+```ts
+import { analyzeDocumentStructure } from "@floatboat/nexus-core";
+
+const analysis = analyzeDocumentStructure(editor.getAst(), {
+  requiredHeadings: ["Summary", "Analysis", "Conclusion"],
+  maxSectionWords: 500,
+});
+```
+
+</details>
+
+<details>
 <summary><b>Plugin authoring</b> — three tiers, one shape</summary>
 
 ```ts

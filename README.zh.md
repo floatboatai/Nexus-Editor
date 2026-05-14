@@ -224,6 +224,20 @@ editor.getCoordsAtPos(pos)     // { left, right, top, bottom } | null
 </details>
 
 <details>
+<summary><b>文档结构分析</b></summary>
+
+```ts
+import { analyzeDocumentStructure } from "@floatboat/nexus-core";
+
+const analysis = analyzeDocumentStructure(editor.getAst(), {
+  requiredHeadings: ["摘要", "分析", "结论"],
+  maxSectionWords: 500,
+});
+```
+
+</details>
+
+<details>
 <summary><b>插件编写</b> —— 三个层级，统一形态</summary>
 
 ```ts
