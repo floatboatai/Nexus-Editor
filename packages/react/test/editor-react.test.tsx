@@ -1,6 +1,6 @@
 import { render } from "@testing-library/react";
 import { useEffect } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Editor, useEditor } from "../src/index";
 
 describe("@floatboat/nexus-react", () => {
@@ -36,5 +36,48 @@ describe("@floatboat/nexus-react", () => {
     render(<Harness />);
 
     expect(snapshots).toContain("updated");
+  });
+
+  it("calls onReady callback when editor is initialized", () => {
+    const onReady = vi.fn();
+
+    function Harness() {
+      const { containerRef } = useEditor({
+        initialValue: "hello",
+        onReady
+      });
+
+      return <div ref={containerRef} />;
+    }
+
+    render(<Harness />);
+
+    expect(onReady).toHaveBeenCalledTimes(1);
+    expect(onReady).toHaveBeenCalledWith(expect.objectContaining({
+      getDocument: expect.any(Function),
+      setDocument: expect.any(Function),
+      getSelection: expect.any(Function),
+      getSelectedText: expect.any(Function),
+    }));
+  });
+
+  it("onReady callback receives working editor instance", () => {
+    let readyDoc = "";
+
+    function Harness() {
+      const { containerRef } = useEditor({
+        initialValue: "initial content",
+        onReady: (editor) => {
+          readyDoc = editor.getDocument();
+          editor.setDocument("modified by onReady");
+        }
+      });
+
+      return <div ref={containerRef} />;
+    }
+
+    render(<Harness />);
+
+    expect(readyDoc).toBe("initial content");
   });
 });

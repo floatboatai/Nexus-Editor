@@ -1,6 +1,6 @@
 import { mount } from "@vue/test-utils";
 import { defineComponent, h, nextTick, onMounted } from "vue";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Editor, useEditor } from "../src/index";
 
 describe("@floatboat/nexus-vue", () => {
@@ -44,5 +44,56 @@ describe("@floatboat/nexus-vue", () => {
     await nextTick();
 
     expect(snapshots).toContain("updated");
+  });
+
+  it("calls onReady callback when editor is initialized", async () => {
+    const onReady = vi.fn();
+
+    const Harness = defineComponent({
+      setup() {
+        const { containerRef } = useEditor({
+          initialValue: "hello",
+          onReady
+        });
+
+        return () => h("div", { ref: containerRef });
+      }
+    });
+
+    mount(Harness);
+
+    await nextTick();
+
+    expect(onReady).toHaveBeenCalledTimes(1);
+    expect(onReady).toHaveBeenCalledWith(expect.objectContaining({
+      getDocument: expect.any(Function),
+      setDocument: expect.any(Function),
+      getSelection: expect.any(Function),
+      getSelectedText: expect.any(Function),
+    }));
+  });
+
+  it("onReady callback receives working editor instance", async () => {
+    let readyDoc = "";
+
+    const Harness = defineComponent({
+      setup() {
+        const { containerRef } = useEditor({
+          initialValue: "initial content",
+          onReady: (editor) => {
+            readyDoc = editor.getDocument();
+            editor.setDocument("modified by onReady");
+          }
+        });
+
+        return () => h("div", { ref: containerRef });
+      }
+    });
+
+    mount(Harness);
+
+    await nextTick();
+
+    expect(readyDoc).toBe("initial content");
   });
 });

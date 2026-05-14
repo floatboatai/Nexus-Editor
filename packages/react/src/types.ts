@@ -4,7 +4,13 @@ import type {
 } from "@floatboat/nexus-core";
 import type { RefObject } from "react";
 
-export type UseEditorConfig = Omit<EditorConfig, "container">;
+export interface UseEditorConfig extends Omit<EditorConfig, "container"> {
+  /**
+   * Callback invoked when the editor instance is created and ready.
+   * Use this to access the editor API immediately after initialization.
+   */
+  onReady?: (editor: EditorAPI) => void;
+}
 
 export interface UseEditorResult {
   containerRef: RefObject<HTMLDivElement | null>;

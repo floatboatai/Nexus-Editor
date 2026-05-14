@@ -25,6 +25,8 @@ export interface SearchMatch {
 
 export interface SearchOptions {
   caseSensitive?: boolean;
+  wholeWord?: boolean;
+  regexp?: boolean;
 }
 
 export interface SearchPluginOptions {
@@ -79,6 +81,13 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+const MAX_MATCH_TIME_MS = 2000;
+
+function isDangerousRegExp(pattern: string): boolean {
+  const danger = /(\([^)]*\)[*+?]|\[[^\]]*\][*+?]|\{[^}]*\}[*+?]|\([^)]*\)\+\+|\([^)]*\)\*\*)/;
+  return danger.test(pattern);
+}
+
 export function findSearchMatches(
   doc: string,
   query: string,
@@ -88,11 +97,36 @@ export function findSearchMatches(
     return [];
   }
 
-  const flags = options.caseSensitive ? "g" : "gi";
-  const pattern = new RegExp(escapeRegExp(query), flags);
+  const { caseSensitive = false, wholeWord = false, regexp = false } = options;
+  let flags = caseSensitive ? "g" : "gi";
+
+  let pattern: RegExp;
+
+  try {
+    if (regexp) {
+      if (isDangerousRegExp(query)) {
+        return [];
+      }
+      pattern = new RegExp(query, flags);
+    } else {
+      let escaped = escapeRegExp(query);
+      if (wholeWord) {
+        escaped = `(?<=[^\\p{L}\\p{N}_]|^)${escaped}(?=[^\\p{L}\\p{N}_]|$)`;
+        flags += "u";
+      }
+      pattern = new RegExp(escaped, flags);
+    }
+  } catch (e) {
+    return [];
+  }
+
   const matches: SearchMatch[] = [];
+  const startTime = Date.now();
 
   for (const match of doc.matchAll(pattern)) {
+    if (Date.now() - startTime > MAX_MATCH_TIME_MS) {
+      break;
+    }
     const text = match[0];
     const from = match.index ?? 0;
 

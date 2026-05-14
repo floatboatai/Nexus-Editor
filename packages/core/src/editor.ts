@@ -513,6 +513,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
       const lines = view.state.doc.lines;
       return { characters, words, lines };
     },
+    getSelectedText() {
+      const sel = view.state.selection.main;
+      if (sel.empty) {
+        return "";
+      }
+      return view.state.doc.sliceString(sel.from, sel.to);
+    },
     destroy() {
       destroyed = true;
       focused = false;
