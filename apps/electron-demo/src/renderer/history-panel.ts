@@ -1,4 +1,4 @@
-import type { SnapshotEntry } from "../../electron/snapshots";
+import type { SnapshotEntry } from "./snapshot-entry";
 
 export interface HistoryPanelOptions {
   getSnapshots(): SnapshotEntry[];

@@ -29,8 +29,88 @@ module.exports = __toCommonJS(main_exports);
 var import_electron = require("electron");
 var import_promises = require("fs/promises");
 var import_node_fs = require("fs");
-var import_node_path = __toESM(require("path"));
+var import_node_path2 = __toESM(require("path"));
 var import_node_url = require("url");
+
+// electron/snapshots.ts
+var import_node_path = __toESM(require("path"));
+var DEFAULT_SNAPSHOT_LIMIT = 20;
+var DEFAULT_SNAPSHOT_CONTENT_BYTES = 512 * 1024;
+function createEmptySnapshotStore() {
+  return { byDocument: {} };
+}
+function createSnapshotDocumentRef(filePath) {
+  return {
+    documentId: filePath ? documentIdFromPath(filePath) : "untitled",
+    filePath
+  };
+}
+function assertSnapshotContentSize(content, limitBytes = DEFAULT_SNAPSHOT_CONTENT_BYTES) {
+  const size = Buffer.byteLength(content, "utf-8");
+  if (size > limitBytes) {
+    throw new Error(`Snapshot content exceeds ${limitBytes} bytes`);
+  }
+}
+function summarizeSnapshot(content) {
+  const lines = content.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+  if (lines.length === 0) return "(empty document)";
+  const preferred = lines.find((line) => !line.startsWith("#")) ?? lines[0];
+  return preferred.length > 96 ? `${preferred.slice(0, 93)}...` : preferred;
+}
+function createSnapshotEntry(input) {
+  const createdAt = input.createdAt ?? (/* @__PURE__ */ new Date()).toISOString();
+  const baseTitle = input.title?.trim() || summarizeSnapshot(input.content);
+  return {
+    id: `${createdAt}-${Math.random().toString(36).slice(2, 10)}`,
+    docKey: input.docKey,
+    filePath: input.filePath,
+    title: baseTitle,
+    content: input.content,
+    createdAt,
+    summary: summarizeSnapshot(input.content)
+  };
+}
+function listSnapshots(store, docKey) {
+  return [...store.byDocument[docKey] ?? []];
+}
+function addSnapshot(store, entry, limit = DEFAULT_SNAPSHOT_LIMIT) {
+  const current = store.byDocument[entry.docKey] ?? [];
+  const next = [entry, ...current].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
+  return {
+    byDocument: {
+      ...store.byDocument,
+      [entry.docKey]: next
+    }
+  };
+}
+function parseSnapshotStore(raw) {
+  const parsed = JSON.parse(raw);
+  if (!parsed.byDocument || typeof parsed.byDocument !== "object") {
+    throw new Error("Invalid snapshot store shape");
+  }
+  const byDocument = {};
+  for (const [docKey, value] of Object.entries(parsed.byDocument)) {
+    if (!Array.isArray(value)) continue;
+    byDocument[docKey] = value.filter(isSnapshotEntryLike).sort((a, b) => {
+      return b.createdAt.localeCompare(a.createdAt);
+    });
+  }
+  return { byDocument };
+}
+function isSnapshotEntryLike(value) {
+  if (!value || typeof value !== "object") return false;
+  const entry = value;
+  return typeof entry.id === "string" && typeof entry.docKey === "string" && (typeof entry.filePath === "string" || entry.filePath === null) && typeof entry.title === "string" && typeof entry.content === "string" && typeof entry.createdAt === "string" && typeof entry.summary === "string";
+}
+function isCaseInsensitiveFileSystem() {
+  return process.platform === "darwin" || process.platform === "win32";
+}
+function documentIdFromPath(filePath) {
+  const resolved = import_node_path.default.resolve(filePath).replace(/\\/g, "/");
+  return isCaseInsensitiveFileSystem() ? resolved.toLowerCase() : resolved;
+}
+
+// electron/main.ts
 import_electron.protocol.registerSchemesAsPrivileged([
   {
     scheme: "nexus-vault",
@@ -56,7 +136,7 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      preload: import_node_path.default.join(__dirname, "preload.js")
+      preload: import_node_path2.default.join(__dirname, "preload.js")
     }
   });
   mainWindow.once("ready-to-show", () => {
@@ -66,7 +146,7 @@ function createWindow() {
   if (devUrl) {
     mainWindow.loadURL(devUrl);
   } else {
-    mainWindow.loadFile(import_node_path.default.join(__dirname, "../dist/index.html"));
+    mainWindow.loadFile(import_node_path2.default.join(__dirname, "../dist/index.html"));
   }
   mainWindow.webContents.on("before-input-event", (_event, input) => {
     const meta = input.meta || input.control;
@@ -117,10 +197,10 @@ function assertInsideVault(target) {
   if (!activeVault) {
     throw new Error("No active vault");
   }
-  const resolved = import_node_path.default.resolve(target);
-  const rel = import_node_path.default.relative(activeVault, resolved);
+  const resolved = import_node_path2.default.resolve(target);
+  const rel = import_node_path2.default.relative(activeVault, resolved);
   if (rel === "" || rel === ".") return resolved;
-  if (rel.startsWith("..") || import_node_path.default.isAbsolute(rel)) {
+  if (rel.startsWith("..") || import_node_path2.default.isAbsolute(rel)) {
     throw new Error(`Path escapes vault: ${target}`);
   }
   return resolved;
@@ -132,7 +212,7 @@ async function scanDirectory(dir) {
     if (entry.name.startsWith(".") && SKIP_DIRS.has(entry.name)) continue;
     if (SKIP_DIRS.has(entry.name)) continue;
     if (entry.name.startsWith(".")) continue;
-    const childPath = import_node_path.default.join(dir, entry.name);
+    const childPath = import_node_path2.default.join(dir, entry.name);
     if (entry.isDirectory()) {
       const children = await scanDirectory(childPath);
       if (children.length > 0) {
@@ -146,7 +226,7 @@ async function scanDirectory(dir) {
       continue;
     }
     if (entry.isFile()) {
-      const ext = import_node_path.default.extname(entry.name).toLowerCase();
+      const ext = import_node_path2.default.extname(entry.name).toLowerCase();
       if (!SUPPORTED_EXT.has(ext)) continue;
       nodes.push({ name: entry.name, path: childPath, kind: "file" });
     }
@@ -190,7 +270,7 @@ function startWatcher(vaultPath) {
   }
 }
 function vaultStatePath() {
-  return import_node_path.default.join(import_electron.app.getPath("userData"), "vault.json");
+  return import_node_path2.default.join(import_electron.app.getPath("userData"), "vault.json");
 }
 async function readVaultState() {
   const file = vaultStatePath();
@@ -209,6 +289,37 @@ async function readVaultState() {
 async function writeVaultState(state) {
   await (0, import_promises.writeFile)(vaultStatePath(), JSON.stringify(state, null, 2), "utf-8");
 }
+function snapshotStorePath() {
+  return import_node_path2.default.join(import_electron.app.getPath("userData"), "snapshots.json");
+}
+function snapshotTempPath() {
+  return `${snapshotStorePath()}.tmp`;
+}
+async function readSnapshotStore() {
+  const file = snapshotStorePath();
+  if (!(0, import_node_fs.existsSync)(file)) return createEmptySnapshotStore();
+  try {
+    const raw = await (0, import_promises.readFile)(file, "utf-8");
+    return parseSnapshotStore(raw);
+  } catch (err) {
+    console.warn("[snapshot] failed to read store:", err);
+    if ((0, import_node_fs.existsSync)(file)) {
+      const corruptPath = `${file}.corrupt-${Date.now()}`;
+      try {
+        await (0, import_promises.copyFile)(file, corruptPath);
+      } catch (copyErr) {
+        console.warn("[snapshot] failed to preserve corrupt store:", copyErr);
+      }
+    }
+    return createEmptySnapshotStore();
+  }
+}
+async function writeSnapshotStore(store) {
+  const target = snapshotStorePath();
+  const temp = snapshotTempPath();
+  await (0, import_promises.writeFile)(temp, JSON.stringify(store, null, 2), "utf-8");
+  await (0, import_promises.rename)(temp, target);
+}
 import_electron.ipcMain.handle("vault:pick", async () => {
   if (!mainWindow) return null;
   const result = await import_electron.dialog.showOpenDialog(mainWindow, {
@@ -218,7 +329,7 @@ import_electron.ipcMain.handle("vault:pick", async () => {
   return { path: result.filePaths[0] };
 });
 import_electron.ipcMain.handle("vault:list", async (_event, vaultPath) => {
-  const abs = import_node_path.default.resolve(vaultPath);
+  const abs = import_node_path2.default.resolve(vaultPath);
   const info = await (0, import_promises.stat)(abs);
   if (!info.isDirectory()) throw new Error(`Not a directory: ${abs}`);
   activeVault = abs;
@@ -235,12 +346,12 @@ async function collectFiles(dir, acc) {
   for (const entry of entries) {
     if (entry.name.startsWith(".")) continue;
     if (SKIP_DIRS.has(entry.name)) continue;
-    const childPath = import_node_path.default.join(dir, entry.name);
+    const childPath = import_node_path2.default.join(dir, entry.name);
     if (entry.isDirectory()) {
       await collectFiles(childPath, acc);
       continue;
     }
-    if (entry.isFile() && SUPPORTED_EXT.has(import_node_path.default.extname(entry.name).toLowerCase())) {
+    if (entry.isFile() && SUPPORTED_EXT.has(import_node_path2.default.extname(entry.name).toLowerCase())) {
       acc.push(childPath);
     }
   }
@@ -282,19 +393,19 @@ import_electron.ipcMain.handle(
     const baseNameRaw = segments.pop();
     const subDirs = segments.join("/");
     const parent = assertInsideVault(
-      subDirs ? import_node_path.default.join(parentDir, subDirs) : parentDir
+      subDirs ? import_node_path2.default.join(parentDir, subDirs) : parentDir
     );
     if (subDirs) {
       await (0, import_promises.mkdir)(parent, { recursive: true });
     }
-    const hasExt = SUPPORTED_EXT.has(import_node_path.default.extname(baseNameRaw).toLowerCase());
+    const hasExt = SUPPORTED_EXT.has(import_node_path2.default.extname(baseNameRaw).toLowerCase());
     const baseName = hasExt ? baseNameRaw : `${baseNameRaw}.md`;
-    const ext = import_node_path.default.extname(baseName);
+    const ext = import_node_path2.default.extname(baseName);
     const stem = baseName.slice(0, baseName.length - ext.length);
-    let candidate = import_node_path.default.join(parent, baseName);
+    let candidate = import_node_path2.default.join(parent, baseName);
     let suffix = 1;
     while ((0, import_node_fs.existsSync)(candidate)) {
-      candidate = import_node_path.default.join(parent, `${stem}-${suffix}${ext}`);
+      candidate = import_node_path2.default.join(parent, `${stem}-${suffix}${ext}`);
       suffix += 1;
     }
     const finalPath = assertInsideVault(candidate);
@@ -307,7 +418,7 @@ import_electron.ipcMain.handle(
   async (_event, parentDir, name) => {
     const parent = assertInsideVault(parentDir);
     const safeName = name.trim() || "new-folder";
-    const target = assertInsideVault(import_node_path.default.join(parent, safeName));
+    const target = assertInsideVault(import_node_path2.default.join(parent, safeName));
     if ((0, import_node_fs.existsSync)(target)) {
       throw new Error(`Folder already exists: ${safeName}`);
     }
@@ -319,13 +430,13 @@ import_electron.ipcMain.handle(
   "vault:rename",
   async (_event, oldPath, newName) => {
     const src = assertInsideVault(oldPath);
-    const parent = import_node_path.default.dirname(src);
+    const parent = import_node_path2.default.dirname(src);
     const trimmed = newName.trim();
     if (!trimmed) throw new Error("New name cannot be empty");
     if (trimmed.includes("/") || trimmed.includes("\\")) {
       throw new Error("New name cannot contain path separators");
     }
-    const target = assertInsideVault(import_node_path.default.join(parent, trimmed));
+    const target = assertInsideVault(import_node_path2.default.join(parent, trimmed));
     if ((0, import_node_fs.existsSync)(target) && target !== src) {
       throw new Error(`Target already exists: ${trimmed}`);
     }
@@ -356,6 +467,27 @@ import_electron.ipcMain.handle("vault:set-last", async (_event, vaultPath) => {
   await writeVaultState({ lastVault: vaultPath, recents });
   return { ok: true };
 });
+import_electron.ipcMain.handle(
+  "snapshot:create",
+  async (_event, input) => {
+    assertSnapshotContentSize(input.content);
+    const store = await readSnapshotStore();
+    const documentRef = createSnapshotDocumentRef(input.filePath);
+    const entry = createSnapshotEntry({
+      docKey: documentRef.documentId,
+      filePath: documentRef.filePath,
+      content: input.content,
+      title: input.title
+    });
+    const nextStore = addSnapshot(store, entry, DEFAULT_SNAPSHOT_LIMIT);
+    await writeSnapshotStore(nextStore);
+    return entry;
+  }
+);
+import_electron.ipcMain.handle("snapshot:list", async (_event, filePath) => {
+  const store = await readSnapshotStore();
+  return listSnapshots(store, createSnapshotDocumentRef(filePath).documentId);
+});
 import_electron.app.whenReady().then(() => {
   import_electron.protocol.handle("nexus-vault", async (request) => {
     try {
@@ -363,9 +495,9 @@ import_electron.app.whenReady().then(() => {
       const url = new URL(request.url);
       const relPath = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
       if (!relPath) return new Response("Empty path", { status: 400 });
-      const abs = import_node_path.default.resolve(activeVault, relPath);
-      const rel = import_node_path.default.relative(activeVault, abs);
-      if (rel.startsWith("..") || import_node_path.default.isAbsolute(rel)) {
+      const abs = import_node_path2.default.resolve(activeVault, relPath);
+      const rel = import_node_path2.default.relative(activeVault, abs);
+      if (rel.startsWith("..") || import_node_path2.default.isAbsolute(rel)) {
         return new Response("Path escapes vault", { status: 403 });
       }
       if (!(0, import_node_fs.existsSync)(abs)) return new Response("Not found", { status: 404 });

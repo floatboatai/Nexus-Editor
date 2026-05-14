@@ -8,7 +8,7 @@ import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
 import { createHistoryPanel, type HistoryPanel } from "./history-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
-import type { SnapshotEntry } from "../../electron/snapshots";
+import type { SnapshotEntry } from "./snapshot-entry";
 
 installLongTaskWatch(50);
 
@@ -128,8 +128,9 @@ function renderStatus(): void {
   const vaultLabel = state.vaultPath
     ? ` | Vault: ${state.vaultPath.split(/[\\/]/).pop()}`
     : "";
+  const statusText = state.statusMessage ? ` | ${state.statusMessage}` : "";
   const errorText = state.error ? ` — Error: ${state.error}` : "";
-  el.textContent = `${pathLabel}${dirtyMark}${statsText}${vaultLabel}${errorText}`;
+  el.textContent = `${pathLabel}${dirtyMark}${statsText}${vaultLabel}${statusText}${errorText}`;
 }
 
 async function confirmDiscardIfDirty(): Promise<boolean> {
@@ -246,15 +247,17 @@ function toggleHistory(): void {
 async function createSnapshot(): Promise<void> {
   try {
     state.error = null;
+    state.statusMessage = null;
     const currentDoc = shell.editor.getDocument();
     await window.nexusDemo.snapshots.create({
       filePath: state.activeFile ?? state.filePath,
       content: currentDoc,
     });
     await refreshSnapshots();
-    state.error = `Snapshot created (${new Date().toLocaleTimeString()})`;
+    state.statusMessage = `Snapshot created (${new Date().toLocaleTimeString()})`;
     renderStatus();
   } catch (err) {
+    state.statusMessage = null;
     state.error = err instanceof Error ? err.message : String(err);
     renderStatus();
   }
@@ -263,6 +266,7 @@ async function createSnapshot(): Promise<void> {
 async function restoreSnapshot(snapshot: SnapshotEntry): Promise<void> {
   try {
     state.error = null;
+    state.statusMessage = null;
     if (!(await confirmDiscardIfDirty())) return;
     shell.loadDocument(snapshot.content);
     if (snapshot.filePath) {
@@ -278,16 +282,19 @@ async function restoreSnapshot(snapshot: SnapshotEntry): Promise<void> {
     await refreshSnapshots();
     historyPanel.element.style.display = "none";
     shell.editor.focus();
-    state.error = `Restored snapshot: ${snapshot.title}`;
+    state.statusMessage = `Restored snapshot: ${snapshot.title}`;
     renderStatus();
   } catch (err) {
+    state.statusMessage = null;
     state.error = err instanceof Error ? err.message : String(err);
     renderStatus();
   }
 }
 
-function reuseSnapshot(snapshot: SnapshotEntry): void {
+async function reuseSnapshot(snapshot: SnapshotEntry): Promise<void> {
   state.error = null;
+  state.statusMessage = null;
+  if (!(await confirmDiscardIfDirty())) return;
   shell.loadDocument(snapshot.content);
   state.filePath = null;
   state.activeFile = null;
@@ -297,7 +304,7 @@ function reuseSnapshot(snapshot: SnapshotEntry): void {
   historyPanel.element.style.display = "none";
   shell.editor.focus();
   void refreshSnapshots();
-  state.error = `Reused snapshot as new draft: ${snapshot.title}`;
+  state.statusMessage = `Reused snapshot as new draft: ${snapshot.title}`;
   renderStatus();
 }
 
@@ -512,7 +519,7 @@ function boot(): void {
       void restoreSnapshot(snapshot);
     },
     onReuse: (snapshot) => {
-      reuseSnapshot(snapshot);
+      void reuseSnapshot(snapshot);
     },
   });
   historyPanel.element.style.display = "none";

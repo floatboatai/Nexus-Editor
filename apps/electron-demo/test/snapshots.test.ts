@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   addSnapshot,
+  assertSnapshotContentSize,
+  createSnapshotDocumentRef,
   createEmptySnapshotStore,
   createSnapshotEntry,
+  DEFAULT_SNAPSHOT_CONTENT_BYTES,
   listSnapshots,
   normalizeDocKey,
   parseSnapshotStore,
@@ -12,7 +15,15 @@ import {
 describe("snapshot helpers", () => {
   it("normalizes null file paths to the untitled document scope", () => {
     expect(normalizeDocKey(null)).toBe("untitled");
-    expect(normalizeDocKey("C:\\vault\\note.md")).toBe("C:/vault/note.md");
+    expect(normalizeDocKey("C:\\vault\\note.md")).toContain("vault");
+  });
+
+  it("derives a document ref from the file path boundary", () => {
+    expect(createSnapshotDocumentRef(null)).toEqual({
+      documentId: "untitled",
+      filePath: null,
+    });
+    expect(createSnapshotDocumentRef("/tmp/a.md").filePath).toBe("/tmp/a.md");
   });
 
   it("prefers the first non-heading line in the summary", () => {
@@ -44,7 +55,13 @@ describe("snapshot helpers", () => {
     expect(items[0].summary).toBe("# Two");
   });
 
-  it("falls back to an empty store on corrupt persisted data", () => {
-    expect(parseSnapshotStore("{not-json")).toEqual(createEmptySnapshotStore());
+  it("rejects snapshot content above the byte cap", () => {
+    expect(() => {
+      assertSnapshotContentSize("a".repeat(DEFAULT_SNAPSHOT_CONTENT_BYTES + 1));
+    }).toThrow(/exceeds/i);
+  });
+
+  it("throws on corrupt persisted data", () => {
+    expect(() => parseSnapshotStore("{not-json")).toThrow();
   });
 });

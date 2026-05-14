@@ -69,6 +69,14 @@ var bridge = {
   saveFileAs(content) {
     return import_electron.ipcRenderer.invoke("demo:save-file-as", content);
   },
-  vault: vaultBridge
+  vault: vaultBridge,
+  snapshots: {
+    create(input) {
+      return import_electron.ipcRenderer.invoke("snapshot:create", input);
+    },
+    list(filePath) {
+      return import_electron.ipcRenderer.invoke("snapshot:list", filePath);
+    }
+  }
 };
 import_electron.contextBridge.exposeInMainWorld("nexusDemo", bridge);

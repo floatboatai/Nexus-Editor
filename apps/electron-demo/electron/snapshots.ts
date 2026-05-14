@@ -1,3 +1,5 @@
+import path from "node:path";
+
 export interface SnapshotEntry {
   id: string;
   docKey: string;
@@ -12,6 +14,11 @@ export interface SnapshotStore {
   byDocument: Record<string, SnapshotEntry[]>;
 }
 
+export interface SnapshotDocumentRef {
+  documentId: string;
+  filePath: string | null;
+}
+
 export interface CreateSnapshotInput {
   docKey: string;
   filePath: string | null;
@@ -21,14 +28,31 @@ export interface CreateSnapshotInput {
 }
 
 export const DEFAULT_SNAPSHOT_LIMIT = 20;
+export const DEFAULT_SNAPSHOT_CONTENT_BYTES = 512 * 1024;
 
 export function createEmptySnapshotStore(): SnapshotStore {
   return { byDocument: {} };
 }
 
+export function createSnapshotDocumentRef(filePath: string | null): SnapshotDocumentRef {
+  return {
+    documentId: filePath ? documentIdFromPath(filePath) : "untitled",
+    filePath,
+  };
+}
+
 export function normalizeDocKey(filePath: string | null): string {
-  if (!filePath) return "untitled";
-  return filePath.replace(/\\/g, "/");
+  return createSnapshotDocumentRef(filePath).documentId;
+}
+
+export function assertSnapshotContentSize(
+  content: string,
+  limitBytes = DEFAULT_SNAPSHOT_CONTENT_BYTES
+): void {
+  const size = Buffer.byteLength(content, "utf-8");
+  if (size > limitBytes) {
+    throw new Error(`Snapshot content exceeds ${limitBytes} bytes`);
+  }
 }
 
 export function summarizeSnapshot(content: string): string {
@@ -80,22 +104,18 @@ export function addSnapshot(
 }
 
 export function parseSnapshotStore(raw: string): SnapshotStore {
-  try {
-    const parsed = JSON.parse(raw) as Partial<SnapshotStore>;
-    if (!parsed.byDocument || typeof parsed.byDocument !== "object") {
-      return createEmptySnapshotStore();
-    }
-    const byDocument: Record<string, SnapshotEntry[]> = {};
-    for (const [docKey, value] of Object.entries(parsed.byDocument)) {
-      if (!Array.isArray(value)) continue;
-      byDocument[docKey] = value.filter(isSnapshotEntryLike).sort((a, b) => {
-        return b.createdAt.localeCompare(a.createdAt);
-      });
-    }
-    return { byDocument };
-  } catch {
-    return createEmptySnapshotStore();
+  const parsed = JSON.parse(raw) as Partial<SnapshotStore>;
+  if (!parsed.byDocument || typeof parsed.byDocument !== "object") {
+    throw new Error("Invalid snapshot store shape");
   }
+  const byDocument: Record<string, SnapshotEntry[]> = {};
+  for (const [docKey, value] of Object.entries(parsed.byDocument)) {
+    if (!Array.isArray(value)) continue;
+    byDocument[docKey] = value.filter(isSnapshotEntryLike).sort((a, b) => {
+      return b.createdAt.localeCompare(a.createdAt);
+    });
+  }
+  return { byDocument };
 }
 
 function isSnapshotEntryLike(value: unknown): value is SnapshotEntry {
@@ -108,4 +128,13 @@ function isSnapshotEntryLike(value: unknown): value is SnapshotEntry {
     && typeof entry.content === "string"
     && typeof entry.createdAt === "string"
     && typeof entry.summary === "string";
+}
+
+function isCaseInsensitiveFileSystem(): boolean {
+  return process.platform === "darwin" || process.platform === "win32";
+}
+
+function documentIdFromPath(filePath: string): string {
+  const resolved = path.resolve(filePath).replace(/\\/g, "/");
+  return isCaseInsensitiveFileSystem() ? resolved.toLowerCase() : resolved;
 }

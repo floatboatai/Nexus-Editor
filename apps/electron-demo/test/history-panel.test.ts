@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHistoryPanel } from "../src/renderer/history-panel";
-import type { SnapshotEntry } from "../electron/snapshots";
+import type { SnapshotEntry } from "../src/renderer/snapshot-entry";
 
 function makeSnapshot(overrides: Partial<SnapshotEntry> = {}): SnapshotEntry {
   return {

@@ -8,5 +8,6 @@ describe("createState", () => {
     expect(state.content).toBe("");
     expect(state.dirty).toBe(false);
     expect(state.error).toBeNull();
+    expect(state.statusMessage).toBeNull();
   });
 });

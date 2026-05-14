@@ -1,15 +1,16 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from "electron";
-import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promises";
+import { readFile, writeFile, readdir, mkdir, rename, stat, copyFile } from "node:fs/promises";
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   addSnapshot,
+  assertSnapshotContentSize,
+  createSnapshotDocumentRef,
   createEmptySnapshotStore,
   createSnapshotEntry,
   DEFAULT_SNAPSHOT_LIMIT,
   listSnapshots,
-  normalizeDocKey,
   parseSnapshotStore,
   type SnapshotEntry,
   type SnapshotStore,
@@ -253,19 +254,35 @@ function snapshotStorePath(): string {
   return path.join(app.getPath("userData"), "snapshots.json");
 }
 
+function snapshotTempPath(): string {
+  return `${snapshotStorePath()}.tmp`;
+}
+
 async function readSnapshotStore(): Promise<SnapshotStore> {
   const file = snapshotStorePath();
   if (!existsSync(file)) return createEmptySnapshotStore();
   try {
     const raw = await readFile(file, "utf-8");
     return parseSnapshotStore(raw);
-  } catch {
+  } catch (err) {
+    console.warn("[snapshot] failed to read store:", err);
+    if (existsSync(file)) {
+      const corruptPath = `${file}.corrupt-${Date.now()}`;
+      try {
+        await copyFile(file, corruptPath);
+      } catch (copyErr) {
+        console.warn("[snapshot] failed to preserve corrupt store:", copyErr);
+      }
+    }
     return createEmptySnapshotStore();
   }
 }
 
 async function writeSnapshotStore(store: SnapshotStore): Promise<void> {
-  await writeFile(snapshotStorePath(), JSON.stringify(store, null, 2), "utf-8");
+  const target = snapshotStorePath();
+  const temp = snapshotTempPath();
+  await writeFile(temp, JSON.stringify(store, null, 2), "utf-8");
+  await rename(temp, target);
 }
 
 // -- vault IPC handlers -------------------------------------------------------
@@ -447,11 +464,12 @@ ipcMain.handle("vault:set-last", async (_event, vaultPath: string) => {
 ipcMain.handle(
   "snapshot:create",
   async (_event, input: { filePath: string | null; content: string; title?: string }): Promise<SnapshotEntry> => {
+    assertSnapshotContentSize(input.content);
     const store = await readSnapshotStore();
-    const docKey = normalizeDocKey(input.filePath);
+    const documentRef = createSnapshotDocumentRef(input.filePath);
     const entry = createSnapshotEntry({
-      docKey,
-      filePath: input.filePath,
+      docKey: documentRef.documentId,
+      filePath: documentRef.filePath,
       content: input.content,
       title: input.title,
     });
@@ -463,7 +481,7 @@ ipcMain.handle(
 
 ipcMain.handle("snapshot:list", async (_event, filePath: string | null): Promise<SnapshotEntry[]> => {
   const store = await readSnapshotStore();
-  return listSnapshots(store, normalizeDocKey(filePath));
+  return listSnapshots(store, createSnapshotDocumentRef(filePath).documentId);
 });
 
 app.whenReady().then(() => {
