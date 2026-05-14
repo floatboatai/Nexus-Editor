@@ -1,8 +1,8 @@
 import {
   computeSlashState,
-  filterSlashCommands,
-  getSlashMatch,
-  type SlashMatch,
+  filterSlashCommands as coreFilterSlashCommands,
+  getSlashMatch as coreGetSlashMatch,
+  type SlashMatch as CoreSlashMatch,
   type SlashStateOptions,
   type SlashStateResult,
 } from "@floatboat/nexus-core";
@@ -12,14 +12,6 @@ export interface SlashMatch {
   from: number;
   to: number;
   query: string;
-}
-
-export interface SlashState extends SlashStateResult {
-  isOpen: boolean;
-  from: number | null;
-  to: number | null;
-  query: string;
-  commands: SlashCommandDef[];
 }
 
 export interface SlashPlugin extends NexusPlugin {
@@ -89,7 +81,7 @@ export function filterSlashCommands(
   query: string,
   options: FilterSlashCommandsOptions = {}
 ): SlashCommandDef[] {
-  const { limit = 10 } = options;
+  const { limit = Infinity } = options;
   const normalizedQuery = query.trim().toLowerCase();
 
   if (!normalizedQuery) {
@@ -131,10 +123,6 @@ export function getSlashState(
   options?: SlashStateOptions
 ): SlashStateResult {
   return computeSlashState(doc, cursor, commands, options);
-}
-
-export interface SlashPlugin extends NexusPlugin {
-  slashCommands: SlashCommandDef[];
 }
 
 export function createSlashPlugin(commands: SlashCommandDef[]): SlashPlugin {

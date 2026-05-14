@@ -13,7 +13,7 @@ function getSelectedLines(doc: string, from: number, to: number): Array<{ lineSt
   const lines: Array<{ lineStart: number; lineEnd: number; line: string }> = [];
   let pos = from;
 
-  while (pos <= to) {
+  while (pos < to || (lines.length === 0 && pos === to)) {
     const lineStart = doc.lastIndexOf("\n", pos - 1) + 1;
     const lineEndIdx = doc.indexOf("\n", pos);
     const lineEnd = lineEndIdx === -1 ? doc.length : lineEndIdx;
@@ -71,6 +71,7 @@ export function toggleOrderedList(editor: EditorAPI): boolean {
   let newDoc = doc;
   let offset = 0;
   let lastNewLineEnd = 0;
+  const firstLineStart = lines[0].lineStart;
 
   for (let i = 0; i < lines.length; i++) {
     const { lineStart, lineEnd, line } = lines[i];
@@ -96,8 +97,8 @@ export function toggleOrderedList(editor: EditorAPI): boolean {
   }
 
   editor.setDocument(newDoc);
-  // Place cursor at the end of the last modified line
-  editor.setSelection(lastNewLineEnd);
+  // Restore selection covering all modified lines
+  editor.setSelection(firstLineStart, lastNewLineEnd);
   return true;
 }
 
@@ -119,6 +120,7 @@ export function toggleUnorderedList(editor: EditorAPI): boolean {
   let newDoc = doc;
   let offset = 0;
   let lastNewLineEnd = 0;
+  const firstLineStart = lines[0].lineStart;
 
   for (let i = 0; i < lines.length; i++) {
     const { lineStart, lineEnd, line } = lines[i];
@@ -144,8 +146,8 @@ export function toggleUnorderedList(editor: EditorAPI): boolean {
   }
 
   editor.setDocument(newDoc);
-  // Place cursor at the end of the last modified line
-  editor.setSelection(lastNewLineEnd);
+  // Restore selection covering all modified lines
+  editor.setSelection(firstLineStart, lastNewLineEnd);
   return true;
 }
 

@@ -81,7 +81,7 @@ describe("@floatboat/nexus-plugin-slash", () => {
     expect(result.map((cmd) => cmd.id)).toEqual(["a", "c", "b"]);
   });
 
-  it("limits the number of returned commands", () => {
+  it("returns all commands by default (no implicit limit)", () => {
     const commands = [
       { id: "a", title: "A" },
       { id: "b", title: "B" },
@@ -97,8 +97,8 @@ describe("@floatboat/nexus-plugin-slash", () => {
     ];
 
     const result = filterSlashCommands(commands, "");
-    expect(result.length).toBe(10); // Default limit
-    expect(result.map((cmd) => cmd.id)).toEqual(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]);
+    expect(result.length).toBe(11); // No default limit
+    expect(result.map((cmd) => cmd.id)).toEqual(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"]);
   });
 
   it("respects custom limit option", () => {
@@ -170,10 +170,11 @@ describe("@floatboat/nexus-plugin-slash", () => {
       { id: "highlight", title: "Highlight" },
       { id: "heading", title: "Heading", keywords: ["h1"] }
     ];
-    // Title prefix tier; "Heading" (7 chars) wins over "Highlight" (9 chars).
+    // Both are title-prefix matches; "Highlight" comes first alphabetically
+    // because plugin-slash uses alphabetical tie-breaker for same-score items.
     expect(filterSlashCommands(commands, "h").map((c) => c.id)).toEqual([
-      "heading",
-      "highlight"
+      "highlight",
+      "heading"
     ]);
   });
 
