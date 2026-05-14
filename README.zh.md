@@ -278,6 +278,7 @@ const files = await readAllNoteVaultFiles(adapter);
 ```
 
 Ref 由 provider 拥有，所以本地适配器可以使用经过边界校验的路径，云端适配器也可以使用不透明 ID。常见失败场景通过 `NoteVaultError` code 表达，例如 `auth-required`、`permission-denied`、`conflict`、`offline`、`unsupported-operation`。
+适配器可以选择实现 `readAll` 来做启动/索引阶段的批量读取；否则 `readAllNoteVaultFiles` 会退回到有界并发的 `list` + `read`。
 
 </details>
 

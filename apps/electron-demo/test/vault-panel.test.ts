@@ -66,6 +66,7 @@ function createAdapter() {
     pathToFolderRef: (folderPath: string) => createRef(folderPath, "folder"),
     list: vi.fn(async () => nodes),
     read: vi.fn(async (ref) => ({ ref: createRef(ref.displayPath ?? ref.id, "file"), content: "" })),
+    readAll: vi.fn(async () => []),
     write: vi.fn(async (ref) => ({ ref: createRef(ref.displayPath ?? ref.id, "file") })),
     createFile: vi.fn(async (parent, name) => {
       const path = `${parent.displayPath ?? parent.id}/${name}`;

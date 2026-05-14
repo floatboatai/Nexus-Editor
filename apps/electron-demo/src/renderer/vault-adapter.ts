@@ -4,8 +4,10 @@ import {
   type NoteVaultAdapter,
   type NoteVaultCapabilities,
   type NoteVaultChangeEvent,
+  type NoteVaultFile,
   type NoteVaultFileRef,
   type NoteVaultFolderRef,
+  type NoteVaultListOptions,
   type NoteVaultNode,
   type NoteVaultRef,
 } from "@floatboat/nexus-core";
@@ -20,6 +22,7 @@ export interface ElectronVaultAdapter extends NoteVaultAdapter {
   refToPath(ref: NoteVaultRef): string;
   pathToFileRef(filePath: string): NoteVaultFileRef;
   pathToFolderRef(folderPath: string): NoteVaultFolderRef;
+  readAll(options?: NoteVaultListOptions): Promise<NoteVaultFile[]>;
 }
 
 const capabilities: NoteVaultCapabilities = {
@@ -46,7 +49,7 @@ export function createElectronVaultAdapter(bridge: VaultBridge = window.nexusDem
         ref,
       });
     }
-    return ref.displayPath ?? ref.id;
+    return ref.id;
   }
 
   function fileRef(filePath: string): NoteVaultFileRef {
@@ -114,6 +117,14 @@ export function createElectronVaultAdapter(bridge: VaultBridge = window.nexusDem
         ref: fileRef(result.path),
         content: result.content,
       };
+    },
+    async readAll(options = {}) {
+      const root = options.root ? pathFromRef(options.root) : undefined;
+      const results = await bridge.readAll(root);
+      return results.map((result) => ({
+        ref: fileRef(result.path),
+        content: result.content,
+      }));
     },
     async write(ref, content) {
       const result = await bridge.write(pathFromRef(ref), content);

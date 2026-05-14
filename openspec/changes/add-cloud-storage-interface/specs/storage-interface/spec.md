@@ -109,6 +109,11 @@ The storage interface SHALL be expressive enough to model the existing electron-
 - **WHEN** the existing electron-demo vault lists, reads, writes, creates, renames, deletes, and watches local markdown files
 - **THEN** each operation SHALL have an equivalent storage adapter method or documented helper
 
+#### Scenario: Startup index reads use batch path when available
+- **WHEN** an adapter exposes a batch read method for all supported note files
+- **THEN** shared read-all helpers SHALL use that batch method instead of issuing one read call per file
+- **AND** adapters without a batch method SHALL still be supported through bounded-concurrency reads
+
 #### Scenario: Path escape guard preserved
 - **WHEN** a local filesystem adapter receives a ref or target path that resolves outside the active vault root
 - **THEN** the adapter SHALL reject the operation

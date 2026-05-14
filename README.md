@@ -278,6 +278,7 @@ const files = await readAllNoteVaultFiles(adapter);
 ```
 
 Refs are provider-owned, so local adapters can use validated paths while cloud adapters can use opaque IDs. Common failure modes are represented with `NoteVaultError` codes such as `auth-required`, `permission-denied`, `conflict`, `offline`, and `unsupported-operation`.
+Adapters can optionally implement `readAll` for batched startup/indexing reads; otherwise `readAllNoteVaultFiles` falls back to bounded-concurrency `list` + `read`.
 
 </details>
 

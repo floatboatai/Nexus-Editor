@@ -12,6 +12,7 @@ import {
   type NoteVaultFile,
   type NoteVaultFileRef,
   type NoteVaultFolderRef,
+  type NoteVaultListOptions,
   type NoteVaultNode,
   type NoteVaultRef,
 } from "../src/index";
@@ -239,6 +240,72 @@ describe("storage interface", () => {
       ["/Nested/b.md", "B"],
       ["/a.md", "A"],
     ]);
+  });
+
+  it("uses an adapter batch readAll implementation when available", async () => {
+    const adapter = new InMemoryNoteVaultAdapter() as InMemoryNoteVaultAdapter & {
+      readAll: (options?: NoteVaultListOptions) => Promise<NoteVaultFile[]>;
+    };
+    const root = adapter.rootRef();
+    const file = await adapter.createFile(root, "a.md", "A");
+    const list = vi.spyOn(adapter, "list");
+    const read = vi.spyOn(adapter, "read");
+    adapter.readAll = vi.fn(async () => [{ ref: file, content: "batched" }]);
+
+    const files = await readAllNoteVaultFiles(adapter, { root });
+
+    expect(adapter.readAll).toHaveBeenCalledWith({ root, recursive: undefined });
+    expect(list).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
+    expect(files).toEqual([{ ref: file, content: "batched" }]);
+  });
+
+  it("falls back to bounded parallel reads when no batch reader is available", async () => {
+    const files = Array.from({ length: 40 }, (_, index): NoteVaultFileRef => ({
+      providerId: "parallel",
+      id: `/note-${index}.md`,
+      kind: "file",
+    }));
+    let activeReads = 0;
+    let maxActiveReads = 0;
+    const adapter: NoteVaultAdapter = {
+      id: "parallel",
+      label: "Parallel vault",
+      capabilities: {},
+      async list() {
+        return files.map((ref) => ({
+          ref,
+          name: ref.id,
+          kind: "file",
+        }));
+      },
+      async read(ref) {
+        activeReads += 1;
+        maxActiveReads = Math.max(maxActiveReads, activeReads);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        activeReads -= 1;
+        return { ref: ref as NoteVaultFileRef, content: ref.id };
+      },
+      async write(ref) {
+        return { ref: ref as NoteVaultFileRef };
+      },
+      async createFile() {
+        return files[0];
+      },
+      async createFolder() {
+        return { providerId: "parallel", id: "/", kind: "folder" };
+      },
+      async rename(ref) {
+        return ref as AnyNoteVaultRef;
+      },
+      async delete() {},
+    };
+
+    const result = await readAllNoteVaultFiles(adapter);
+
+    expect(result).toHaveLength(files.length);
+    expect(maxActiveReads).toBeGreaterThan(1);
+    expect(maxActiveReads).toBeLessThanOrEqual(32);
   });
 
   it("reports typed conflicts for stale optimistic writes", async () => {

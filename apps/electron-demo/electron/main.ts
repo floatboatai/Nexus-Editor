@@ -279,10 +279,17 @@ async function collectFiles(dir: string, acc: string[]): Promise<void> {
   }
 }
 
-ipcMain.handle("vault:read-all", async () => {
-  if (!activeVault) return [];
+ipcMain.handle("vault:read-all", async (_event, vaultPath?: string) => {
+  const root = vaultPath ? path.resolve(vaultPath) : activeVault;
+  if (!root) return [];
+  const info = await stat(root);
+  if (!info.isDirectory()) throw new Error(`Not a directory: ${root}`);
+
+  activeVault = root;
+  startWatcher(root);
+
   const paths: string[] = [];
-  await collectFiles(activeVault, paths);
+  await collectFiles(root, paths);
   // Bounded-concurrency parallel read — ~5-10x faster than serial on large
   // vaults, without risking EMFILE.
   const CONCURRENCY = 32;

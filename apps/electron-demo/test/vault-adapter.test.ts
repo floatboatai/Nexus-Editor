@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { readAllNoteVaultFiles } from "@floatboat/nexus-core";
 import { createElectronVaultAdapter } from "../src/renderer/vault-adapter";
 
 function createBridge(): VaultBridge {
@@ -15,7 +16,7 @@ function createBridge(): VaultBridge {
     pick: vi.fn(),
     list: vi.fn(async () => nodes),
     read: vi.fn(async (filePath: string) => ({ path: filePath, content: "# Note" })),
-    readAll: vi.fn(),
+    readAll: vi.fn(async (vaultPath?: string) => [{ path: `${vaultPath ?? "/vault"}/Folder/Note.md`, content: "# Batch" }]),
     write: vi.fn(async (filePath: string) => ({ path: filePath })),
     createFile: vi.fn(async (parentDir: string, name: string) => ({ path: `${parentDir}/${name}` })),
     createFolder: vi.fn(async (parentDir: string, name: string) => ({ path: `${parentDir}/${name}` })),
@@ -69,6 +70,43 @@ describe("createElectronVaultAdapter", () => {
     expect(bridge.write).toHaveBeenCalledWith("/vault/New.md", "body");
     expect(bridge.rename).toHaveBeenCalledWith("/vault/New.md", "Renamed.md");
     expect(bridge.delete).toHaveBeenCalledWith("/vault/Renamed.md");
+  });
+
+  it("uses ref ids rather than display paths for stable operation identity", async () => {
+    const bridge = createBridge();
+    const adapter = createElectronVaultAdapter(bridge);
+    const file = {
+      ...adapter.pathToFileRef("/vault/Note.md"),
+      displayPath: "/display-only/Note.md",
+    };
+
+    await adapter.read(file);
+
+    expect(bridge.read).toHaveBeenCalledWith("/vault/Note.md");
+  });
+
+  it("routes readAllNoteVaultFiles through the batch bridge path", async () => {
+    const bridge = createBridge();
+    const adapter = createElectronVaultAdapter(bridge);
+
+    const files = await readAllNoteVaultFiles(adapter, {
+      root: adapter.rootRef("/vault"),
+    });
+
+    expect(bridge.readAll).toHaveBeenCalledWith("/vault");
+    expect(bridge.read).not.toHaveBeenCalled();
+    expect(files).toEqual([
+      {
+        ref: {
+          providerId: "electron-local-vault",
+          id: "/vault/Folder/Note.md",
+          kind: "file",
+          name: "Note.md",
+          displayPath: "/vault/Folder/Note.md",
+        },
+        content: "# Batch",
+      },
+    ]);
   });
 
   it("surfaces hard-delete requests as unsupported because local delete uses trash", async () => {

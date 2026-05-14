@@ -35,6 +35,7 @@ export interface NoteVaultAdapter {
   readonly label: string;
   capabilities: NoteVaultCapabilities;
   list(options?: NoteVaultListOptions): Promise<NoteVaultNode[]>;
+  readAll?(options?: NoteVaultListOptions): Promise<NoteVaultFile[]>;
   read(ref: NoteVaultRef): Promise<NoteVaultFile>;
   write(ref: NoteVaultRef, content: string, options?: NoteVaultWriteOptions): Promise<NoteVaultWriteResult>;
   createFile(parent: NoteVaultRef, name: string, content?: string): Promise<NoteVaultFileRef>;
@@ -51,6 +52,7 @@ Important design choices:
 - Include display paths for UI, but do not make display paths the only identity.
 - Represent capabilities explicitly because not every backend can watch, trash, rename folders, or provide revision tokens.
 - Writes should allow optimistic concurrency via an optional revision/etag token when the provider supports it.
+- Let adapters expose an optional `readAll` batch path for startup/indexing. The shared helper falls back to bounded-concurrency `list` + `read` so providers are not forced to implement a batch endpoint.
 
 ## Decision: Contract First, Provider SDKs Later
 
@@ -124,6 +126,5 @@ Implementation validation in a later PR:
 ## Open Questions
 
 - Should the adapter contract live in `@floatboat/nexus-core` as types only, or in a new package?
-- Should `readAll` be a required method or a helper built from `list` + `read`?
 - Should delete prefer trash semantics when supported, or should trash be a separate optional capability?
 - How much of last-vault/recent-vault persistence belongs in the adapter versus host UI state?

@@ -131,6 +131,7 @@ export interface NoteVaultAdapter {
   readonly label: string;
   readonly capabilities: NoteVaultCapabilities;
   list(options?: NoteVaultListOptions): Promise<NoteVaultNode[]>;
+  readAll?(options?: NoteVaultListOptions): Promise<NoteVaultFile[]>;
   read(ref: NoteVaultRef): Promise<NoteVaultFile>;
   write(ref: NoteVaultRef, content: string, options?: NoteVaultWriteOptions): Promise<NoteVaultWriteResult>;
   createFile(parent: NoteVaultRef, name: string, content?: string): Promise<NoteVaultFileRef>;
@@ -143,6 +144,8 @@ export interface NoteVaultAdapter {
 export interface NoteVaultReadAllOptions extends NoteVaultListOptions {
   onError?: (error: unknown, ref: NoteVaultFileRef) => void;
 }
+
+const DEFAULT_READ_ALL_CONCURRENCY = 32;
 
 export function flattenNoteVaultNodes(nodes: readonly NoteVaultNode[]): AnyNoteVaultRef[] {
   const refs: AnyNoteVaultRef[] = [];
@@ -157,17 +160,30 @@ export async function readAllNoteVaultFiles(
   adapter: NoteVaultAdapter,
   options: NoteVaultReadAllOptions = {}
 ): Promise<NoteVaultFile[]> {
-  const nodes = await adapter.list(options);
-  const files = flattenNoteVaultNodes(nodes).filter((ref): ref is NoteVaultFileRef => ref.kind === "file");
-  const out: NoteVaultFile[] = [];
+  const listOptions: NoteVaultListOptions = {
+    root: options.root,
+    recursive: options.recursive,
+  };
+  if (adapter.readAll) return adapter.readAll(listOptions);
 
-  for (const ref of files) {
-    try {
-      out.push(await adapter.read(ref));
-    } catch (err) {
-      options.onError?.(err, ref);
+  const nodes = await adapter.list(listOptions);
+  const files = flattenNoteVaultNodes(nodes).filter((ref): ref is NoteVaultFileRef => ref.kind === "file");
+  const out = new Array<NoteVaultFile | undefined>(files.length);
+  let cursor = 0;
+
+  async function worker(): Promise<void> {
+    while (cursor < files.length) {
+      const index = cursor++;
+      const ref = files[index];
+      try {
+        out[index] = await adapter.read(ref);
+      } catch (err) {
+        options.onError?.(err, ref);
+      }
     }
   }
 
-  return out;
+  await Promise.all(Array.from({ length: Math.min(DEFAULT_READ_ALL_CONCURRENCY, files.length) }, worker));
+
+  return out.filter((file): file is NoteVaultFile => file !== undefined);
 }
