@@ -59,6 +59,9 @@ importers:
       '@floatboat/nexus-plugin-search':
         specifier: workspace:*
         version: link:../../packages/plugin-search
+      '@floatboat/nexus-plugin-slash':
+        specifier: workspace:*
+        version: link:../../packages/plugin-slash
       '@floatboat/nexus-plugin-toolbar':
         specifier: workspace:*
         version: link:../../packages/plugin-toolbar

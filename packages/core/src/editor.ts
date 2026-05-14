@@ -296,7 +296,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
 
             if (slashCommands.length > 0) {
               const doc = update.state.doc.toString();
-              const state = computeSlashState(doc, sel.head, slashCommands);
+              const state = computeSlashState(doc, sel.head, slashCommands, {
+                limit: config.slashMenuLimit,
+              });
               let coords: { left: number; top: number; bottom: number } | null = null;
 
               if (state.isOpen && state.from !== null) {

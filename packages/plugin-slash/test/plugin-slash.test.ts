@@ -68,10 +68,9 @@ describe("@floatboat/nexus-plugin-slash", () => {
       commands: []
     });
   });
-
   // ── Sorting and Limit ──
 
-  it("sorts commands by priority when no query", () => {
+   it("sorts commands by priority when no query", () => {
     const commands = [
       { id: "b", title: "B", priority: 1 },
       { id: "a", title: "A", priority: 10 },
@@ -163,5 +162,36 @@ describe("@floatboat/nexus-plugin-slash", () => {
     expect(result.length).toBe(2);
     // "Apple" (starts with) > "Banana" (contains) > "Date" (contains)
     expect(result.map((cmd) => cmd.id)).toEqual(["a", "b"]);
+  });
+
+  // Main 分支新增用例
+  it("ranks title-prefix matches above keyword-only matches", () => {
+    const commands = [
+      { id: "highlight", title: "Highlight" },
+      { id: "heading", title: "Heading", keywords: ["h1"] }
+    ];
+    // Title prefix tier; "Heading" (7 chars) wins over "Highlight" (9 chars).
+    expect(filterSlashCommands(commands, "h").map((c) => c.id)).toEqual([
+      "heading",
+      "highlight"
+    ]);
+  });
+
+  it("propagates limit through getSlashState", () => {
+    const commands = Array.from({ length: 10 }, (_, i) => ({
+      id: `cmd-${i}`,
+      title: `Command ${i}`
+    }));
+    const state = getSlashState("/com", 4, commands, { limit: 2 });
+    expect(state.commands).toHaveLength(2);
+  });
+
+  it("preserves an optional run callback through filterSlashCommands", () => {
+    const run = () => true;
+    const filtered = filterSlashCommands(
+      [{ id: "h1", title: "Heading 1", run }],
+      "head"
+    );
+    expect(filtered[0].run).toBe(run);
   });
 });

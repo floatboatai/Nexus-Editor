@@ -25,6 +25,7 @@
     "@floatboat/nexus-core": "workspace:*",
     "@floatboat/nexus-plugin-history": "workspace:*",
     "@floatboat/nexus-plugin-search": "workspace:*",
+    "@floatboat/nexus-plugin-slash": "workspace:*",
     "@floatboat/nexus-plugin-toolbar": "workspace:*",
     "@floatboat/nexus-preset-gfm": "workspace:*",
     "highlight.js": "^11.11.0"

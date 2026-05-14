@@ -53,3 +53,15 @@ When modifying `packages/core/src/live-preview-table.ts`:
 11. **rAF polling must respect ALL active interaction states.** Before clearing state in a rAF loop, check ALL flags: `isRangeSelecting`, `cellMouseDown`, `self.editing`, AND `rangeActive`. The `rangeActive` flag persists after mouseup for multi-cell selections — it is only cleared by explicit actions (`clearRangeSelection`). Missing this flag causes range selection to vanish on the next animation frame.
 
 12. **StateField update must skip ALL rebuilds during `isTableEditing()`.** Both `docChanged` and selection-only changes. For docChanged use `decos.map(tr.changes)`, for selection-only return existing decos unchanged. If you only guard docChanged, selection changes during editing will trigger a full rebuild that recreates the widget DOM.
+
+## Testing Conventions
+
+### Fixture Assertions Should Validate Behavior, Not Incidental Files
+
+- **Applies To**: Vitest / fixture tests / sample-vault wiki-link behavior
+- **Signal**: Successful fix after sample-vault content changed
+- **Updated**: 2026-05-12
+
+- 🎯 **原则**: Fixture tests should stay stable when demo content is edited, while still proving the behavior they are meant to cover.
+- ❌ **Bad Case**: Assert that `Daily/2026-04-20.md` must be the backlink source for `People/Alice.md` or `Topics/Testing.md`; this breaks when the demo note is rewritten even though wiki-link indexing still works.
+- ✅ **Good Case**: Dynamically scan current fixture content with `scanWikiLinks`, filter for resolvable alias links, then assert `LinkIndex.getBacklinks(resolvedTarget)` contains a hit with the source file and original `match.target`.

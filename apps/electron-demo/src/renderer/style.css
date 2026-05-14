@@ -99,3 +99,64 @@ body,
 .cm-editor .hljs-deletion { color: #dc322f; }
 .cm-editor .hljs-variable,
 .cm-editor .hljs-template-variable { color: #cb4b16; }
+
+/* ── Slash command menu ───────────────────────────────────────────
+   The menu is mounted on document.body via createSlashMenuUI so it
+   can overflow the editor's clipping context. We expose every visual
+   knob behind a CSS custom property so the host's theme (light/dark)
+   can override without re-implementing the layout.                 */
+
+.nexus-slash-menu {
+  --nexus-slash-bg: var(--nexus-bg, #ffffff);
+  --nexus-slash-border: var(--nexus-border, #e4e7eb);
+  --nexus-slash-text: var(--nexus-text, #24292e);
+  --nexus-slash-text-muted: var(--nexus-text-muted, #6e7681);
+  --nexus-slash-accent: var(--nexus-accent, #0969da);
+  --nexus-slash-active-bg: var(--nexus-bg-muted, #eaeef2);
+
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--nexus-slash-bg);
+  color: var(--nexus-slash-text);
+  border: 1px solid var(--nexus-slash-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  z-index: 1000;
+}
+
+.nexus-slash-menu__item {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.nexus-slash-menu__item.is-active {
+  background: var(--nexus-slash-active-bg);
+}
+
+.nexus-slash-menu__title {
+  font-weight: 500;
+  color: var(--nexus-slash-text);
+}
+
+.nexus-slash-menu__description {
+  font-size: 12px;
+  color: var(--nexus-slash-text-muted);
+  margin-top: 1px;
+}
+
+.nexus-slash-menu__empty {
+  padding: 12px 10px;
+  color: var(--nexus-slash-text-muted);
+  font-style: italic;
+  text-align: center;
+}

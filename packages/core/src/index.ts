@@ -3,6 +3,14 @@ export { markdownAutoPair } from "./markdown-autopair";
 export { markdownFold, markdownFoldService } from "./markdown-fold";
 export { markdownKeymap, handleMarkdownEnter } from "./markdown-keymap";
 export { enLocale, zhLocale, resolveLocale, type NexusLocale } from "./locale";
+export {
+  computeSlashState,
+  filterSlashCommands,
+  getSlashMatch,
+  type SlashMatch,
+  type SlashStateOptions,
+  type SlashStateResult,
+} from "./slash-state";
 export { lightTheme, darkTheme, type NexusTheme } from "./theme";
 export {
   scanWikiLinks,

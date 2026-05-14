@@ -181,4 +181,55 @@ describe("slashMenuChange", () => {
     expect(handler).not.toHaveBeenCalled();
     editor.destroy();
   });
+
+  it("emits a ranked list capped at slashMenuLimit", () => {
+    const container = document.createElement("div");
+    const handler = vi.fn();
+    const manyCommands = Array.from({ length: 20 }, (_, i) => ({
+      id: `cmd-${i}`,
+      title: `Command ${i}`,
+    }));
+
+    const editor = createEditor({
+      container,
+      initialValue: "",
+      slashMenuLimit: 3,
+      plugins: [{ name: "test", slashCommands: manyCommands }],
+    });
+
+    editor.on("slashMenuChange", handler);
+    editor.setDocument("/com");
+    editor.setSelection(4);
+
+    const lastCall = handler.mock.calls[handler.mock.calls.length - 1][0];
+    expect(lastCall.isOpen).toBe(true);
+    expect(lastCall.commands).toHaveLength(3);
+    editor.destroy();
+  });
+
+  it("forwards the run callback on emitted commands", () => {
+    const container = document.createElement("div");
+    const handler = vi.fn();
+    const run = vi.fn();
+
+    const editor = createEditor({
+      container,
+      initialValue: "",
+      plugins: [
+        {
+          name: "test",
+          slashCommands: [{ id: "h1", title: "Heading 1", run }],
+        },
+      ],
+    });
+
+    editor.on("slashMenuChange", handler);
+    editor.setDocument("/head");
+    editor.setSelection(5);
+
+    const lastCall = handler.mock.calls[handler.mock.calls.length - 1][0];
+    expect(lastCall.commands[0].id).toBe("h1");
+    expect(lastCall.commands[0].run).toBe(run);
+    editor.destroy();
+  });
 });

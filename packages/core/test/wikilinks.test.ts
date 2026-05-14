@@ -191,7 +191,7 @@ describe("wikilinks navigation callback", () => {
 
 describe("wikilinks autocomplete", () => {
   it("calls suggest with the query typed after [[", async () => {
-    const suggest = vi.fn(() => ["Apple", "Banana", "Avocado"]);
+    const suggest = vi.fn((_query: string) => ["Apple", "Banana", "Avocado"]);
     const state = EditorState.create({
       doc: "line\n[[ap",
       selection: EditorSelection.cursor("line\n[[ap".length),

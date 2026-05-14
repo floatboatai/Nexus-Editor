@@ -52,6 +52,10 @@ export default defineConfig({
         __dirname,
         "../../packages/plugin-search/src/index.ts"
       ),
+      "@floatboat/nexus-plugin-slash": path.resolve(
+        __dirname,
+        "../../packages/plugin-slash/src/index.ts"
+      ),
     },
   },
   server: {

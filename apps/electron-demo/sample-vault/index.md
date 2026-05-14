@@ -28,6 +28,10 @@ show a long list.
 - [[mermaid-demo]] — 7 种 mermaid 图表 + 语法错误兜底演示
 - [[image-demo]] — 本地图片 + Obsidian 风格 `|width` + hover chrome + drag-resize
 
+## Editor shortcuts
+
+- [[slash-demo]] — type `/` anywhere to open the floating command menu
+
 ## Edge cases
 
 - [[ghost-demo]] — try clicking the red dashed ghost link inside

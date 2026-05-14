@@ -23,16 +23,17 @@ This document maps every planned feature to **package ownership / priority / sta
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
 | 2  | Whole-word matching | `plugin-search` | P1 | planned | No | Extension of existing search options |
-| 15 | Regex search | `plugin-search` | P1 | planned | No | Watch escape edge cases |
+| 15 | Regex search | `plugin-search` | P1 | in-progress | No | Watch escape edge cases — PR #9 in review |
 | 16 | Command / search history | `plugin-search` + `plugin-slash` | P2 | planned | Yes | Needs persistence (localStorage or host-injected) |
 | 17 | Fuzzy search | `plugin-search` | P2 | planned | No | Evaluate fzf-like algorithm vs. third-party lib |
-| 3  | Slash command sorting + limit | `plugin-slash` | P0 | planned | No | Public API addition |
+| 3  | Slash command sorting + limit | `plugin-slash` | P0 | done | Yes | Landed alongside the floating menu UI — see `openspec/changes/add-slash-menu-ui` |
+| 27 | Slash command floating menu UI | `plugin-slash` + `electron-demo` | P0 | done | Yes | `createSlashMenuUI(editor, options)` — see `openspec/changes/add-slash-menu-ui` |
 
 ## 3. Core Editor
 
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
-| 5 | `getSelectedText()` API | `core` | P0 | planned | No | Public API addition; needs types + tests |
+| 5 | `getSelectedText()` API | `core` | P0 | in-progress | No | Public API addition; needs types + tests — PR #8 in review |
 | 6 | Multi-cursor / multi-selection | `core` | P1 | planned | Yes | CM6 supports it; must verify live-preview and table interactions |
 | 7 | AST enhancement / Markdown extensions | `core` + `preset-gfm` | P2 | planned | Yes | Affects serialization and every AST-dependent plugin |
 | 8 | Undo / redo grouping | `plugin-history` | P1 | planned | No | Coordinate with table's `tableEditingCount` |

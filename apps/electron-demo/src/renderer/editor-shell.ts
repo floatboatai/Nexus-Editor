@@ -8,6 +8,7 @@ import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
 import { createToolbarPlugin, createToolbarUI, type ToolbarUI } from "@floatboat/nexus-plugin-toolbar";
 import { createSearchPlugin } from "@floatboat/nexus-plugin-search";
+import { createSlashMenuUI, type SlashMenuUI } from "@floatboat/nexus-plugin-slash";
 import type { AppState } from "./state";
 import { type EditorSettings, settingsToTheme } from "./settings";
 
@@ -75,6 +76,8 @@ export interface EditorShellOptions {
 export interface EditorShell {
   editor: EditorAPI;
   toolbar: ToolbarUI;
+  /** The floating slash-command menu mounted on document.body. */
+  slashMenu: SlashMenuUI;
   applySettings(settings: EditorSettings): void;
   loadDocument(content: string): void;
   destroy(): void;
@@ -313,9 +316,15 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   const toolbar = createToolbarUI(editor);
   container.insertBefore(toolbar.element, container.firstChild);
 
+  // The slash menu owns its own DOM root mounted on document.body so
+  // it can overflow the editor's clipping context (panels, scroll
+  // ancestors). Its lifecycle is tied to the shell — destroyed below.
+  const slashMenu = createSlashMenuUI(editor);
+
   return {
     editor,
     toolbar,
+    slashMenu,
     applySettings(next: EditorSettings) {
       editor.setTheme(settingsToTheme(next));
     },
@@ -338,6 +347,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
         `${(t1 - t0).toFixed(1)}ms`, { bytes: content.length });
     },
     destroy() {
+      slashMenu.destroy();
       toolbar.destroy();
       editor.destroy();
     },

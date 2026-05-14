@@ -5,6 +5,7 @@
   "packageManager": "pnpm@9.15.4",
   "scripts": {
     "build": "pnpm --filter @floatboat/nexus-core build && pnpm --filter @floatboat/nexus-react build && pnpm --filter @floatboat/nexus-vue build && pnpm --filter @floatboat/nexus-preset-gfm build && pnpm --filter @floatboat/nexus-plugin-slash build && pnpm --filter @floatboat/nexus-plugin-history build && pnpm --filter @floatboat/nexus-plugin-search build && pnpm --filter @floatboat/nexus-plugin-toolbar build && pnpm --filter @floatboat/nexus-plugin-math build && pnpm --filter @floatboat/nexus-plugin-vim build",
+    "typecheck": "pnpm -r exec tsc --noEmit",
     "test": "vitest run",
     "dev:electron-demo": "pnpm --filter @floatboat/nexus-electron-demo dev",
     "build:electron-demo": "pnpm --filter @floatboat/nexus-electron-demo build",

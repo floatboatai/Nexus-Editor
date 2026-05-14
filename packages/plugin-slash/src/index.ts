@@ -1,3 +1,11 @@
+import {
+  computeSlashState,
+  filterSlashCommands,
+  getSlashMatch,
+  type SlashMatch,
+  type SlashStateOptions,
+  type SlashStateResult,
+} from "@floatboat/nexus-core";
 import type { NexusPlugin, SlashCommandDef } from "@floatboat/nexus-core";
 
 export interface SlashMatch {
@@ -6,7 +14,7 @@ export interface SlashMatch {
   query: string;
 }
 
-export interface SlashState {
+export interface SlashState extends SlashStateResult {
   isOpen: boolean;
   from: number | null;
   to: number | null;
@@ -108,35 +116,37 @@ export function filterSlashCommands(
   return scored.map((s) => s.cmd).slice(0, limit);
 }
 
+export type SlashState = SlashStateResult;
+export type { SlashStateOptions, SlashStateResult };
+
+/**
+ * Compute the slash menu state for the given document + caret. Kept as
+ * an alias of the core helper so SDK consumers don't have to import from
+ * two packages. Forward-compatible with the `{ limit }` option.
+ */
 export function getSlashState(
   doc: string,
   cursor: number,
-  commands: SlashCommandDef[]
-): SlashState {
-  const match = getSlashMatch(doc, cursor);
+  commands: SlashCommandDef[],
+  options?: SlashStateOptions
+): SlashStateResult {
+  return computeSlashState(doc, cursor, commands, options);
+}
 
-  if (!match) {
-    return {
-      isOpen: false,
-      from: null,
-      to: null,
-      query: "",
-      commands: []
-    };
-  }
-
-  return {
-    isOpen: true,
-    from: match.from,
-    to: match.to,
-    query: match.query,
-    commands: filterSlashCommands(commands, match.query)
-  };
+export interface SlashPlugin extends NexusPlugin {
+  slashCommands: SlashCommandDef[];
 }
 
 export function createSlashPlugin(commands: SlashCommandDef[]): SlashPlugin {
   return {
     name: "plugin-slash",
-    slashCommands: commands
+    slashCommands: commands,
   };
 }
+
+export {
+  createSlashMenuUI,
+  type SlashMenuUI,
+  type SlashMenuUIOptions,
+  type SlashMenuCommandContext,
+} from "./menu-ui";

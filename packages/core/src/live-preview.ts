@@ -890,7 +890,7 @@ function buildDecorations(
         Decoration.replace({ widget: createWidget(el) }).range(range.from, range.to)
       );
     } else {
-      if (range.node.type === "heading" || range.node.type === "table" || range.node.type === "list") {
+      if (range.node.type === "heading" || range.node.type === "table") {
         parentSpans.push([range.from, range.to]);
       }
 

@@ -60,14 +60,15 @@ export function createDefaultRenderer(context: LivePreviewRenderContext): HTMLEl
     }
     case "link": {
       const element = document.createElement("a");
+      const url = context.node.url;
       element.textContent = context.text;
-      element.href = context.node.url;
+      element.href = url;
       element.rel = "noopener noreferrer";
-      element.title = `${context.node.url} (Ctrl+Click to open)`;
+      element.title = `${url} (Ctrl+Click to open)`;
       element.addEventListener("click", (e) => {
         if (e.ctrlKey || e.metaKey) {
           e.preventDefault();
-          window.open(context.node.url, "_blank", "noopener,noreferrer");
+          window.open(url, "_blank", "noopener,noreferrer");
         }
       });
       return element;
@@ -203,6 +204,10 @@ export function createDefaultRenderer(context: LivePreviewRenderContext): HTMLEl
       return wrapper;
     }
   }
+
+  const fallback = document.createElement("span");
+  fallback.textContent = context.text;
+  return fallback;
 }
 
 export function renderLivePreviewNode(

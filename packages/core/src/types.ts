@@ -92,6 +92,12 @@ export interface EditorConfig {
   indentGuides?: boolean;
   /** Prevent user edits while preserving selection and scrolling. Default: false */
   readOnly?: boolean;
+  /**
+   * Maximum number of slash-menu entries emitted on `slashMenuChange`
+   * after ranking. Default: 8. A limit of 0 keeps the menu state open
+   * but emits an empty command list (useful for "no results" UIs).
+   */
+  slashMenuLimit?: number;
   onChange?: (doc: string, ast: Root) => void;
   onFocus?: () => void;
   onBlur?: () => void;
@@ -168,6 +174,23 @@ export interface SlashCommandDef {
    * Default is 0.
    */
   priority?: number;
+  /**
+   * Optional muted second line shown in the menu UI under the title.
+   * Hosts that don't render a UI may ignore this field.
+   */
+  description?: string;
+  /**
+   * Optional execution hook invoked by the slash menu UI after the user
+   * confirms this command. The trigger text (`/query`) is removed by the
+   * UI before `run` is called, so commands can treat the caret as a
+   * clean insertion point. Return value is currently advisory — the
+   * menu always closes on confirm.
+   *
+   * Commands without `run` remain valid metadata entries; hosts that
+   * keep their own id-to-action registry can dispatch via the menu UI's
+   * `onCommand` override instead.
+   */
+  run?: (editor: EditorAPI) => boolean | void;
 }
 
 export interface WidgetDefinition {
