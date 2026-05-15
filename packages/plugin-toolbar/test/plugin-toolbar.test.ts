@@ -7,6 +7,8 @@ import {
   toggleInlineCode,
   insertLink,
   toggleHeading,
+  toggleOrderedList,
+  toggleUnorderedList,
   createToolbarPlugin,
   createToolbarUI,
 } from "../src/index";
@@ -116,6 +118,65 @@ describe("toggleHeading", () => {
     toggleHeading(editor, 1);
 
     expect(editor.getDocument()).toBe("# Title");
+    editor.destroy();
+  });
+});
+
+describe("toggleOrderedList", () => {
+  it("toggles ordered list on a single line", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello" });
+
+    editor.setSelection(2);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. hello");
+    editor.destroy();
+  });
+
+  it("toggles ordered list on multiple selected lines", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "alpha\nbeta\ngamma" });
+
+    editor.setSelection(0, 14);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. alpha\n2. beta\n3. gamma");
+    editor.destroy();
+  });
+
+  it("removes ordered list markers from multiple lines", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "1. alpha\n2. beta\n3. gamma" });
+
+    editor.setSelection(0, 25);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("alpha\nbeta\ngamma");
+    editor.destroy();
+  });
+});
+
+describe("toggleUnorderedList", () => {
+  it("toggles unordered list on multiple selected lines", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "alpha\nbeta\ngamma" });
+
+    editor.setSelection(0, 14);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("- alpha\n- beta\n- gamma");
+    editor.destroy();
+  });
+
+  it("removes unordered list markers from multiple lines", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- alpha\n- beta\n- gamma" });
+
+    editor.setSelection(0, 22);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("alpha\nbeta\ngamma");
     editor.destroy();
   });
 });
