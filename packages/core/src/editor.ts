@@ -409,6 +409,12 @@ export function createEditor(config: EditorConfig): EditorAPI {
       const sel = view.state.selection.main;
       return { anchor: sel.anchor, head: sel.head };
     },
+    getSelectedText() {
+      const sel = view.state.selection.main;
+      const from = Math.min(sel.anchor, sel.head);
+      const to = Math.max(sel.anchor, sel.head);
+      return view.state.doc.sliceString(from, to);
+    },
     getSlashCommands() {
       return slashCommands;
     },
@@ -459,6 +465,26 @@ export function createEditor(config: EditorConfig): EditorAPI {
     replaceSelection(text) {
       if (destroyed) return;
       view.dispatch(view.state.replaceSelection(text));
+    },
+    replaceRange(from, to, insert, selection, opts) {
+      if (destroyed) return;
+      const silent = opts?.silent === true;
+      view.dispatch({
+        changes: { from, to, insert },
+        selection: selection
+          ? { anchor: selection.anchor, head: selection.head ?? selection.anchor }
+          : undefined,
+        scrollIntoView: true,
+        annotations: silent ? silentDocChange.of(true) : undefined,
+      });
+      if (silent) {
+        const next = view.state.doc.toString();
+        if (customParser) {
+          currentAst = parseDocument(customParser, next);
+        } else {
+          currentAst = transformAst(lezerAstFromAnywhere(viewRef, next));
+        }
+      }
     },
     undo() {
       if (destroyed) return false;

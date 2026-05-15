@@ -135,6 +135,8 @@ export interface EditorAPI {
   exportHTML(): string;
   setTheme(theme: import("./theme").NexusTheme): void;
   getSelection(): { anchor: number; head: number };
+  /** Returns the text currently selected in the editor. Returns an empty string when the selection is collapsed. */
+  getSelectedText(): string;
   getSlashCommands(): SlashCommandDef[];
   uploadAsset(file: File): Promise<string | null>;
   setSelection(anchor: number, head?: number): void;
@@ -147,6 +149,39 @@ export interface EditorAPI {
    */
   setDocument(next: string, opts?: { silent?: boolean }): void;
   replaceSelection(text: string): void;
+  /**
+   * Replace the substring `[from, to)` with `insert` and — optionally —
+   * move the selection, all in a single CM6 transaction.
+   *
+   * **One transaction = one undo entry.** A single Ctrl+Z will revert both
+   * the edit and the cursor/selection move together. Do NOT emulate this
+   * with a separate `setDocument`/`setSelection` pair — that dispatches two
+   * transactions, produces two undo entries, and leaves the document mangled
+   * after the first Ctrl+Z.
+   *
+   * - `selection` is optional. When omitted CM6 maps the existing selection
+   *   through the change using its default position mapping — callers that
+   *   don't care where the cursor lands after the edit can skip this.
+   * - `silent` mirrors `setDocument`: skips `onChange` / the `change` event.
+   *   The AST is still resynced inline so `getAst()` stays consistent for
+   *   immediate callers. Intended for non-user edits only (file-open, seeding).
+   *   Plugin code should leave `silent` unset.
+   * - Positions (`from`, `to`, and `selection` offsets) are in pre-edit doc
+   *   coordinates — the same coordinate space as `getSelection()` returns.
+   * - Bounds: callers are responsible for valid offsets. CM6 throws
+   *   `RangeError` on out-of-bounds values — identical trust model to
+   *   `setSelection`. No double validation is performed in this layer.
+   *
+   * Use this instead of `setDocument` when you are editing a range, not
+   * replacing the whole document.
+   */
+  replaceRange(
+    from: number,
+    to: number,
+    insert: string,
+    selection?: { anchor: number; head?: number },
+    opts?: { silent?: boolean }
+  ): void;
   undo(): boolean;
   redo(): boolean;
   focus(): void;

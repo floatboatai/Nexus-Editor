@@ -21,6 +21,9 @@
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.36.1"
   },
+  "devDependencies": {
+    "@floatboat/nexus-plugin-history": "workspace:*"
+  },
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
