@@ -31,47 +31,102 @@ export function toggleBlockquote(editor: EditorAPI): boolean {
   return toggleLinePrefix(editor, "> ");
 }
 
-export function toggleOrderedList(editor: EditorAPI): boolean {
-  const doc = editor.getDocument();
-  const { anchor } = editor.getSelection();
-  const { lineStart, lineEnd, line } = getCurrentLine(doc, anchor);
+interface LineRange {
+  lineStart: number;
+  lineEnd: number;
+  line: string;
+}
 
-  const olMatch = line.match(/^\d+\.\s/);
-  let newLine: string;
-  if (olMatch) {
-    newLine = line.slice(olMatch[0].length);
-  } else {
-    // Remove other list markers if present
-    const ulMatch = line.match(/^[-*+]\s/);
-    const content = ulMatch ? line.slice(ulMatch[0].length) : line;
-    newLine = "1. " + content;
+function getLinesInRange(doc: string, from: number, to: number): LineRange[] {
+  const lines: LineRange[] = [];
+  let pos = 0;
+  for (const text of doc.split("\n")) {
+    const lineStart = pos;
+    const lineEnd = pos + text.length;
+    if (lineEnd >= from && lineStart <= to) {
+      lines.push({ lineStart, lineEnd, line: text });
+    }
+    pos = lineEnd + 1;
+  }
+  return lines;
+}
+
+export function toggleOrderedList(editor: EditorAPI): boolean {
+  let doc = editor.getDocument();
+  const { anchor, head } = editor.getSelection();
+  const selFrom = Math.min(anchor, head);
+  const selTo = Math.max(anchor, head);
+  const lines = getLinesInRange(doc, selFrom, selTo);
+
+  let offset = 0;
+  let lastLineEnd = 0;
+  let number = 1;
+  const allHaveMarkers = lines.every((l) => /^\d+\.\s/.test(l.line) || /^[-*+]\s/.test(l.line));
+  for (const { lineStart, lineEnd, line } of lines) {
+    if (line.trim() === "") continue;
+    const adjustedStart = lineStart + offset;
+    const adjustedEnd = lineEnd + offset;
+    const currentLine = doc.slice(adjustedStart, adjustedEnd);
+
+    const olMatch = currentLine.match(/^\d+\.\s/);
+    let newLine: string;
+    if (olMatch && allHaveMarkers) {
+      newLine = currentLine.slice(olMatch[0].length);
+    } else if (olMatch) {
+      newLine = `${number}. ${currentLine.slice(olMatch[0].length)}`;
+      number++;
+    } else {
+      const ulMatch = currentLine.match(/^[-*+]\s/);
+      const content = ulMatch ? currentLine.slice(ulMatch[0].length) : currentLine;
+      newLine = `${number}. ${content}`;
+      number++;
+    }
+
+    doc = doc.slice(0, adjustedStart) + newLine + doc.slice(adjustedEnd);
+    offset += newLine.length - currentLine.length;
+    lastLineEnd = adjustedStart + newLine.length;
   }
 
-  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
-  editor.setDocument(newDoc);
-  editor.setSelection(lineStart + newLine.length);
+  editor.setDocument(doc);
+  editor.setSelection(selFrom, lastLineEnd);
   return true;
 }
 
 export function toggleUnorderedList(editor: EditorAPI): boolean {
-  const doc = editor.getDocument();
-  const { anchor } = editor.getSelection();
-  const { lineStart, lineEnd, line } = getCurrentLine(doc, anchor);
+  let doc = editor.getDocument();
+  const { anchor, head } = editor.getSelection();
+  const selFrom = Math.min(anchor, head);
+  const selTo = Math.max(anchor, head);
+  const lines = getLinesInRange(doc, selFrom, selTo);
 
-  const ulMatch = line.match(/^[-*+]\s/);
-  let newLine: string;
-  if (ulMatch) {
-    newLine = line.slice(ulMatch[0].length);
-  } else {
-    // Remove ordered list marker if present
-    const olMatch = line.match(/^\d+\.\s/);
-    const content = olMatch ? line.slice(olMatch[0].length) : line;
-    newLine = "- " + content;
+  let offset = 0;
+  let lastLineEnd = 0;
+  const allHaveMarkers = lines.every((l) => /^\d+\.\s/.test(l.line) || /^[-*+]\s/.test(l.line));
+  for (const { lineStart, lineEnd, line } of lines) {
+    if (line.trim() === "") continue;
+    const adjustedStart = lineStart + offset;
+    const adjustedEnd = lineEnd + offset;
+    const currentLine = doc.slice(adjustedStart, adjustedEnd);
+
+    const ulMatch = currentLine.match(/^[-*+]\s/);
+    let newLine: string;
+    if (ulMatch && allHaveMarkers) {
+      newLine = currentLine.slice(ulMatch[0].length);
+    } else if (ulMatch) {
+      newLine = `- ${currentLine.slice(ulMatch[0].length)}`;
+    } else {
+      const olMatch = currentLine.match(/^\d+\.\s/);
+      const content = olMatch ? currentLine.slice(olMatch[0].length) : currentLine;
+      newLine = `- ${content}`;
+    }
+
+    doc = doc.slice(0, adjustedStart) + newLine + doc.slice(adjustedEnd);
+    offset += newLine.length - currentLine.length;
+    lastLineEnd = adjustedStart + newLine.length;
   }
 
-  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
-  editor.setDocument(newDoc);
-  editor.setSelection(lineStart + newLine.length);
+  editor.setDocument(doc);
+  editor.setSelection(selFrom, lastLineEnd);
   return true;
 }
 
