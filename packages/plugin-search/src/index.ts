@@ -25,20 +25,13 @@ export interface SearchMatch {
 
 export interface SearchOptions {
   caseSensitive?: boolean;
+  wholeWord?: boolean;
+  fuzzy?: boolean;
 }
 
 export interface SearchPluginOptions {
-  /**
-   * Render the search panel above the editor content. Defaults to true.
-   */
   top?: boolean;
-  /**
-   * Enable case-sensitive search by default.
-   */
   caseSensitive?: boolean;
-  /**
-   * Highlight viewport matches for the current selection.
-   */
   highlightSelectionMatches?: boolean;
   labels?: Partial<SearchPluginLabels>;
 }
@@ -79,31 +72,120 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+const WORD_BOUNDARY_CHARS = (
+  ",.!?;:\"'()[]{}<>@#$%^&*+=/\\|~" +
+  "，。！？…—、；：“”‘’（）【】《》"
+);
+
+function buildWordBoundary(): { left: string; right: string } {
+  const p = escapeRegExp(WORD_BOUNDARY_CHARS);
+  return { left: "(?:^|[\\s" + p + "])", right: "(?:$|[\\s" + p + "])" };
+}
+
+function fuzzyMatchScore(text: string, query: string, caseSensitive: boolean): number {
+  const target = caseSensitive ? text : text.toLowerCase();
+  const tokens = (caseSensitive ? query : query.toLowerCase()).split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return -1;
+
+  let totalScore = 1000;
+  let cursor = 0;
+
+  for (const token of tokens) {
+    const best = findClosestMatch(target, token, cursor);
+    if (!best) return -1;
+    totalScore -= (best.first - cursor) * 2;
+    totalScore -= best.last - best.first;
+    cursor = best.last + 1;
+  }
+
+  return totalScore;
+}
+
+function findClosestMatch(
+  text: string, token: string, startFrom: number
+): { first: number; last: number } | null {
+  const N = text.length;
+  const M = token.length;
+  if (N - startFrom < M) return null;
+
+  let bestSpan = Infinity;
+  let bestFirst = -1;
+  let bestLast = -1;
+
+  for (let first = startFrom; first <= N - M; first++) {
+    if (text[first] !== token[0]) continue;
+
+    let last = first;
+    let qi = 1;
+    for (let j = first + 1; j < N && qi < M; j++) {
+      if (text[j] === token[qi]) { qi++; last = j; }
+    }
+    if (qi < M) continue;
+
+    const span = last - first;
+    if (span < bestSpan || (span === bestSpan && first < bestFirst)) {
+      bestSpan = span;
+      bestFirst = first;
+      bestLast = last;
+    }
+  }
+
+  if (bestFirst < 0) return null;
+  return { first: bestFirst, last: bestLast };
+}
+
 export function findSearchMatches(
   doc: string,
   query: string,
   options: SearchOptions = {}
 ): SearchMatch[] {
-  if (!query) {
-    return [];
+  if (!query) return [];
+
+  if (options.fuzzy) {
+    return findFuzzyMatches(doc, query, options);
   }
 
   const flags = options.caseSensitive ? "g" : "gi";
-  const pattern = new RegExp(escapeRegExp(query), flags);
+  const escaped = escapeRegExp(query);
+  let pattern: RegExp;
+  if (options.wholeWord) {
+    const b = buildWordBoundary();
+    pattern = new RegExp(b.left + "(" + escaped + ")" + b.right, flags);
+  } else {
+    pattern = new RegExp(escaped, flags);
+  }
   const matches: SearchMatch[] = [];
 
   for (const match of doc.matchAll(pattern)) {
-    const text = match[0];
-    const from = match.index ?? 0;
-
-    matches.push({
-      from,
-      to: from + text.length,
-      text
-    });
+    const text = match[1] ?? match[0];
+    const from = (match.index ?? 0) + (match[1] ? match[0].indexOf(match[1]) : 0);
+    matches.push({ from, to: from + text.length, text });
   }
 
   return matches;
+}
+
+function findFuzzyMatches(
+  doc: string,
+  query: string,
+  options: SearchOptions
+): SearchMatch[] {
+  const candidates: Array<SearchMatch & { score: number }> = [];
+  const wordRE = new RegExp("[^\\s" + escapeRegExp(WORD_BOUNDARY_CHARS) + "\\n]+", "g");
+  for (const match of doc.matchAll(wordRE)) {
+    const text = match[0];
+    if (text.length < query.length) continue;
+    const score = fuzzyMatchScore(text, query, options.caseSensitive ?? false);
+    if (score < 0) continue;
+    candidates.push({
+      from: match.index!,
+      to: match.index! + text.length,
+      text,
+      score
+    });
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates.map(function (c) { return { from: c.from, to: c.to, text: c.text }; });
 }
 
 export function replaceAllMatches(
@@ -112,12 +194,45 @@ export function replaceAllMatches(
   replacement: string,
   options: SearchOptions = {}
 ): string {
-  if (!query) {
-    return doc;
+  if (!query) return doc;
+
+  if (options.fuzzy) {
+    return replaceFuzzyMatches(doc, query, replacement, options);
   }
 
   const flags = options.caseSensitive ? "g" : "gi";
-  return doc.replace(new RegExp(escapeRegExp(query), flags), replacement);
+  const escaped = escapeRegExp(query);
+  if (options.wholeWord) {
+    const b = buildWordBoundary();
+    return doc.replace(new RegExp(b.left + escaped + b.right, flags), function (m) {
+      var edgeRE = new RegExp("^[\\s" + escapeRegExp(WORD_BOUNDARY_CHARS) + "]+|[\\s" + escapeRegExp(WORD_BOUNDARY_CHARS) + "]+$", "g");
+      var inner = m.replace(edgeRE, "");
+      return m.replace(inner, replacement);
+    });
+  }
+  return doc.replace(new RegExp(escaped, flags), replacement);
+}
+
+function replaceFuzzyMatches(
+  doc: string,
+  query: string,
+  replacement: string,
+  options: SearchOptions
+): string {
+  const wordRE = new RegExp("[^\\s" + escapeRegExp(WORD_BOUNDARY_CHARS) + "\\n]+", "g");
+  const chunks: string[] = [];
+  let lastEnd = 0;
+  for (const match of doc.matchAll(wordRE)) {
+    const text = match[0];
+    if (text.length >= query.length && fuzzyMatchScore(text, query, options.caseSensitive ?? false) >= 0) {
+      chunks.push(doc.slice(lastEnd, match.index!));
+      chunks.push(replacement);
+      lastEnd = match.index! + text.length;
+    }
+  }
+  if (lastEnd === 0) return doc;
+  chunks.push(doc.slice(lastEnd));
+  return chunks.join("");
 }
 
 function resolveLabel(
@@ -128,7 +243,6 @@ function resolveLabel(
 ): string {
   const candidate = labels?.[key]?.trim();
   if (candidate) return candidate;
-
   const phrase = view.state.phrase(fallback).trim();
   return phrase || fallback;
 }
@@ -210,29 +324,12 @@ function createIcon(name: SearchIconName): SVGSVGElement {
   };
 
   switch (name) {
-    case "toggleReplace":
-      appendPath("m9 18 6-6-6-6");
-      break;
-    case "previous":
-      appendPath("m15 18-6-6 6-6");
-      break;
-    case "next":
-      appendPath("m9 18 6-6-6-6");
-      break;
-    case "all":
-      appendLine(5, 7, 19, 7);
-      appendLine(5, 12, 19, 12);
-      appendLine(5, 17, 19, 17);
-      break;
-    case "replace":
-      appendText("R", 4, 17, 13);
-      appendPath("m15 8 3 3-3 3");
-      break;
-    case "replaceAll":
-      appendText("R", 3, 17, 12);
-      appendPath("m14 7 3 3-3 3");
-      appendPath("m17 7 3 3-3 3");
-      break;
+    case "toggleReplace": appendPath("m9 18 6-6-6-6"); break;
+    case "previous": appendPath("m15 18-6-6 6-6"); break;
+    case "next": appendPath("m9 18 6-6-6-6"); break;
+    case "all": appendLine(5, 7, 19, 7); appendLine(5, 12, 19, 12); appendLine(5, 17, 19, 17); break;
+    case "replace": appendText("R", 4, 17, 13); appendPath("m15 8 3 3-3 3"); break;
+    case "replaceAll": appendText("R", 3, 17, 12); appendPath("m14 7 3 3-3 3"); appendPath("m17 7 3 3-3 3"); break;
   }
 
   return svg;
@@ -244,9 +341,9 @@ let rowId = 0;
 function createTooltip(testId: string, label: string): HTMLSpanElement {
   const tooltip = document.createElement("span");
   tooltip.className = "nexus-search-tooltip";
-  tooltip.dataset.testId = `${testId}-tooltip`;
+  tooltip.dataset.testId = testId + "-tooltip";
   tooltip.dataset.tooltip = label;
-  tooltip.id = `${testId}-tooltip-${++tooltipId}`;
+  tooltip.id = testId + "-tooltip-" + (++tooltipId);
   tooltip.setAttribute("role", "tooltip");
   tooltip.setAttribute("aria-label", label);
   tooltip.textContent = label;
@@ -268,11 +365,7 @@ function setIconButtonLabel(elements: IconButtonElements, label: string): void {
 }
 
 function createIconButtonElements(
-  testId: string,
-  name: string,
-  label: string,
-  icon: SearchIconName,
-  onClick: () => void
+  testId: string, name: string, label: string, icon: SearchIconName, onClick: () => void
 ): IconButtonElements {
   const wrapper = document.createElement("span");
   wrapper.className = "nexus-search-tooltip-wrap";
@@ -292,14 +385,9 @@ function createIconButtonElements(
 }
 
 function createIconButton(
-  testId: string,
-  name: string,
-  label: string,
-  icon: SearchIconName,
-  onClick: () => void
+  testId: string, name: string, label: string, icon: SearchIconName, onClick: () => void
 ): HTMLSpanElement {
-  const { wrapper } = createIconButtonElements(testId, name, label, icon, onClick);
-  return wrapper;
+  return createIconButtonElements(testId, name, label, icon, onClick).wrapper;
 }
 
 function createLabel(input: HTMLInputElement, text: string): HTMLLabelElement {
@@ -339,18 +427,10 @@ class NexusSearchPanel implements Panel {
     this.labels = resolvedLabels;
 
     this.searchField = this.createTextField(
-      "markdown-search-input",
-      "search",
-      resolvedLabels.find,
-      this.query.search,
-      true
+      "markdown-search-input", "search", resolvedLabels.find, this.query.search, true
     );
     this.replaceField = this.createTextField(
-      "markdown-search-replace-input",
-      "replace",
-      resolvedLabels.replace,
-      this.query.replace,
-      false
+      "markdown-search-replace-input", "replace", resolvedLabels.replace, this.query.replace, false
     );
     this.caseField = this.createCheckbox("markdown-search-case-toggle", "case", this.query.caseSensitive);
     this.regexpField = this.createCheckbox("markdown-search-regexp-toggle", "re", this.query.regexp);
@@ -365,19 +445,14 @@ class NexusSearchPanel implements Panel {
     const canReplace = !view.state.readOnly;
     if (canReplace) {
       this.replaceToggle = createIconButtonElements(
-        "markdown-search-toggle-replace",
-        "toggleReplace",
-        resolvedLabels.showReplace,
-        "toggleReplace",
+        "markdown-search-toggle-replace", "toggleReplace", resolvedLabels.showReplace, "toggleReplace",
         () => this.setReplaceExpanded(!this.replaceExpanded, true)
       );
     }
     const navigationGroup = document.createElement("div");
     navigationGroup.className = "nexus-search-button-group";
     navigationGroup.append(
-      createIconButton("markdown-search-prev", "prev", resolvedLabels.previous, "previous", () =>
-        findPrevious(view)
-      ),
+      createIconButton("markdown-search-prev", "prev", resolvedLabels.previous, "previous", () => findPrevious(view)),
       createIconButton("markdown-search-next", "next", resolvedLabels.next, "next", () => findNext(view)),
       createIconButton("markdown-search-all", "select", resolvedLabels.all, "all", () => selectMatches(view))
     );
@@ -389,37 +464,28 @@ class NexusSearchPanel implements Panel {
       createLabel(this.wholeWordField, resolvedLabels.byWord),
       navigationGroup
     ];
-    if (this.replaceToggle) {
-      searchRowChildren.unshift(this.replaceToggle.wrapper);
-    }
+    if (this.replaceToggle) searchRowChildren.unshift(this.replaceToggle.wrapper);
     searchRow.append(...searchRowChildren);
-
     this.dom.append(searchRow);
 
     if (canReplace) {
       const replaceRow = createSearchRow("markdown-search-replace-row");
-      replaceRow.id = `markdown-search-replace-row-${++rowId}`;
+      replaceRow.id = "markdown-search-replace-row-" + (++rowId);
       this.replaceRow = replaceRow;
       this.replaceToggle?.button.setAttribute("aria-controls", replaceRow.id);
       this.replaceToggle?.button.setAttribute("aria-expanded", "false");
       replaceRow.append(
         this.replaceField,
-        createIconButton("markdown-search-replace", "replace", resolvedLabels.replaceNext, "replace", () =>
-          replaceNext(view)
-        ),
+        createIconButton("markdown-search-replace", "replace", resolvedLabels.replaceNext, "replace", () => replaceNext(view)),
         createIconButton(
-          "markdown-search-replace-all",
-          "replaceAll",
-          resolvedLabels.replaceAll,
-          "replaceAll",
-          () => replaceAll(view)
+          "markdown-search-replace-all", "replaceAll", resolvedLabels.replaceAll, "replaceAll", () => replaceAll(view)
         )
       );
       this.setReplaceExpanded(false);
       this.dom.append(replaceRow);
     }
 
-    const closeButton = createButton("markdown-search-close", "close", "×", () => closeSearchPanel(view));
+    const closeButton = createButton("markdown-search-close", "close", "\xD7", () => closeSearchPanel(view));
     closeButton.setAttribute("aria-label", resolvedLabels.close);
     closeButton.title = resolvedLabels.close;
     this.dom.append(closeButton);
@@ -435,17 +501,9 @@ class NexusSearchPanel implements Panel {
     }
   }
 
-  mount(): void {
-    this.searchField.select();
-  }
+  mount(): void { this.searchField.select(); }
 
-  private createTextField(
-    testId: string,
-    name: string,
-    placeholder: string,
-    value: string,
-    mainField: boolean
-  ): HTMLInputElement {
+  private createTextField(testId: string, name: string, placeholder: string, value: string, mainField: boolean): HTMLInputElement {
     const input = document.createElement("input");
     input.className = "cm-textfield";
     input.dataset.testId = testId;
@@ -454,9 +512,7 @@ class NexusSearchPanel implements Panel {
     input.placeholder = placeholder;
     input.setAttribute("aria-label", placeholder);
     input.value = value;
-    if (mainField) {
-      input.setAttribute("main-field", "true");
-    }
+    if (mainField) input.setAttribute("main-field", "true");
     input.addEventListener("input", () => this.commit());
     input.addEventListener("change", () => this.commit());
     input.addEventListener("keyup", () => this.commit());
@@ -482,7 +538,6 @@ class NexusSearchPanel implements Panel {
       wholeWord: this.wholeWordField.checked,
       replace: this.replaceField.value
     });
-
     if (!query.eq(this.query)) {
       this.query = query;
       this.view.dispatch({ effects: setSearchQuery.of(query) });
@@ -491,32 +546,22 @@ class NexusSearchPanel implements Panel {
 
   private setReplaceExpanded(expanded: boolean, focusReplace = false): void {
     if (!this.replaceRow || !this.replaceToggle) return;
-
     this.replaceExpanded = expanded;
     this.replaceRow.hidden = !expanded;
     this.replaceRow.setAttribute("aria-hidden", String(!expanded));
     this.replaceToggle.button.setAttribute("aria-expanded", String(expanded));
     setIconButtonLabel(this.replaceToggle, expanded ? this.labels.hideReplace : this.labels.showReplace);
-
-    if (expanded && focusReplace) {
-      this.replaceField.focus();
-      this.replaceField.select();
-    }
+    if (expanded && focusReplace) { this.replaceField.focus(); this.replaceField.select(); }
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
-    if (runScopeHandlers(this.view, event, "search-panel")) {
-      event.preventDefault();
-      return;
-    }
-
+    if (runScopeHandlers(this.view, event, "search-panel")) { event.preventDefault(); return; }
     if (event.key === "Enter" && event.target === this.searchField) {
       event.preventDefault();
       this.commit();
       (event.shiftKey ? findPrevious : findNext)(this.view);
       return;
     }
-
     if (event.key === "Enter" && event.target === this.replaceField) {
       event.preventDefault();
       this.commit();
