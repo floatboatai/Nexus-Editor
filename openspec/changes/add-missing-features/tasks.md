@@ -14,7 +14,7 @@
 - [x] 2.1 Markdown auto-continuation
 - [x] 2.2 Fold/unfold for headings
 - [x] 2.3 Fold/unfold for code blocks
-- [ ] 2.4 List item drag reorder
+- [x] 2.4 List item drag reorder
 - [x] 2.5 Link hover preview
 
 ## Phase 3: P2 — Ecosystem
@@ -28,6 +28,6 @@
 ## Phase 4: P3 — Quality
 
 - [x] 4.1 Accessibility (a11y) — ARIA attributes on headings, code blocks, tables
-- [ ] 4.2 Performance benchmarks
-- [ ] 4.3 API documentation
-- [ ] 4.4 E2E tests
+- [x] 4.2 Performance benchmarks
+- [x] 4.3 API documentation
+- [x] 4.4 E2E tests
