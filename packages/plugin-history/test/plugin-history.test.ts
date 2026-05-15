@@ -3,6 +3,13 @@ import { describe, expect, it } from "vitest";
 import { createHistoryPlugin } from "../src/index";
 
 describe("@floatboat/nexus-plugin-history", () => {
+  it("returns a plugin with history extensions", () => {
+    const plugin = createHistoryPlugin();
+
+    expect(plugin.name).toBe("plugin-history");
+    expect(plugin.cmExtensions).toHaveLength(3);
+  });
+
   it("undoes the most recent document change through codemirror key handling", () => {
     const container = document.createElement("div");
     const editor = createEditor({
