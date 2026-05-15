@@ -1,5 +1,6 @@
 import type { EditorAPI, NexusPlugin, SlashCommandDef } from "@floatboat/nexus-core";
 import { colorDecorationExtension } from "./color-decoration";
+import { listReorderExtension } from "./list-reorder";
 import {
   insertCodeBlock,
   insertHorizontalRule,
@@ -230,6 +231,6 @@ export function createToolbarPlugin(): NexusPlugin {
       { key: "Mod-3", run: (e) => toggleHeading(e, 3) },
     ],
     slashCommands: toolbarSlashCommands,
-    cmExtensions: [colorDecorationExtension()],
+    cmExtensions: [colorDecorationExtension(), listReorderExtension()],
   };
 }
