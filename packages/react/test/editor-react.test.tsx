@@ -1,7 +1,9 @@
 import { render } from "@testing-library/react";
 import { useEffect } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Editor, useEditor } from "../src/index";
+
+import type { EditorAPI } from "@floatboat/nexus-core";
 
 describe("@floatboat/nexus-react", () => {
   it("renders an editor into the provided container through the Editor component", () => {
@@ -36,5 +38,28 @@ describe("@floatboat/nexus-react", () => {
     render(<Harness />);
 
     expect(snapshots).toContain("updated");
+  });
+
+  it("fires onReady with the editor instance", () => {
+    const readySpy = vi.fn();
+    render(<Editor initialValue="hello" onReady={readySpy} />);
+
+    expect(readySpy).toHaveBeenCalledTimes(1);
+    const receivedEditor: EditorAPI = readySpy.mock.calls[0][0];
+    expect(receivedEditor.getDocument()).toBe("hello");
+  });
+
+  it("forwards className to the container div", () => {
+    const { container } = render(<Editor initialValue="test" className="my-editor" />);
+
+    const wrapper = container.firstElementChild as HTMLElement;
+    expect(wrapper.className).toBe("my-editor");
+  });
+
+  it("forwards id to the container div", () => {
+    const { container } = render(<Editor initialValue="test" id="editor-main" />);
+
+    const wrapper = container.firstElementChild as HTMLElement;
+    expect(wrapper.id).toBe("editor-main");
   });
 });

@@ -25,6 +25,7 @@ export function useEditor(config: UseEditorConfig): UseEditorResult {
 
     editorRef.current = instance;
     setEditor(instance);
+    configRef.current.onReady?.(instance);
 
     return () => {
       instance.destroy();
