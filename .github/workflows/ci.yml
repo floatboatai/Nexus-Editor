@@ -50,7 +50,7 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Run tests
+      - name: Run unit tests
         run: pnpm test
 
       - name: Build packages
@@ -59,10 +59,46 @@ jobs:
       - name: Build Electron demo
         run: pnpm build:electron-demo
 
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: npx playwright test
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
   publish:
     name: Publish Packages
     runs-on: ubuntu-latest
-    needs: verify
+    needs: [verify, e2e]
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish)
     steps:
       - name: Checkout
