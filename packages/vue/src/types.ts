@@ -4,7 +4,9 @@ import type {
 } from "@floatboat/nexus-core";
 import type { Ref, ShallowRef } from "vue";
 
-export type UseEditorConfig = Omit<EditorConfig, "container">;
+export interface UseEditorConfig extends Omit<EditorConfig, "container"> {
+  onReady?: (editor: EditorAPI) => void;
+}
 
 export interface UseEditorResult {
   containerRef: Ref<HTMLDivElement | null>;
