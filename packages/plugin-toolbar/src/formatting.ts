@@ -1,78 +1,96 @@
 import type { EditorAPI } from "@floatboat/nexus-core";
 
-/** Get the current line containing the anchor position. */
-function getCurrentLine(doc: string, anchor: number): { lineStart: number; lineEnd: number; line: string } {
-  const lineStart = doc.lastIndexOf("\n", anchor - 1) + 1;
-  const lineEndIdx = doc.indexOf("\n", anchor);
-  const lineEnd = lineEndIdx === -1 ? doc.length : lineEndIdx;
-  return { lineStart, lineEnd, line: doc.slice(lineStart, lineEnd) };
+interface LineInfo {
+  text: string;
+  indent: string;
+  content: string;
+  isEmpty: boolean;
 }
 
-/** Toggle a line prefix (e.g., "> " for blockquote). */
-function toggleLinePrefix(editor: EditorAPI, prefix: string): boolean {
-  const doc = editor.getDocument();
-  const { anchor } = editor.getSelection();
-  const { lineStart, lineEnd, line } = getCurrentLine(doc, anchor);
+/** Expand a character-range selection to cover full lines. */
+function getSelectedLines(
+  doc: string,
+  anchor: number,
+  head: number
+): { rangeStart: number; rangeEnd: number; lines: LineInfo[] } {
+  const from = Math.min(anchor, head);
+  const to = Math.max(anchor, head);
 
-  let newLine: string;
-  if (line.startsWith(prefix)) {
-    newLine = line.slice(prefix.length);
-  } else {
-    newLine = prefix + line;
+  const rangeStart = doc.lastIndexOf("\n", from - 1) + 1;
+  const rangeEndIdx = doc.indexOf("\n", to);
+  const rangeEnd = rangeEndIdx === -1 ? doc.length : rangeEndIdx;
+
+  const rangeText = doc.slice(rangeStart, rangeEnd);
+  const lines: LineInfo[] = [];
+
+  for (const raw of rangeText.split("\n")) {
+    const indent = raw.match(/^\s*/)?.[0] ?? "";
+    const content = raw.slice(indent.length);
+    lines.push({
+      text: raw,
+      indent,
+      content,
+      isEmpty: raw.trim() === "",
+    });
   }
 
-  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
+  return { rangeStart, rangeEnd, lines };
+}
+
+function toggleMultiLine(
+  editor: EditorAPI,
+  prefix: string,
+  matchPattern: RegExp,
+  opts?: { orderedNumbering?: boolean }
+): boolean {
+  const doc = editor.getDocument();
+  const { anchor, head } = editor.getSelection();
+  const { rangeStart, rangeEnd, lines } = getSelectedLines(doc, anchor, head);
+
+  const nonEmpty = lines.filter((l) => !l.isEmpty);
+  if (nonEmpty.length === 0) return false;
+
+  const allHave = nonEmpty.every((l) => matchPattern.test(l.content));
+
+  let num = 1;
+  const newLines = lines.map((line) => {
+    if (line.isEmpty) return line.text;
+
+    if (allHave) {
+      return line.indent + line.content.replace(matchPattern, "");
+    }
+
+    // Strip any existing list marker (ordered or unordered) before adding
+    const stripped = line.content
+      .replace(matchPattern, "")
+      .replace(/^\d+\.\s/, "")
+      .replace(/^[-*+]\s/, "");
+    const marker = opts?.orderedNumbering ? `${num++}. ` : prefix;
+    return line.indent + marker + stripped;
+  });
+
+  const newRangeText = newLines.join("\n");
+  const newDoc =
+    doc.slice(0, rangeStart) + newRangeText + doc.slice(rangeEnd);
   editor.setDocument(newDoc);
-  editor.setSelection(lineStart + newLine.length);
+
+  const newRangeEnd = rangeStart + newRangeText.length;
+  editor.setSelection(rangeStart, newRangeEnd);
   return true;
 }
 
 export function toggleBlockquote(editor: EditorAPI): boolean {
-  return toggleLinePrefix(editor, "> ");
+  return toggleMultiLine(editor, "> ", /^>\s?/);
 }
 
 export function toggleOrderedList(editor: EditorAPI): boolean {
-  const doc = editor.getDocument();
-  const { anchor } = editor.getSelection();
-  const { lineStart, lineEnd, line } = getCurrentLine(doc, anchor);
-
-  const olMatch = line.match(/^\d+\.\s/);
-  let newLine: string;
-  if (olMatch) {
-    newLine = line.slice(olMatch[0].length);
-  } else {
-    // Remove other list markers if present
-    const ulMatch = line.match(/^[-*+]\s/);
-    const content = ulMatch ? line.slice(ulMatch[0].length) : line;
-    newLine = "1. " + content;
-  }
-
-  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
-  editor.setDocument(newDoc);
-  editor.setSelection(lineStart + newLine.length);
-  return true;
+  return toggleMultiLine(editor, "1. ", /^\d+\.\s/, {
+    orderedNumbering: true,
+  });
 }
 
 export function toggleUnorderedList(editor: EditorAPI): boolean {
-  const doc = editor.getDocument();
-  const { anchor } = editor.getSelection();
-  const { lineStart, lineEnd, line } = getCurrentLine(doc, anchor);
-
-  const ulMatch = line.match(/^[-*+]\s/);
-  let newLine: string;
-  if (ulMatch) {
-    newLine = line.slice(ulMatch[0].length);
-  } else {
-    // Remove ordered list marker if present
-    const olMatch = line.match(/^\d+\.\s/);
-    const content = olMatch ? line.slice(olMatch[0].length) : line;
-    newLine = "- " + content;
-  }
-
-  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
-  editor.setDocument(newDoc);
-  editor.setSelection(lineStart + newLine.length);
-  return true;
+  return toggleMultiLine(editor, "- ", /^[-*+]\s/);
 }
 
 export function insertCodeBlock(editor: EditorAPI): boolean {
@@ -87,7 +105,9 @@ export function insertCodeBlock(editor: EditorAPI): boolean {
 
   const block =
     (needsLeadingNewline ? "\n" : "") +
-    "```\n" + (selected || "") + "\n```" +
+    "```\n" +
+    (selected || "") +
+    "\n```" +
     (needsTrailingNewline ? "\n" : "");
 
   const newDoc = doc.slice(0, from) + block + doc.slice(to);
