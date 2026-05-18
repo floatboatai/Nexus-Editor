@@ -409,6 +409,19 @@ export function createEditor(config: EditorConfig): EditorAPI {
       const sel = view.state.selection.main;
       return { anchor: sel.anchor, head: sel.head };
     },
+    getSelectedText() {
+      if (destroyed) return "";
+
+      const sel = view.state.selection.main;
+      if (!sel || sel.empty) return "";
+
+      const docLength = view.state.doc.length;
+      const from = Math.max(0, Math.min(sel.from, docLength));
+      const to = Math.max(0, Math.min(sel.to, docLength));
+      if (from >= to) return "";
+
+      return view.state.sliceDoc(from, to);
+    },
     getSlashCommands() {
       return slashCommands;
     },
