@@ -289,6 +289,32 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("returns an empty string from getSelectedText when selection is empty", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "hello world"
+    });
+
+    editor.setSelection(3);
+
+    expect(editor.getSelectedText()).toBe("");
+    editor.destroy();
+  });
+
+  it("returns selected text from getSelectedText", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "hello world"
+    });
+
+    editor.setSelection(0, 5);
+
+    expect(editor.getSelectedText()).toBe("hello");
+    editor.destroy();
+  });
+
   it("delegates asset uploads through the configured host hook", async () => {
     const container = document.createElement("div");
     const file = new File(["image"], "image.png", { type: "image/png" });
