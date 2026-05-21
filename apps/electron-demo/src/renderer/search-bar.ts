@@ -100,6 +100,16 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   replaceAllBtn.title = "Replace all";
   replaceAllBtn.style.cssText = BTN_STYLES;
 
+  const wholeWordToggle = document.createElement("input");
+  wholeWordToggle.type = "checkbox";
+  wholeWordToggle.id = "nexus-search-whole-word";
+
+  const wholeWordLabel = document.createElement("label");
+  wholeWordLabel.htmlFor = wholeWordToggle.id;
+  wholeWordLabel.textContent = "Whole word";
+  wholeWordLabel.style.cssText = "display:flex;align-items:center;gap:4px;color:var(--nexus-text-muted, #666);";
+  wholeWordLabel.prepend(wholeWordToggle);
+
   // Count label
   const countLabel = document.createElement("span");
   countLabel.style.cssText = COUNT_STYLES;
@@ -113,7 +123,18 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   const spacer = document.createElement("div");
   spacer.style.flex = "1";
 
-  bar.append(findInput, prevBtn, nextBtn, countLabel, replaceInput, replaceBtn, replaceAllBtn, spacer, closeBtn);
+  bar.append(
+    findInput,
+    prevBtn,
+    nextBtn,
+    countLabel,
+    wholeWordLabel,
+    replaceInput,
+    replaceBtn,
+    replaceAllBtn,
+    spacer,
+    closeBtn
+  );
 
   // State
   let matches: Array<{ from: number; to: number }> = [];
@@ -129,7 +150,9 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       return;
     }
     const doc = editor.getDocument();
-    matches = findSearchMatches(doc, query);
+    matches = findSearchMatches(doc, query, {
+      wholeWord: wholeWordToggle.checked,
+    });
     if (matches.length === 0) {
       currentIdx = -1;
       countLabel.textContent = "0 results";
@@ -178,13 +201,16 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     const query = findInput.value;
     if (!query) return;
     const doc = editor.getDocument();
-    const newDoc = replaceAllMatches(doc, query, replaceInput.value);
+    const newDoc = replaceAllMatches(doc, query, replaceInput.value, {
+      wholeWord: wholeWordToggle.checked,
+    });
     editor.setDocument(newDoc);
     updateMatches();
   }
 
   // Event handlers
   findInput.addEventListener("input", updateMatches);
+  wholeWordToggle.addEventListener("change", updateMatches);
   findInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.shiftKey ? goPrev() : goNext(); e.preventDefault(); }
     if (e.key === "Escape") { close(); }

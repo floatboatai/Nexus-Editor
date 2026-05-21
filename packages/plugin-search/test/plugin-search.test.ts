@@ -21,8 +21,23 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("supports whole-word matching", () => {
+    expect(findSearchMatches("cat scatter cat cat_ cat-cat", "cat", { wholeWord: true })).toEqual([
+      { from: 0, to: 3, text: "cat" },
+      { from: 12, to: 15, text: "cat" },
+      { from: 21, to: 24, text: "cat" },
+      { from: 25, to: 28, text: "cat" }
+    ]);
+  });
+
   it("replaces all matches in a document", () => {
     expect(replaceAllMatches("cat scatter cat", "cat", "dog")).toBe("dog sdogter dog");
+  });
+
+  it("replaces only whole-word matches when requested", () => {
+    expect(replaceAllMatches("cat scatter cat cat_ cat-cat", "cat", "dog", { wholeWord: true })).toBe(
+      "dog scatter dog cat_ dog-dog"
+    );
   });
 
   it("creates a search plugin descriptor", () => {
