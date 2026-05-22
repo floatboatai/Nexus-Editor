@@ -1,3 +1,4 @@
+import type { EditorAPI } from "@floatboat/nexus-core";
 import { render } from "@testing-library/react";
 import { useEffect } from "react";
 import { describe, expect, it } from "vitest";
@@ -36,5 +37,48 @@ describe("@floatboat/nexus-react", () => {
     render(<Harness />);
 
     expect(snapshots).toContain("updated");
+  });
+
+  it("calls onReady with a usable EditorAPI instance", () => {
+    let ready: EditorAPI | null = null;
+
+    render(
+      <Editor
+        initialValue="start"
+        onReady={(editor) => {
+          ready = editor;
+          editor.setDocument("ready");
+        }}
+      />
+    );
+
+    expect(ready).not.toBeNull();
+    expect(ready!.getDocument()).toBe("ready");
+  });
+
+  it("passes className to the wrapper div", () => {
+    const { container } = render(<Editor className="host" />);
+
+    expect(container.querySelector(".host")).not.toBeNull();
+  });
+
+  it("calls onReady from useEditor on first mount", () => {
+    let ready: EditorAPI | null = null;
+
+    function Harness() {
+      const { containerRef } = useEditor({
+        initialValue: "hook",
+        onReady: (editor) => {
+          ready = editor;
+        }
+      });
+
+      return <div ref={containerRef} />;
+    }
+
+    render(<Harness />);
+
+    expect(ready).not.toBeNull();
+    expect(ready!.getDocument()).toBe("hook");
   });
 });

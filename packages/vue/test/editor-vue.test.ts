@@ -1,3 +1,4 @@
+import type { EditorAPI } from "@floatboat/nexus-core";
 import { mount } from "@vue/test-utils";
 import { defineComponent, h, nextTick, onMounted } from "vue";
 import { describe, expect, it } from "vitest";
@@ -44,5 +45,60 @@ describe("@floatboat/nexus-vue", () => {
     await nextTick();
 
     expect(snapshots).toContain("updated");
+  });
+
+  it("calls onReady with a usable EditorAPI instance", async () => {
+    let ready: EditorAPI | null = null;
+
+    mount(Editor, {
+      props: {
+        initialValue: "start",
+        onReady: (editor: EditorAPI) => {
+          ready = editor;
+          editor.setDocument("ready");
+        }
+      }
+    });
+
+    await nextTick();
+
+    expect(ready).not.toBeNull();
+    expect(ready!.getDocument()).toBe("ready");
+  });
+
+  it("passes class to the wrapper div via attrs", async () => {
+    const wrapper = mount(Editor, {
+      attrs: {
+        class: "host"
+      }
+    });
+
+    await nextTick();
+
+    expect(wrapper.element.classList.contains("host")).toBe(true);
+  });
+
+  it("calls onReady from useEditor on first mount", async () => {
+    let ready: EditorAPI | null = null;
+
+    const Harness = defineComponent({
+      setup() {
+        const { containerRef } = useEditor({
+          initialValue: "hook",
+          onReady: (editor) => {
+            ready = editor;
+          }
+        });
+
+        return () => h("div", { ref: containerRef });
+      }
+    });
+
+    mount(Harness);
+
+    await nextTick();
+
+    expect(ready).not.toBeNull();
+    expect(ready!.getDocument()).toBe("hook");
   });
 });
