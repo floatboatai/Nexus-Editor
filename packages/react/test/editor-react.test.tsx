@@ -1,6 +1,6 @@
-import { render } from "@testing-library/react";
-import { useEffect } from "react";
-import { describe, expect, it } from "vitest";
+import { render, waitFor } from "@testing-library/react";
+import { useEffect, useState } from "react";
+import { describe, expect, it, vi } from "vitest";
 import { Editor, useEditor } from "../src/index";
 
 describe("@floatboat/nexus-react", () => {
@@ -36,5 +36,177 @@ describe("@floatboat/nexus-react", () => {
     render(<Harness />);
 
     expect(snapshots).toContain("updated");
+  });
+
+  it("uses value as the initial document when controlled", async () => {
+    function Harness() {
+      const { containerRef, editor } = useEditor({ value: "controlled-start" });
+      return (
+        <div ref={containerRef} data-doc={editor?.getDocument() ?? ""} />
+      );
+    }
+
+    const { container } = render(<Harness />);
+
+    await waitFor(() => {
+      expect(container.querySelector("[data-doc]")?.getAttribute("data-doc")).toBe(
+        "controlled-start"
+      );
+    });
+  });
+
+  it("syncs the editor when the controlled value prop changes", async () => {
+    function Harness({ value }: { value: string }) {
+      const { containerRef, editor } = useEditor({ value, onChange: () => {} });
+      return (
+        <div ref={containerRef} data-doc={editor?.getDocument() ?? ""} />
+      );
+    }
+
+    const { container, rerender } = render(<Harness value="first" />);
+
+    await waitFor(() => {
+      expect(container.querySelector("[data-doc]")?.getAttribute("data-doc")).toBe("first");
+    });
+
+    rerender(<Harness value="second" />);
+
+    await waitFor(() => {
+      expect(container.querySelector(".cm-line")?.textContent).toBe("second");
+    });
+  });
+
+  it("forwards document changes to onChange in controlled mode", async () => {
+    const onChange = vi.fn();
+
+    function Harness() {
+      const { containerRef, editor } = useEditor({
+        value: "start",
+        onChange
+      });
+
+      useEffect(() => {
+        if (!editor) {
+          return;
+        }
+
+        editor.setDocument("edited");
+      }, [editor]);
+
+      return <div ref={containerRef} />;
+    }
+
+    render(<Harness />);
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalled();
+      const lastCall = onChange.mock.calls.at(-1);
+      expect(lastCall?.[0]).toBe("edited");
+    });
+  });
+
+  it("skips silent setDocument when controlled value already matches the last change", async () => {
+    const silentDocs: string[] = [];
+
+    function Harness() {
+      const [value, setValue] = useState("alpha");
+      const { containerRef, editor } = useEditor({
+        value,
+        onChange: (doc) => setValue(doc)
+      });
+
+      useEffect(() => {
+        if (!editor) {
+          return;
+        }
+
+        const original = editor.setDocument.bind(editor);
+        editor.setDocument = (next, opts) => {
+          if (opts?.silent === true) {
+            silentDocs.push(next);
+          }
+          return original(next, opts);
+        };
+
+        editor.setDocument("beta");
+      }, [editor]);
+
+      return <div ref={containerRef} />;
+    }
+
+    render(<Harness />);
+
+    await waitFor(() => {
+      expect(silentDocs.filter((doc) => doc === "beta")).toHaveLength(0);
+    });
+  });
+
+  it("Editor component syncs when the value prop changes", async () => {
+    const { container, rerender } = render(
+      <Editor value="one" onChange={() => {}} plugins={[]} />
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector(".cm-line")?.textContent).toBe("one");
+    });
+
+    rerender(<Editor value="two" onChange={() => {}} plugins={[]} />);
+
+    await waitFor(() => {
+      expect(container.querySelector(".cm-line")?.textContent).toBe("two");
+    });
+  });
+
+  it("applies rapid external value updates without leaving stale content", async () => {
+    function Harness({ value }: { value: string }) {
+      const { containerRef } = useEditor({ value, onChange: () => {} });
+      return <div ref={containerRef} />;
+    }
+
+    const { container, rerender } = render(<Harness value="v1" />);
+    await waitFor(() => {
+      expect(container.querySelector(".cm-line")?.textContent).toBe("v1");
+    });
+
+    rerender(<Harness value="v2" />);
+    await waitFor(() => {
+      expect(container.querySelector(".cm-line")?.textContent).toBe("v2");
+    });
+
+    rerender(<Harness value="v3" />);
+    await waitFor(() => {
+      expect(container.querySelector(".cm-line")?.textContent).toBe("v3");
+    });
+  });
+
+  it("supports readOnly together with a controlled value", async () => {
+    const { container } = render(
+      <Editor value="# Locked" readOnly onChange={() => {}} />
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector(".cm-line")?.textContent).toBe("# Locked");
+    });
+
+    expect(container.querySelector(".cm-content")?.getAttribute("contenteditable")).toBe(
+      "false"
+    );
+  });
+
+  it("keeps initialValue behavior in uncontrolled mode", async () => {
+    function Harness() {
+      const { containerRef, editor } = useEditor({ initialValue: "uncontrolled" });
+      return (
+        <div ref={containerRef} data-doc={editor?.getDocument() ?? ""} />
+      );
+    }
+
+    const { container } = render(<Harness />);
+
+    await waitFor(() => {
+      expect(container.querySelector("[data-doc]")?.getAttribute("data-doc")).toBe(
+        "uncontrolled"
+      );
+    });
   });
 });

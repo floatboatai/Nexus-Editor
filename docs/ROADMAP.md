@@ -58,6 +58,7 @@ This document maps every planned feature to **package ownership / priority / sta
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
 | 4 | `<Editor />` container pass-through props + `onReady` callback | `react` (and `vue` in lockstep) | P0 | planned | No | Public API addition; semantics must match across bindings |
+| 28 | Controlled document `value` / `v-model` | `react` + `vue` | P0 | in-progress | No | PR #30 — parent-owned markdown via silent `setDocument` sync |
 
 ## 7. Collaboration
 

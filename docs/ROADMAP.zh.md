@@ -58,6 +58,7 @@
 | # | 功能 | 归属包 | 优先级 | 状态 | 需要 OpenSpec | 备注 |
 |---|---|---|---|---|---|---|
 | 4 | `<Editor />` 容器属性透传 + `onReady` 回调 | `react`（同步补 `vue`） | P0 | planned | 否 | 公共 API 增量，两端语义需一致 |
+| 28 | 受控文档 `value` / `v-model` | `react` + `vue` | P0 | in-progress | 否 | PR #30 — 父组件驱动 Markdown，`setDocument(..., { silent: true })` 防反馈环 |
 
 ## 7. 协作
 
