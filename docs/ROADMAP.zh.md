@@ -25,7 +25,7 @@
 | 2  | whole-word 匹配 | `plugin-search` | P1 | planned | 否 | 现有 search 选项扩展 |
 | 15 | 正则搜索 | `plugin-search` | P1 | in-progress | 否 | 注意转义边界用例 —— PR #9 review 中 |
 | 16 | 历史命令 / 搜索记忆 | `plugin-search` + `plugin-slash` | P2 | planned | 是 | 需要持久化层（localStorage 或宿主注入） |
-| 17 | 模糊搜索 | `plugin-search` | P2 | planned | 否 | 评估 fzf-like 算法 vs. 第三方 lib |
+| 17 | 模糊搜索 | `plugin-search` | P2 | done | 是 | 无依赖有序子序列模式 —— 见 `openspec/changes/add-fuzzy-search-mode` |
 | 3  | Slash 命令排序与 limit | `plugin-slash` | P0 | done | 是 | 与浮层菜单 UI 一并落地 —— 见 `openspec/changes/add-slash-menu-ui` |
 | 27 | Slash 命令浮层菜单 UI | `plugin-slash` + `electron-demo` | P0 | done | 是 | `createSlashMenuUI(editor, options)` —— 见 `openspec/changes/add-slash-menu-ui` |
 

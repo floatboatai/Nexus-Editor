@@ -31,6 +31,7 @@ show a long list.
 ## Editor shortcuts
 
 - [[slash-demo]] — type `/` anywhere to open the floating command menu
+- [[fuzzy-demo]] - try fuzzy search queries such as `nxe` for `Nexus Editor`
 
 ## Edge cases
 
