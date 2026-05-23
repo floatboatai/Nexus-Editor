@@ -30,7 +30,9 @@ and contiguous matches.
 The `@floatboat/nexus-plugin-search` panel SHALL provide an opt-in fuzzy mode.
 When enabled, the panel SHALL compile the raw user query to a safe line-local
 regular expression for CodeMirror navigation while continuing to display the
-raw query text in the input.
+raw query text in the input. The generated pattern SHALL keep matches
+line-local and SHALL bound the gap between adjacent fuzzy characters to avoid
+very loose long-span matches.
 
 #### Scenario: Plugin-level fuzzy default
 - **WHEN** a host enables `createSearchPlugin({ fuzzy: true })`
@@ -49,7 +51,8 @@ raw query text in the input.
 - **THEN** the `Regexp` and `By word` toggles SHALL be disabled
 - **AND** the `Match case` toggle SHALL remain available
 
-#### Scenario: Generated pattern is escaped and line-local
+#### Scenario: Generated pattern is escaped, line-local, and bounded
 - **WHEN** the query contains regexp syntax characters such as `.`
 - **THEN** `createFuzzySearchPattern` SHALL escape those characters
 - **AND** the generated gaps SHALL NOT match newline characters
+- **AND** the generated gaps SHALL have a finite character limit

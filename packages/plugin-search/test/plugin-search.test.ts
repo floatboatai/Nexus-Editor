@@ -43,8 +43,14 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("ignores overly loose fuzzy matches", () => {
+    expect(
+      findFuzzySearchMatches("Search panel settings include match case, regexp, by word, and fuzzy mode", "nxe")
+    ).toEqual([]);
+  });
+
   it("creates a line-local regexp pattern for fuzzy search panel queries", () => {
-    expect(createFuzzySearchPattern("n.e")).toBe("n[^\\n]*?\\.[^\\n]*?e");
+    expect(createFuzzySearchPattern("n.e")).toBe("n[^\\n]{0,16}?\\.[^\\n]{0,16}?e");
   });
 
   it("replaces all matches in a document", () => {

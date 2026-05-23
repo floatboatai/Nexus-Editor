@@ -50,8 +50,9 @@ createEditor({
 
 When the panel's `Fuzzy` checkbox is active, the input still shows the raw user
 query (`nxe`). Internally the plugin compiles it to a safe line-local regular
-expression such as `n[^\n]*?x[^\n]*?e` so CodeMirror can keep handling
-navigation, selection, and match highlighting.
+expression such as `n[^\n]{0,16}?x[^\n]{0,16}?e` so CodeMirror can keep
+handling navigation, selection, and match highlighting without surfacing very
+loose long-span matches.
 
 Fuzzy mode disables the `Regexp` and `By word` toggles because those options do
 not map cleanly to subsequence ranges. `Match case` remains available.
@@ -75,7 +76,7 @@ findSearchMatches("Nexus Editor", "nxe", { fuzzy: true });
 findFuzzySearchMatches("Nexus Editor", "nxe", { caseSensitive: false });
 
 createFuzzySearchPattern("n.e");
-// "n[^\\n]*?\\.[^\\n]*?e"
+// "n[^\\n]{0,16}?\\.[^\\n]{0,16}?e"
 
 replaceAllMatches("cat scatter cat", "cat", "dog");
 // "dog sdogter dog"

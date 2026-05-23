@@ -28,6 +28,6 @@ Search panel settings include match case, regexp, by word, and fuzzy mode.
 ## Notes
 
 - Fuzzy search is ordered: `nxe` matches `Nexus Editor`, but `exn` does not.
-- Fuzzy search is line-local in the panel, so a short query will not jump across
-  multiple paragraphs to create a surprising match.
+- Fuzzy search is line-local and bounded in the panel, so a short query will
+  not jump across long spans to create a surprising match.
 - The `Match case` toggle still applies when fuzzy mode is enabled.

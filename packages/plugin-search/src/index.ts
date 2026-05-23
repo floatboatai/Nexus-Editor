@@ -94,6 +94,8 @@ const DEFAULT_LABELS: SearchPluginLabels = {
   close: "Close"
 };
 
+const DEFAULT_FUZZY_GAP = 16;
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -153,14 +155,18 @@ function findNextFuzzyCandidate(
 
     const indices = [start];
     let queryIndex = 1;
+    let previousIndex = start;
     for (
       let index = start + 1;
-      index < normalizedText.length && queryIndex < normalizedQuery.length;
+      index < normalizedText.length &&
+      queryIndex < normalizedQuery.length &&
+      index <= previousIndex + DEFAULT_FUZZY_GAP + 1;
       index += 1
     ) {
       if (normalizedText[index] === normalizedQuery[queryIndex]) {
         indices.push(index);
         queryIndex += 1;
+        previousIndex = index;
       }
     }
 
@@ -181,7 +187,7 @@ function findNextFuzzyCandidate(
 }
 
 export function createFuzzySearchPattern(query: string): string {
-  return Array.from(query).map(escapeRegExp).join("[^\\n]*?");
+  return Array.from(query).map(escapeRegExp).join(`[^\\n]{0,${DEFAULT_FUZZY_GAP}}?`);
 }
 
 export function findFuzzySearchMatches(

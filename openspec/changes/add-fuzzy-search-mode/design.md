@@ -55,14 +55,15 @@ Rationale:
 ### Decision 2: Compile panel fuzzy queries to line-local regexp
 
 Adopted: `createFuzzySearchPattern("nxe")` returns
-`n[^\n]*?x[^\n]*?e`. The search panel enables CodeMirror `regexp` mode when
-the `Fuzzy` checkbox is checked.
+`n[^\n]{0,16}?x[^\n]{0,16}?e`. The search panel enables CodeMirror `regexp`
+mode when the `Fuzzy` checkbox is checked.
 
 Rationale:
 
 - CodeMirror already owns search state, next/previous navigation, selection,
   replacement commands, and match decorations.
-- A line-local regexp keeps fuzzy matches from spanning newlines.
+- A line-local, bounded-gap regexp keeps fuzzy matches from spanning newlines
+  or surfacing very loose long-span matches.
 - `escapeRegExp` is applied per query character, so punctuation like `.` or
   `[` is treated as literal input.
 
@@ -84,7 +85,7 @@ compiled panel query.
 | Risk | Mitigation |
 |---|---|
 | Generated regexp could treat user punctuation as syntax | Escape every query character before joining with the fuzzy gap pattern. |
-| Fuzzy regexp could span large portions of the document | Use `[^\n]*?` between characters so panel matching is line-local. |
+| Fuzzy regexp could span large portions of the document | Use bounded `[^\n]{0,16}?` gaps between characters so panel matching is line-local and compact. |
 | `SearchOptions.fuzzy` and `SearchPluginOptions.fuzzy` could be confused | Document the distinction: helper-level per-call override vs plugin-level panel default. |
 | Score metadata is unused by the current panel | Keep it documented as host-facing metadata for result list UIs; panel keeps CodeMirror order. |
 
