@@ -13,16 +13,12 @@ export default defineConfig({
         // Split large vendor deps out of the main chunk so cold-start
         // doesn't have to parse a single 1.5MB file.
         manualChunks(id) {
-          // Vite's dynamic-import preload helper is tiny, but if Rollup places
-          // it in the mermaid chunk then the main entry has to statically
-          // import mermaid just to call the helper. Keep it in vendor so
-          // mermaid remains truly lazy until a diagram widget renders.
           if (id.includes("vite/preload-helper")) return "vendor";
           if (id.includes("node_modules")) {
             if (id.includes("mermaid")) return "mermaid";
-            if (id.includes("@codemirror") || id.includes("codemirror")) return "codemirror";
+            if (id.includes("@codemirror") || id.includes("codemirror") || id.includes("@lezer") || id.includes("@replit/codemirror")) return "codemirror";
             if (id.includes("highlight.js")) return "hljs";
-            if (id.includes("mdast") || id.includes("micromark") || id.includes("unified") || id.includes("remark")) return "markdown";
+            if (id.includes("mdast") || id.includes("micromark") || id.includes("unified") || id.includes("remark") || id.includes("rehype")) return "markdown";
             if (id.includes("katex")) return "katex";
             return "vendor";
           }

@@ -25,6 +25,34 @@ describe("@floatboat/nexus-plugin-search", () => {
     expect(replaceAllMatches("cat scatter cat", "cat", "dog")).toBe("dog sdogter dog");
   });
 
+  it("supports regex search", () => {
+    const matches = findSearchMatches("foo123 bar456 baz", "\\d+", { regexp: true });
+    expect(matches).toEqual([
+      { from: 3, to: 6, text: "123" },
+      { from: 10, to: 13, text: "456" }
+    ]);
+  });
+
+  it("regex with case-sensitive flag", () => {
+    const matches = findSearchMatches("Hello hello HELLO", "h.llo", { regexp: true, caseSensitive: true });
+    expect(matches).toEqual([
+      { from: 6, to: 11, text: "hello" }
+    ]);
+  });
+
+  it("regex replace with capture groups", () => {
+    expect(replaceAllMatches("2024-01-15", "(\\d{4})-(\\d{2})-(\\d{2})", "$2/$3/$1", { regexp: true }))
+      .toBe("01/15/2024");
+  });
+
+  it("invalid regex returns empty matches gracefully", () => {
+    expect(findSearchMatches("hello world", "[invalid(", { regexp: true })).toEqual([]);
+  });
+
+  it("invalid regex in replace returns original doc", () => {
+    expect(replaceAllMatches("hello world", "[invalid(", "x", { regexp: true })).toBe("hello world");
+  });
+
   it("creates a search plugin descriptor", () => {
     const plugin = createSearchPlugin();
 

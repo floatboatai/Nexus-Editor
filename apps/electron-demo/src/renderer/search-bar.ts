@@ -62,7 +62,10 @@ const CLOSE_BTN_STYLES = `
   line-height: 1;
 `;
 
+const TOGGLE_LABEL_STYLES = "display:flex;align-items:center;gap:3px;font-size:12px;cursor:pointer;";
+
 export function createSearchBar(editor: EditorAPI): SearchBar {
+
   const bar = document.createElement("div");
   bar.className = "nexus-search-bar";
   bar.style.cssText = BAR_STYLES;
@@ -113,7 +116,15 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   const spacer = document.createElement("div");
   spacer.style.flex = "1";
 
-  bar.append(findInput, prevBtn, nextBtn, countLabel, replaceInput, replaceBtn, replaceAllBtn, spacer, closeBtn);
+  // Regex toggle
+  const regexpLabel = document.createElement("label");
+  regexpLabel.style.cssText = TOGGLE_LABEL_STYLES;
+  const regexpCheck = document.createElement("input");
+  regexpCheck.type = "checkbox";
+  regexpCheck.title = "Use regular expression";
+  regexpLabel.append(regexpCheck, "Regex");
+
+  bar.append(findInput, regexpLabel, prevBtn, nextBtn, countLabel, replaceInput, replaceBtn, replaceAllBtn, spacer, closeBtn);
 
   // State
   let matches: Array<{ from: number; to: number }> = [];
@@ -129,7 +140,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       return;
     }
     const doc = editor.getDocument();
-    matches = findSearchMatches(doc, query);
+    matches = findSearchMatches(doc, query, { regexp: regexpCheck.checked });
     if (matches.length === 0) {
       currentIdx = -1;
       countLabel.textContent = "0 results";
@@ -178,12 +189,13 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     const query = findInput.value;
     if (!query) return;
     const doc = editor.getDocument();
-    const newDoc = replaceAllMatches(doc, query, replaceInput.value);
+    const newDoc = replaceAllMatches(doc, query, replaceInput.value, { regexp: regexpCheck.checked });
     editor.setDocument(newDoc);
     updateMatches();
   }
 
   // Event handlers
+  regexpCheck.addEventListener("change", updateMatches);
   findInput.addEventListener("input", updateMatches);
   findInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.shiftKey ? goPrev() : goNext(); e.preventDefault(); }

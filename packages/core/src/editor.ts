@@ -1,11 +1,18 @@
-import { Annotation, EditorState } from "@codemirror/state";
+import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
 
 // Annotation attached to dispatches that load content programmatically (e.g.
 // setDocument from file open) so updateListener can skip the user-edit path —
 // no onChange emission, no AST reparse for the onChange pipeline.
 const silentDocChange = Annotation.define<boolean>();
-import { EditorView, keymap, dropCursor, lineNumbers, type Direction } from "@codemirror/view";
-import { indentWithTab, undo as cmUndo, redo as cmRedo } from "@codemirror/commands";
+import { EditorView, drawSelection, keymap, dropCursor, lineNumbers, type Direction } from "@codemirror/view";
+import {
+  indentWithTab,
+  undo as cmUndo,
+  redo as cmRedo,
+  undoDepth as cmUndoDepth,
+  redoDepth as cmRedoDepth,
+  isolateHistory,
+} from "@codemirror/commands";
 import { closeBrackets } from "@codemirror/autocomplete";
 import type { Root } from "mdast";
 import type { Heading } from "mdast";
@@ -291,7 +298,11 @@ export function createEditor(config: EditorConfig): EditorAPI {
             const sel = update.state.selection.main;
 
             if (update.selectionSet) {
-              emitter.emit("selectionChange", { anchor: sel.anchor, head: sel.head });
+              emitter.emit("selectionChange", {
+                anchor: sel.anchor,
+                head: sel.head,
+                ranges: update.state.selection.ranges.map(r => ({ anchor: r.anchor, head: r.head })),
+              });
             }
 
             if (slashCommands.length > 0) {
@@ -330,6 +341,8 @@ export function createEditor(config: EditorConfig): EditorAPI {
         markdownKeymap(),
         markdownFoldService(),
         keymap.of([indentWithTab]),
+        EditorState.allowMultipleSelections.of(true),
+        ...(typeof Range !== "undefined" && "getClientRects" in Range.prototype ? [drawSelection()] : []),
         closeBrackets(),
         markdownAutoPair(),
         dropCursor(),
@@ -409,6 +422,21 @@ export function createEditor(config: EditorConfig): EditorAPI {
       const sel = view.state.selection.main;
       return { anchor: sel.anchor, head: sel.head };
     },
+    getSelections() {
+      return view.state.selection.ranges.map(r => ({ anchor: r.anchor, head: r.head }));
+    },
+    addCursor(pos) {
+      if (destroyed) return;
+      const existing = view.state.selection;
+      const newRange = EditorSelection.cursor(pos);
+      view.dispatch({
+        selection: EditorSelection.create(
+          [...existing.ranges, newRange],
+          existing.mainIndex
+        ),
+        scrollIntoView: true,
+      });
+    },
     getSlashCommands() {
       return slashCommands;
     },
@@ -467,6 +495,21 @@ export function createEditor(config: EditorConfig): EditorAPI {
     redo() {
       if (destroyed) return false;
       return cmRedo(view);
+    },
+    undoDepth() {
+      if (destroyed) return 0;
+      return cmUndoDepth(view.state);
+    },
+    redoDepth() {
+      if (destroyed) return 0;
+      return cmRedoDepth(view.state);
+    },
+    groupChanges(fn: () => void) {
+      if (destroyed) return;
+      view.dispatch({ annotations: isolateHistory.of("before") });
+      try { fn(); } finally {
+        view.dispatch({ annotations: isolateHistory.of("after") });
+      }
     },
     focus() {
       if (destroyed) {

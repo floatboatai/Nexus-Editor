@@ -25,6 +25,8 @@ export interface SearchMatch {
 
 export interface SearchOptions {
   caseSensitive?: boolean;
+  /** When true, query is treated as a regex pattern. */
+  regexp?: boolean;
 }
 
 export interface SearchPluginOptions {
@@ -88,8 +90,16 @@ export function findSearchMatches(
     return [];
   }
 
+  const source = options.regexp ? query : escapeRegExp(query);
   const flags = options.caseSensitive ? "g" : "gi";
-  const pattern = new RegExp(escapeRegExp(query), flags);
+
+  let pattern: RegExp;
+  try {
+    pattern = new RegExp(source, flags);
+  } catch {
+    return [];
+  }
+
   const matches: SearchMatch[] = [];
 
   for (const match of doc.matchAll(pattern)) {
@@ -116,8 +126,14 @@ export function replaceAllMatches(
     return doc;
   }
 
+  const source = options.regexp ? query : escapeRegExp(query);
   const flags = options.caseSensitive ? "g" : "gi";
-  return doc.replace(new RegExp(escapeRegExp(query), flags), replacement);
+
+  try {
+    return doc.replace(new RegExp(source, flags), replacement);
+  } catch {
+    return doc;
+  }
 }
 
 function resolveLabel(

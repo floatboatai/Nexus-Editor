@@ -118,7 +118,7 @@ export interface EditorEventMap {
   change: (doc: string, ast: Root) => void;
   focus: () => void;
   blur: () => void;
-  selectionChange: (selection: { anchor: number; head: number }) => void;
+  selectionChange: (selection: { anchor: number; head: number; ranges: Array<{ anchor: number; head: number }> }) => void;
   slashMenuChange: (state: SlashMenuState) => void;
 }
 
@@ -136,6 +136,10 @@ export interface EditorAPI {
   exportHTML(): string;
   setTheme(theme: import("./theme").NexusTheme): void;
   getSelection(): { anchor: number; head: number };
+  /** Returns all selection ranges (multi-cursor). */
+  getSelections(): Array<{ anchor: number; head: number }>;
+  /** Add an additional cursor without disturbing existing ones. */
+  addCursor(pos: number): void;
   getSlashCommands(): SlashCommandDef[];
   uploadAsset(file: File): Promise<string | null>;
   setSelection(anchor: number, head?: number): void;
@@ -150,6 +154,15 @@ export interface EditorAPI {
   replaceSelection(text: string): void;
   undo(): boolean;
   redo(): boolean;
+  /** Number of undoable history groups in the current state. */
+  undoDepth(): number;
+  /** Number of redoable history groups in the current state. */
+  redoDepth(): number;
+  /**
+   * Group all document changes made inside `fn` into a single undo step.
+   * After `fn` returns, subsequent changes start a new history group.
+   */
+  groupChanges(fn: () => void): void;
   focus(): void;
   blur(): void;
   runShortcut(key: string): boolean;
@@ -207,6 +220,10 @@ export interface WidgetDefinition {
   match?: (node: any) => boolean;
   render: (node: any, source: string, ctx?: WidgetRenderContext) => HTMLElement;
   destroy?: (element: HTMLElement) => void;
+  /** Return true to reuse existing DOM. Default: source string comparison. */
+  eq?: (prev: { node: any; source: string }, next: { node: any; source: string }) => boolean;
+  /** In-place DOM update when eq() returns false. Avoids full teardown. */
+  update?: (element: HTMLElement, node: any, source: string) => void;
   /**
    * Whether the widget replaces a block-level range (occupies its own line)
    * or an inline range (sits inside surrounding text). Defaults to `true`
@@ -214,6 +231,8 @@ export interface WidgetDefinition {
    * must set this to `false` or they'll be hoisted onto their own line.
    */
   block?: boolean;
+  /** Height hint in px for scroll stability. */
+  estimatedHeight?: number;
   /**
    * When `true`, the widget swallows mouse / keyboard events so CM6 doesn't
    * try to resolve a cursor position inside the widget body. Use this when

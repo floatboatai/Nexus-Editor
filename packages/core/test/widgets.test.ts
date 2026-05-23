@@ -297,4 +297,155 @@ describe("widget extension", () => {
     expect(container.textContent).toContain("bold");
     editor.destroy();
   });
+
+  describe("eq() optimization", () => {
+    it("does not call render again when source is unchanged (default eq)", () => {
+      const renderFn = vi.fn(() => {
+        const el = document.createElement("div");
+        el.setAttribute("data-widget", "code");
+        return el;
+      });
+      const container = document.createElement("div");
+      const editor = createEditor({
+        container,
+        initialValue: "Text\n\n```js\ncode\n```\n\nMore text",
+        plugins: [
+          {
+            name: "code-widget",
+            widgets: [{ nodeType: "code", render: renderFn }],
+          },
+        ],
+      });
+
+      expect(renderFn).toHaveBeenCalledTimes(1);
+
+      // Move cursor in a non-widget area — source unchanged, eq() should prevent rebuild
+      editor.setSelection(0);
+      editor.setSelection(2);
+
+      // render should not have been called again since source is unchanged
+      expect(renderFn).toHaveBeenCalledTimes(1);
+      editor.destroy();
+    });
+
+    it("calls custom eq() when provided", () => {
+      const eqFn = vi.fn(() => true);
+      const container = document.createElement("div");
+      const editor = createEditor({
+        container,
+        initialValue: "Text\n\n```js\ncode\n```\n\nMore text",
+        plugins: [
+          {
+            name: "code-widget",
+            widgets: [
+              {
+                nodeType: "code",
+                eq: eqFn,
+                render() {
+                  const el = document.createElement("div");
+                  el.setAttribute("data-widget", "code");
+                  return el;
+                },
+              },
+            ],
+          },
+        ],
+      });
+
+      editor.setSelection(0);
+      expect(eqFn).toHaveBeenCalled();
+      editor.destroy();
+    });
+  });
+
+  describe("block option", () => {
+    it("defaults to block: true when not specified", () => {
+      const container = document.createElement("div");
+      const editor = createEditor({
+        container,
+        initialValue: "Text\n\n```js\ncode\n```",
+        plugins: [
+          {
+            name: "code-widget",
+            widgets: [
+              {
+                nodeType: "code",
+                render() {
+                  const el = document.createElement("div");
+                  el.setAttribute("data-widget", "code");
+                  return el;
+                },
+              },
+            ],
+          },
+        ],
+      });
+
+      expect(container.querySelector("[data-widget='code']")).not.toBeNull();
+      editor.destroy();
+    });
+
+    it("supports block: false for inline widgets", () => {
+      const container = document.createElement("div");
+      const editor = createEditor({
+        container,
+        initialValue: "Text\n\n```js\ncode\n```",
+        plugins: [
+          {
+            name: "code-widget",
+            widgets: [
+              {
+                nodeType: "code",
+                block: false,
+                render() {
+                  const el = document.createElement("span");
+                  el.setAttribute("data-widget", "inline-code");
+                  return el;
+                },
+              },
+            ],
+          },
+        ],
+      });
+
+      expect(container.querySelector("[data-widget='inline-code']")).not.toBeNull();
+      editor.destroy();
+    });
+  });
+
+  describe("update callback", () => {
+    it("calls update() for in-place DOM mutation when source changes", () => {
+      const updateFn = vi.fn();
+      const container = document.createElement("div");
+      const editor = createEditor({
+        container,
+        initialValue: "Text\n\n```js\ncode\n```\n\nEnd",
+        plugins: [
+          {
+            name: "code-widget",
+            widgets: [
+              {
+                nodeType: "code",
+                eq: () => false,
+                update: updateFn,
+                render() {
+                  const el = document.createElement("div");
+                  el.setAttribute("data-widget", "code");
+                  return el;
+                },
+              },
+            ],
+          },
+        ],
+      });
+
+      // Modify text outside the widget to trigger a rebuild
+      editor.setSelection(0);
+      editor.replaceSelection("X");
+
+      // updateDOM should have been called
+      expect(updateFn).toHaveBeenCalled();
+      editor.destroy();
+    });
+  });
 });

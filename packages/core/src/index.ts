@@ -1,4 +1,5 @@
 export { createEditor } from "./editor";
+export { isTableEditing } from "./live-preview-table";
 export { markdownAutoPair } from "./markdown-autopair";
 export { markdownFold, markdownFoldService } from "./markdown-fold";
 export { markdownKeymap, handleMarkdownEnter } from "./markdown-keymap";

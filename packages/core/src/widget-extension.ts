@@ -32,11 +32,6 @@ function selectionIntersects(
     const rangeTo = Math.max(range.anchor, range.head);
 
     if (range.empty) {
-      // Inclusive at `to` so clicking just after a block widget (cursor at
-      // the widget end) toggles into edit mode. Without this, block widgets
-      // like math `$$...$$` render correctly but can never be entered for
-      // editing — CM6's click-to-pos usually lands the cursor at the end of
-      // the widget range, not inside it.
       return range.anchor >= from && range.anchor <= to;
     }
 
@@ -104,13 +99,28 @@ class NexusWidget extends WidgetType {
     super();
   }
 
-  eq(other: NexusWidget): boolean {
+  eq(other: WidgetType): boolean {
+    if (!(other instanceof NexusWidget)) return false;
+    if (other.definition !== this.definition) return false;
+    if (this.definition.eq) {
+      return this.definition.eq(
+        { node: other.node, source: other.source },
+        { node: this.node, source: this.source }
+      );
+    }
     return (
-      other.definition === this.definition &&
       other.from === this.from &&
       other.to === this.to &&
       other.source === this.source
     );
+  }
+
+  updateDOM(dom: HTMLElement): boolean {
+    if (this.definition.update) {
+      this.definition.update(dom, this.node, this.source);
+      return true;
+    }
+    return false;
   }
 
   toDOM(): HTMLElement {
@@ -139,40 +149,13 @@ class NexusWidget extends WidgetType {
     this.definition.destroy?.(dom);
   }
 
+  get estimatedHeight(): number {
+    return this.definition.estimatedHeight ?? -1;
+  }
+
   ignoreEvent(): boolean {
     return this.definition.ignoreEvents === true;
   }
-}
-
-function buildWidgetDecorations(
-  doc: string,
-  selection: readonly SelectionRange[],
-  parser: ParserLike,
-  widgets: WidgetDefinition[],
-  viewRef: { current: EditorView | null }
-): DecorationSet {
-  const ast = parseDocument(parser, doc);
-  const ranges = collectWidgetRanges(ast, doc, selection, widgets);
-  const decos: Range<Decoration>[] = [];
-
-  for (const range of ranges) {
-    const isBlock = range.definition.block !== false;
-    decos.push(
-      Decoration.replace({
-        widget: new NexusWidget(
-          range.definition,
-          range.node,
-          range.source,
-          range.from,
-          range.to,
-          viewRef
-        ),
-        block: isBlock,
-      }).range(range.from, range.to)
-    );
-  }
-
-  return Decoration.set(decos, true);
 }
 
 export function createWidgetExtension(
@@ -183,25 +166,48 @@ export function createWidgetExtension(
 
   const viewRef: { current: EditorView | null } = { current: null };
 
+  let cachedDoc: string | null = null;
+  let cachedAst: Root | null = null;
+
+  function getAst(doc: string): Root {
+    if (cachedDoc === doc && cachedAst) return cachedAst;
+    cachedAst = parseDocument(parser, doc);
+    cachedDoc = doc;
+    return cachedAst;
+  }
+
+  function buildDecos(doc: string, selection: readonly SelectionRange[]): DecorationSet {
+    const ast = getAst(doc);
+    const ranges = collectWidgetRanges(ast, doc, selection, widgets);
+    const decos: Range<Decoration>[] = [];
+
+    for (const range of ranges) {
+      const isBlock = range.definition.block !== false;
+      decos.push(
+        Decoration.replace({
+          widget: new NexusWidget(
+            range.definition,
+            range.node,
+            range.source,
+            range.from,
+            range.to,
+            viewRef
+          ),
+          block: isBlock,
+        }).range(range.from, range.to)
+      );
+    }
+
+    return Decoration.set(decos, true);
+  }
+
   const field = StateField.define<DecorationSet>({
     create(state) {
-      return buildWidgetDecorations(
-        state.doc.toString(),
-        state.selection.ranges,
-        parser,
-        widgets,
-        viewRef
-      );
+      return buildDecos(state.doc.toString(), state.selection.ranges);
     },
     update(decos: DecorationSet, tr: Transaction) {
       if (tr.docChanged || tr.selection) {
-        return buildWidgetDecorations(
-          tr.state.doc.toString(),
-          tr.state.selection.ranges,
-          parser,
-          widgets,
-          viewRef
-        );
+        return buildDecos(tr.state.doc.toString(), tr.state.selection.ranges);
       }
       return decos;
     },
