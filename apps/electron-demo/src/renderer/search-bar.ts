@@ -51,6 +51,15 @@ const COUNT_STYLES = `
   min-width: 60px;
 `;
 
+const OPTION_STYLES = `
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--nexus-text, #24292e);
+  font-size: 12px;
+  white-space: nowrap;
+`;
+
 const CLOSE_BTN_STYLES = `
   background: none;
   border: none;
@@ -104,6 +113,13 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   const countLabel = document.createElement("span");
   countLabel.style.cssText = COUNT_STYLES;
 
+  const fuzzyInput = document.createElement("input");
+  fuzzyInput.type = "checkbox";
+  fuzzyInput.dataset.testId = "electron-search-fuzzy-toggle";
+  const fuzzyLabel = document.createElement("label");
+  fuzzyLabel.style.cssText = OPTION_STYLES;
+  fuzzyLabel.append(fuzzyInput, "Fuzzy");
+
   // Close
   const closeBtn = document.createElement("button");
   closeBtn.innerHTML = "&times;";
@@ -113,7 +129,18 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   const spacer = document.createElement("div");
   spacer.style.flex = "1";
 
-  bar.append(findInput, prevBtn, nextBtn, countLabel, replaceInput, replaceBtn, replaceAllBtn, spacer, closeBtn);
+  bar.append(
+    findInput,
+    fuzzyLabel,
+    prevBtn,
+    nextBtn,
+    countLabel,
+    replaceInput,
+    replaceBtn,
+    replaceAllBtn,
+    spacer,
+    closeBtn
+  );
 
   // State
   let matches: Array<{ from: number; to: number }> = [];
@@ -129,7 +156,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       return;
     }
     const doc = editor.getDocument();
-    matches = findSearchMatches(doc, query);
+    matches = findSearchMatches(doc, query, { fuzzy: fuzzyInput.checked });
     if (matches.length === 0) {
       currentIdx = -1;
       countLabel.textContent = "0 results";
@@ -165,6 +192,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   }
 
   function doReplace() {
+    if (fuzzyInput.checked) return;
     if (currentIdx < 0 || currentIdx >= matches.length) return;
     const m = matches[currentIdx];
     const doc = editor.getDocument();
@@ -175,6 +203,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   }
 
   function doReplaceAll() {
+    if (fuzzyInput.checked) return;
     const query = findInput.value;
     if (!query) return;
     const doc = editor.getDocument();
@@ -185,6 +214,12 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
 
   // Event handlers
   findInput.addEventListener("input", updateMatches);
+  fuzzyInput.addEventListener("change", () => {
+    replaceInput.disabled = fuzzyInput.checked;
+    replaceBtn.disabled = fuzzyInput.checked;
+    replaceAllBtn.disabled = fuzzyInput.checked;
+    updateMatches();
+  });
   findInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.shiftKey ? goPrev() : goNext(); e.preventDefault(); }
     if (e.key === "Escape") { close(); }
