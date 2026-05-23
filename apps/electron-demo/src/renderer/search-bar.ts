@@ -1,5 +1,5 @@
 import type { EditorAPI } from "@floatboat/nexus-core";
-import { findSearchMatches, replaceAllMatches } from "@floatboat/nexus-plugin-search";
+import { findSearchMatches, replaceAllMatches, type FuzzySearchMatch } from "@floatboat/nexus-plugin-search";
 
 export interface SearchBar {
   element: HTMLElement;
@@ -147,6 +147,18 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   let currentIdx = -1;
   let visible = false;
 
+  function rankedFuzzyMatches(doc: string, query: string): Array<{ from: number; to: number }> {
+    const ranked = findSearchMatches(doc, query, { fuzzy: true }) as FuzzySearchMatch[];
+    ranked.sort((a, b) => b.score - a.score || a.from - b.from);
+
+    const bestScore = ranked[0]?.score;
+    if (bestScore === undefined) {
+      return [];
+    }
+
+    return ranked.filter((match) => match.score >= bestScore - 12);
+  }
+
   function updateMatches() {
     const query = findInput.value;
     if (!query) {
@@ -156,10 +168,13 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       return;
     }
     const doc = editor.getDocument();
-    matches = findSearchMatches(doc, query, { fuzzy: fuzzyInput.checked });
+    matches = fuzzyInput.checked ? rankedFuzzyMatches(doc, query) : findSearchMatches(doc, query);
     if (matches.length === 0) {
       currentIdx = -1;
       countLabel.textContent = "0 results";
+    } else if (fuzzyInput.checked) {
+      currentIdx = 0;
+      highlightCurrent();
     } else {
       // Find nearest match to current cursor
       const { anchor } = editor.getSelection();
