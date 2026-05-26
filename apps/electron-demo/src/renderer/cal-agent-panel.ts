@@ -57,13 +57,13 @@ export function createCalAgentPanel(): CalAgentPanel {
   hint.className = "cal-agent-panel__hint";
   hint.textContent = "Waiting for CAL-AGENT to become ready...";
 
-  const iframe = document.createElement("iframe");
-  iframe.className = "cal-agent-panel__frame";
-  iframe.title = "CAL-AGENT workbench";
-  iframe.loading = "lazy";
-  iframe.referrerPolicy = "no-referrer";
+  const webview = document.createElement("webview");
+  webview.className = "cal-agent-panel__frame";
+  webview.setAttribute("partition", "persist:cal-agent");
+  webview.setAttribute("allowpopups", "");
+  webview.setAttribute("webpreferences", "contextIsolation=yes");
 
-  body.append(hint, iframe);
+  body.append(hint, webview);
   root.append(header, body);
 
   let current: CalAgentStatusPayload = {
@@ -80,13 +80,14 @@ export function createCalAgentPanel(): CalAgentPanel {
     hint.style.display = next.status === "ready" ? "none" : "block";
 
     if (next.status === "ready") {
-      if (iframe.src !== next.url) {
-        iframe.src = next.url;
+      const currentSrc = webview.getAttribute("src");
+      if (currentSrc !== next.url) {
+        webview.setAttribute("src", next.url);
       }
-      iframe.style.display = "block";
+      webview.style.display = "block";
     } else {
-      iframe.removeAttribute("src");
-      iframe.style.display = "none";
+      webview.removeAttribute("src");
+      webview.style.display = "none";
     }
   }
 

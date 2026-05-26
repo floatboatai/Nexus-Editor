@@ -49,6 +49,7 @@ function createWindow(): void {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      webviewTag: true,
       preload: path.join(__dirname, "preload.js"),
     },
   });

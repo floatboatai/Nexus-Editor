@@ -255,6 +255,7 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      webviewTag: true,
       preload: import_node_path.default.join(__dirname, "preload.js")
     }
   });
