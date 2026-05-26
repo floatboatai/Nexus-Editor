@@ -26,24 +26,223 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // electron/main.ts
 var main_exports = {};
 module.exports = __toCommonJS(main_exports);
-var import_electron = require("electron");
+var import_electron2 = require("electron");
 var import_promises = require("fs/promises");
-var import_node_fs = require("fs");
+var import_node_fs2 = require("fs");
 var import_node_path = __toESM(require("path"));
 var import_node_url = require("url");
-import_electron.protocol.registerSchemesAsPrivileged([
+
+// electron/cal-agent-controller.ts
+var import_electron = require("electron");
+var import_node_child_process = require("child_process");
+var import_node_fs = require("fs");
+var CAL_AGENT_ROOT = process.env.CAL_AGENT_ROOT ?? "/Users/wangqiao/workspace/CAL-AGENT";
+var CAL_AGENT_URL = process.env.CAL_AGENT_URL ?? "http://127.0.0.1:3000";
+var STARTUP_TIMEOUT_MS = 3e4;
+var PROBE_INTERVAL_MS = 1e3;
+var PROBE_TIMEOUT_MS = 2e3;
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function probeUrl(url, timeoutMs) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { signal: controller.signal, cache: "no-store" });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+function formatStartError(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function createCalAgentController(options) {
+  let processHandle = null;
+  let launchToken = 0;
+  let disposed = false;
+  let stopRequested = false;
+  let status = {
+    status: "idle",
+    url: CAL_AGENT_URL
+  };
+  function broadcast(next) {
+    status = next;
+    const win = options.getWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("cal-agent:status-changed", next);
+    }
+  }
+  function ensureRootExists() {
+    if (!(0, import_node_fs.existsSync)(CAL_AGENT_ROOT)) {
+      throw new Error(`CAL-AGENT root not found: ${CAL_AGENT_ROOT}`);
+    }
+  }
+  function clearProcess(proc) {
+    if (processHandle === proc) {
+      processHandle = null;
+    }
+  }
+  function attachProcessHandlers(proc, token) {
+    proc.once("error", (error) => {
+      clearProcess(proc);
+      if (disposed || token !== launchToken || stopRequested) return;
+      broadcast({
+        status: "error",
+        url: CAL_AGENT_URL,
+        message: `Failed to start CAL-AGENT: ${formatStartError(error)}`
+      });
+    });
+    proc.once("exit", (code, signal) => {
+      clearProcess(proc);
+      if (disposed || stopRequested) return;
+      if (token !== launchToken) return;
+      broadcast({
+        status: "error",
+        url: CAL_AGENT_URL,
+        message: `CAL-AGENT exited early${code !== null ? ` with code ${code}` : signal ? ` (${signal})` : ""}`
+      });
+    });
+  }
+  async function stopProcess() {
+    const proc = processHandle;
+    if (!proc) return;
+    stopRequested = true;
+    processHandle = null;
+    if (proc.exitCode !== null || proc.signalCode !== null) {
+      stopRequested = false;
+      return;
+    }
+    await new Promise((resolve) => {
+      const finish = () => {
+        proc.off("exit", finish);
+        proc.off("close", finish);
+        proc.off("error", finish);
+        stopRequested = false;
+        resolve();
+      };
+      proc.once("exit", finish);
+      proc.once("close", finish);
+      proc.once("error", finish);
+      try {
+        proc.kill();
+      } catch {
+        finish();
+        return;
+      }
+      setTimeout(() => {
+        if (proc.exitCode === null && proc.signalCode === null) {
+          try {
+            proc.kill("SIGKILL");
+          } catch {
+          }
+        }
+      }, 2e3);
+    });
+  }
+  async function launchProcess() {
+    if (disposed) return status;
+    await stopProcess();
+    ensureRootExists();
+    const token = ++launchToken;
+    broadcast({
+      status: "starting",
+      url: CAL_AGENT_URL,
+      message: "Starting CAL-AGENT workbench..."
+    });
+    const proc = (0, import_node_child_process.spawn)("npm", ["run", "web:dev"], {
+      cwd: CAL_AGENT_ROOT,
+      env: {
+        ...process.env,
+        CAL_AGENT_ROOT,
+        CAL_AGENT_URL
+      },
+      stdio: "inherit",
+      shell: process.platform === "win32"
+    });
+    processHandle = proc;
+    attachProcessHandlers(proc, token);
+    const deadline = Date.now() + STARTUP_TIMEOUT_MS;
+    while (!disposed && token === launchToken) {
+      if (!processHandle) {
+        return status;
+      }
+      if (await probeUrl(CAL_AGENT_URL, PROBE_TIMEOUT_MS)) {
+        const ready = {
+          status: "ready",
+          url: CAL_AGENT_URL,
+          message: "CAL-AGENT is ready"
+        };
+        broadcast(ready);
+        return ready;
+      }
+      if (Date.now() >= deadline) {
+        broadcast({
+          status: "error",
+          url: CAL_AGENT_URL,
+          message: `CAL-AGENT did not become ready within ${Math.round(STARTUP_TIMEOUT_MS / 1e3)}s`
+        });
+        await stopProcess();
+        return status;
+      }
+      await delay(PROBE_INTERVAL_MS);
+    }
+    return status;
+  }
+  import_electron.ipcMain.handle("cal-agent:get-status", async () => status);
+  import_electron.ipcMain.handle("cal-agent:start", async () => launchProcess());
+  import_electron.ipcMain.handle("cal-agent:retry", async () => launchProcess());
+  import_electron.ipcMain.handle("cal-agent:open-external", async () => {
+    await import_electron.shell.openExternal(CAL_AGENT_URL);
+  });
+  return {
+    async start() {
+      if (status.status === "starting" || status.status === "ready") {
+        return status;
+      }
+      return launchProcess();
+    },
+    async retry() {
+      return launchProcess();
+    },
+    getStatus() {
+      return status;
+    },
+    async openExternal() {
+      await import_electron.shell.openExternal(CAL_AGENT_URL);
+    },
+    dispose() {
+      disposed = true;
+      stopRequested = true;
+      const proc = processHandle;
+      processHandle = null;
+      if (proc) {
+        try {
+          proc.kill();
+        } catch {
+        }
+      }
+    }
+  };
+}
+
+// electron/main.ts
+import_electron2.protocol.registerSchemesAsPrivileged([
   {
     scheme: "nexus-vault",
     privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true }
   }
 ]);
 var mainWindow = null;
+var calAgentController = null;
 var SUPPORTED_EXT = /* @__PURE__ */ new Set([".md", ".markdown", ".txt"]);
 var SKIP_DIRS = /* @__PURE__ */ new Set(["node_modules", ".git", ".svn", ".hg", ".DS_Store"]);
 var activeVault = null;
 var activeWatcher = null;
 function createWindow() {
-  mainWindow = new import_electron.BrowserWindow({
+  mainWindow = new import_electron2.BrowserWindow({
     width: 1024,
     height: 768,
     // Hide until the renderer has painted — avoids the white-flash window and
@@ -77,9 +276,9 @@ function createWindow() {
     }
   });
 }
-import_electron.ipcMain.handle("demo:open-file", async () => {
+import_electron2.ipcMain.handle("demo:open-file", async () => {
   if (!mainWindow) return null;
-  const result = await import_electron.dialog.showOpenDialog(mainWindow, {
+  const result = await import_electron2.dialog.showOpenDialog(mainWindow, {
     properties: ["openFile"],
     filters: [
       { name: "Markdown", extensions: ["md", "markdown", "txt"] },
@@ -91,18 +290,18 @@ import_electron.ipcMain.handle("demo:open-file", async () => {
   const content = await (0, import_promises.readFile)(filePath, "utf-8");
   return { path: filePath, content };
 });
-import_electron.ipcMain.handle(
+import_electron2.ipcMain.handle(
   "demo:save-file",
   async (_event, filePath, content) => {
     await (0, import_promises.writeFile)(filePath, content, "utf-8");
     return { path: filePath };
   }
 );
-import_electron.ipcMain.handle(
+import_electron2.ipcMain.handle(
   "demo:save-file-as",
   async (_event, content) => {
     if (!mainWindow) return null;
-    const result = await import_electron.dialog.showSaveDialog(mainWindow, {
+    const result = await import_electron2.dialog.showSaveDialog(mainWindow, {
       filters: [
         { name: "Markdown", extensions: ["md"] },
         { name: "All Files", extensions: ["*"] }
@@ -179,10 +378,10 @@ function startWatcher(vaultPath) {
     mainWindow?.webContents.send("vault:changed", { vault: vaultPath });
   }, 150);
   try {
-    activeWatcher = (0, import_node_fs.watch)(vaultPath, { recursive: true }, () => notify());
+    activeWatcher = (0, import_node_fs2.watch)(vaultPath, { recursive: true }, () => notify());
   } catch (err) {
     try {
-      activeWatcher = (0, import_node_fs.watch)(vaultPath, () => notify());
+      activeWatcher = (0, import_node_fs2.watch)(vaultPath, () => notify());
     } catch (innerErr) {
       console.warn("[vault] watcher init failed:", innerErr);
       activeWatcher = null;
@@ -190,11 +389,11 @@ function startWatcher(vaultPath) {
   }
 }
 function vaultStatePath() {
-  return import_node_path.default.join(import_electron.app.getPath("userData"), "vault.json");
+  return import_node_path.default.join(import_electron2.app.getPath("userData"), "vault.json");
 }
 async function readVaultState() {
   const file = vaultStatePath();
-  if (!(0, import_node_fs.existsSync)(file)) return { lastVault: null, recents: [] };
+  if (!(0, import_node_fs2.existsSync)(file)) return { lastVault: null, recents: [] };
   try {
     const raw = await (0, import_promises.readFile)(file, "utf-8");
     const parsed = JSON.parse(raw);
@@ -209,15 +408,15 @@ async function readVaultState() {
 async function writeVaultState(state) {
   await (0, import_promises.writeFile)(vaultStatePath(), JSON.stringify(state, null, 2), "utf-8");
 }
-import_electron.ipcMain.handle("vault:pick", async () => {
+import_electron2.ipcMain.handle("vault:pick", async () => {
   if (!mainWindow) return null;
-  const result = await import_electron.dialog.showOpenDialog(mainWindow, {
+  const result = await import_electron2.dialog.showOpenDialog(mainWindow, {
     properties: ["openDirectory", "createDirectory"]
   });
   if (result.canceled || result.filePaths.length === 0) return null;
   return { path: result.filePaths[0] };
 });
-import_electron.ipcMain.handle("vault:list", async (_event, vaultPath) => {
+import_electron2.ipcMain.handle("vault:list", async (_event, vaultPath) => {
   const abs = import_node_path.default.resolve(vaultPath);
   const info = await (0, import_promises.stat)(abs);
   if (!info.isDirectory()) throw new Error(`Not a directory: ${abs}`);
@@ -225,7 +424,7 @@ import_electron.ipcMain.handle("vault:list", async (_event, vaultPath) => {
   startWatcher(abs);
   return scanDirectory(abs);
 });
-import_electron.ipcMain.handle("vault:read", async (_event, filePath) => {
+import_electron2.ipcMain.handle("vault:read", async (_event, filePath) => {
   const abs = assertInsideVault(filePath);
   const content = await (0, import_promises.readFile)(abs, "utf-8");
   return { path: abs, content };
@@ -245,7 +444,7 @@ async function collectFiles(dir, acc) {
     }
   }
 }
-import_electron.ipcMain.handle("vault:read-all", async () => {
+import_electron2.ipcMain.handle("vault:read-all", async () => {
   if (!activeVault) return [];
   const paths = [];
   await collectFiles(activeVault, paths);
@@ -267,12 +466,12 @@ import_electron.ipcMain.handle("vault:read-all", async () => {
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, paths.length) }, worker));
   return out;
 });
-import_electron.ipcMain.handle("vault:write", async (_event, filePath, content) => {
+import_electron2.ipcMain.handle("vault:write", async (_event, filePath, content) => {
   const abs = assertInsideVault(filePath);
   await (0, import_promises.writeFile)(abs, content, "utf-8");
   return { path: abs };
 });
-import_electron.ipcMain.handle(
+import_electron2.ipcMain.handle(
   "vault:create-file",
   async (_event, parentDir, name) => {
     const safeInput = name.trim() || "untitled";
@@ -293,7 +492,7 @@ import_electron.ipcMain.handle(
     const stem = baseName.slice(0, baseName.length - ext.length);
     let candidate = import_node_path.default.join(parent, baseName);
     let suffix = 1;
-    while ((0, import_node_fs.existsSync)(candidate)) {
+    while ((0, import_node_fs2.existsSync)(candidate)) {
       candidate = import_node_path.default.join(parent, `${stem}-${suffix}${ext}`);
       suffix += 1;
     }
@@ -302,20 +501,20 @@ import_electron.ipcMain.handle(
     return { path: finalPath };
   }
 );
-import_electron.ipcMain.handle(
+import_electron2.ipcMain.handle(
   "vault:create-folder",
   async (_event, parentDir, name) => {
     const parent = assertInsideVault(parentDir);
     const safeName = name.trim() || "new-folder";
     const target = assertInsideVault(import_node_path.default.join(parent, safeName));
-    if ((0, import_node_fs.existsSync)(target)) {
+    if ((0, import_node_fs2.existsSync)(target)) {
       throw new Error(`Folder already exists: ${safeName}`);
     }
     await (0, import_promises.mkdir)(target, { recursive: false });
     return { path: target };
   }
 );
-import_electron.ipcMain.handle(
+import_electron2.ipcMain.handle(
   "vault:rename",
   async (_event, oldPath, newName) => {
     const src = assertInsideVault(oldPath);
@@ -326,38 +525,38 @@ import_electron.ipcMain.handle(
       throw new Error("New name cannot contain path separators");
     }
     const target = assertInsideVault(import_node_path.default.join(parent, trimmed));
-    if ((0, import_node_fs.existsSync)(target) && target !== src) {
+    if ((0, import_node_fs2.existsSync)(target) && target !== src) {
       throw new Error(`Target already exists: ${trimmed}`);
     }
     await (0, import_promises.rename)(src, target);
     return { path: target };
   }
 );
-import_electron.ipcMain.handle("vault:delete", async (_event, targetPath) => {
+import_electron2.ipcMain.handle("vault:delete", async (_event, targetPath) => {
   const abs = assertInsideVault(targetPath);
-  await import_electron.shell.trashItem(abs);
+  await import_electron2.shell.trashItem(abs);
   return { ok: true };
 });
-import_electron.ipcMain.handle("vault:get-last", async () => {
+import_electron2.ipcMain.handle("vault:get-last", async () => {
   const state = await readVaultState();
-  if (state.lastVault && !(0, import_node_fs.existsSync)(state.lastVault)) {
+  if (state.lastVault && !(0, import_node_fs2.existsSync)(state.lastVault)) {
     const cleaned = {
       lastVault: null,
-      recents: state.recents.filter((r) => (0, import_node_fs.existsSync)(r))
+      recents: state.recents.filter((r) => (0, import_node_fs2.existsSync)(r))
     };
     await writeVaultState(cleaned);
     return cleaned;
   }
   return state;
 });
-import_electron.ipcMain.handle("vault:set-last", async (_event, vaultPath) => {
+import_electron2.ipcMain.handle("vault:set-last", async (_event, vaultPath) => {
   const current = await readVaultState();
   const recents = [vaultPath, ...current.recents.filter((r) => r !== vaultPath)].slice(0, 10);
   await writeVaultState({ lastVault: vaultPath, recents });
   return { ok: true };
 });
-import_electron.app.whenReady().then(() => {
-  import_electron.protocol.handle("nexus-vault", async (request) => {
+import_electron2.app.whenReady().then(() => {
+  import_electron2.protocol.handle("nexus-vault", async (request) => {
     try {
       if (!activeVault) return new Response("No active vault", { status: 404 });
       const url = new URL(request.url);
@@ -368,15 +567,23 @@ import_electron.app.whenReady().then(() => {
       if (rel.startsWith("..") || import_node_path.default.isAbsolute(rel)) {
         return new Response("Path escapes vault", { status: 403 });
       }
-      if (!(0, import_node_fs.existsSync)(abs)) return new Response("Not found", { status: 404 });
-      return import_electron.net.fetch((0, import_node_url.pathToFileURL)(abs).toString());
+      if (!(0, import_node_fs2.existsSync)(abs)) return new Response("Not found", { status: 404 });
+      return import_electron2.net.fetch((0, import_node_url.pathToFileURL)(abs).toString());
     } catch (err) {
       return new Response(String(err), { status: 500 });
     }
   });
   createWindow();
+  calAgentController = createCalAgentController({
+    getWindow: () => mainWindow
+  });
+  void calAgentController.start();
 });
-import_electron.app.on("window-all-closed", () => {
+import_electron2.app.on("window-all-closed", () => {
+  calAgentController?.dispose();
   stopWatcher();
-  import_electron.app.quit();
+  import_electron2.app.quit();
+});
+import_electron2.app.on("before-quit", () => {
+  calAgentController?.dispose();
 });

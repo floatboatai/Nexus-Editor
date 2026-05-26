@@ -69,6 +69,27 @@ var bridge = {
   saveFileAs(content) {
     return import_electron.ipcRenderer.invoke("demo:save-file-as", content);
   },
+  calAgent: {
+    start() {
+      return import_electron.ipcRenderer.invoke("cal-agent:start");
+    },
+    retry() {
+      return import_electron.ipcRenderer.invoke("cal-agent:retry");
+    },
+    getStatus() {
+      return import_electron.ipcRenderer.invoke("cal-agent:get-status");
+    },
+    openExternal() {
+      return import_electron.ipcRenderer.invoke("cal-agent:open-external");
+    },
+    onStatusChange(cb) {
+      const listener = (_event, payload) => cb(payload);
+      import_electron.ipcRenderer.on("cal-agent:status-changed", listener);
+      return () => {
+        import_electron.ipcRenderer.off("cal-agent:status-changed", listener);
+      };
+    }
+  },
   vault: vaultBridge
 };
 import_electron.contextBridge.exposeInMainWorld("nexusDemo", bridge);
