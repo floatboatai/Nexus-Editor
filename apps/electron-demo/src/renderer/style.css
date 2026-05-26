@@ -36,6 +36,81 @@ body,
   overflow: hidden;
 }
 
+.cal-agent-panel {
+  flex: 0 0 360px;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #ddd;
+  background: #fff;
+  overflow: hidden;
+}
+
+.cal-agent-panel__header {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-bottom: 1px solid #eee;
+  background: #fafafa;
+  flex-shrink: 0;
+}
+
+.cal-agent-panel__title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cal-agent-panel__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.cal-agent-panel__status {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.cal-agent-panel__actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.cal-agent-panel__actions button {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.cal-agent-panel__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cal-agent-panel__hint {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #6b7280;
+  border-bottom: 1px solid #eee;
+}
+
+.cal-agent-panel__frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}
+
 .editor-column {
   flex: 1;
   display: flex;

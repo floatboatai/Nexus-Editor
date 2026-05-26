@@ -36,7 +36,22 @@ export interface DemoBridge {
   openFile(): Promise<DemoFileHandle | null>;
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
+  calAgent: CalAgentBridge;
   vault: VaultBridge;
+}
+
+export interface CalAgentStatusPayload {
+  status: "idle" | "starting" | "ready" | "error";
+  url: string;
+  message?: string;
+}
+
+export interface CalAgentBridge {
+  start(): Promise<CalAgentStatusPayload>;
+  retry(): Promise<CalAgentStatusPayload>;
+  getStatus(): Promise<CalAgentStatusPayload>;
+  openExternal(): Promise<void>;
+  onStatusChange(cb: (payload: CalAgentStatusPayload) => void): () => void;
 }
 
 const vaultBridge: VaultBridge = {
@@ -91,6 +106,27 @@ const bridge: DemoBridge = {
   },
   saveFileAs(content: string) {
     return ipcRenderer.invoke("demo:save-file-as", content);
+  },
+  calAgent: {
+    start() {
+      return ipcRenderer.invoke("cal-agent:start");
+    },
+    retry() {
+      return ipcRenderer.invoke("cal-agent:retry");
+    },
+    getStatus() {
+      return ipcRenderer.invoke("cal-agent:get-status");
+    },
+    openExternal() {
+      return ipcRenderer.invoke("cal-agent:open-external");
+    },
+    onStatusChange(cb) {
+      const listener = (_event: Electron.IpcRendererEvent, payload: CalAgentStatusPayload) => cb(payload);
+      ipcRenderer.on("cal-agent:status-changed", listener);
+      return () => {
+        ipcRenderer.off("cal-agent:status-changed", listener);
+      };
+    },
   },
   vault: vaultBridge,
 };

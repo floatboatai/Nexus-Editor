@@ -3,6 +3,7 @@ import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promi
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { createCalAgentController, type CalAgentController } from "./cal-agent-controller";
 
 // Must be called before app ready — declares our custom scheme as privileged
 // so images served via nexus-vault:// pass fetch/<img> with credentials / CORS.
@@ -14,6 +15,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let mainWindow: BrowserWindow | null = null;
+let calAgentController: CalAgentController | null = null;
 
 export interface VaultNode {
   name: string;
@@ -435,9 +437,18 @@ app.whenReady().then(() => {
     }
   });
   createWindow();
+  calAgentController = createCalAgentController({
+    getWindow: () => mainWindow,
+  });
+  void calAgentController.start();
 });
 
 app.on("window-all-closed", () => {
+  calAgentController?.dispose();
   stopWatcher();
   app.quit();
+});
+
+app.on("before-quit", () => {
+  calAgentController?.dispose();
 });

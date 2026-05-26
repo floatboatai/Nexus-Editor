@@ -34,7 +34,22 @@ interface DemoBridge {
   openFile(): Promise<DemoFileHandle | null>;
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
+  calAgent: CalAgentBridge;
   vault: VaultBridge;
+}
+
+interface CalAgentStatusPayload {
+  status: "idle" | "starting" | "ready" | "error";
+  url: string;
+  message?: string;
+}
+
+interface CalAgentBridge {
+  start(): Promise<CalAgentStatusPayload>;
+  retry(): Promise<CalAgentStatusPayload>;
+  getStatus(): Promise<CalAgentStatusPayload>;
+  openExternal(): Promise<void>;
+  onStatusChange(cb: (payload: CalAgentStatusPayload) => void): () => void;
 }
 
 interface Window {
