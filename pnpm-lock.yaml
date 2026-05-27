@@ -144,6 +144,9 @@ importers:
       '@floatboat/nexus-core':
         specifier: workspace:*
         version: link:../core
+      '@floatboat/nexus-plugin-ui':
+        specifier: workspace:*
+        version: link:../plugin-ui
     devDependencies:
       tsup:
         specifier: ^8.5.0
@@ -205,6 +208,15 @@ importers:
       '@floatboat/nexus-core':
         specifier: workspace:*
         version: link:../core
+
+  packages/plugin-ui:
+    devDependencies:
+      tsup:
+        specifier: ^8.0.0
+        version: 8.5.1(postcss@8.5.9)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
 
   packages/plugin-vim:
     dependencies:
