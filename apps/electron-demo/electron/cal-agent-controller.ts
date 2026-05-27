@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
@@ -29,6 +29,12 @@ const STARTUP_TIMEOUT_MS = 30_000;
 const PROBE_INTERVAL_MS = 1_000;
 const PROBE_TIMEOUT_MS = 2_000;
 
+function getPort(url: string): number {
+  const parsed = new URL(url);
+  if (parsed.port) return Number(parsed.port);
+  return parsed.protocol === "https:" ? 443 : 80;
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -43,6 +49,25 @@ async function probeUrl(url: string, timeoutMs: number): Promise<boolean> {
     return false;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function killExistingListener(url: string): Promise<void> {
+  const port = getPort(url);
+  const result = spawnSync("lsof", ["-ti", `tcp:${port}`], { encoding: "utf-8" });
+  if (result.error || result.status !== 0) return;
+
+  const pids = result.stdout
+    .split(/\s+/)
+    .map((value) => Number(value.trim()))
+    .filter((value) => Number.isInteger(value) && value > 0);
+
+  for (const pid of pids) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      /* noop */
+    }
   }
 }
 
@@ -152,6 +177,7 @@ export function createCalAgentController(options: CalAgentControllerOptions): Ca
 
     await stopProcess();
     ensureRootExists();
+    await killExistingListener(CAL_AGENT_URL);
 
     const token = ++launchToken;
     broadcast({

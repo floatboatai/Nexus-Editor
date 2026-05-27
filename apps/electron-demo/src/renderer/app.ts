@@ -19,6 +19,10 @@ let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
 let calAgentPanel: CalAgentPanel;
+let appRootEl: HTMLElement | null = null;
+let mainAreaEl: HTMLElement | null = null;
+let editorColumnEl: HTMLElement | null = null;
+let calAgentMaximized = false;
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
@@ -70,7 +74,14 @@ function createAppToolbar(): HTMLElement {
   const calAgentBtn = document.createElement("button");
   calAgentBtn.textContent = "Agent";
   calAgentBtn.title = "Toggle CAL-AGENT panel";
-  calAgentBtn.addEventListener("click", toggleCalAgent);
+  calAgentBtn.addEventListener("click", (event) => {
+    if (event.detail !== 1) return;
+    toggleCalAgent();
+  });
+  calAgentBtn.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    toggleCalAgentMaximized();
+  });
 
   const searchBtn = document.createElement("button");
   searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
@@ -211,7 +222,45 @@ function toggleBacklinks(): void {
 }
 
 function toggleCalAgent(): void {
+  if (calAgentMaximized) {
+    calAgentMaximized = false;
+    syncCalAgentLayout();
+  }
   togglePanel(calAgentPanel.element);
+}
+
+function syncCalAgentLayout(): void {
+  if (!appRootEl || !mainAreaEl || !editorColumnEl) return;
+
+  appRootEl.classList.toggle("is-cal-agent-maximized", calAgentMaximized);
+  mainAreaEl.classList.toggle("is-cal-agent-maximized", calAgentMaximized);
+  calAgentPanel.setMaximized(calAgentMaximized);
+
+  for (const child of Array.from(mainAreaEl.children)) {
+    if (!(child instanceof HTMLElement)) continue;
+    if (calAgentMaximized) {
+      if (!child.dataset.prevDisplay) {
+        child.dataset.prevDisplay = child.style.display;
+      }
+      child.style.display = child === calAgentPanel.element ? "flex" : "none";
+      continue;
+    }
+
+    if (child.dataset.prevDisplay !== undefined) {
+      child.style.display = child.dataset.prevDisplay;
+      delete child.dataset.prevDisplay;
+    }
+  }
+
+  editorColumnEl.style.display = calAgentMaximized ? "none" : editorColumnEl.dataset.prevDisplay ?? "";
+}
+
+function toggleCalAgentMaximized(): void {
+  calAgentMaximized = !calAgentMaximized;
+  if (calAgentMaximized) {
+    calAgentPanel.setVisible(true);
+  }
+  syncCalAgentLayout();
 }
 
 async function handleVaultFileOpen(filePath: string): Promise<void> {
@@ -354,22 +403,22 @@ async function tryRestoreLastVault(): Promise<void> {
 
 function boot(): void {
   const bootScope = perfStart("boot");
-  const root = document.getElementById("app");
-  if (!root) throw new Error("Missing #app element");
+  appRootEl = document.getElementById("app");
+  if (!appRootEl) throw new Error("Missing #app element");
 
   const appToolbar = createAppToolbar();
   const statusLine = createStatusLine();
 
-  const mainArea = document.createElement("div");
-  mainArea.className = "main-area";
+  mainAreaEl = document.createElement("div");
+  mainAreaEl.className = "main-area";
 
-  const editorColumn = document.createElement("div");
-  editorColumn.className = "editor-column";
+  editorColumnEl = document.createElement("div");
+  editorColumnEl.className = "editor-column";
 
   const editorContainer = document.createElement("div");
   editorContainer.className = "editor-container";
 
-  root.append(appToolbar, mainArea, statusLine);
+  appRootEl.append(appToolbar, mainAreaEl, statusLine);
 
   shell = createEditorShell({
     container: editorContainer,
@@ -421,8 +470,9 @@ function boot(): void {
 
   calAgentPanel = createCalAgentPanel();
 
-  editorColumn.append(searchBar.element, editorContainer);
-  mainArea.append(vault.element, editorColumn, outline.element, backlinks.element, calAgentPanel.element);
+  editorColumnEl.append(searchBar.element, editorContainer);
+  mainAreaEl.append(vault.element, editorColumnEl, outline.element, backlinks.element, calAgentPanel.element);
+  syncCalAgentLayout();
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {

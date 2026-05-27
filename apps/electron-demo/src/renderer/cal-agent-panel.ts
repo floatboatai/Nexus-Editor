@@ -7,7 +7,18 @@ interface CalAgentStatusPayload {
 export interface CalAgentPanel {
   element: HTMLElement;
   setVisible(next: boolean): void;
+  setMaximized(next: boolean): void;
   destroy(): void;
+}
+
+function buildEmbedUrl(url: string, embedded: boolean): string {
+  const parsed = new URL(url);
+  if (embedded) {
+    parsed.searchParams.set("embed", "1");
+  } else {
+    parsed.searchParams.delete("embed");
+  }
+  return parsed.toString();
 }
 
 function statusText(status: CalAgentStatusPayload["status"]): string {
@@ -70,6 +81,7 @@ export function createCalAgentPanel(): CalAgentPanel {
     status: "idle",
     url: "http://127.0.0.1:3000",
   };
+  let maximized = false;
   let unsubscribe: (() => void) | null = null;
 
   function render(next: CalAgentStatusPayload): void {
@@ -80,9 +92,10 @@ export function createCalAgentPanel(): CalAgentPanel {
     hint.style.display = next.status === "ready" ? "none" : "block";
 
     if (next.status === "ready") {
+      const targetUrl = buildEmbedUrl(next.url, maximized);
       const currentSrc = webview.getAttribute("src");
-      if (currentSrc !== next.url) {
-        webview.setAttribute("src", next.url);
+      if (currentSrc !== targetUrl) {
+        webview.setAttribute("src", targetUrl);
       }
       webview.style.display = "block";
     } else {
@@ -125,6 +138,12 @@ export function createCalAgentPanel(): CalAgentPanel {
     element: root,
     setVisible(next) {
       root.style.display = next ? "" : "none";
+    },
+    setMaximized(next) {
+      maximized = next;
+      if (current.status === "ready") {
+        webview.setAttribute("src", buildEmbedUrl(current.url, maximized));
+      }
     },
     destroy() {
       unsubscribe?.();

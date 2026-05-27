@@ -16,6 +16,15 @@ body,
   font-family: system-ui, sans-serif;
 }
 
+#app.is-cal-agent-maximized > .toolbar,
+#app.is-cal-agent-maximized > .status-line {
+  display: none;
+}
+
+#app.is-cal-agent-maximized > .main-area {
+  flex: 1 1 auto;
+}
+
 .toolbar {
   display: flex;
   gap: 8px;
@@ -34,6 +43,29 @@ body,
   flex: 1;
   display: flex;
   overflow: hidden;
+}
+
+.main-area.is-cal-agent-maximized > :not(.cal-agent-panel) {
+  display: none;
+}
+
+.main-area.is-cal-agent-maximized .cal-agent-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-left: 0;
+  height: 100%;
+}
+
+.main-area.is-cal-agent-maximized .cal-agent-panel__header {
+  display: none;
+}
+
+.main-area.is-cal-agent-maximized .cal-agent-panel__body {
+  height: 100%;
+}
+
+.main-area.is-cal-agent-maximized .cal-agent-panel__frame {
+  height: 100%;
 }
 
 .cal-agent-panel {
