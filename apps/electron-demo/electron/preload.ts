@@ -37,6 +37,7 @@ export interface DemoBridge {
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
   vault: VaultBridge;
+  getEnv(key: string): Promise<string | undefined>;
 }
 
 const vaultBridge: VaultBridge = {
@@ -93,6 +94,9 @@ const bridge: DemoBridge = {
     return ipcRenderer.invoke("demo:save-file-as", content);
   },
   vault: vaultBridge,
+  getEnv(key: string) {
+    return ipcRenderer.invoke("demo:get-env", key);
+  },
 };
 
 contextBridge.exposeInMainWorld("nexusDemo", bridge);

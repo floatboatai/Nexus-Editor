@@ -35,6 +35,7 @@ interface DemoBridge {
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
   vault: VaultBridge;
+  getEnv(key: string): Promise<string | undefined>;
 }
 
 interface Window {

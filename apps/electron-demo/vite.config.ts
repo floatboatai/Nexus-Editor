@@ -56,6 +56,10 @@ export default defineConfig({
         __dirname,
         "../../packages/plugin-slash/src/index.ts"
       ),
+      "@floatboat/nexus-plugin-ai": path.resolve(
+        __dirname,
+        "../../packages/plugin-ai/src/index.ts"
+      ),
     },
   },
   server: {

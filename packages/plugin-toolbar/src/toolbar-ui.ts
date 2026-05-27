@@ -53,6 +53,8 @@ export interface ToolbarGroup {
 
 export interface ToolbarUIOptions {
   groups?: ToolbarGroup[];
+  /** Additional button groups appended after the default groups */
+  additionalGroups?: ToolbarGroup[];
   onFullscreen?: () => void;
 }
 
@@ -444,7 +446,20 @@ function showColorPicker(
 const DROPDOWN_IDS = new Set(["heading-menu", "text-color", "highlight"]);
 
 export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): ToolbarUI {
-  const groups = options?.groups ?? defaultGroups(options);
+  let groups: ToolbarGroup[];
+  if (options?.groups) {
+    // Custom groups provided — use them directly (and optionally extend with additionalGroups)
+    groups = options.groups;
+    if (options.additionalGroups?.length) {
+      groups = [...groups, ...options.additionalGroups];
+    }
+  } else {
+    // Use default groups (and optionally extend with additionalGroups)
+    groups = defaultGroups(options);
+    if (options?.additionalGroups?.length) {
+      groups = [...groups, ...options.additionalGroups];
+    }
+  }
   const toolbar = document.createElement("div");
   toolbar.className = "nexus-toolbar";
   toolbar.setAttribute("role", "toolbar");

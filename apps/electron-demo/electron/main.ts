@@ -3,6 +3,10 @@ import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promi
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import dotenv from "dotenv";
+
+// Load environment variables from .env file
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 // Must be called before app ready — declares our custom scheme as privileged
 // so images served via nexus-vault:// pass fetch/<img> with credentials / CORS.
@@ -121,6 +125,10 @@ ipcMain.handle(
     return { path: result.filePath };
   }
 );
+
+ipcMain.handle("demo:get-env", (_event, key: string) => {
+  return process.env[key];
+});
 
 // -- vault helpers ------------------------------------------------------------
 
