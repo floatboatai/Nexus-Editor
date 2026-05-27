@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@floatboat/nexus-core": "workspace:*",
+    "@floatboat/nexus-plugin-ai": "workspace:*",
     "@floatboat/nexus-plugin-history": "workspace:*",
     "@floatboat/nexus-plugin-search": "workspace:*",
     "@floatboat/nexus-plugin-slash": "workspace:*",
