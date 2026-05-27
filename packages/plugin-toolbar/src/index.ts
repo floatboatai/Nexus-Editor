@@ -13,6 +13,24 @@ export { toggleBlockquote, toggleOrderedList, toggleUnorderedList, insertCodeBlo
 export { createToolbarUI } from "./toolbar-ui";
 export { colorDecorationExtension } from "./color-decoration";
 export type { ToolbarUI, ToolbarUIOptions, ToolbarButton, ToolbarGroup } from "./toolbar-ui";
+export { 
+  iconUndo, 
+  iconRedo, 
+  iconLink, 
+  iconH2, 
+  iconH3, 
+  iconBold, 
+  iconItalic, 
+  iconStrikethrough, 
+  iconUnderline, 
+  iconInlineCode, 
+  iconBlockquote, 
+  iconCodeBlock, 
+  iconOrderedList, 
+  iconUnorderedList, 
+  iconImage, 
+  iconAI 
+} from "./icons";
 
 export function toggleWrap(editor: EditorAPI, marker: string): boolean {
   const doc = editor.getDocument();
