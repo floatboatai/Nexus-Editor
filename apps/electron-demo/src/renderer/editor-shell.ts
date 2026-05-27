@@ -4,12 +4,15 @@ import {
   type EditorAPI,
   type LivePreviewRenderContext,
 } from "@floatboat/nexus-core";
+import { DEFAULT_AI_CONFIG } from "./config";
 import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
-import { createToolbarPlugin, createToolbarUI, type ToolbarUI } from "@floatboat/nexus-plugin-toolbar";
+import { createToolbarPlugin, createToolbarUI, type ToolbarUI, type ToolbarGroup, iconAI } from "@floatboat/nexus-plugin-toolbar";
 import { createSearchPlugin } from "@floatboat/nexus-plugin-search";
 import { createSlashMenuUI, type SlashMenuUI } from "@floatboat/nexus-plugin-slash";
+import { createAIPlugin, aiPolishHandler, message } from "@floatboat/nexus-plugin-ai";
 import type { AppState } from "./state";
+import type { AIConfig } from "./config";
 import { type EditorSettings, settingsToTheme } from "./settings";
 
 // Parse Obsidian-style size specifier from the alt text: `alt|width` or
@@ -83,6 +86,16 @@ export interface EditorShell {
   destroy(): void;
 }
 
+// ai configuration
+const AI_CONFIG: AIConfig = { ...DEFAULT_AI_CONFIG };
+
+async function loadAIConfig(): Promise<void> {
+  const apiKey = await window.nexusDemo?.getEnv("NEXUS_AI_API_KEY");
+  if (apiKey) {
+    AI_CONFIG.apiKey = apiKey;
+  }
+}
+
 export function createEditorShell(options: EditorShellOptions): EditorShell {
   const {
     container,
@@ -94,6 +107,8 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     suggestWikilinks,
   } = options;
 
+  loadAIConfig().catch(console.error);
+
   // Forward ref so the image renderer (built BEFORE createEditor returns)
   // can dispatch selection changes through the editor API after it exists.
   const editorRef: { current: EditorAPI | null } = { current: null };
@@ -103,6 +118,8 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     onNavigate: onWikilinkNavigate,
     suggest: suggestWikilinks ? (q) => suggestWikilinks(q) : undefined,
   });
+
+  const aiPlugin = createAIPlugin({ config: AI_CONFIG });
 
   // No more parser worker. Live-preview drives off `syntaxTree(state)` from
   // @codemirror/lang-markdown (incremental, intrinsic to EditorState), and
@@ -124,6 +141,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       createToolbarPlugin(),
       createSearchPlugin(),
       wikilinksPlugin,
+      aiPlugin,
     ],
     livePreview: settings.livePreview
       ? {
@@ -313,7 +331,25 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
 
   editorRef.current = editor;
 
-  const toolbar = createToolbarUI(editor);
+  // AI button group
+  const aiGroup: ToolbarGroup = {
+    buttons: [
+      {
+        id: "ai-polish",
+        title: "AI 润色",
+        icon: () => iconAI(),
+        action: (editor) => {
+          if (!AI_CONFIG.apiKey) {
+            message.warning("请先配置 AI API Key");
+            return;
+          }
+          aiPolishHandler(editor, AI_CONFIG);
+        },
+      },
+    ],
+  };
+
+  const toolbar = createToolbarUI(editor, { additionalGroups: [aiGroup] });
   container.insertBefore(toolbar.element, container.firstChild);
 
   // The slash menu owns its own DOM root mounted on document.body so
