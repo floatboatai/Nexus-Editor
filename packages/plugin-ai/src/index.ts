@@ -1,5 +1,5 @@
 
-import type { EditorAPI, NexusPlugin, SlashCommandDef } from "@floatboat/nexus-core";
+import type { EditorAPI, NexusPlugin } from "@floatboat/nexus-core";
 import { streamAIPolish, parseAIResponse, type AIConfig, type AIProvider } from "./ai-service";
 import { createConfirmDialog, message } from "@floatboat/nexus-plugin-ui";
 
@@ -12,20 +12,6 @@ export interface AIPluginOptions {
 export function createAIPlugin(options: AIPluginOptions): NexusPlugin {
   return {
     name: "plugin-ai",
-    slashCommands: [createPolishSlashCommand(options.config)],
-  };
-}
-
-function createPolishSlashCommand(config: AIConfig): SlashCommandDef {
-  return {
-    id: "ai-polish",
-    title: "AI 润色",
-    description: "使用 AI 优化选中的文本",
-    keywords: ["ai", "润色", "优化", "polish", "improve"],
-    run: (editor) => {
-      aiPolishHandler(editor, config).catch(console.error);
-      return true;
-    },
   };
 }
 

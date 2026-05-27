@@ -31,6 +31,8 @@ var import_promises = require("fs/promises");
 var import_node_fs = require("fs");
 var import_node_path = __toESM(require("path"));
 var import_node_url = require("url");
+var import_dotenv = __toESM(require("dotenv"));
+import_dotenv.default.config({ path: import_node_path.default.resolve(__dirname, "../.env") });
 import_electron.protocol.registerSchemesAsPrivileged([
   {
     scheme: "nexus-vault",
@@ -113,6 +115,9 @@ import_electron.ipcMain.handle(
     return { path: result.filePath };
   }
 );
+import_electron.ipcMain.handle("demo:get-env", (_event, key) => {
+  return process.env[key];
+});
 function assertInsideVault(target) {
   if (!activeVault) {
     throw new Error("No active vault");
