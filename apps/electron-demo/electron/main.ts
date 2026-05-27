@@ -122,6 +122,10 @@ ipcMain.handle(
   }
 );
 
+ipcMain.handle("demo:get-env", (_event, key: string) => {
+  return process.env[key];
+});
+
 // -- vault helpers ------------------------------------------------------------
 
 function assertInsideVault(target: string): string {
