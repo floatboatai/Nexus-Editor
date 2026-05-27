@@ -42,6 +42,11 @@ export async function aiPolishHandler(
     return false;
   }
 
+  if (!config.apiKey) {
+    message.error("请先配置 AI API Key");
+    return false;
+  }
+
   const selectedText = editor.getDocument().slice(from, to);
 
   const dialog = createConfirmDialog({

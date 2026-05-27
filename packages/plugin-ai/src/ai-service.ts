@@ -99,10 +99,10 @@ export function parseAIResponse(fullText: string): AIResponse {
   let currentOption: AIAnswerOption | null = null;
   
   const optionStartRegexes = [
-    /^\s*(\d+)\.\s*【(.+?)】/,
-    /^#{1,6}\s*(\d+)\.\s*【(.+?)】/,
-    /^\s*(\d+)\.\s*\[(.+?)\]/,
-    /^\s*(\d+)\.\s*\((.+?)\)/,
+    /^\s*(\d+)\.\s*【(.+?)】\s*(.*)/,
+    /^#{1,6}\s*(\d+)\.\s*【(.+?)】\s*(.*)/,
+    /^\s*(\d+)\.\s*\[(.+?)\]\s*(.*)/,
+    /^\s*(\d+)\.\s*\((.+?)\)\s*(.*)/,
   ];
   
   for (const line of lines) {
@@ -116,8 +116,9 @@ export function parseAIResponse(fullText: string): AIResponse {
         if (currentOption) {
           fallbackOptions.push(currentOption);
         }
+        const labelSuffix = match[3]?.trim() || '';
         currentOption = {
-          label: match[2],
+          label: labelSuffix ? `${match[2]} ${labelSuffix}` : match[2],
           text: ''
         };
         matched = true;
@@ -185,7 +186,7 @@ export async function streamAIPolish(
   const apiUrl = config.apiUrl || DEFAULT_API_URLS[config.provider];
   const model = config.model || DEFAULT_MODELS[config.provider];
 
-    const prompt = `优化文本：${text}
+  const prompt = `优化文本：${text}
 
 请严格按照以下格式输出：
 你的优化思路和分析过程
@@ -205,12 +206,22 @@ export async function streamAIPolish(
 【方案3】标签名称
 优化后的文本内容
 
+===
+
+【方案4】标签名称
+优化后的文本内容
+
+===
+
+【方案5】标签名称
+优化后的文本内容
+
 要求：
 1. 要求说明优化思路
 2. 使用 --- 分隔思考和方案
 3. 使用 === 分隔不同方案
 4. 每个方案的标签用【】包含
-5. 提供3种不同风格的优化版本
+5. 提供5种不同风格的优化版本
 6. 保持原意不变，语言更流畅自然
 7. 不要输出任何多余内容
 8. 【方案N】和标签名称必须在同一行，不要换行
@@ -234,7 +245,17 @@ export async function streamAIPolish(
 ===
 
 【方案3】正式严谨版
-您好，我是新入职的员工小张，烦请告知我的座位安排。`;
+您好，我是新入职的员工小张，烦请告知我的座位安排。
+
+===
+
+【方案4】简洁高效版
+你好，我是新同事小张，请问我的座位在哪？
+
+===
+
+【方案5】亲切友好版
+嗨～我是今天新来的小张，想问一下我的工位安排在哪儿呢？`;
 
   try {
     const response = await fetch(apiUrl, {
@@ -291,7 +312,12 @@ export async function streamAIPolish(
             if (token) {
               handler.onToken(token);
             }
-          } catch {
+          } catch (e) {
+            // SyntaxError 是正常的（不完整的 JSON 或空行），忽略
+            // 其他错误记录日志以便调试
+            if (!(e instanceof SyntaxError)) {
+              console.warn('[AI] Failed to parse SSE chunk:', e);
+            }
           }
         }
       }

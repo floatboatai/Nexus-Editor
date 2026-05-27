@@ -124,22 +124,29 @@ function showMessage(content: string, config: MessageConfig = {}): void {
 
 export const message = {
   success(content: string, config?: Omit<MessageConfig, "type">): void {
+    injectStyles();
     showMessage(content, { ...config, type: "success" });
   },
   warning(content: string, config?: Omit<MessageConfig, "type">): void {
+    injectStyles();
     showMessage(content, { ...config, type: "warning" });
   },
   error(content: string, config?: Omit<MessageConfig, "type">): void {
+    injectStyles();
     showMessage(content, { ...config, type: "error" });
   },
   info(content: string, config?: Omit<MessageConfig, "type">): void {
+    injectStyles();
     showMessage(content, { ...config, type: "info" });
   },
 };
 
-// 添加动画样式
-const styleSheet = document.createElement("style");
-styleSheet.textContent = `
+// 懒加载动画样式，避免 SSR/Node 环境报错
+let styleInjected = false;
+function injectStyles(): void {
+  if (styleInjected || typeof document === 'undefined') return;
+  const styleSheet = document.createElement("style");
+  styleSheet.textContent = `
   @keyframes slideIn {
     from {
       opacity: 0;
@@ -161,4 +168,6 @@ styleSheet.textContent = `
     }
   }
 `;
-document.head.appendChild(styleSheet);
+  document.head.appendChild(styleSheet);
+  styleInjected = true;
+}

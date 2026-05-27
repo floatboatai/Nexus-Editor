@@ -5,7 +5,7 @@ export interface AIConfig {
 }
 
 export const DEFAULT_AI_CONFIG: AIConfig = {
-  apiKey: "ark-59ea0c9f-4244-4ba1-9de2-fed4288e3467-d5707",
+  apiKey: "", // 通过环境变量 NEXUS_AI_API_KEY 配置
   provider: "doubao",
   model: "doubao-seed-2-0-lite-260428",
 };
