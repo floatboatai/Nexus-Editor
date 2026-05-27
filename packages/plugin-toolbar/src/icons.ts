@@ -174,3 +174,10 @@ export function iconHorizontalRule(): HTMLElement {
     `<line x1="2" y1="9" x2="16" y2="9"/>`
   );
 }
+
+export function iconAI(): HTMLElement {
+  const wrap = document.createElement("span");
+  wrap.style.cssText = "display:flex;align-items:center;justify-content:center;width:18px;height:18px;font-size:14px;font-weight:bold;color:currentColor;";
+  wrap.textContent = "AI";
+  return wrap;
+}
