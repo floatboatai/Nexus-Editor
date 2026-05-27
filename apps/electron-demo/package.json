@@ -29,6 +29,7 @@
     "@floatboat/nexus-plugin-slash": "workspace:*",
     "@floatboat/nexus-plugin-toolbar": "workspace:*",
     "@floatboat/nexus-preset-gfm": "workspace:*",
+    "dotenv": "^17.4.2",
     "highlight.js": "^11.11.0"
   },
   "devDependencies": {
