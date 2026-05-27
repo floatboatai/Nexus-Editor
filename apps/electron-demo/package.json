@@ -1,7 +1,7 @@
 {
   "name": "@floatboat/nexus-electron-demo",
   "productName": "Nexus Editor",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "private": true,
   "description": "Nexus Editor — Obsidian-style markdown editor",
   "author": "Nexus Editor",

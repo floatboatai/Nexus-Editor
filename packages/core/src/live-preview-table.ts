@@ -1115,6 +1115,7 @@ export class EditableTableWidget extends WidgetType {
 
         td.addEventListener("mousedown", (e) => {
           if (e.button !== 0) return; // only left button
+          e.preventDefault();
           e.stopPropagation();
           const rawCaretOffset = rawSourceOffsetFromPoint(td, e);
           cellMouseMoved = false;
@@ -1125,20 +1126,6 @@ export class EditableTableWidget extends WidgetType {
           cellMouseDown = true;
           rangeStart = { row: cellRow, col: cellCol };
           rangeEnd = { row: cellRow, col: cellCol };
-          // Enable editing during the browser's native mousedown flow so
-          // the caret lands where the user clicked. Activating only after
-          // mouseup/focus makes contentEditable place the caret at the
-          // start of the cell instead of at the pointer location.
-          activateCellEditing();
-          if (rawCaretOffset !== null) {
-            placeRawSourceCaret(td, rawCaretOffset);
-            window.setTimeout(() => {
-              if (td.contentEditable === "true") {
-                placeRawSourceCaret(td, rawCaretOffset);
-              }
-            }, 0);
-          }
-
           const onCellMouseMove = (me: MouseEvent): void => {
             const target = cellAtPoint(me.clientX, me.clientY);
             if (target && (target.row !== rangeStart!.row || target.col !== rangeStart!.col)) {
@@ -1159,6 +1146,14 @@ export class EditableTableWidget extends WidgetType {
               // Single cell click — activate editing
               clearRangeSelection();
               activateCellEditing();
+              if (rawCaretOffset !== null) {
+                placeRawSourceCaret(td, rawCaretOffset);
+                window.setTimeout(() => {
+                  if (td.contentEditable === "true") {
+                    placeRawSourceCaret(td, rawCaretOffset);
+                  }
+                }, 0);
+              }
             } else {
               // Multi-cell range selected — keep range visible, focus wrapper for key events
               rangeActive = true;

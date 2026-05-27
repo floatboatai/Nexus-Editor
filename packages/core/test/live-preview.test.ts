@@ -380,7 +380,7 @@ describe("live preview", () => {
     editor.destroy();
   });
 
-  it("enables table cell editing during mousedown so native caret placement uses the click point", () => {
+  it("enables table cell editing after a single-cell click", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const editor = createEditor({
@@ -397,6 +397,15 @@ describe("live preview", () => {
     cell?.dispatchEvent(new MouseEvent("mousedown", {
       bubbles: true,
       cancelable: true,
+      button: 0,
+      clientX: 80,
+      clientY: 40
+    }));
+
+    expect(cell?.contentEditable).not.toBe("true");
+
+    document.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
       button: 0,
       clientX: 80,
       clientY: 40
@@ -438,6 +447,12 @@ describe("live preview", () => {
       clientX: 80,
       clientY: 40
     }));
+    document.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 0,
+      clientX: 80,
+      clientY: 40
+    }));
 
     await new Promise((resolve) => window.setTimeout(resolve, 0));
 
@@ -449,6 +464,72 @@ describe("live preview", () => {
       configurable: true,
       value: originalCaretRangeFromPoint,
     });
+    editor.destroy();
+    container.remove();
+  });
+
+  it("keeps table range selection available after cell mousedown", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const cells = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell");
+    const firstCell = cells?.[0];
+    const secondCell = cells?.[1];
+    expect(firstCell).not.toBeUndefined();
+    expect(secondCell).not.toBeUndefined();
+
+    firstCell!.getBoundingClientRect = () => ({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 50,
+      bottom: 30,
+      width: 50,
+      height: 30,
+      toJSON: () => ({})
+    });
+    secondCell!.getBoundingClientRect = () => ({
+      x: 50,
+      y: 0,
+      left: 50,
+      top: 0,
+      right: 100,
+      bottom: 30,
+      width: 50,
+      height: 30,
+      toJSON: () => ({})
+    });
+
+    firstCell?.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 25,
+      clientY: 15
+    }));
+    document.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true,
+      button: 0,
+      clientX: 75,
+      clientY: 15
+    }));
+    document.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 0,
+      clientX: 75,
+      clientY: 15
+    }));
+
+    expect(firstCell?.contentEditable).not.toBe("true");
+    expect(firstCell?.style.background).toContain("124, 108, 250");
+    expect(secondCell?.style.background).toContain("124, 108, 250");
     editor.destroy();
     container.remove();
   });
