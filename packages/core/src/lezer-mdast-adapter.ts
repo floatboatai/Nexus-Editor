@@ -46,7 +46,10 @@ import { findChildByName, headingDepth } from "./lezer-helpers";
 // `position` info so collectLivePreviewRanges can read offsets.
 
 interface PositionedNode {
-  position: { start: { line: number; column: number; offset: number }; end: { line: number; column: number; offset: number } };
+  position: {
+    start: { line: number; column: number; offset: number };
+    end: { line: number; column: number; offset: number };
+  };
 }
 
 function position(from: number, to: number): PositionedNode["position"] {
@@ -90,7 +93,10 @@ function readSlice(source: Source, from: number, to: number): string {
  * an ATX heading source so the synthesized text node matches what remark
  * emits for `## title`.
  */
-function headingTextRange(source: Source, node: SyntaxNode): { from: number; to: number } {
+function headingTextRange(
+  source: Source,
+  node: SyntaxNode,
+): { from: number; to: number } {
   // Skip past the opening HeaderMark child(ren) (the `##`).
   let cursor = node.from;
   let openingEnd = node.from;
@@ -101,7 +107,8 @@ function headingTextRange(source: Source, node: SyntaxNode): { from: number; to:
     child = child.nextSibling;
   }
   // Trim leading whitespace.
-  while (cursor < node.to && /\s/.test(source.slice(cursor, cursor + 1))) cursor++;
+  while (cursor < node.to && /\s/.test(source.slice(cursor, cursor + 1)))
+    cursor++;
 
   // Trim trailing closing `#` markers — but only if they are SEPARATE from
   // the opening run (i.e. start past `openingEnd`). Without this guard a
@@ -110,7 +117,11 @@ function headingTextRange(source: Source, node: SyntaxNode): { from: number; to:
   // range to nothing.
   let end = node.to;
   let trailing = node.lastChild;
-  while (trailing && trailing.name === "HeaderMark" && trailing.from >= openingEnd) {
+  while (
+    trailing &&
+    trailing.name === "HeaderMark" &&
+    trailing.from >= openingEnd
+  ) {
     end = trailing.from;
     trailing = trailing.prevSibling;
   }
@@ -119,7 +130,8 @@ function headingTextRange(source: Source, node: SyntaxNode): { from: number; to:
 }
 
 function emitText(source: Source, from: number, to: number): Text {
-  if (to <= from) return { type: "text", value: "", position: position(from, from) };
+  if (to <= from)
+    return { type: "text", value: "", position: position(from, from) };
   return {
     type: "text",
     value: readSlice(source, from, to),
@@ -156,14 +168,18 @@ function trimTableCellRange(
   line: string,
   lineFrom: number,
   start: number,
-  end: number
+  end: number,
 ): { from: number; to: number } {
   while (start < end && /[ \t]/.test(line[start])) start++;
   while (end > start && /[ \t]/.test(line[end - 1])) end--;
   return { from: lineFrom + start, to: lineFrom + end };
 }
 
-function tableCellContentRanges(source: Source, from: number, to: number): Array<{ from: number; to: number }> {
+function tableCellContentRanges(
+  source: Source,
+  from: number,
+  to: number,
+): Array<{ from: number; to: number }> {
   const line = readSlice(source, from, to);
   const pipes: number[] = [];
 
@@ -207,7 +223,10 @@ function adaptTableRowCells(source: Source, row: SyntaxNode): TableCell[] {
 
   const used = new Set<SyntaxNode>();
   return ranges.map((range) => {
-    const syntaxCell = syntaxCells.find((cell) => !used.has(cell) && cell.from >= range.from && cell.to <= range.to);
+    const syntaxCell = syntaxCells.find(
+      (cell) =>
+        !used.has(cell) && cell.from >= range.from && cell.to <= range.to,
+    );
     if (syntaxCell) {
       used.add(syntaxCell);
       return {
@@ -235,6 +254,7 @@ function adaptTableRowCells(source: Source, row: SyntaxNode): TableCell[] {
 // appear as a standalone top-level node for GFM autolink literals.)
 const MARKER_NODE_NAMES = new Set([
   "EmphasisMark",
+  "StrikethroughMark",
   "CodeMark",
   "LinkMark",
   "ListMark",
@@ -247,7 +267,10 @@ const MARKER_NODE_NAMES = new Set([
 ]);
 
 /** Inline-only adapter — delimiter marks and structural wrappers are skipped. */
-function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | null {
+function adaptInlineNode(
+  source: Source,
+  node: SyntaxNode,
+): PhrasingContent | null {
   const name = node.name;
   if (MARKER_NODE_NAMES.has(name)) return null;
   switch (name) {
@@ -313,7 +336,9 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
       // Lezer Link: contains LinkMark `[`, label content, LinkMark `]`,
       // optional `(URL "title")`. We pull URL via child name.
       const url = findChildByName(node, "URL");
-      const urlText = url ? readSlice(source, url.from, url.to) : readSlice(source, node.from, node.to).replace(/^<|>$/g, "");
+      const urlText = url
+        ? readSlice(source, url.from, url.to)
+        : readSlice(source, node.from, node.to).replace(/^<|>$/g, "");
       // Walk children between the first `[` and the matching `]` and
       // recursively adapt nested inline nodes (Image, StrongEmphasis,
       // Emphasis, InlineCode, etc.) so things like
@@ -329,7 +354,10 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
           if (c.name !== "LinkMark") continue;
           seen++;
           if (seen === 1) labelStartMark = c;
-          else if (seen === 2) { labelEndMark = c; break; }
+          else if (seen === 2) {
+            labelEndMark = c;
+            break;
+          }
         }
         if (!labelStartMark || !labelEndMark) {
           // Autolink / bare URL — no `[]`, the whole node is the label.
@@ -339,7 +367,11 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
         const labelEnd = labelEndMark.from;
         const out: PhrasingContent[] = [];
         let cursor = labelFrom;
-        for (let c = labelStartMark.nextSibling; c && c !== labelEndMark; c = c.nextSibling) {
+        for (
+          let c = labelStartMark.nextSibling;
+          c && c !== labelEndMark;
+          c = c.nextSibling
+        ) {
           if (c.from >= labelEnd) break;
           if (c.from > cursor) out.push(emitText(source, cursor, c.from));
           const adapted = adaptInlineNode(source, c);
@@ -371,7 +403,10 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
         for (let c = node.firstChild; c; c = c.nextSibling) {
           if (c.name === "LinkMark") {
             seen++;
-            if (seen === 2) { altTo = c.from; break; }
+            if (seen === 2) {
+              altTo = c.from;
+              break;
+            }
           }
         }
         alt = readSlice(source, altFrom, altTo);
@@ -435,7 +470,15 @@ function adaptListItem(source: Source, node: SyntaxNode): ListItem {
       continue;
     }
     const block = adaptBlockChild(source, c);
-    if (block) children.push(block);
+    if (block) {
+      if (block.type === "html") {
+        const src = readSlice(source, c.from, c.to);
+        if (!src.includes("\n")) {
+          (block as unknown as Record<string, unknown>).inline = true;
+        }
+      }
+      children.push(block);
+    }
   }
   return {
     type: "listItem",
@@ -465,7 +508,7 @@ function adaptList(source: Source, node: SyntaxNode, ordered: boolean): List {
   return {
     type: "list",
     ordered,
-    start: ordered ? start ?? 1 : null,
+    start: ordered ? (start ?? 1) : null,
     spread: false,
     children: items,
     position: position(node.from, node.to),
@@ -543,7 +586,8 @@ function adaptHeading(source: Source, node: SyntaxNode): Heading {
 //   :::type [optional title]
 //   body line(s) without blank lines
 //   :::
-const CALLOUT_FENCE_RE = /^:::([a-zA-Z]+)(?:[ \t]+(.+?))?\r?\n([\s\S]*?)\r?\n:::\s*$/;
+const CALLOUT_FENCE_RE =
+  /^:::([a-zA-Z]+)(?:[ \t]+(.+?))?\r?\n([\s\S]*?)\r?\n:::\s*$/;
 
 interface CalloutPalette {
   border: string;
@@ -554,14 +598,62 @@ interface CalloutPalette {
 }
 
 const CALLOUT_PALETTE: Record<string, CalloutPalette> = {
-  info: { border: "#0969da", bg: "rgba(9,105,218,0.08)", color: "#0969da", icon: "ℹ", defaultLabel: "INFO" },
-  note: { border: "#0969da", bg: "rgba(9,105,218,0.08)", color: "#0969da", icon: "ℹ", defaultLabel: "NOTE" },
-  tip: { border: "#1a7f37", bg: "rgba(26,127,55,0.08)", color: "#1a7f37", icon: "💡", defaultLabel: "TIP" },
-  success: { border: "#1a7f37", bg: "rgba(26,127,55,0.08)", color: "#1a7f37", icon: "✓", defaultLabel: "SUCCESS" },
-  important: { border: "#8250df", bg: "rgba(130,80,223,0.08)", color: "#8250df", icon: "❗", defaultLabel: "IMPORTANT" },
-  warning: { border: "#9a6700", bg: "rgba(154,103,0,0.08)", color: "#9a6700", icon: "⚠", defaultLabel: "WARNING" },
-  caution: { border: "#cf222e", bg: "rgba(207,34,46,0.08)", color: "#cf222e", icon: "🚫", defaultLabel: "CAUTION" },
-  danger: { border: "#cf222e", bg: "rgba(207,34,46,0.08)", color: "#cf222e", icon: "🚫", defaultLabel: "DANGER" },
+  info: {
+    border: "#0969da",
+    bg: "rgba(9,105,218,0.08)",
+    color: "#0969da",
+    icon: "ℹ",
+    defaultLabel: "INFO",
+  },
+  note: {
+    border: "#0969da",
+    bg: "rgba(9,105,218,0.08)",
+    color: "#0969da",
+    icon: "ℹ",
+    defaultLabel: "NOTE",
+  },
+  tip: {
+    border: "#1a7f37",
+    bg: "rgba(26,127,55,0.08)",
+    color: "#1a7f37",
+    icon: "💡",
+    defaultLabel: "TIP",
+  },
+  success: {
+    border: "#1a7f37",
+    bg: "rgba(26,127,55,0.08)",
+    color: "#1a7f37",
+    icon: "✓",
+    defaultLabel: "SUCCESS",
+  },
+  important: {
+    border: "#8250df",
+    bg: "rgba(130,80,223,0.08)",
+    color: "#8250df",
+    icon: "❗",
+    defaultLabel: "IMPORTANT",
+  },
+  warning: {
+    border: "#9a6700",
+    bg: "rgba(154,103,0,0.08)",
+    color: "#9a6700",
+    icon: "⚠",
+    defaultLabel: "WARNING",
+  },
+  caution: {
+    border: "#cf222e",
+    bg: "rgba(207,34,46,0.08)",
+    color: "#cf222e",
+    icon: "🚫",
+    defaultLabel: "CAUTION",
+  },
+  danger: {
+    border: "#cf222e",
+    bg: "rgba(207,34,46,0.08)",
+    color: "#cf222e",
+    icon: "🚫",
+    defaultLabel: "DANGER",
+  },
 };
 
 function escapeHtml(s: string): string {
@@ -572,21 +664,25 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function buildCalloutHtml(type: string, title: string | null, body: string): string {
+function buildCalloutHtml(
+  type: string,
+  title: string | null,
+  body: string,
+): string {
   const palette = CALLOUT_PALETTE[type.toLowerCase()] ?? CALLOUT_PALETTE.info;
   const heading = title ?? palette.defaultLabel;
   return (
     `<div class="nexus-callout" data-callout-type="${escapeHtml(type)}" ` +
-      `style="border-left:4px solid ${palette.border};background:${palette.bg};` +
-      `padding:8px 14px;border-radius:6px;margin:6px 0;">` +
-      `<div class="nexus-callout-title" style="color:${palette.color};font-weight:600;` +
-      `display:flex;align-items:center;gap:6px;margin-bottom:4px;">` +
-      `<span aria-hidden="true">${palette.icon}</span>` +
-      `<span>${escapeHtml(heading)}</span>` +
-      `</div>` +
-      `<div class="nexus-callout-body" style="color:var(--nexus-text);white-space:pre-wrap;">` +
-      escapeHtml(body) +
-      `</div>` +
+    `style="border-left:4px solid ${palette.border};background:${palette.bg};` +
+    `padding:8px 14px;border-radius:6px;margin:6px 0;">` +
+    `<div class="nexus-callout-title" style="color:${palette.color};font-weight:600;` +
+    `display:flex;align-items:center;gap:6px;margin-bottom:4px;">` +
+    `<span aria-hidden="true">${palette.icon}</span>` +
+    `<span>${escapeHtml(heading)}</span>` +
+    `</div>` +
+    `<div class="nexus-callout-body" style="color:var(--nexus-text);white-space:pre-wrap;">` +
+    escapeHtml(body) +
+    `</div>` +
     `</div>`
   );
 }
@@ -652,12 +748,15 @@ function adaptLinkReference(source: Source, node: SyntaxNode): Definition {
     identifier: m ? m[1] : "",
     label: m ? m[1] : undefined,
     url: m ? m[2] : "",
-    title: m ? m[3] ?? null : null,
+    title: m ? (m[3] ?? null) : null,
     position: position(node.from, node.to),
   };
 }
 
-function adaptFootnoteDefinition(source: Source, node: SyntaxNode): FootnoteDefinition {
+function adaptFootnoteDefinition(
+  source: Source,
+  node: SyntaxNode,
+): FootnoteDefinition {
   const src = readSlice(source, node.from, node.to);
   const m = /^\[\^([^\]]+)\]:/.exec(src);
   return {
@@ -693,19 +792,29 @@ function adaptBlockChild(source: Source, node: SyntaxNode): Content | null {
     return adaptHeading(source, node);
   }
   switch (name) {
-    case "Paragraph": return adaptParagraph(source, node);
-    case "Blockquote": return adaptBlockquote(source, node);
-    case "BulletList": return adaptList(source, node, false);
-    case "OrderedList": return adaptList(source, node, true);
-    case "FencedCode": return adaptCode(source, node, true);
+    case "Paragraph":
+      return adaptParagraph(source, node);
+    case "Blockquote":
+      return adaptBlockquote(source, node);
+    case "BulletList":
+      return adaptList(source, node, false);
+    case "OrderedList":
+      return adaptList(source, node, true);
+    case "FencedCode":
+      return adaptCode(source, node, true);
     // @lezer/markdown emits "CodeBlock" for indented code blocks; keep
     // "IndentedCode" as a defensive alias for any non-default config.
     case "CodeBlock":
-    case "IndentedCode": return adaptCode(source, node, false);
-    case "HorizontalRule": return adaptThematicBreak(node);
-    case "Table": return adaptTable(source, node);
-    case "LinkReference": return adaptLinkReference(source, node);
-    case "FootnoteDefinition": return adaptFootnoteDefinition(source, node);
+    case "IndentedCode":
+      return adaptCode(source, node, false);
+    case "HorizontalRule":
+      return adaptThematicBreak(node);
+    case "Table":
+      return adaptTable(source, node);
+    case "LinkReference":
+      return adaptLinkReference(source, node);
+    case "FootnoteDefinition":
+      return adaptFootnoteDefinition(source, node);
     case "HTMLBlock":
     case "CommentBlock":
       return adaptHtml(source, node);
@@ -738,7 +847,10 @@ function walkRoot(tree: Tree, source: Source): Root {
   };
 }
 
-export function lezerTreeToMdast(state: EditorState, tree: Tree = syntaxTree(state)): Root {
+export function lezerTreeToMdast(
+  state: EditorState,
+  tree: Tree = syntaxTree(state),
+): Root {
   return walkRoot(tree, stateSource(state));
 }
 
@@ -746,7 +858,8 @@ export function lezerTreeToMdast(state: EditorState, tree: Tree = syntaxTree(sta
 // (before a CM6 view exists) and for any get-ast call that doesn't have a
 // live state. Configures the same GFM + footnote extensions as the live
 // language support so the produced AST shape matches.
-let configuredParser: ReturnType<typeof commonmarkParser.configure> | null = null;
+let configuredParser: ReturnType<typeof commonmarkParser.configure> | null =
+  null;
 function getStringParser() {
   if (!configuredParser) {
     configuredParser = commonmarkParser.configure([...GFM, footnoteExtension]);
