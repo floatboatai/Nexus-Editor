@@ -1,14 +1,42 @@
-import { type EditorState, StateEffect, StateField, type Extension, type Range, type SelectionRange, type Transaction } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
+import {
+  Prec,
+  type EditorState,
+  StateEffect,
+  StateField,
+  type Extension,
+  type Range,
+  type SelectionRange,
+  type Transaction,
+} from "@codemirror/state";
+import {
+  Decoration,
+  type DecorationSet,
+  EditorView,
+  ViewPlugin,
+  WidgetType,
+} from "@codemirror/view";
 import { ensureSyntaxTree } from "@codemirror/language";
-import type { Code, FootnoteDefinition, FootnoteReference, Heading, Html, List, Root, Table } from "mdast";
+import type {
+  Code,
+  FootnoteDefinition,
+  FootnoteReference,
+  Heading,
+  Html,
+  List,
+  Root,
+  Table,
+} from "mdast";
 
 import type { CodeHighlightToken } from "./types";
 import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
 import { highlightCodeBlock } from "./live-preview-highlight";
 
 import { createLivePreviewDiagnostics } from "./live-preview-diag";
-import { collectLivePreviewRanges, selectionIntersects, selectionOnSameLine } from "./live-preview-ranges";
+import {
+  collectLivePreviewRanges,
+  selectionIntersects,
+  selectionOnSameLine,
+} from "./live-preview-ranges";
 import { renderLivePreviewNode } from "./live-preview-renderers";
 import { EditableTableWidget, isTableEditing } from "./live-preview-table";
 import type {
@@ -81,7 +109,7 @@ function walkCodeBlocks(node: unknown, visit: (n: Code) => void): void {
 }
 
 function normalizeConfig(
-  config: boolean | LivePreviewConfig | undefined
+  config: boolean | LivePreviewConfig | undefined,
 ): NormalizedLivePreviewConfig {
   if (!config) {
     return { enabled: false, renderers: {}, labels: DEFAULT_LABELS };
@@ -92,7 +120,7 @@ function normalizeConfig(
   return {
     enabled: config.enabled ?? true,
     renderers: config.renderers ?? {},
-    labels: { ...DEFAULT_LABELS, ...config.labels }
+    labels: { ...DEFAULT_LABELS, ...config.labels },
   };
 }
 
@@ -105,7 +133,8 @@ function createWidget(
   // Eager path: caller already built the element. Lazy path: caller passes a
   // builder closure and we defer DOM construction to first toDOM(), so widgets
   // outside the CM6 viewport pay nothing until scrolled in.
-  let element: HTMLElement | null = typeof source === "function" ? null : source;
+  let element: HTMLElement | null =
+    typeof source === "function" ? null : source;
   const builder = typeof source === "function" ? source : null;
   return new (class extends WidgetType {
     /** Stable identity used by eq() so CM6 reuses old DOM across rebuilds. */
@@ -123,18 +152,31 @@ function createWidget(
       const otherKey = (other as { _eqKey?: string })._eqKey;
       return otherKey === this._eqKey;
     }
-    ignoreEvent() { return swallowEvents; }
+    ignoreEvent() {
+      return swallowEvents;
+    }
     // For block widgets, giving CM6 a pre-measure height prevents the heightmap
     // from assigning 0 and then jumping to the real height on first measure.
     // That jump shifts every click resolution below the widget until remeasured.
-    get estimatedHeight(): number { return heightHint ?? -1; }
+    get estimatedHeight(): number {
+      return heightHint ?? -1;
+    }
   })();
 }
 
 class CodeCopyWidget extends WidgetType {
-  constructor(private readonly code: string, private readonly lang: string) { super(); }
-  eq(other: CodeCopyWidget): boolean { return other.code === this.code && other.lang === this.lang; }
-  ignoreEvent(): boolean { return true; }
+  constructor(
+    private readonly code: string,
+    private readonly lang: string,
+  ) {
+    super();
+  }
+  eq(other: CodeCopyWidget): boolean {
+    return other.code === this.code && other.lang === this.lang;
+  }
+  ignoreEvent(): boolean {
+    return true;
+  }
   toDOM(): HTMLElement {
     // CM6 measures inline widget DOM elements via offsetHeight and uses that to
     // size the line box. A <button> with position:absolute still has a measurable
@@ -146,7 +188,8 @@ class CodeCopyWidget extends WidgetType {
     // → offsetHeight=0 → CM6 sees 0 contribution. The button overflows visually
     // via overflow:visible and is anchored by the parent line's position:relative.
     const wrapper = document.createElement("span");
-    wrapper.style.cssText = "line-height:0;font-size:0;overflow:visible;display:inline;";
+    wrapper.style.cssText =
+      "line-height:0;font-size:0;overflow:visible;display:inline;";
 
     const btn = document.createElement("button");
     btn.type = "button";
@@ -170,21 +213,32 @@ class CodeCopyWidget extends WidgetType {
       "opacity:0.7",
       "z-index:1",
       "user-select:none",
-      "transition:opacity .15s"
+      "transition:opacity .15s",
     ].join(";");
-    btn.addEventListener("mouseenter", () => { btn.style.opacity = "1"; });
-    btn.addEventListener("mouseleave", () => { btn.style.opacity = "0.7"; });
-    btn.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); });
+    btn.addEventListener("mouseenter", () => {
+      btn.style.opacity = "1";
+    });
+    btn.addEventListener("mouseleave", () => {
+      btn.style.opacity = "0.7";
+    });
+    btn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
     btn.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
       try {
         await navigator.clipboard.writeText(this.code);
         btn.textContent = "Copied";
-        setTimeout(() => { btn.textContent = defaultLabel; }, 1200);
+        setTimeout(() => {
+          btn.textContent = defaultLabel;
+        }, 1200);
       } catch {
         btn.textContent = "Failed";
-        setTimeout(() => { btn.textContent = defaultLabel; }, 1200);
+        setTimeout(() => {
+          btn.textContent = defaultLabel;
+        }, 1200);
       }
     });
     wrapper.appendChild(btn);
@@ -199,7 +253,13 @@ class CodeCopyWidget extends WidgetType {
 
 type MermaidAPI = {
   render(id: string, text: string): Promise<{ svg: string }>;
-  parse(text: string, opts?: { suppressErrors?: boolean }): Promise<boolean | { diagramType: string }> | boolean | { diagramType: string };
+  parse(
+    text: string,
+    opts?: { suppressErrors?: boolean },
+  ):
+    | Promise<boolean | { diagramType: string }>
+    | boolean
+    | { diagramType: string };
 };
 
 let mermaidPromise: Promise<MermaidAPI> | null = null;
@@ -207,7 +267,11 @@ function loadMermaid(): Promise<MermaidAPI> {
   if (!mermaidPromise) {
     mermaidPromise = import("mermaid").then((mod) => {
       const m = (mod as any).default ?? mod;
-      m.initialize({ startOnLoad: false, theme: "default", securityLevel: "strict" });
+      m.initialize({
+        startOnLoad: false,
+        theme: "default",
+        securityLevel: "strict",
+      });
       return m as MermaidAPI;
     });
   }
@@ -222,14 +286,18 @@ class MermaidWidget extends WidgetType {
     private readonly source: string,
     private readonly viewRef: { current: EditorView | null },
     private readonly blockFrom: number,
-    private readonly sourceOffsetInBlock: number
-  ) { super(); }
+    private readonly sourceOffsetInBlock: number,
+  ) {
+    super();
+  }
 
   eq(other: MermaidWidget): boolean {
     return other.source === this.source;
   }
 
-  ignoreEvent(): boolean { return true; }
+  ignoreEvent(): boolean {
+    return true;
+  }
 
   get estimatedHeight(): number {
     const cached = MERMAID_CACHE.get(this.source);
@@ -240,17 +308,18 @@ class MermaidWidget extends WidgetType {
     // Container: margin:0, padding for visual spacing (CLAUDE.md rule #11 / thematicBreak pattern).
     const container = document.createElement("div");
     container.className = "nexus-mermaid";
-    container.style.cssText = [
-      "display:block",
-      "position:relative",
-      "margin:0",
-      "padding:12px",
-      "background:var(--nexus-bg-subtle)",
-      "border-radius:4px",
-      "min-height:80px",
-      "text-align:center",
-      "overflow:hidden",
-    ].join(";") + ";";
+    container.style.cssText =
+      [
+        "display:block",
+        "position:relative",
+        "margin:0",
+        "padding:12px",
+        "background:var(--nexus-bg-subtle)",
+        "border-radius:4px",
+        "min-height:80px",
+        "text-align:center",
+        "overflow:hidden",
+      ].join(";") + ";";
 
     // Edit icon — always rendered, always on top. stopPropagation so the
     // click doesn't get swallowed as a widget-surface click.
@@ -259,27 +328,35 @@ class MermaidWidget extends WidgetType {
     editBtn.title = "Edit mermaid source";
     editBtn.setAttribute("aria-label", "Edit mermaid source");
     editBtn.textContent = "✎";
-    editBtn.style.cssText = [
-      "position:absolute",
-      "top:4px",
-      "right:8px",
-      "padding:2px 8px",
-      "font-size:12px",
-      "font-family:system-ui,sans-serif",
-      "line-height:1.4",
-      "background:var(--nexus-bg)",
-      "border:1px solid var(--nexus-border-subtle)",
-      "border-radius:3px",
-      "color:var(--nexus-text-muted)",
-      "cursor:pointer",
-      "opacity:0.7",
-      "z-index:2",
-      "user-select:none",
-      "transition:opacity .15s",
-    ].join(";") + ";";
-    editBtn.addEventListener("mouseenter", () => { editBtn.style.opacity = "1"; });
-    editBtn.addEventListener("mouseleave", () => { editBtn.style.opacity = "0.7"; });
-    editBtn.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); });
+    editBtn.style.cssText =
+      [
+        "position:absolute",
+        "top:4px",
+        "right:8px",
+        "padding:2px 8px",
+        "font-size:12px",
+        "font-family:system-ui,sans-serif",
+        "line-height:1.4",
+        "background:var(--nexus-bg)",
+        "border:1px solid var(--nexus-border-subtle)",
+        "border-radius:3px",
+        "color:var(--nexus-text-muted)",
+        "cursor:pointer",
+        "opacity:0.7",
+        "z-index:2",
+        "user-select:none",
+        "transition:opacity .15s",
+      ].join(";") + ";";
+    editBtn.addEventListener("mouseenter", () => {
+      editBtn.style.opacity = "1";
+    });
+    editBtn.addEventListener("mouseleave", () => {
+      editBtn.style.opacity = "0.7";
+    });
+    editBtn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
     editBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -294,7 +371,8 @@ class MermaidWidget extends WidgetType {
     const diagramHost = document.createElement("div");
     // max-width on host + responsive SVG (set after innerHTML) prevents the
     // diagram from overflowing and adding a third scrollbar.
-    diagramHost.style.cssText = "display:block;min-height:64px;max-width:100%;overflow:hidden;";
+    diagramHost.style.cssText =
+      "display:block;min-height:64px;max-width:100%;overflow:hidden;";
     container.appendChild(editBtn);
     container.appendChild(diagramHost);
 
@@ -345,12 +423,17 @@ class MermaidWidget extends WidgetType {
       body.style.cssText = "white-space:pre-wrap;";
 
       const hint = document.createElement("div");
-      hint.style.cssText = "margin-top:8px;font-family:system-ui,sans-serif;color:var(--nexus-text-muted);";
+      hint.style.cssText =
+        "margin-top:8px;font-family:system-ui,sans-serif;color:var(--nexus-text-muted);";
       const editLink = document.createElement("a");
       editLink.href = "#";
       editLink.textContent = "Edit source";
-      editLink.style.cssText = "color:var(--nexus-accent);text-decoration:underline;cursor:pointer;";
-      editLink.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); });
+      editLink.style.cssText =
+        "color:var(--nexus-accent);text-decoration:underline;cursor:pointer;";
+      editLink.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      });
       editLink.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -421,7 +504,12 @@ class MermaidWidget extends WidgetType {
 const BLOCK_NODE_TYPES = new Set(["thematicBreak"]);
 
 const HEADING_FONT_SIZE: Record<number, string> = {
-  1: "1.6em", 2: "1.4em", 3: "1.2em", 4: "1.1em", 5: "1.05em", 6: "1em"
+  1: "1.6em",
+  2: "1.4em",
+  3: "1.2em",
+  4: "1.1em",
+  5: "1.05em",
+  6: "1em",
 };
 
 function shouldRebuildHeadingForCompositionStart(view: EditorView): boolean {
@@ -435,23 +523,36 @@ function buildHeadingDecorations(
   doc: string,
   selection: readonly SelectionRange[],
   decos: Range<Decoration>[],
-  compositionActive: boolean
+  compositionActive: boolean,
 ): void {
   const firstChild = range.node.children[0];
   const textStart = firstChild?.position?.start?.offset;
 
-  if (typeof textStart === "number" && textStart > range.from && textStart <= range.to) {
-    if (compositionActive && selectionOnSameLine(range.from, range.to, doc, selection)) {
+  if (
+    typeof textStart === "number" &&
+    textStart > range.from &&
+    textStart <= range.to
+  ) {
+    if (
+      compositionActive &&
+      selectionOnSameLine(range.from, range.to, doc, selection)
+    ) {
       return;
     }
     const fontSize = HEADING_FONT_SIZE[range.node.depth] ?? "1em";
-    const cursorOnHeading = selectionIntersects(range.from, range.to, selection);
+    const cursorOnHeading = selectionIntersects(
+      range.from,
+      range.to,
+      selection,
+    );
 
     if (cursorOnHeading) {
       decos.push(
         Decoration.mark({
-          attributes: { style: `font-weight: bold; font-size: ${fontSize}; color: var(--nexus-text-muted)` }
-        }).range(range.from, textStart)
+          attributes: {
+            style: `font-weight: bold; font-size: ${fontSize}; color: var(--nexus-text-muted)`,
+          },
+        }).range(range.from, textStart),
       );
     } else {
       decos.push(Decoration.replace({}).range(range.from, textStart));
@@ -463,9 +564,9 @@ function buildHeadingDecorations(
           style: `font-weight: bold; font-size: ${fontSize}`,
           "data-heading-level": String(range.node.depth),
           role: "heading",
-          "aria-level": String(range.node.depth)
-        }
-      }).range(textStart, range.to)
+          "aria-level": String(range.node.depth),
+        },
+      }).range(textStart, range.to),
     );
   }
 }
@@ -477,7 +578,8 @@ function buildListDecorations(
   range: { from: number; to: number; node: List },
   doc: string,
   decos: Range<Decoration>[],
-  viewRef: { current: EditorView | null }
+  viewRef: { current: EditorView | null },
+  listMarkerRanges: [number, number][],
 ): void {
   // Iterate ListItems via mdast structure (not regex over flat source lines).
   // Nested sub-lists are children of a ListItem, not of the outer list, so
@@ -503,6 +605,8 @@ function buildListDecorations(
     const markerEnd = itemFrom + markerMatch[0].length;
 
     const bullet = document.createElement("span");
+    bullet.style.userSelect = "none";
+    bullet.style.webkitUserSelect = "none";
     let bulletKey: string;
     if (isOrdered) {
       const n = orderNum;
@@ -518,8 +622,9 @@ function buildListDecorations(
     decos.push(
       Decoration.replace({
         widget: createWidget(bullet, false, undefined, bulletKey),
-      }).range(markerStart, markerEnd)
+      }).range(markerStart, markerEnd),
     );
+    listMarkerRanges.push([markerStart, markerEnd]);
 
     const afterMarker = headLine.slice(markerMatch[0].length);
     const checkMatch = CHECKBOX_RE.exec(afterMarker);
@@ -541,7 +646,11 @@ function buildListDecorations(
         const v = viewRef.current;
         if (!v) return;
         v.dispatch({
-          changes: { from: toggleFrom, to: toggleFrom + 1, insert: isChecked ? " " : "x" }
+          changes: {
+            from: toggleFrom,
+            to: toggleFrom + 1,
+            insert: isChecked ? " " : "x",
+          },
         });
       });
 
@@ -549,14 +658,17 @@ function buildListDecorations(
       decos.push(
         Decoration.replace({
           widget: createWidget(checkbox, false, undefined, taskKey),
-        }).range(checkStart, checkEnd)
+        }).range(checkStart, checkEnd),
       );
 
       if (isChecked && checkEnd < headLineEnd) {
         decos.push(
           Decoration.mark({
-            attributes: { style: "text-decoration: line-through; color: var(--nexus-text-muted)" }
-          }).range(checkEnd, headLineEnd)
+            attributes: {
+              style:
+                "text-decoration: line-through; color: var(--nexus-text-muted)",
+            },
+          }).range(checkEnd, headLineEnd),
         );
       }
     }
@@ -574,13 +686,22 @@ function buildListDecorations(
 function defaultSanitizeHtml(rawHtml: string): string {
   let html = rawHtml;
   // Remove dangerous element bodies entirely (open tag through close tag).
-  html = html.replace(/<\s*(script|iframe|object|embed|style)\b[\s\S]*?<\/\s*\1\s*>/gi, "");
+  html = html.replace(
+    /<\s*(script|iframe|object|embed|style)\b[\s\S]*?<\/\s*\1\s*>/gi,
+    "",
+  );
   // Remove orphan dangerous self-closing tags.
-  html = html.replace(/<\s*(script|iframe|object|embed|style)\b[^>]*\/?>/gi, "");
+  html = html.replace(
+    /<\s*(script|iframe|object|embed|style)\b[^>]*\/?>/gi,
+    "",
+  );
   // Strip inline event handlers: `onclick="…"` / `onload='…'` / onfoo=bareword.
   html = html.replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
   // Strip `javascript:` URLs in href / src attributes.
-  html = html.replace(/(href|src|xlink:href)\s*=\s*(['"])\s*javascript:[^'"]*\2/gi, '$1=$2#$2');
+  html = html.replace(
+    /(href|src|xlink:href)\s*=\s*(['"])\s*javascript:[^'"]*\2/gi,
+    "$1=$2#$2",
+  );
   return html;
 }
 
@@ -589,12 +710,54 @@ function buildHtmlDecorations(
   selection: readonly SelectionRange[],
   decos: Range<Decoration>[],
   config: NormalizedLivePreviewConfig,
-  viewRef: { current: EditorView | null }
+  viewRef: { current: EditorView | null },
 ): void {
   // Show raw source while the user is editing the block — same pattern as
   // mermaid / code blocks. `inclusiveEnd: true` so the cursor parked at the
   // closing offset (typical after pressing End) still counts as inside.
-  const cursorInside = selectionIntersects(range.from, range.to, selection, true);
+  const cursorInside = selectionIntersects(
+    range.from,
+    range.to,
+    selection,
+    true,
+  );
+
+  const inlineHtml =
+    (block as unknown as Record<string, unknown>).inline === true;
+  if (inlineHtml) {
+    if (cursorInside) return;
+
+    const inlineEl = document.createElement("span");
+    inlineEl.innerHTML = defaultSanitizeHtml(range.node.value ?? range.source);
+    inlineEl.style.cssText = "display:inline;";
+    inlineEl.style.cursor = "text";
+
+    inlineEl.addEventListener("mousedown", (event) => {
+      if (
+        (event.target as HTMLElement)?.closest(
+          "a[href], button, input, select, textarea, label",
+        )
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const v = viewRef.current;
+      if (!v) return;
+      const safeFrom = Math.min(range.from, v.state.doc.length);
+      v.dispatch({ selection: { anchor: safeFrom } });
+      v.focus();
+    });
+
+    const inlineKey = `inline-html:${range.from}:${range.to}:${range.source}`;
+    decos.push(
+      Decoration.replace({
+        widget: createWidget(inlineEl, false, undefined, inlineKey),
+      }).range(range.from, range.to),
+    );
+    return;
+  }
+
   if (cursorInside) return;
 
   // Host may override with a custom renderer (e.g. to plug a stronger
@@ -618,7 +781,8 @@ function buildHtmlDecorations(
   if (!inner) {
     inner = document.createElement("div");
     inner.className = "nexus-html-block-content";
-    inner.style.cssText = "display:block;margin:0;padding:0;line-height:normal;font-family:inherit;";
+    inner.style.cssText =
+      "display:block;margin:0;padding:0;line-height:normal;font-family:inherit;";
     inner.innerHTML = defaultSanitizeHtml(range.node.value ?? range.source);
   }
 
@@ -634,7 +798,8 @@ function buildHtmlDecorations(
   // to resolve the click into a cursor position itself.
   const wrapper = document.createElement("div");
   wrapper.className = "nexus-html-block";
-  wrapper.style.cssText = "position:relative;display:block;margin:0;padding:0;cursor:text;";
+  wrapper.style.cssText =
+    "position:relative;display:block;margin:0;padding:0;cursor:text;";
   wrapper.appendChild(inner);
 
   // Selector for elements whose native behaviour we want to preserve.
@@ -669,7 +834,7 @@ function buildHtmlDecorations(
     Decoration.replace({
       widget: createWidget(wrapper, true, heightHint, htmlKey),
       block: true,
-    }).range(range.from, range.to)
+    }).range(range.from, range.to),
   );
 }
 
@@ -687,11 +852,41 @@ interface AlertStyle {
 }
 
 const ALERT_STYLES: Record<AlertType, AlertStyle> = {
-  NOTE: { borderColor: "#0969da", bg: "rgba(9,105,218,0.08)", textColor: "#0969da", icon: "ℹ", label: "Note" },
-  TIP: { borderColor: "#1a7f37", bg: "rgba(26,127,55,0.08)", textColor: "#1a7f37", icon: "💡", label: "Tip" },
-  IMPORTANT: { borderColor: "#8250df", bg: "rgba(130,80,223,0.08)", textColor: "#8250df", icon: "❗", label: "Important" },
-  WARNING: { borderColor: "#9a6700", bg: "rgba(154,103,0,0.08)", textColor: "#9a6700", icon: "⚠", label: "Warning" },
-  CAUTION: { borderColor: "#cf222e", bg: "rgba(207,34,46,0.08)", textColor: "#cf222e", icon: "🚫", label: "Caution" },
+  NOTE: {
+    borderColor: "#0969da",
+    bg: "rgba(9,105,218,0.08)",
+    textColor: "#0969da",
+    icon: "ℹ",
+    label: "Note",
+  },
+  TIP: {
+    borderColor: "#1a7f37",
+    bg: "rgba(26,127,55,0.08)",
+    textColor: "#1a7f37",
+    icon: "💡",
+    label: "Tip",
+  },
+  IMPORTANT: {
+    borderColor: "#8250df",
+    bg: "rgba(130,80,223,0.08)",
+    textColor: "#8250df",
+    icon: "❗",
+    label: "Important",
+  },
+  WARNING: {
+    borderColor: "#9a6700",
+    bg: "rgba(154,103,0,0.08)",
+    textColor: "#9a6700",
+    icon: "⚠",
+    label: "Warning",
+  },
+  CAUTION: {
+    borderColor: "#cf222e",
+    bg: "rgba(207,34,46,0.08)",
+    textColor: "#cf222e",
+    icon: "🚫",
+    label: "Caution",
+  },
 };
 
 /**
@@ -734,11 +929,16 @@ function detectAlert(source: string): {
 function buildBlockquoteDecorations(
   range: { from: number; to: number; source: string },
   selection: readonly SelectionRange[],
-  decos: Range<Decoration>[]
+  decos: Range<Decoration>[],
 ): { alertHeadEnd: number } | null {
   const source = range.source;
   const lines = source.split("\n");
-  const cursorInBlockquote = selectionIntersects(range.from, range.to, selection, true);
+  const cursorInBlockquote = selectionIntersects(
+    range.from,
+    range.to,
+    selection,
+    true,
+  );
   const alert = detectAlert(source);
   const style = alert ? ALERT_STYLES[alert.type] : null;
   let offset = range.from;
@@ -769,7 +969,9 @@ function buildBlockquoteDecorations(
     const lineEnd = offset + line.length;
 
     decos.push(
-      Decoration.line({ attributes: { style: lineStyleFor(i) } }).range(lineStart)
+      Decoration.line({ attributes: { style: lineStyleFor(i) } }).range(
+        lineStart,
+      ),
     );
 
     const markerMatch = BLOCKQUOTE_MARKER_RE.exec(line);
@@ -798,8 +1000,13 @@ function buildBlockquoteDecorations(
           badge.appendChild(labelSpan);
           decos.push(
             Decoration.replace({
-              widget: createWidget(badge, false, undefined, `alert:${alert.type}:${tagStart}`),
-            }).range(tagStart, tagEnd)
+              widget: createWidget(
+                badge,
+                false,
+                undefined,
+                `alert:${alert.type}:${tagStart}`,
+              ),
+            }).range(tagStart, tagEnd),
           );
           alertHeadEnd = lineEnd;
         }
@@ -822,11 +1029,16 @@ function buildCodeBlockDecorations(
   selection: readonly SelectionRange[],
   decos: Range<Decoration>[],
   viewRef: { current: EditorView | null },
-  codeTokens?: readonly import("./types").CodeHighlightToken[]
+  codeTokens?: readonly import("./types").CodeHighlightToken[],
 ): void {
   const source = range.source;
   const lines = source.split("\n");
-  const cursorOnCode = selectionIntersects(range.from, range.to, selection, true);
+  const cursorOnCode = selectionIntersects(
+    range.from,
+    range.to,
+    selection,
+    true,
+  );
   const firstNewline = source.indexOf("\n");
   const isFenced = /^[ \t]*(`{3,}|~{3,})/.test(source);
 
@@ -836,9 +1048,14 @@ function buildCodeBlockDecorations(
   if (range.node.lang === "mermaid" && !cursorOnCode && firstNewline >= 0) {
     decos.push(
       Decoration.replace({
-        widget: new MermaidWidget(range.node.value ?? "", viewRef, range.from, firstNewline + 1),
+        widget: new MermaidWidget(
+          range.node.value ?? "",
+          viewRef,
+          range.from,
+          firstNewline + 1,
+        ),
         block: true,
-      }).range(range.from, range.to)
+      }).range(range.from, range.to),
     );
     return;
   }
@@ -870,9 +1087,15 @@ function buildCodeBlockDecorations(
 
     // Line decoration: ONLY background + border-radius (no font changes).
     // position:relative on first fence line anchors the absolute copy button.
-    const radius = isFirstLine ? "border-radius:4px 4px 0 0;" : isLastLine ? "border-radius:0 0 4px 4px;" : "";
+    const radius = isFirstLine
+      ? "border-radius:4px 4px 0 0;"
+      : isLastLine
+        ? "border-radius:0 0 4px 4px;"
+        : "";
     const firstLineExtra = isFirstLine && isFenced ? "position:relative;" : "";
-    const lineAttrs: Record<string, string> = { style: LINE_BG + radius + firstLineExtra };
+    const lineAttrs: Record<string, string> = {
+      style: LINE_BG + radius + firstLineExtra,
+    };
     if (isFirstLine) {
       lineAttrs.role = "code";
       if (lang) lineAttrs["aria-label"] = `Code block: ${lang}`;
@@ -881,20 +1104,26 @@ function buildCodeBlockDecorations(
 
     // Fence lines: transparent + monospace via mark; visible when cursor in block.
     if (isFenced && (isFirstLine || isLastLine) && lineEnd > lineStart) {
-      decos.push(Decoration.mark({
-        attributes: {
-          style: MONO_MARK + (cursorOnCode
-            ? "color:var(--nexus-text-faint,#bbb);"
-            : "color:transparent;cursor:text;")
-        }
-      }).range(lineStart, lineEnd));
+      decos.push(
+        Decoration.mark({
+          attributes: {
+            style:
+              MONO_MARK +
+              (cursorOnCode
+                ? "color:var(--nexus-text-faint,#bbb);"
+                : "color:transparent;cursor:text;"),
+          },
+        }).range(lineStart, lineEnd),
+      );
     }
 
     // Content lines (non-fence): monospace via mark.
     if (!(isFenced && (isFirstLine || isLastLine)) && lineEnd > lineStart) {
-      decos.push(Decoration.mark({
-        attributes: { style: MONO_MARK }
-      }).range(lineStart, lineEnd));
+      decos.push(
+        Decoration.mark({
+          attributes: { style: MONO_MARK },
+        }).range(lineStart, lineEnd),
+      );
     }
 
     // Copy button: always present, absolute-positioned inside first fence line.
@@ -902,8 +1131,8 @@ function buildCodeBlockDecorations(
       decos.push(
         Decoration.widget({
           widget: new CodeCopyWidget(codeValue, lang ?? ""),
-          side: 1
-        }).range(lineEnd)
+          side: 1,
+        }).range(lineEnd),
       );
     }
 
@@ -916,7 +1145,12 @@ function buildCodeBlockDecorations(
   // (worker hasn't responded for this document), the code block renders
   // unstyled and gets coloured on the next buildDecorations pass once the
   // worker response has been merged into the AST cache.
-  if (codeTokens && codeTokens.length > 0 && firstNewline >= 0 && range.node.value) {
+  if (
+    codeTokens &&
+    codeTokens.length > 0 &&
+    firstNewline >= 0 &&
+    range.node.value
+  ) {
     // Tokens are sorted by `from` in the worker; still filter since one
     // code block gets decorations for only its subrange.
     const contentStart = range.from + firstNewline + 1;
@@ -926,7 +1160,7 @@ function buildCodeBlockDecorations(
       if (tok.to <= contentStart) continue;
       if (tok.from < range.from || tok.to > range.to) continue;
       decos.push(
-        Decoration.mark({ class: tok.className }).range(tok.from, tok.to)
+        Decoration.mark({ class: tok.className }).range(tok.from, tok.to),
       );
     }
   }
@@ -942,7 +1176,10 @@ interface InlineMarkerStyle {
   attrs?: Record<string, string>;
 }
 
-function getInlineMarkerStyle(nodeType: string, source: string): InlineMarkerStyle | null {
+function getInlineMarkerStyle(
+  nodeType: string,
+  source: string,
+): InlineMarkerStyle | null {
   switch (nodeType) {
     case "strong":
       return { openLen: 2, closeLen: 2, style: "font-weight:bold" };
@@ -955,8 +1192,10 @@ function getInlineMarkerStyle(nodeType: string, source: string): InlineMarkerSty
       let ticks = 0;
       for (let i = 0; i < source.length && source[i] === "`"; i++) ticks++;
       return {
-        openLen: ticks, closeLen: ticks,
-        style: "font-family:monospace;background:var(--nexus-bg-muted);padding:1px 4px;border-radius:3px"
+        openLen: ticks,
+        closeLen: ticks,
+        style:
+          "font-family:monospace;background:var(--nexus-bg-muted);padding:1px 4px;border-radius:3px",
       };
     }
     case "link": {
@@ -965,25 +1204,30 @@ function getInlineMarkerStyle(nodeType: string, source: string): InlineMarkerSty
       if (bracketClose >= 0) {
         const url = source.slice(bracketClose + 2, source.length - 1);
         return {
-          openLen: 1,                            // hide [
+          openLen: 1, // hide [
           closeLen: source.length - bracketClose, // hide ](url)
-          style: "color:var(--nexus-accent);text-decoration:underline;cursor:pointer",
-          attrs: { "data-link-url": url }
+          style:
+            "color:var(--nexus-accent);text-decoration:underline;cursor:pointer",
+          attrs: { "data-link-url": url },
         };
       }
       // Standard autolink: <URL> — hide angle brackets
       if (source.startsWith("<") && source.endsWith(">")) {
         return {
-          openLen: 1, closeLen: 1,
-          style: "color:var(--nexus-accent);text-decoration:underline;cursor:pointer",
-          attrs: { "data-link-url": source.slice(1, -1) }
+          openLen: 1,
+          closeLen: 1,
+          style:
+            "color:var(--nexus-accent);text-decoration:underline;cursor:pointer",
+          attrs: { "data-link-url": source.slice(1, -1) },
         };
       }
       // GFM autolink literal: bare URL, no markers to hide
       return {
-        openLen: 0, closeLen: 0,
-        style: "color:var(--nexus-accent);text-decoration:underline;cursor:pointer",
-        attrs: { "data-link-url": source }
+        openLen: 0,
+        closeLen: 0,
+        style:
+          "color:var(--nexus-accent);text-decoration:underline;cursor:pointer",
+        attrs: { "data-link-url": source },
       };
     }
     default:
@@ -997,6 +1241,7 @@ interface BuildContext {
   /** Optional pre-computed code highlight tokens for the snapshot's fenced blocks. */
   codeTokens?: CodeHighlightToken[];
   compositionActive?: boolean;
+  listMarkerRanges?: [number, number][];
 }
 
 function buildDecorations(
@@ -1004,11 +1249,17 @@ function buildDecorations(
   selection: readonly SelectionRange[],
   config: NormalizedLivePreviewConfig,
   viewRef: { current: EditorView | null },
-  ctx: BuildContext
+  ctx: BuildContext,
 ): { decos: DecorationSet; ast: Root; codeTokens: CodeHighlightToken[] } {
-  if (!config.enabled) return { decos: Decoration.none, ast: ctx.ast ?? createEmptyAst(), codeTokens: [] };
+  if (!config.enabled)
+    return {
+      decos: Decoration.none,
+      ast: ctx.ast ?? createEmptyAst(),
+      codeTokens: [],
+    };
 
-  const perfEnabled = (globalThis as { NEXUS_PERF?: boolean }).NEXUS_PERF !== false;
+  const perfEnabled =
+    (globalThis as { NEXUS_PERF?: boolean }).NEXUS_PERF !== false;
   const t0 = perfEnabled ? performance.now() : 0;
   const doc = state.doc.toString();
   // Lezer-driven adapter: synchronous, viewport-agnostic, intrinsic to the
@@ -1026,9 +1277,11 @@ function buildDecorations(
   const astHit = !!ctx.ast;
   const decos: Range<Decoration>[] = [];
   const parentSpans: [number, number][] = [];
+  const deleteCoveredRanges: [number, number][] = [];
 
   for (const range of ranges) {
-    if (parentSpans.some(([from, to]) => range.from >= from && range.to <= to)) continue;
+    if (parentSpans.some(([from, to]) => range.from >= from && range.to <= to))
+      continue;
 
     if (range.node.type === "heading" && !config.renderers.heading) {
       buildHeadingDecorations(
@@ -1036,16 +1289,20 @@ function buildDecorations(
         doc,
         selection,
         decos,
-        ctx.compositionActive === true
+        ctx.compositionActive === true,
       );
     } else if (range.node.type === "table" && !config.renderers.table) {
       decos.push(
         Decoration.replace({
           widget: new EditableTableWidget(
-            range.node as Table, range.from, range.source, viewRef, config.labels
+            range.node as Table,
+            range.from,
+            range.source,
+            viewRef,
+            config.labels,
           ),
-          block: true
-        }).range(range.from, range.to)
+          block: true,
+        }).range(range.from, range.to),
       );
     } else if (range.node.type === "html") {
       buildHtmlDecorations(
@@ -1053,15 +1310,21 @@ function buildDecorations(
         selection,
         decos,
         config,
-        viewRef
+        viewRef,
       );
     } else if (range.node.type === "list") {
-      buildListDecorations(range as { from: number; to: number; node: List }, doc, decos, viewRef);
+      buildListDecorations(
+        range as { from: number; to: number; node: List },
+        doc,
+        decos,
+        viewRef,
+        ctx.listMarkerRanges ?? [],
+      );
     } else if (range.node.type === "blockquote") {
       const alertInfo = buildBlockquoteDecorations(
         range as { from: number; to: number; source: string },
         selection,
-        decos
+        decos,
       );
       if (alertInfo) {
         // GFM Alert: suppress the inline link decoration that lezer emits for
@@ -1071,7 +1334,13 @@ function buildDecorations(
         parentSpans.push([range.from, alertInfo.alertHeadEnd]);
       }
     } else if (range.node.type === "code" && !config.renderers.code) {
-      buildCodeBlockDecorations(range as { from: number; to: number; node: Code; source: string }, selection, decos, viewRef, codeTokens);
+      buildCodeBlockDecorations(
+        range as { from: number; to: number; node: Code; source: string },
+        selection,
+        decos,
+        viewRef,
+        codeTokens,
+      );
     } else if (range.node.type === "image") {
       // Cursor-aware + preview-alongside:
       //   * cursor OUT  → replace widget (source hidden).
@@ -1081,19 +1350,30 @@ function buildDecorations(
       // the custom renderer, which dispatches setSelection(range.from).
       // swallowEvents=true so interactive chrome inside a custom image renderer
       // isn't preempted by CM6's cursor-placement handler.
-      const cursorOnImage = selectionIntersects(range.from, range.to, selection, true);
+      const cursorOnImage = selectionIntersects(
+        range.from,
+        range.to,
+        selection,
+        true,
+      );
       // Stable identity keyed by content + position lets CM6 reuse the existing
       // DOM across cursor-only updates and unrelated edits — image renderers
       // are heavy (50+ DOM nodes with inline styles), so skipping the rebuild
       // is the bulk of the buildWidgets win on documents with many images.
       const imgKey = `image:${range.from}:${range.to}:${cursorOnImage ? "in" : "out"}:${range.source}`;
       const buildImg = (): HTMLElement =>
-        renderLivePreviewNode(range.node, range.source, config.renderers, range.from, range.to);
+        renderLivePreviewNode(
+          range.node,
+          range.source,
+          config.renderers,
+          range.from,
+          range.to,
+        );
       if (!cursorOnImage) {
         decos.push(
           Decoration.replace({
-            widget: createWidget(buildImg, true, undefined, imgKey)
-          }).range(range.from, range.to)
+            widget: createWidget(buildImg, true, undefined, imgKey),
+          }).range(range.from, range.to),
         );
       } else {
         // Edit mode: keep source text visible; also render the image below.
@@ -1102,25 +1382,37 @@ function buildDecorations(
             widget: createWidget(buildImg, true, undefined, imgKey),
             block: true,
             side: 1,
-          }).range(range.to)
+          }).range(range.to),
         );
       }
     } else if (range.node.type === "link" && !config.renderers.link) {
       const inlineStyle = getInlineMarkerStyle("link", range.source);
       if (inlineStyle) {
         const { openLen, closeLen, style, attrs } = inlineStyle;
-        const cursorOnLink = selectionIntersects(range.from, range.to, selection, true);
+        const cursorOnLink = selectionIntersects(
+          range.from,
+          range.to,
+          selection,
+          true,
+        );
         // When the caret reaches the link source range (for example by
         // pressing ArrowLeft from the right edge), show the raw markdown so
         // users can edit `[text](url)`. Outside the caret range we keep the
         // compact link widget for preview / click navigation.
         if (cursorOnLink) continue;
-        const linkText = range.source.slice(openLen, range.source.length - closeLen);
+        const linkText = range.source.slice(
+          openLen,
+          range.source.length - closeLen,
+        );
         const span = document.createElement("span");
         span.textContent = linkText;
         span.style.cssText = style + ";transition:opacity .15s;";
-        span.addEventListener("mouseenter", () => { span.style.opacity = "0.7"; });
-        span.addEventListener("mouseleave", () => { span.style.opacity = "1"; });
+        span.addEventListener("mouseenter", () => {
+          span.style.opacity = "0.7";
+        });
+        span.addEventListener("mouseleave", () => {
+          span.style.opacity = "1";
+        });
         if (attrs) {
           for (const [k, v] of Object.entries(attrs)) span.setAttribute(k, v);
         }
@@ -1128,7 +1420,7 @@ function buildDecorations(
         decos.push(
           Decoration.replace({
             widget: createWidget(span, false, undefined, linkKey),
-          }).range(range.from, range.to)
+          }).range(range.from, range.to),
         );
       }
     } else if (range.node.type === "definition") {
@@ -1137,39 +1429,44 @@ function buildDecorations(
       // was the single biggest click-drift source. Heights must stay constant regardless
       // of cursor to keep CM6's measurement cache and click-position resolution stable.
       decos.push(
-        Decoration.mark({ attributes: { style: "color:var(--nexus-text-faint)" } })
-          .range(range.from, range.to)
+        Decoration.mark({
+          attributes: { style: "color:var(--nexus-text-faint)" },
+        }).range(range.from, range.to),
       );
     } else if (range.node.type === "footnoteReference") {
       const ref = range.node as FootnoteReference;
       const sup = document.createElement("sup");
       sup.textContent = ref.identifier;
-      sup.style.cssText = "color:var(--nexus-accent);cursor:pointer;font-size:0.8em;vertical-align:super;";
+      sup.style.cssText =
+        "color:var(--nexus-accent);cursor:pointer;font-size:0.8em;vertical-align:super;";
       const fnRefKey = `fnref:${range.from}-${range.to}:${ref.identifier}`;
       decos.push(
         Decoration.replace({
           widget: createWidget(sup, false, undefined, fnRefKey),
-        }).range(range.from, range.to)
+        }).range(range.from, range.to),
       );
     } else if (range.node.type === "footnoteDefinition") {
       const def = range.node as FootnoteDefinition;
       const defText = range.source.replace(/^\[\^\w+\]:\s*/, "");
       const el = document.createElement("div");
-      el.style.cssText = "font-size:0.85em;color:var(--nexus-text-muted);border-top:1px solid var(--nexus-border);padding-top:8px;";
+      el.style.cssText =
+        "font-size:0.85em;color:var(--nexus-text-muted);border-top:1px solid var(--nexus-border);padding-top:8px;";
       const marker = document.createElement("sup");
       marker.textContent = def.identifier;
       marker.style.cssText = "color:var(--nexus-accent);margin-right:4px;";
       el.appendChild(marker);
       el.appendChild(document.createTextNode(defText));
       // Use line decoration + widget for stable viewport height
-      decos.push(Decoration.line({
-        attributes: { style: "padding:0;margin:0;min-height:0;" }
-      }).range(range.from));
+      decos.push(
+        Decoration.line({
+          attributes: { style: "padding:0;margin:0;min-height:0;" },
+        }).range(range.from),
+      );
       const fnDefKey = `fndef:${range.from}-${range.to}:${def.identifier}:${range.source}`;
       decos.push(
         Decoration.replace({
           widget: createWidget(el, false, undefined, fnDefKey),
-        }).range(range.from, range.to)
+        }).range(range.from, range.to),
       );
     } else {
       if (range.node.type === "heading" || range.node.type === "table") {
@@ -1186,22 +1483,39 @@ function buildDecorations(
       // look broken when the user was editing the line.
       const inlineStyle = getInlineMarkerStyle(range.node.type, range.source);
       if (inlineStyle && !config.renderers[range.node.type]) {
+        if (range.node.type === "delete") {
+          deleteCoveredRanges.push([range.from, range.to]);
+        }
         const { openLen, closeLen, style, attrs } = inlineStyle;
-        const cursorOnLine = selectionOnSameLine(range.from, range.to, doc, selection);
+        const cursorOnLine = selectionOnSameLine(
+          range.from,
+          range.to,
+          doc,
+          selection,
+        );
         const textFrom = range.from + openLen;
         const textTo = range.to - closeLen;
 
         if (!cursorOnLine) {
           if (openLen > 0) {
-            decos.push(Decoration.replace({}).range(range.from, range.from + openLen));
+            decos.push(
+              Decoration.replace({}).range(range.from, range.from + openLen),
+            );
           }
           if (closeLen > 0) {
-            decos.push(Decoration.replace({}).range(range.to - closeLen, range.to));
+            decos.push(
+              Decoration.replace({}).range(range.to - closeLen, range.to),
+            );
           }
         }
 
         if (textTo > textFrom) {
-          decos.push(Decoration.mark({ attributes: { style, ...attrs } }).range(textFrom, textTo));
+          decos.push(
+            Decoration.mark({ attributes: { style, ...attrs } }).range(
+              textFrom,
+              textTo,
+            ),
+          );
         }
       } else {
         // Block fallback for thematicBreak: always render as widget.
@@ -1219,14 +1533,53 @@ function buildDecorations(
         decos.push(
           Decoration.replace({
             widget: createWidget(
-              () => renderLivePreviewNode(range.node, range.source, config.renderers, range.from, range.to),
+              () =>
+                renderLivePreviewNode(
+                  range.node,
+                  range.source,
+                  config.renderers,
+                  range.from,
+                  range.to,
+                ),
               isBlock,
               heightHint,
               blockKey,
             ),
-            block: isBlock
-          }).range(range.from, range.to)
+            block: isBlock,
+          }).range(range.from, range.to),
         );
+      }
+    }
+  }
+
+  {
+    const coveredSet = new Set<string>();
+    for (const [cf, ct] of deleteCoveredRanges) {
+      coveredSet.add(`${cf}:${ct}`);
+    }
+    const strikethroughRe = /~~([^~]+)~~/g;
+    let m: RegExpExecArray | null;
+    while ((m = strikethroughRe.exec(doc)) !== null) {
+      const matchFrom = m.index;
+      const matchTo = m.index + m[0].length;
+      const key = `${matchFrom}:${matchTo}`;
+      if (coveredSet.has(key)) continue;
+      const cursorOnLine = selectionOnSameLine(
+        matchFrom,
+        matchTo,
+        doc,
+        selection,
+      );
+      if (!cursorOnLine) {
+        decos.push(Decoration.replace({}).range(matchFrom, matchFrom + 2));
+      }
+      decos.push(
+        Decoration.mark({
+          attributes: { style: "text-decoration:line-through" },
+        }).range(matchFrom + 2, matchTo - 2),
+      );
+      if (!cursorOnLine) {
+        decos.push(Decoration.replace({}).range(matchTo - 2, matchTo));
       }
     }
   }
@@ -1243,7 +1596,8 @@ function buildDecorations(
     if (total > 5 || parseMs > 2) {
       // eslint-disable-next-line no-console
       console.log(
-        "%c[perf]", "color:#0aa;font-weight:bold",
+        "%c[perf]",
+        "color:#0aa;font-weight:bold",
         "buildDecorations",
         `total=${total.toFixed(1)}ms`,
         {
@@ -1263,7 +1617,7 @@ function buildDecorations(
 
 export function createLivePreviewExtension(
   config: boolean | LivePreviewConfig | undefined,
-  localeLabels?: LivePreviewLabels
+  localeLabels?: LivePreviewLabels,
 ): Extension[] {
   const normalized = normalizeConfig(config);
   if (!normalized.enabled) return [];
@@ -1278,19 +1632,30 @@ export function createLivePreviewExtension(
   // Cursor-only updates pass this through as ctx so we skip the Lezer→mdast
   // walk and the hljs run when the source hasn't changed. Edits replace the
   // cache via the docChanged branch below.
-  let lastBuilt: { doc: string; ast: Root; codeTokens: CodeHighlightToken[] } | null = null;
+  let lastBuilt: {
+    doc: string;
+    ast: Root;
+    codeTokens: CodeHighlightToken[];
+  } | null = null;
   let compositionActive = false;
+  const listMarkerRanges: [number, number][] = [];
   const rebuildForCompositionStart = StateEffect.define<null>();
   const rebuildAfterComposition = StateEffect.define<null>();
 
-  function build(state: EditorState, selection: readonly SelectionRange[], reuseCache: boolean) {
+  function build(
+    state: EditorState,
+    selection: readonly SelectionRange[],
+    reuseCache: boolean,
+  ) {
     const docStr = state.doc.toString();
-    const ctx: BuildContext = reuseCache && lastBuilt && lastBuilt.doc === docStr
-      ? { ast: lastBuilt.ast, codeTokens: lastBuilt.codeTokens }
-      : {};
+    const ctx: BuildContext =
+      reuseCache && lastBuilt && lastBuilt.doc === docStr
+        ? { ast: lastBuilt.ast, codeTokens: lastBuilt.codeTokens }
+        : {};
     const out = buildDecorations(state, selection, normalized, viewRef, {
       ...ctx,
       compositionActive,
+      listMarkerRanges,
     });
     lastBuilt = { doc: docStr, ast: out.ast, codeTokens: out.codeTokens };
     return out.decos;
@@ -1334,7 +1699,7 @@ export function createLivePreviewExtension(
     },
     provide(field) {
       return EditorView.decorations.from(field);
-    }
+    },
   });
 
   const viewCapture = ViewPlugin.fromClass(
@@ -1350,7 +1715,7 @@ export function createLivePreviewExtension(
       destroy(): void {
         if (viewRef.current === this.view) viewRef.current = null;
       }
-    }
+    },
   );
 
   const compositionHandler = EditorView.domEventHandlers({
@@ -1397,7 +1762,8 @@ export function createLivePreviewExtension(
         const headingRe = /^(#{1,6})\s+(.+)$/gm;
         let m: RegExpExecArray | null;
         while ((m = headingRe.exec(doc)) !== null) {
-          const headingSlug = m[2].trim()
+          const headingSlug = m[2]
+            .trim()
             .toLowerCase()
             .replace(/[^\p{L}\p{N}\s-]/gu, "")
             .trim()
@@ -1407,7 +1773,10 @@ export function createLivePreviewExtension(
           if (headingSlug === targetSlug) {
             view.dispatch({
               selection: { anchor: m.index },
-              effects: EditorView.scrollIntoView(m.index, { y: "start", yMargin: 20 })
+              effects: EditorView.scrollIntoView(m.index, {
+                y: "start",
+                yMargin: 20,
+              }),
             });
             view.focus();
             return true;
@@ -1419,8 +1788,65 @@ export function createLivePreviewExtension(
       // External links: open in new tab
       window.open(url, "_blank", "noopener");
       return true;
-    }
+    },
   });
 
-  return [field, viewCapture, compositionHandler, linkHandler, createLivePreviewDiagnostics()];
+  const listMarkerGuard = Prec.highest(
+    EditorView.domEventHandlers({
+      mousedown(event, view) {
+        const me = event as MouseEvent;
+        const pos = view.posAtCoords({ x: me.clientX, y: me.clientY });
+        if (pos == null) return false;
+        for (const [from, to] of listMarkerRanges) {
+          if (pos >= from && pos < to) {
+            event.preventDefault();
+            view.dispatch({
+              selection: { anchor: Math.min(to, view.state.doc.length) },
+            });
+            view.focus();
+            return true;
+          }
+        }
+        return false;
+      },
+      mouseup(_event, view) {
+        const sel = view.state.selection.main;
+        if (sel.empty) return false;
+        let newAnchor = sel.anchor;
+        let newHead = sel.head;
+        let changed = false;
+        for (const [from, to] of listMarkerRanges) {
+          if (newAnchor >= from && newAnchor < to) {
+            newAnchor = to;
+            changed = true;
+          }
+          if (newHead >= from && newHead < to) {
+            newHead = to;
+            changed = true;
+          }
+        }
+        if (changed && newAnchor !== newHead) {
+          requestAnimationFrame(() => {
+            const docLen = view.state.doc.length;
+            view.dispatch({
+              selection: {
+                anchor: Math.min(newAnchor, docLen),
+                head: Math.min(newHead, docLen),
+              },
+            });
+          });
+        }
+        return false;
+      },
+    }),
+  );
+
+  return [
+    field,
+    viewCapture,
+    compositionHandler,
+    listMarkerGuard,
+    linkHandler,
+    createLivePreviewDiagnostics(),
+  ];
 }

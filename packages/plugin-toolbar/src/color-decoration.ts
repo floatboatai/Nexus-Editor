@@ -18,8 +18,7 @@ import {
 } from "@codemirror/view";
 
 // Matches <span style="color:...">...</span> and <mark style="background:...">...</mark>
-const COLOR_RE =
-  /<span\s+style="color:\s*([^"]+)">([\s\S]*?)<\/span>/g;
+const COLOR_RE = /<span\s+style="color:\s*([^"]+)">([\s\S]*?)<\/span>/g;
 const HIGHLIGHT_RE =
   /<mark\s+style="background:\s*([^"]+)">([\s\S]*?)<\/mark>/g;
 
@@ -30,7 +29,9 @@ class HiddenTagWidget extends WidgetType {
     el.style.display = "none";
     return el;
   }
-  ignoreEvent(): boolean { return false; }
+  ignoreEvent(): boolean {
+    return false;
+  }
 }
 
 const hiddenWidget = Decoration.replace({ widget: new HiddenTagWidget() });
@@ -98,7 +99,8 @@ function buildDecorations(view: EditorView): DecorationSet {
   // Check if the cursor is inside any color range — if so, show raw text for that range
   const cursorPos = view.state.selection.main.head;
 
-  const decorations: Array<{ from: number; to: number; value: Decoration }> = [];
+  const decorations: Array<{ from: number; to: number; value: Decoration }> =
+    [];
 
   for (const r of ranges) {
     // If cursor is inside this range, skip decorations so user can edit the raw HTML
@@ -111,7 +113,11 @@ function buildDecorations(view: EditorView): DecorationSet {
     const markDeco =
       r.kind === "color"
         ? Decoration.mark({ attributes: { style: `color:${r.color}` } })
-        : Decoration.mark({ attributes: { style: `background:${r.color};border-radius:2px;padding:0 1px` } });
+        : Decoration.mark({
+            attributes: {
+              style: `background:${r.color};border-radius:2px;padding:0 1px`,
+            },
+          });
     decorations.push({ from: r.innerFrom, to: r.innerTo, value: markDeco });
 
     // Hide closing tag
@@ -119,7 +125,9 @@ function buildDecorations(view: EditorView): DecorationSet {
   }
 
   // Must be sorted by from position, then by startSide
-  decorations.sort((a, b) => a.from - b.from || a.value.startSide - b.value.startSide);
+  decorations.sort(
+    (a, b) => a.from - b.from || a.value.startSide - b.value.startSide,
+  );
   return Decoration.set(decorations.map((d) => d.value.range(d.from, d.to)));
 }
 

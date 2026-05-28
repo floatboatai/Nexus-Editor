@@ -4,10 +4,10 @@ import {
   toggleBold,
   toggleItalic,
   toggleStrikethrough,
+  toggleUnderline,
   toggleInlineCode,
   insertLink,
   toggleHeading,
-  toggleWrap,
 } from "./index";
 import {
   toggleBlockquote,
@@ -74,11 +74,15 @@ function pickOverlayMount(anchor: HTMLElement | Document): HTMLElement {
   const doc = anchor instanceof Document ? anchor : anchor.ownerDocument;
   const node = anchor instanceof Document ? null : anchor;
   const fullscreenEl = doc.fullscreenElement as HTMLElement | null;
-  if (fullscreenEl && (!node || fullscreenEl.contains(node))) return fullscreenEl;
+  if (fullscreenEl && (!node || fullscreenEl.contains(node)))
+    return fullscreenEl;
   return doc.body;
 }
 
-function positionToolbarTooltip(button: HTMLElement, tooltip: HTMLElement): void {
+function positionToolbarTooltip(
+  button: HTMLElement,
+  tooltip: HTMLElement,
+): void {
   const rect = button.getBoundingClientRect();
   tooltip.style.left = `${rect.left + rect.width / 2}px`;
   tooltip.style.top = `${rect.bottom + 8}px`;
@@ -92,7 +96,8 @@ function installToolbarTooltip(button: HTMLButtonElement): () => void {
   button.setAttribute("aria-describedby", tooltip.id);
 
   const show = () => {
-    const label = button.dataset.toolbarTooltip ?? button.getAttribute("aria-label") ?? "";
+    const label =
+      button.dataset.toolbarTooltip ?? button.getAttribute("aria-label") ?? "";
     if (!label.trim()) return;
     tooltip.textContent = label;
     tooltip.dataset.state = "open";
@@ -142,47 +147,127 @@ function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
     },
     {
       buttons: [
-        { id: "link", title: "Insert link", icon: iconLink, action: insertLink },
+        {
+          id: "link",
+          title: "Insert link",
+          icon: iconLink,
+          action: insertLink,
+        },
       ],
     },
     {
       buttons: [
-        { id: "h2", title: "Heading 2", icon: iconH2, action: (e) => toggleHeading(e, 2) },
-        { id: "h3", title: "Heading 3", icon: iconH3, action: (e) => toggleHeading(e, 3) },
-        { id: "heading-menu", title: "More headings", icon: iconHeadingMenu, action: () => {} },
+        {
+          id: "h2",
+          title: "Heading 2",
+          icon: iconH2,
+          action: (e) => toggleHeading(e, 2),
+        },
+        {
+          id: "h3",
+          title: "Heading 3",
+          icon: iconH3,
+          action: (e) => toggleHeading(e, 3),
+        },
+        {
+          id: "heading-menu",
+          title: "More headings",
+          icon: iconHeadingMenu,
+          action: () => {},
+        },
       ],
     },
     {
       buttons: [
         { id: "bold", title: "Bold", icon: iconBold, action: toggleBold },
-        { id: "italic", title: "Italic", icon: iconItalic, action: toggleItalic },
-        { id: "strikethrough", title: "Strikethrough", icon: iconStrikethrough, action: toggleStrikethrough },
-        { id: "underline", title: "Underline", icon: iconUnderline, action: (e) => toggleWrap(e, "<u>") },
-        { id: "inline-code", title: "Inline code", icon: iconInlineCode, action: toggleInlineCode },
+        {
+          id: "italic",
+          title: "Italic",
+          icon: iconItalic,
+          action: toggleItalic,
+        },
+        {
+          id: "strikethrough",
+          title: "Strikethrough",
+          icon: iconStrikethrough,
+          action: toggleStrikethrough,
+        },
+        {
+          id: "underline",
+          title: "Underline",
+          icon: iconUnderline,
+          action: toggleUnderline,
+        },
+        {
+          id: "inline-code",
+          title: "Inline code",
+          icon: iconInlineCode,
+          action: toggleInlineCode,
+        },
       ],
     },
     {
       buttons: [
-        { id: "blockquote", title: "Blockquote", icon: iconBlockquote, action: toggleBlockquote },
-        { id: "code-block", title: "Code block", icon: iconCodeBlock, action: insertCodeBlock },
+        {
+          id: "blockquote",
+          title: "Blockquote",
+          icon: iconBlockquote,
+          action: toggleBlockquote,
+        },
+        {
+          id: "code-block",
+          title: "Code block",
+          icon: iconCodeBlock,
+          action: insertCodeBlock,
+        },
       ],
     },
     {
       buttons: [
-        { id: "ordered-list", title: "Ordered list", icon: iconOrderedList, action: toggleOrderedList },
-        { id: "unordered-list", title: "Unordered list", icon: iconUnorderedList, action: toggleUnorderedList },
+        {
+          id: "ordered-list",
+          title: "Ordered list",
+          icon: iconOrderedList,
+          action: toggleOrderedList,
+        },
+        {
+          id: "unordered-list",
+          title: "Unordered list",
+          icon: iconUnorderedList,
+          action: toggleUnorderedList,
+        },
       ],
     },
     {
       buttons: [
-        { id: "text-color", title: "Text color", icon: iconTextColor, action: () => {} },
-        { id: "highlight", title: "Highlight", icon: iconHighlight, action: () => {} },
+        {
+          id: "text-color",
+          title: "Text color",
+          icon: iconTextColor,
+          action: () => {},
+        },
+        {
+          id: "highlight",
+          title: "Highlight",
+          icon: iconHighlight,
+          action: () => {},
+        },
       ],
     },
     {
       buttons: [
-        { id: "image", title: "Insert image", icon: iconImage, action: insertImage },
-        { id: "fullscreen", title: "Fullscreen", icon: iconFullscreen, action: () => options?.onFullscreen?.() },
+        {
+          id: "image",
+          title: "Insert image",
+          icon: iconImage,
+          action: insertImage,
+        },
+        {
+          id: "fullscreen",
+          title: "Fullscreen",
+          icon: iconFullscreen,
+          action: () => options?.onFullscreen?.(),
+        },
       ],
     },
   ];
@@ -303,7 +388,9 @@ function showHeadingDropdown(
         const m = line.match(/^#{1,6}\s/);
         if (m) {
           const newLine = line.slice(m[0].length);
-          editor.setDocument(doc.slice(0, lineStart) + newLine + doc.slice(lineEnd));
+          editor.setDocument(
+            doc.slice(0, lineStart) + newLine + doc.slice(lineEnd),
+          );
           editor.setSelection(lineStart + newLine.length);
         }
       }
@@ -311,8 +398,12 @@ function showHeadingDropdown(
       onClose();
     };
 
-    const handleEnter = () => { item.style.background = "var(--nexus-bg-muted, #f0f0f0)"; };
-    const handleLeave = () => { item.style.background = "transparent"; };
+    const handleEnter = () => {
+      item.style.background = "var(--nexus-bg-muted, #f0f0f0)";
+    };
+    const handleLeave = () => {
+      item.style.background = "transparent";
+    };
 
     item.addEventListener("click", handleClick);
     item.addEventListener("mouseenter", handleEnter);
@@ -339,20 +430,72 @@ function showHeadingDropdown(
 
 const COLOR_PALETTE = [
   // row 1: grays + black/white
-  "#000000", "#434343", "#666666", "#999999", "#b7b7b7", "#cccccc", "#d9d9d9", "#efefef", "#f3f3f3", "#ffffff",
+  "#000000",
+  "#434343",
+  "#666666",
+  "#999999",
+  "#b7b7b7",
+  "#cccccc",
+  "#d9d9d9",
+  "#efefef",
+  "#f3f3f3",
+  "#ffffff",
   // row 2: saturated
-  "#ff0000", "#ff9900", "#ffff00", "#00ff00", "#00ffff", "#0000ff", "#9900ff", "#ff00ff", "#f4cccc", "#fce5cd",
+  "#ff0000",
+  "#ff9900",
+  "#ffff00",
+  "#00ff00",
+  "#00ffff",
+  "#0000ff",
+  "#9900ff",
+  "#ff00ff",
+  "#f4cccc",
+  "#fce5cd",
   // row 3: muted
-  "#ea4335", "#ff6d01", "#fbbc04", "#34a853", "#46bdc6", "#4285f4", "#a142f4", "#ff6d9b", "#e06666", "#f6b26b",
+  "#ea4335",
+  "#ff6d01",
+  "#fbbc04",
+  "#34a853",
+  "#46bdc6",
+  "#4285f4",
+  "#a142f4",
+  "#ff6d9b",
+  "#e06666",
+  "#f6b26b",
   // row 4: dark
-  "#cc0000", "#e69138", "#f1c232", "#6aa84f", "#45818e", "#3c78d8", "#674ea7", "#a64d79", "#990000", "#783f04",
+  "#cc0000",
+  "#e69138",
+  "#f1c232",
+  "#6aa84f",
+  "#45818e",
+  "#3c78d8",
+  "#674ea7",
+  "#a64d79",
+  "#990000",
+  "#783f04",
 ];
 
 const HIGHLIGHT_PALETTE = [
-  "#ffff00", "#00ff00", "#00ffff", "#ff9900", "#ff00ff",
-  "#fce5cd", "#d9ead3", "#d0e0e3", "#cfe2f3", "#d9d2e9",
-  "#fff2cc", "#b6d7a8", "#a2c4c9", "#9fc5e8", "#b4a7d6",
-  "#f4cccc", "#ea9999", "#e6b8af", "#dd7e6b", "#cc4125",
+  "#ffff00",
+  "#00ff00",
+  "#00ffff",
+  "#ff9900",
+  "#ff00ff",
+  "#fce5cd",
+  "#d9ead3",
+  "#d0e0e3",
+  "#cfe2f3",
+  "#d9d2e9",
+  "#fff2cc",
+  "#b6d7a8",
+  "#a2c4c9",
+  "#9fc5e8",
+  "#b4a7d6",
+  "#f4cccc",
+  "#ea9999",
+  "#e6b8af",
+  "#dd7e6b",
+  "#cc4125",
 ];
 
 const COLOR_GRID_STYLES = `
@@ -443,7 +586,10 @@ function showColorPicker(
 /** IDs that trigger dropdown behavior instead of a direct action. */
 const DROPDOWN_IDS = new Set(["heading-menu", "text-color", "highlight"]);
 
-export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): ToolbarUI {
+export function createToolbarUI(
+  editor: EditorAPI,
+  options?: ToolbarUIOptions,
+): ToolbarUI {
   const groups = options?.groups ?? defaultGroups(options);
   const toolbar = document.createElement("div");
   toolbar.className = "nexus-toolbar";
@@ -502,24 +648,45 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
           e.preventDefault();
           e.stopPropagation();
 
-          if (activeDropdown) { closeDropdown(); return; }
+          if (activeDropdown) {
+            closeDropdown();
+            return;
+          }
 
           if (btn.id === "heading-menu") {
             activeDropdown = showHeadingDropdown(editor, button, closeDropdown);
           } else if (btn.id === "text-color") {
-            activeDropdown = showColorPicker(editor, button, COLOR_PALETTE, applyTextColor, closeDropdown);
+            activeDropdown = showColorPicker(
+              editor,
+              button,
+              COLOR_PALETTE,
+              applyTextColor,
+              closeDropdown,
+            );
           } else if (btn.id === "highlight") {
-            activeDropdown = showColorPicker(editor, button, HIGHLIGHT_PALETTE, applyHighlight, closeDropdown);
+            activeDropdown = showColorPicker(
+              editor,
+              button,
+              HIGHLIGHT_PALETTE,
+              applyHighlight,
+              closeDropdown,
+            );
           }
 
           outsideHandler = (ev: MouseEvent) => {
-            const dropdownEl = document.querySelector(".nexus-toolbar-dropdown");
-            if (!button.contains(ev.target as Node) && (!dropdownEl || !dropdownEl.contains(ev.target as Node))) {
+            const dropdownEl = document.querySelector(
+              ".nexus-toolbar-dropdown",
+            );
+            if (
+              !button.contains(ev.target as Node) &&
+              (!dropdownEl || !dropdownEl.contains(ev.target as Node))
+            ) {
               closeDropdown();
             }
           };
           requestAnimationFrame(() => {
-            if (outsideHandler) document.addEventListener("mousedown", outsideHandler, true);
+            if (outsideHandler)
+              document.addEventListener("mousedown", outsideHandler, true);
           });
         };
 
