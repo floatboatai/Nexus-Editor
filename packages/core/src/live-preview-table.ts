@@ -1,4 +1,4 @@
-import { EditorView, WidgetType } from "@codemirror/view";
+import { EditorView, WidgetType, runScopeHandlers } from "@codemirror/view";
 import type { Table } from "mdast";
 
 import type { LivePreviewLabels } from "./types";
@@ -10,6 +10,97 @@ export function isTableEditing(): boolean {
 }
 
 const SEPARATOR_RE = /^\|?\s*[-:]+\s*(\|\s*[-:]+\s*)*\|?\s*$/;
+
+// Session-scoped store of user-customised column widths. Keyed by the
+// table's header line (e.g. `| 头像 | 用户名 | 主页 |`) so widths survive
+// the widget being rebuilt across edits as long as the header doesn't
+// change. Not persisted across reloads — markdown tables don't have a
+// place to store column widths and we don't want to write sidecar files
+// for this. Values: [rowGripWidth, ...dataColumnWidths].
+const tableColumnWidths = new Map<string, number[]>();
+
+const ROW_GRIP_WIDTH = 16;
+const MIN_COLUMN_WIDTH = 48;
+const renderedSourceOffsets = new WeakMap<Node, { start: number; end: number }>();
+
+function getNodeSourceOffsets(node: any, tableFrom: number, rawSourceStart: number, inlineCode = false): { start: number; end: number } | null {
+  const startOffset = node?.position?.start?.offset;
+  const endOffset = node?.position?.end?.offset;
+  if (typeof startOffset !== "number" || typeof endOffset !== "number") return null;
+  const markerOffset = inlineCode ? 1 : 0;
+  return {
+    start: startOffset - tableFrom - rawSourceStart + markerOffset,
+    end: endOffset - tableFrom - rawSourceStart - markerOffset,
+  };
+}
+
+function findFirstMappedSourceOffset(node: Node): number | null {
+  const own = renderedSourceOffsets.get(node);
+  if (own) return own.start;
+  for (const child of Array.from(node.childNodes)) {
+    const mapped = findFirstMappedSourceOffset(child);
+    if (mapped !== null) return mapped;
+  }
+  return null;
+}
+
+function findLastMappedSourceOffset(node: Node): number | null {
+  const own = renderedSourceOffsets.get(node);
+  if (own) return own.end;
+  const children = Array.from(node.childNodes);
+  for (let i = children.length - 1; i >= 0; i--) {
+    const mapped = findLastMappedSourceOffset(children[i]);
+    if (mapped !== null) return mapped;
+  }
+  return null;
+}
+
+function rawSourceOffsetFromCaret(container: Node, offset: number): number | null {
+  const own = renderedSourceOffsets.get(container);
+  if (own) return Math.max(own.start, Math.min(own.start + offset, own.end));
+  const children = Array.from(container.childNodes);
+  if (offset > 0) {
+    const previous = children[offset - 1];
+    if (previous) {
+      const mapped = findLastMappedSourceOffset(previous);
+      if (mapped !== null) return mapped;
+    }
+  }
+  const next = children[offset];
+  if (next) {
+    const mapped = findFirstMappedSourceOffset(next);
+    if (mapped !== null) return mapped;
+  }
+  return null;
+}
+
+function rawSourceOffsetFromPoint(td: HTMLElement, event: MouseEvent): number | null {
+  const doc = td.ownerDocument as Document & {
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+  };
+  const position = doc.caretPositionFromPoint?.(event.clientX, event.clientY);
+  if (position && td.contains(position.offsetNode)) {
+    return rawSourceOffsetFromCaret(position.offsetNode, position.offset);
+  }
+  const range = doc.caretRangeFromPoint?.(event.clientX, event.clientY);
+  if (range && td.contains(range.startContainer)) {
+    return rawSourceOffsetFromCaret(range.startContainer, range.startOffset);
+  }
+  return null;
+}
+
+function placeRawSourceCaret(td: HTMLElement, rawOffset: number): void {
+  const text = td.firstChild;
+  if (!text || text.nodeType !== Node.TEXT_NODE) return;
+  const offset = Math.max(0, Math.min(rawOffset, text.textContent?.length ?? 0));
+  const range = td.ownerDocument.createRange();
+  range.setStart(text, offset);
+  range.collapse(true);
+  const selection = td.ownerDocument.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}
 
 function extractCellText(cell: any): string {
   if (!cell || !("children" in cell) || !Array.isArray(cell.children)) return "";
@@ -23,6 +114,156 @@ function extractCellText(cell: any): string {
     .join("");
 }
 
+/**
+ * Render an inline mdast node into DOM. Supports the inline subset that
+ * appears inside table cells: text, link, strong, emphasis, delete,
+ * inlineCode. Anything else falls back to its text representation so the
+ * user still sees content (just unstyled).
+ */
+/**
+ * A cell is "media-only" when its visible content is a single image
+ * (optionally wrapped in a link). Whitespace-only text siblings are
+ * ignored. Media-only cells render the image scaled to the cell width
+ * so the user can grow / shrink the image by resizing the column.
+ */
+function isCellMediaOnly(astCell: any): boolean {
+  if (!astCell || !Array.isArray(astCell.children)) return false;
+  const meaningful = astCell.children.filter((c: any) => {
+    if (!c) return false;
+    if (c.type === "text") return typeof c.value === "string" && c.value.trim() !== "";
+    return true;
+  });
+  if (meaningful.length !== 1) return false;
+  const only = meaningful[0];
+  if (only.type === "image") return true;
+  if (only.type === "link" && Array.isArray(only.children)) {
+    const linkInner = only.children.filter((c: any) => {
+      if (!c) return false;
+      if (c.type === "text") return typeof c.value === "string" && c.value.trim() !== "";
+      return true;
+    });
+    return linkInner.length === 1 && linkInner[0].type === "image";
+  }
+  return false;
+}
+
+function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourceStart = 0): Node {
+  if (!node) return document.createTextNode("");
+  switch (node.type) {
+    case "text": {
+      const text = document.createTextNode(typeof node.value === "string" ? node.value : "");
+      const sourceOffsets = getNodeSourceOffsets(node, tableFrom, rawSourceStart);
+      if (sourceOffsets) renderedSourceOffsets.set(text, sourceOffsets);
+      return text;
+    }
+    case "link": {
+      const a = document.createElement("a");
+      a.href = typeof node.url === "string" ? node.url : "#";
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.style.cssText =
+        "color:var(--nexus-accent);text-decoration:underline;cursor:pointer;";
+      // Stop CM6's editor-level mousedown handler from reading this as a
+      // cursor-placement click — we want the browser's native link click
+      // to win so the user can ⌘-click open in a new tab.
+      a.addEventListener("mousedown", (e) => e.stopPropagation());
+      if (mediaOnly) {
+        // Let the wrapped <img> grow with the cell without the anchor
+        // adding extra inline-baseline whitespace around it.
+        a.style.display = "block";
+        a.style.lineHeight = "0";
+      }
+      for (const child of node.children ?? []) a.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart));
+      return a;
+    }
+    case "strong": {
+      const el = document.createElement("strong");
+      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+      return el;
+    }
+    case "emphasis": {
+      const el = document.createElement("em");
+      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+      return el;
+    }
+    case "delete": {
+      const el = document.createElement("del");
+      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+      return el;
+    }
+    case "inlineCode": {
+      const el = document.createElement("code");
+      const text = document.createTextNode(typeof node.value === "string" ? node.value : "");
+      const sourceOffsets = getNodeSourceOffsets(node, tableFrom, rawSourceStart, true);
+      if (sourceOffsets) renderedSourceOffsets.set(text, sourceOffsets);
+      el.appendChild(text);
+      el.style.cssText =
+        "background:var(--nexus-bg-muted);padding:1px 4px;border-radius:3px;font-family:monospace;";
+      return el;
+    }
+    case "image": {
+      const img = document.createElement("img");
+      img.src = typeof node.url === "string" ? node.url : "";
+      if (typeof node.alt === "string") img.alt = node.alt;
+      if (typeof node.title === "string") img.title = node.title;
+      // Two sizing modes:
+      //   - Inline image (text + image in same cell): cap to ~1 line of
+      //     text so the image doesn't bloat the row height.
+      //   - Media-only cell: grow with cell width so resizing the column
+      //     resizes the image. max-height keeps a sane upper bound to
+      //     stop huge images from forcing a 1000-px-tall row.
+      const styles = mediaOnly
+        ? [
+            "display:block",
+            "width:100%",
+            "max-width:100%",
+            "height:auto",
+            "max-height:240px",
+            "min-height:32px",
+            "border-radius:3px",
+            "background:var(--nexus-bg-muted)",
+            "border:1px solid var(--nexus-border-subtle)",
+            "object-fit:contain",
+          ]
+        : [
+            "max-height:1.6em",
+            "min-height:1.6em",
+            "min-width:1.6em",
+            "max-width:160px",
+            "vertical-align:middle",
+            "border-radius:3px",
+            "background:var(--nexus-bg-muted)",
+            "border:1px solid var(--nexus-border-subtle)",
+            "object-fit:contain",
+          ];
+      img.style.cssText = styles.join(";") + ";";
+      // Stop CM6's cell mousedown handler from intercepting clicks on the
+      // image (otherwise ⌘-clicking the image to open the link wouldn't
+      // work, and a plain click would unexpectedly enter cell-edit mode).
+      img.addEventListener("mousedown", (e) => e.stopPropagation());
+      return img;
+    }
+    default: {
+      if (Array.isArray(node.children)) {
+        const frag = document.createDocumentFragment();
+        for (const child of node.children) frag.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+        return frag;
+      }
+      const text = document.createTextNode(typeof node.value === "string" ? node.value : "");
+      const sourceOffsets = getNodeSourceOffsets(node, tableFrom, rawSourceStart);
+      if (sourceOffsets) renderedSourceOffsets.set(text, sourceOffsets);
+      return text;
+    }
+  }
+}
+
+function renderCellRich(td: HTMLElement, astCell: any, tableFrom = 0, rawSourceStart = 0): void {
+  td.textContent = "";
+  if (!astCell || !Array.isArray(astCell.children)) return;
+  const mediaOnly = isCellMediaOnly(astCell);
+  for (const child of astCell.children) td.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart));
+}
+
 const GRIP_BG = "var(--nexus-bg-muted)";
 const GRIP_BG_HOVER = "var(--nexus-border)";
 const SELECT_BG = "rgba(124, 108, 250, 0.12)";
@@ -31,6 +272,7 @@ const DRAG_HIGHLIGHT_BG = "rgba(124, 108, 250, 0.08)";
 
 export class EditableTableWidget extends WidgetType {
   private editing = false;
+  private cleanupEditingLocks: (() => void) | null = null;
 
   constructor(
     private node: Table,
@@ -46,6 +288,11 @@ export class EditableTableWidget extends WidgetType {
   }
 
   ignoreEvent(): boolean { return true; }
+
+  destroy(): void {
+    this.cleanupEditingLocks?.();
+    this.cleanupEditingLocks = null;
+  }
 
   get estimatedHeight(): number {
     const rows = this.node.children?.length ?? 1;
@@ -120,7 +367,16 @@ export class EditableTableWidget extends WidgetType {
   toDOM(): HTMLElement {
     const self = this;
     const rows = this.node.children ?? [];
-    const colCount = ("children" in rows[0] && Array.isArray(rows[0].children)) ? rows[0].children.length : 0;
+    // Normalise irregular markdown tables: if some rows have more cells than
+    // the header (extra cells overflowing) or fewer (missing trailing cells),
+    // pick the MAX cell count seen so the rendered grid is rectangular.
+    // Short rows are padded with empty cells in the cell loop below; long
+    // rows reserve the extra slots in the header / grip row here.
+    let colCount = 0;
+    for (const row of rows) {
+      const len = "children" in row && Array.isArray(row.children) ? row.children.length : 0;
+      if (len > colCount) colCount = len;
+    }
     const sourceLines = this.source.split("\n");
     const dataLineIndices: number[] = [];
     for (let i = 0; i < sourceLines.length; i++) if (!SEPARATOR_RE.test(sourceLines[i])) dataLineIndices.push(i);
@@ -165,6 +421,12 @@ export class EditableTableWidget extends WidgetType {
       self.editing = hasEditingLocks();
     }
 
+    this.cleanupEditingLocks = () => {
+      releaseEditingLock("focus");
+      releaseEditingLock("range");
+      releaseEditingLock("drag");
+    };
+
     function blurActiveCellForDrag(): void {
       const active = document.activeElement;
       if (!(active instanceof HTMLElement) || !wrapper.contains(active) || !active.classList.contains("nexus-cell")) return;
@@ -187,6 +449,94 @@ export class EditableTableWidget extends WidgetType {
     table.setAttribute("aria-label", "Editable table");
     table.style.cssText = "border-collapse:collapse;display:table;";
     if (rows.length === 0) { wrapper.appendChild(table); return wrapper; }
+
+    // ── Column-width persistence ──
+    // Keyed by the table's header source line so widths stick across
+    // widget rebuilds caused by editing other cells.
+    const widthKey = sourceLines[dataLineIndices[0] ?? 0] ?? "";
+
+    /**
+     * Apply (or refresh) an explicit `<colgroup>` + `table-layout: fixed`
+     * with the given widths. `widths` is one entry per column in the
+     * rendered table — including the row-grip column at index 0.
+     */
+    const applyColumnWidths = (widths: number[]): void => {
+      let colgroup = table.querySelector(":scope > colgroup") as HTMLTableColElement | null;
+      if (!colgroup) {
+        colgroup = document.createElement("colgroup") as HTMLTableColElement;
+        for (let i = 0; i < widths.length; i++) {
+          const col = document.createElement("col");
+          col.style.width = widths[i] + "px";
+          colgroup.appendChild(col);
+        }
+        table.insertBefore(colgroup, table.firstChild);
+      } else {
+        const cols = Array.from(colgroup.children);
+        for (let i = 0; i < widths.length && i < cols.length; i++) {
+          (cols[i] as HTMLElement).style.width = widths[i] + "px";
+        }
+      }
+      const total = widths.reduce((s, w) => s + w, 0);
+      table.style.tableLayout = "fixed";
+      table.style.width = total + "px";
+    };
+
+    /**
+     * Read the current rendered column widths from the DOM. Used as the
+     * baseline when the user starts dragging a resize handle. Falls back
+     * to a sane minimum when a cell hasn't laid out yet.
+     */
+    const measureColumnWidths = (): number[] => {
+      const widths: number[] = [];
+      // table.rows = [gripRow, headerRow, ...dataRows] — measure off the
+      // header row because it has the same cell-count as data rows and is
+      // never the all-empty fallback.
+      const headerRow = table.rows[1];
+      if (!headerRow) return widths;
+      for (let i = 0; i < headerRow.cells.length; i++) {
+        const w = (headerRow.cells[i] as HTMLElement).getBoundingClientRect().width;
+        widths.push(Math.max(i === 0 ? ROW_GRIP_WIDTH : MIN_COLUMN_WIDTH, Math.round(w)));
+      }
+      return widths;
+    };
+
+    /**
+     * Start a column-resize drag for the data column at `dataColIdx`
+     * (0-based among data columns — the row-grip is column 0 in the DOM
+     * but never resizable, so the dragged column lives at colgroup
+     * index `dataColIdx + 1`).
+     */
+    const startColumnResize = (dataColIdx: number, startX: number): void => {
+      acquireEditingLock("drag");
+      const baseWidths = (() => {
+        const saved = tableColumnWidths.get(widthKey);
+        if (saved && saved.length === colCount + 1) return saved.slice();
+        return measureColumnWidths();
+      })();
+      applyColumnWidths(baseWidths);
+      const initial = baseWidths[dataColIdx + 1];
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+
+      const onMove = (ev: MouseEvent): void => {
+        const delta = ev.clientX - startX;
+        const next = Math.max(MIN_COLUMN_WIDTH, initial + delta);
+        const updated = baseWidths.slice();
+        updated[dataColIdx + 1] = next;
+        applyColumnWidths(updated);
+        baseWidths[dataColIdx + 1] = next;
+      };
+      const onUp = (): void => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        tableColumnWidths.set(widthKey, baseWidths.slice());
+        releaseEditingLock("drag");
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    };
 
     // ── Selection overlay — highlights entire table when CM6 selection covers it ──
     const selectionOverlay = document.createElement("div");
@@ -660,24 +1010,126 @@ export class EditableTableWidget extends WidgetType {
 
       tr.appendChild(rowGrip);
 
-      // Content cells
-      for (let colIdx = 0; colIdx < astCells.length; colIdx++) {
+      // Content cells — iterate up to the normalised `colCount` so every row
+      // gets the same number of <td>/<th> elements. Missing trailing cells in
+      // the markdown source are rendered as empty editable cells (typing into
+      // one writes back through the same source-line dispatch as the regular
+      // cells, so the user just lengthens the row in the source).
+      for (let colIdx = 0; colIdx < colCount; colIdx++) {
+        const astCell = colIdx < astCells.length ? astCells[colIdx] : undefined;
         const td = document.createElement(isHeader ? "th" : "td");
         td.className = "nexus-cell";
-        td.textContent = extractCellText(astCells[colIdx]);
+        // Stash the raw markdown source for this cell so we can (a) render
+        // it as rich DOM by default — links, bold, code, etc. — and (b)
+        // swap back to the raw text when the cell is focused for editing.
+        // Without this, `extractCellText` flattens `[X](url)` to `X` and the
+        // source-line dispatch in the input handler would clobber the link.
+        let rawSource = "";
+        let rawSourceStart = 0;
+        const startOffset = astCell?.position?.start?.offset;
+        const endOffset = astCell?.position?.end?.offset;
+        if (typeof startOffset === "number" && typeof endOffset === "number") {
+          const sliceStart = startOffset - self.tableFrom;
+          const sliceEnd = endOffset - self.tableFrom;
+          if (sliceStart >= 0 && sliceEnd >= sliceStart && sliceEnd <= self.source.length) {
+            const rawSlice = self.source.slice(sliceStart, sliceEnd);
+            const leadingWhitespace = rawSlice.match(/^\s*/)?.[0].length ?? 0;
+            rawSource = rawSlice.trim();
+            rawSourceStart = sliceStart + leadingWhitespace;
+          }
+        }
+        td.dataset.source = rawSource;
+        if (astCell && Array.isArray(astCell.children) && astCell.children.length > 0) {
+          renderCellRich(td, astCell, self.tableFrom, rawSourceStart);
+        } else {
+          td.textContent = rawSource;
+        }
         td.style.cssText =
-          "border-bottom:1px solid var(--nexus-border);border-right:1px solid var(--nexus-border);padding:8px 12px;" +
+          "position:relative;border-bottom:1px solid var(--nexus-border);border-right:1px solid var(--nexus-border);padding:8px 12px;" +
           "text-align:left;outline:none;min-width:60px;vertical-align:top;cursor:text;";
-        if (isHeader) { td.style.fontWeight = "bold"; td.style.background = "var(--nexus-bg-subtle)"; td.style.borderTop = "1px solid var(--nexus-border)"; }
+        if (isHeader) {
+          td.style.fontWeight = "bold";
+          td.style.background = "var(--nexus-bg-subtle)";
+          td.style.borderTop = "1px solid var(--nexus-border)";
+          // Column-resize handle on the right edge of each header cell.
+          // Sits half-on, half-off the border so the col-resize cursor is
+          // discoverable on hover without obscuring cell text. Captures
+          // its own mousedown (stopPropagation) so the cell's range-
+          // selection handler doesn't fire when the user grabs the
+          // handle.
+          const resizeHandle = document.createElement("div");
+          resizeHandle.className = "nexus-col-resize";
+          resizeHandle.style.cssText = [
+            "position:absolute",
+            "top:0",
+            "right:-3px",
+            "width:7px",
+            "height:100%",
+            "cursor:col-resize",
+            "z-index:3",
+            "user-select:none",
+          ].join(";") + ";";
+          const handleColIdx = colIdx;
+          resizeHandle.addEventListener("mousedown", (e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+            startColumnResize(handleColIdx, e.clientX);
+          });
+          // Tiny background flash on hover so the user can see where the
+          // handle lives without us drawing a permanent divider line.
+          resizeHandle.addEventListener("mouseenter", () => {
+            resizeHandle.style.background = "var(--nexus-border)";
+          });
+          resizeHandle.addEventListener("mouseleave", () => {
+            resizeHandle.style.background = "";
+          });
+          td.appendChild(resizeHandle);
+        }
 
         // Cell interaction: single click = edit, drag = range select
         const cellRow = curRowIdx;
         const cellCol = colIdx;
         let cellMouseMoved = false;
 
+        const enterRawEditingMode = (): void => {
+          // Pin THIS cell to its currently rendered width before swapping
+          // to raw markdown. The column width in table-layout:auto is
+          // `max(cellWidth_i)` over all cells in the column — so if one
+          // cell tries to widen, the whole column expands and every
+          // other cell in it visibly shifts. Capping the focused cell at
+          // its existing width prevents it from being the new max →
+          // column stays put → no sideways jump as the user clicks
+          // between rows.
+          const renderedWidth = td.getBoundingClientRect().width;
+          if (renderedWidth > 0) {
+            td.style.maxWidth = renderedWidth + "px";
+            td.style.width = renderedWidth + "px";
+          }
+          // Inside the capped cell, let long URLs wrap (the rendered
+          // text was usually shorter than the raw markdown).
+          td.style.wordBreak = "break-all";
+          td.style.whiteSpace = "pre-wrap";
+          // Swap rendered rich DOM for the raw markdown source so the user
+          // edits the actual `[text](url)` text instead of just "text".
+          td.textContent = td.dataset.source ?? "";
+        };
+
+        const activateCellEditing = (): void => {
+          if (td.contentEditable !== "true") {
+            td.contentEditable = "true";
+          }
+          if (td.ownerDocument.activeElement !== td) {
+            td.focus({ preventScroll: true });
+          }
+          enterRawEditingMode();
+        };
+
         td.addEventListener("mousedown", (e) => {
           if (e.button !== 0) return; // only left button
+          e.preventDefault();
           e.stopPropagation();
+          const rawCaretOffset = rawSourceOffsetFromPoint(td, e);
           cellMouseMoved = false;
           clearSelection();
 
@@ -686,7 +1138,6 @@ export class EditableTableWidget extends WidgetType {
           cellMouseDown = true;
           rangeStart = { row: cellRow, col: cellCol };
           rangeEnd = { row: cellRow, col: cellCol };
-
           const onCellMouseMove = (me: MouseEvent): void => {
             const target = cellAtPoint(me.clientX, me.clientY);
             if (target && (target.row !== rangeStart!.row || target.col !== rangeStart!.col)) {
@@ -706,8 +1157,15 @@ export class EditableTableWidget extends WidgetType {
             if (!cellMouseMoved || (range && range.r1 === range.r2 && range.c1 === range.c2)) {
               // Single cell click — activate editing
               clearRangeSelection();
-              td.contentEditable = "true";
-              requestAnimationFrame(() => td.focus({ preventScroll: true }));
+              activateCellEditing();
+              if (rawCaretOffset !== null) {
+                placeRawSourceCaret(td, rawCaretOffset);
+                window.setTimeout(() => {
+                  if (td.contentEditable === "true") {
+                    placeRawSourceCaret(td, rawCaretOffset);
+                  }
+                }, 0);
+              }
             } else {
               // Multi-cell range selected — keep range visible, focus wrapper for key events
               rangeActive = true;
@@ -720,17 +1178,72 @@ export class EditableTableWidget extends WidgetType {
           document.addEventListener("mouseup", onCellMouseUp);
         });
 
-        td.addEventListener("focus", () => { acquireEditingLock("focus"); clearRangeSelection(); });
+        td.addEventListener("focus", () => {
+          acquireEditingLock("focus");
+          clearRangeSelection();
+          enterRawEditingMode();
+        });
         td.addEventListener("blur", () => {
           releaseEditingLock("focus");
           td.contentEditable = "false";
+          // Restore default text-flow + width rules — we set them on
+          // focus to keep the column from jumping. Rich-rendered content
+          // reads better with default whitespace handling and lets the
+          // column re-flow naturally now that no cell is in raw-source
+          // mode.
+          td.style.wordBreak = "";
+          td.style.whiteSpace = "";
+          td.style.maxWidth = "";
+          td.style.width = "";
+
+          // Restore rich render immediately so the user sees the rendered
+          // DOM (links / bold / inline images) without waiting for a
+          // follow-up CM6 transaction. This matters for two reasons:
+          //
+          // 1. The EditableTableWidget's eq() returns true when `source`
+          //    matches — i.e. when the user clicked-and-blurred without
+          //    editing — so CM6 REUSES the existing DOM and never calls
+          //    toDOM() again to rebuild the rich cell content.
+          // 2. Even when the user edited (source changed), CM6 needs a
+          //    follow-up tr.selection / tr.docChanged after blur to fire
+          //    the StateField rebuild. If the next click lands inside
+          //    another swallowing widget, no transaction fires, and the
+          //    cell stays in raw-source mode.
+          if (astCell && Array.isArray(astCell.children) && astCell.children.length > 0) {
+            renderCellRich(td, astCell, self.tableFrom, rawSourceStart);
+          } else {
+            td.textContent = td.dataset.source ?? "";
+          }
+
+          // For the edited-then-blurred case, queue a no-op selection
+          // dispatch so the live-preview StateField rebuilds the widget
+          // with the up-to-date AST. `queueMicrotask` lets the blur
+          // settle before we re-enter CM6.
+          queueMicrotask(() => {
+            const v = self.viewRef.current;
+            if (!v) return;
+            const sel = v.state.selection.main;
+            try {
+              v.dispatch({ selection: { anchor: sel.anchor, head: sel.head } });
+            } catch {
+              // ignore — view may have been destroyed during the microtask.
+            }
+          });
         });
 
         td.addEventListener("input", () => {
           const v = self.viewRef.current;
           if (!v || sourceLineIdx === undefined) return;
+          // The currently edited cell holds the user's in-progress text; sync
+          // its dataset.source so we read a coherent set of values below.
+          td.dataset.source = td.textContent ?? "";
           const vals: string[] = [];
-          tr.querySelectorAll(".nexus-cell").forEach((el) => vals.push(el.textContent ?? ""));
+          tr.querySelectorAll<HTMLElement>(".nexus-cell").forEach((el) => {
+            // Use dataset.source as the authoritative source for every cell.
+            // Untouched cells still display rich DOM (links, bold) — reading
+            // their textContent would strip URLs and lose inline markdown.
+            vals.push(el.dataset.source ?? el.textContent ?? "");
+          });
           const newLine = "| " + vals.join(" | ") + " |";
           let off = self.tableFrom;
           for (let i = 0; i < sourceLineIdx; i++) off += sourceLines[i].length + 1;
@@ -746,6 +1259,26 @@ export class EditableTableWidget extends WidgetType {
             const idx = Array.from(all).indexOf(td);
             const next = e.shiftKey ? idx - 1 : idx + 1;
             if (next >= 0 && next < all.length) (all[next] as HTMLElement).focus({ preventScroll: true });
+            return;
+          }
+
+          // Forward editor-level shortcuts to CM6's keymap. The cell is
+          // contentEditable + the widget has `ignoreEvent: true`, so
+          // without this CM6 never sees the event and shortcuts like
+          // Mod-F (open search) silently fail inside table cells.
+          //
+          // Allow standard text-editing shortcuts (copy / paste / cut /
+          // select-all / undo / redo) to fall through to the browser's
+          // native contentEditable handling — they target the cell text,
+          // not the whole document.
+          const isMod = e.metaKey || e.ctrlKey;
+          if (!isMod) return;
+          const passthrough = new Set(["c", "v", "x", "a", "z", "y", "C", "V", "X", "A", "Z", "Y"]);
+          if (passthrough.has(e.key)) return;
+          const v = self.viewRef.current;
+          if (!v) return;
+          if (runScopeHandlers(v, e, "editor")) {
+            e.preventDefault();
           }
         });
 
@@ -769,6 +1302,14 @@ export class EditableTableWidget extends WidgetType {
     }
 
     wrapper.appendChild(table);
+
+    // Re-apply column widths the user previously set via drag (keyed by
+    // header line in `tableColumnWidths`). Done after the rows are
+    // mounted so colgroup + the widths take effect on the actual DOM.
+    const savedWidths = tableColumnWidths.get(widthKey);
+    if (savedWidths && savedWidths.length === colCount + 1) {
+      applyColumnWidths(savedWidths);
+    }
 
     // ── "+" buttons ──
     const btnCss = "position:absolute;width:20px;height:20px;border:1px solid var(--nexus-border-subtle);" +
@@ -900,7 +1441,10 @@ function showContextMenu(
 ): void {
   const ownerDocument = container.ownerDocument;
   const ownerWindow = ownerDocument.defaultView;
-  ownerDocument.querySelector(".nexus-table-ctx")?.remove();
+  const fullscreenEl = ownerDocument.fullscreenElement as HTMLElement | null;
+  const mountTarget: HTMLElement =
+    fullscreenEl && fullscreenEl.contains(container) ? fullscreenEl : ownerDocument.body;
+  mountTarget.querySelector(".nexus-table-ctx")?.remove();
 
   const menu = ownerDocument.createElement("div");
   const menuBg = "var(--nexus-menu-bg, var(--nexus-bg, #ffffff))";
@@ -947,7 +1491,7 @@ function showContextMenu(
   addItem(labels.insertRowBelow, () => (widget as any).addRow());
   addItem(labels.insertColumnAfter, () => (widget as any).addColumn());
 
-  ownerDocument.body.appendChild(menu);
+  mountTarget.appendChild(menu);
 
   const viewportWidth = ownerWindow?.innerWidth ?? ownerDocument.documentElement.clientWidth;
   const viewportHeight = ownerWindow?.innerHeight ?? ownerDocument.documentElement.clientHeight;

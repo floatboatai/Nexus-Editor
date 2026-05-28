@@ -5,10 +5,10 @@ import {
   StateField,
   type Transaction,
 } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
+import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import type { Content, Parent, Root } from "mdast";
 
-import type { ParserLike, WidgetDefinition } from "./types";
+import type { ParserLike, WidgetDefinition, WidgetRenderContext } from "./types";
 
 function createEmptyAst(): Root {
   return { type: "root", children: [] };
@@ -32,7 +32,12 @@ function selectionIntersects(
     const rangeTo = Math.max(range.anchor, range.head);
 
     if (range.empty) {
-      return range.anchor >= from && range.anchor < to;
+      // Inclusive at `to` so clicking just after a block widget (cursor at
+      // the widget end) toggles into edit mode. Without this, block widgets
+      // like math `$$...$$` render correctly but can never be entered for
+      // editing — CM6's click-to-pos usually lands the cursor at the end of
+      // the widget range, not inside it.
+      return range.anchor >= from && range.anchor <= to;
     }
 
     return rangeFrom < to && from < rangeTo;
@@ -91,13 +96,43 @@ class NexusWidget extends WidgetType {
   constructor(
     private definition: WidgetDefinition,
     private node: Content,
-    private source: string
+    private source: string,
+    private from: number,
+    private to: number,
+    private viewRef: { current: EditorView | null }
   ) {
     super();
   }
 
+  eq(other: NexusWidget): boolean {
+    return (
+      other.definition === this.definition &&
+      other.from === this.from &&
+      other.to === this.to &&
+      other.source === this.source
+    );
+  }
+
   toDOM(): HTMLElement {
-    return this.definition.render(this.node, this.source);
+    const ctx: WidgetRenderContext = {
+      from: this.from,
+      to: this.to,
+      setSelection: (anchor, head) => {
+        const v = this.viewRef.current;
+        if (!v) return;
+        const safeAnchor = Math.max(0, Math.min(anchor, v.state.doc.length));
+        const safeHead = head === undefined
+          ? safeAnchor
+          : Math.max(0, Math.min(head, v.state.doc.length));
+        v.dispatch({ selection: { anchor: safeAnchor, head: safeHead } });
+      },
+      focus: () => {
+        this.viewRef.current?.focus();
+      },
+    };
+    const el = this.definition.render(this.node, this.source, ctx);
+    el.setAttribute("data-nexus-widget", this.definition.nodeType);
+    return el;
   }
 
   destroy(dom: HTMLElement): void {
@@ -105,7 +140,7 @@ class NexusWidget extends WidgetType {
   }
 
   ignoreEvent(): boolean {
-    return false;
+    return this.definition.ignoreEvents === true;
   }
 }
 
@@ -113,17 +148,26 @@ function buildWidgetDecorations(
   doc: string,
   selection: readonly SelectionRange[],
   parser: ParserLike,
-  widgets: WidgetDefinition[]
+  widgets: WidgetDefinition[],
+  viewRef: { current: EditorView | null }
 ): DecorationSet {
   const ast = parseDocument(parser, doc);
   const ranges = collectWidgetRanges(ast, doc, selection, widgets);
   const decos: Range<Decoration>[] = [];
 
   for (const range of ranges) {
+    const isBlock = range.definition.block !== false;
     decos.push(
       Decoration.replace({
-        widget: new NexusWidget(range.definition, range.node, range.source),
-        block: true,
+        widget: new NexusWidget(
+          range.definition,
+          range.node,
+          range.source,
+          range.from,
+          range.to,
+          viewRef
+        ),
+        block: isBlock,
       }).range(range.from, range.to)
     );
   }
@@ -137,13 +181,16 @@ export function createWidgetExtension(
 ): Extension[] {
   if (widgets.length === 0) return [];
 
+  const viewRef: { current: EditorView | null } = { current: null };
+
   const field = StateField.define<DecorationSet>({
     create(state) {
       return buildWidgetDecorations(
         state.doc.toString(),
         state.selection.ranges,
         parser,
-        widgets
+        widgets,
+        viewRef
       );
     },
     update(decos: DecorationSet, tr: Transaction) {
@@ -152,7 +199,8 @@ export function createWidgetExtension(
           tr.state.doc.toString(),
           tr.state.selection.ranges,
           parser,
-          widgets
+          widgets,
+          viewRef
         );
       }
       return decos;
@@ -162,5 +210,19 @@ export function createWidgetExtension(
     },
   });
 
-  return [field];
+  const viewCapture = ViewPlugin.fromClass(
+    class {
+      constructor(readonly view: EditorView) {
+        viewRef.current = view;
+      }
+      update(): void {
+        viewRef.current = this.view;
+      }
+      destroy(): void {
+        if (viewRef.current === this.view) viewRef.current = null;
+      }
+    }
+  );
+
+  return [field, viewCapture];
 }

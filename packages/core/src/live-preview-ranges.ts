@@ -22,6 +22,7 @@ function isLivePreviewNode(node: Content): node is LivePreviewNode {
     node.type === "list" ||
     node.type === "emphasis" ||
     node.type === "heading" ||
+    node.type === "html" ||
     node.type === "inlineCode" ||
     node.type === "link" ||
     node.type === "strong" ||
@@ -127,7 +128,7 @@ function visit(
         continue;
       }
 
-      if (child.type === "heading" || child.type === "list" || child.type === "code" || child.type === "definition") {
+      if (child.type === "heading" || child.type === "list" || child.type === "code" || child.type === "definition" || child.type === "html") {
         // Always emitted regardless of cursor position.
         // buildDecorations decides decoration treatment based on cursor.
         ranges.push({ from, to, node: child, source: doc.slice(from, to) });

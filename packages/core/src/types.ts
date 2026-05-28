@@ -1,5 +1,5 @@
 import type { Extension } from "@codemirror/state";
-import type { Blockquote, Code, Definition, Delete, Emphasis, FootnoteDefinition, FootnoteReference, Heading, Image, InlineCode, Link, List, Root, Strong, Table, ThematicBreak } from "mdast";
+import type { Blockquote, Code, Definition, Delete, Emphasis, FootnoteDefinition, FootnoteReference, Heading, Html, Image, InlineCode, Link, List, Root, Strong, Table, ThematicBreak } from "mdast";
 import type { Plugin } from "unified";
 
 export interface CodeHighlightToken {
@@ -37,6 +37,7 @@ export type LivePreviewNode =
   | FootnoteDefinition
   | FootnoteReference
   | Heading
+  | Html
   | Image
   | InlineCode
   | Link
@@ -182,11 +183,45 @@ export interface SlashCommandDef {
   run?: (editor: EditorAPI) => boolean | void;
 }
 
+/**
+ * Context passed to a {@link WidgetDefinition}'s render function. Widgets that
+ * want an "enter edit mode" affordance (a ✎ button overlay, etc.) can use
+ * `from` + `setSelection` to dispatch the cursor into the source range,
+ * which makes the host re-render the range as raw markdown.
+ *
+ * Existing render functions that ignore the third argument keep working.
+ */
+export interface WidgetRenderContext {
+  /** Absolute offset of the widget's source range start. */
+  from: number;
+  /** Absolute offset of the widget's source range end (exclusive). */
+  to: number;
+  /** Move the editor's selection. Defaults `head` to `anchor` (empty selection). */
+  setSelection: (anchor: number, head?: number) => void;
+  /** Focus the editor (call after `setSelection` so keyboard input lands there). */
+  focus: () => void;
+}
+
 export interface WidgetDefinition {
   nodeType: string;
   match?: (node: any) => boolean;
-  render: (node: any, source: string) => HTMLElement;
+  render: (node: any, source: string, ctx?: WidgetRenderContext) => HTMLElement;
   destroy?: (element: HTMLElement) => void;
+  /**
+   * Whether the widget replaces a block-level range (occupies its own line)
+   * or an inline range (sits inside surrounding text). Defaults to `true`
+   * for backwards compatibility, but inline node types like `inlineMath`
+   * must set this to `false` or they'll be hoisted onto their own line.
+   */
+  block?: boolean;
+  /**
+   * When `true`, the widget swallows mouse / keyboard events so CM6 doesn't
+   * try to resolve a cursor position inside the widget body. Use this when
+   * the widget renders its own interactive affordances (an edit button, a
+   * checkbox, etc.) and exposes its own entry into edit mode. Default
+   * `false` — events bubble through and CM6 places the cursor normally.
+   */
+  ignoreEvents?: boolean;
 }
 
 export interface NexusPlugin {

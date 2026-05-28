@@ -1,7 +1,7 @@
 import { type EditorState, StateField, type Extension, type Range, type SelectionRange, type Transaction } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import { ensureSyntaxTree } from "@codemirror/language";
-import type { Code, FootnoteDefinition, FootnoteReference, Heading, List, Root, Table } from "mdast";
+import type { Code, FootnoteDefinition, FootnoteReference, Heading, Html, List, Root, Table } from "mdast";
 
 import type { CodeHighlightToken } from "./types";
 import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
@@ -466,112 +466,337 @@ function buildListDecorations(
   decos: Range<Decoration>[],
   viewRef: { current: EditorView | null }
 ): void {
-  const source = doc.slice(range.from, range.to);
-  const lines = source.split("\n");
-  let offset = range.from;
-  const isOrdered = range.node.ordered === true;
-  let orderNum = range.node.start ?? 1;
+  // Iterate ListItems via mdast structure (not regex over flat source lines).
+  // Nested sub-lists are children of a ListItem, not of the outer list, so
+  // walking list.children visits only this level \u2014 no double-decoration of
+  // nested markers and no off-by-N ordered numbering caused by counting
+  // nested-list lines as siblings.
+  const list = range.node;
+  const isOrdered = list.ordered === true;
+  let orderNum = list.start ?? 1;
 
-  for (const line of lines) {
-    const lineEnd = offset + line.length;
-    const markerMatch = LIST_MARKER_RE.exec(line);
+  for (const item of list.children) {
+    const itemFrom = item.position?.start.offset;
+    if (typeof itemFrom !== "number") continue;
 
-    if (markerMatch) {
-      const indent = markerMatch[1];
-      const markerStart = offset + indent.length;
-      const markerEnd = offset + markerMatch[0].length;
+    const newlineIdx = doc.indexOf("\n", itemFrom);
+    const headLineEnd = newlineIdx === -1 ? doc.length : newlineIdx;
+    const headLine = doc.slice(itemFrom, headLineEnd);
+    const markerMatch = LIST_MARKER_RE.exec(headLine);
+    if (!markerMatch) continue;
 
-      const bullet = document.createElement("span");
-      if (isOrdered) {
-        bullet.textContent = `${orderNum}. `;
-        bullet.style.color = "var(--nexus-text-muted)";
-        orderNum++;
-      } else {
-        bullet.textContent = "\u2022 ";
-        bullet.style.color = "var(--nexus-text-muted)";
-      }
+    const indent = markerMatch[1];
+    const markerStart = itemFrom + indent.length;
+    const markerEnd = itemFrom + markerMatch[0].length;
+
+    const bullet = document.createElement("span");
+    let bulletKey: string;
+    if (isOrdered) {
+      const n = orderNum;
+      bullet.textContent = `${n}. `;
+      bullet.style.color = "var(--nexus-text-muted)";
+      bulletKey = `bullet:ord:${n}:${markerStart}-${markerEnd}`;
+      orderNum++;
+    } else {
+      bullet.textContent = "\u2022 ";
+      bullet.style.color = "var(--nexus-text-muted)";
+      bulletKey = `bullet:ul:${markerStart}-${markerEnd}`;
+    }
+    decos.push(
+      Decoration.replace({
+        widget: createWidget(bullet, false, undefined, bulletKey),
+      }).range(markerStart, markerEnd)
+    );
+
+    const afterMarker = headLine.slice(markerMatch[0].length);
+    const checkMatch = CHECKBOX_RE.exec(afterMarker);
+    if (checkMatch) {
+      const checkStart = markerEnd;
+      const checkEnd = markerEnd + checkMatch[0].length;
+      const isChecked = checkMatch[1] !== " ";
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = isChecked;
+      checkbox.style.marginRight = "4px";
+      checkbox.style.verticalAlign = "middle";
+      checkbox.style.cursor = "pointer";
+
+      const toggleFrom = checkStart + 1;
+      checkbox.addEventListener("click", (e) => {
+        e.preventDefault();
+        const v = viewRef.current;
+        if (!v) return;
+        v.dispatch({
+          changes: { from: toggleFrom, to: toggleFrom + 1, insert: isChecked ? " " : "x" }
+        });
+      });
+
+      const taskKey = `task:${checkStart}-${checkEnd}:${isChecked ? "x" : " "}`;
       decos.push(
-        Decoration.replace({ widget: createWidget(bullet) }).range(markerStart, markerEnd)
+        Decoration.replace({
+          widget: createWidget(checkbox, false, undefined, taskKey),
+        }).range(checkStart, checkEnd)
       );
 
-      const afterMarker = line.slice(markerMatch[0].length);
-      const checkMatch = CHECKBOX_RE.exec(afterMarker);
-      if (checkMatch) {
-        const checkStart = markerEnd;
-        const checkEnd = markerEnd + checkMatch[0].length;
-        const isChecked = checkMatch[1] !== " ";
-
-        const checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.checked = isChecked;
-        checkbox.style.marginRight = "4px";
-        checkbox.style.verticalAlign = "middle";
-        checkbox.style.cursor = "pointer";
-
-        const toggleFrom = checkStart + 1;
-        checkbox.addEventListener("click", (e) => {
-          e.preventDefault();
-          const v = viewRef.current;
-          if (!v) return;
-          v.dispatch({
-            changes: { from: toggleFrom, to: toggleFrom + 1, insert: isChecked ? " " : "x" }
-          });
-        });
-
+      if (isChecked && checkEnd < headLineEnd) {
         decos.push(
-          Decoration.replace({ widget: createWidget(checkbox) }).range(checkStart, checkEnd)
+          Decoration.mark({
+            attributes: { style: "text-decoration: line-through; color: var(--nexus-text-muted)" }
+          }).range(checkEnd, headLineEnd)
         );
+      }
+    }
+  }
+}
 
-        if (isChecked && checkEnd < lineEnd) {
+// Tags that an embedded HTML block can safely render via innerHTML. We
+// strip `<script>`, `<iframe>`, `<object>`, `<embed>`, on*=… handler
+// attributes, and javascript: URLs to keep authored Markdown from
+// turning into an arbitrary code execution vector when previewed.
+// The list intentionally allows enough structural / styling tags for
+// real authoring (`<details>`, `<summary>`, `<div style>`, etc.) — it's
+// not meant as a full sanitiser, hosts that need stronger guarantees
+// can plug their own via `LivePreviewConfig.htmlSanitizer`.
+function defaultSanitizeHtml(rawHtml: string): string {
+  let html = rawHtml;
+  // Remove dangerous element bodies entirely (open tag through close tag).
+  html = html.replace(/<\s*(script|iframe|object|embed|style)\b[\s\S]*?<\/\s*\1\s*>/gi, "");
+  // Remove orphan dangerous self-closing tags.
+  html = html.replace(/<\s*(script|iframe|object|embed|style)\b[^>]*\/?>/gi, "");
+  // Strip inline event handlers: `onclick="…"` / `onload='…'` / onfoo=bareword.
+  html = html.replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+  // Strip `javascript:` URLs in href / src attributes.
+  html = html.replace(/(href|src|xlink:href)\s*=\s*(['"])\s*javascript:[^'"]*\2/gi, '$1=$2#$2');
+  return html;
+}
+
+function buildHtmlDecorations(
+  range: { from: number; to: number; node: Html; source: string },
+  selection: readonly SelectionRange[],
+  decos: Range<Decoration>[],
+  config: NormalizedLivePreviewConfig,
+  viewRef: { current: EditorView | null }
+): void {
+  // Show raw source while the user is editing the block — same pattern as
+  // mermaid / code blocks. `inclusiveEnd: true` so the cursor parked at the
+  // closing offset (typical after pressing End) still counts as inside.
+  const cursorInside = selectionIntersects(range.from, range.to, selection, true);
+  if (cursorInside) return;
+
+  // Host may override with a custom renderer (e.g. to plug a stronger
+  // sanitiser like DOMPurify); fall back to the conservative default.
+  const customRenderer = config.renderers.html;
+  let inner: HTMLElement | null = null;
+  if (customRenderer) {
+    try {
+      inner = customRenderer({
+        node: range.node,
+        nodeType: "html",
+        source: range.source,
+        text: range.node.value ?? range.source,
+        from: range.from,
+        to: range.to,
+      });
+    } catch {
+      inner = null;
+    }
+  }
+  if (!inner) {
+    inner = document.createElement("div");
+    inner.className = "nexus-html-block-content";
+    inner.style.cssText = "display:block;margin:0;padding:0;line-height:normal;font-family:inherit;";
+    inner.innerHTML = defaultSanitizeHtml(range.node.value ?? range.source);
+  }
+
+  // Click anywhere on the rendered HTML to enter edit mode — except on
+  // elements whose native click behaviour the author almost certainly
+  // wants to keep working (`<summary>` toggles `<details>`, `<a href>`
+  // opens a link, form controls focus / activate). For everything else
+  // we drop the caret at the block's source start, which triggers the
+  // next StateField update to fall through `selectionIntersects` and
+  // reveal the raw markup for editing.
+  //
+  // The widget body still uses `swallowEvents: true` so CM6 doesn't try
+  // to resolve the click into a cursor position itself.
+  const wrapper = document.createElement("div");
+  wrapper.className = "nexus-html-block";
+  wrapper.style.cssText = "position:relative;display:block;margin:0;padding:0;cursor:text;";
+  wrapper.appendChild(inner);
+
+  // Selector for elements whose native behaviour we want to preserve.
+  const INTERACTIVE_SELECTOR =
+    "summary, a[href], button, input, select, textarea, label, [data-html-interactive]";
+
+  // mousedown fires before any inner element's click handler, so this
+  // consistently wins races against e.g. native `<summary>` toggle —
+  // hence why the early-return uses mousedown rather than click.
+  wrapper.addEventListener("mousedown", (event) => {
+    const target = event.target as HTMLElement | null;
+    if (target && target.closest(INTERACTIVE_SELECTOR)) {
+      // Let the native click/toggle/link/focus happen.
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const v = viewRef.current;
+    if (!v) return;
+    const safeFrom = Math.min(range.from, v.state.doc.length);
+    v.dispatch({ selection: { anchor: safeFrom } });
+    v.focus();
+  });
+
+  // Pre-measure: rendered HTML rarely matches CM6's line-height heuristic,
+  // so giving it any positive estimatedHeight prevents the post-mount
+  // measurement reflow that shifts click resolution below the block.
+  const heightHint = 24;
+  const htmlKey = `html:${range.from}:${range.to}:${range.source}`;
+
+  decos.push(
+    Decoration.replace({
+      widget: createWidget(wrapper, true, heightHint, htmlKey),
+      block: true,
+    }).range(range.from, range.to)
+  );
+}
+
+const BLOCKQUOTE_MARKER_RE = /^( {0,3}>[ \t]?)/;
+const ALERT_TAG_RE = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$/;
+
+type AlertType = "NOTE" | "TIP" | "IMPORTANT" | "WARNING" | "CAUTION";
+
+interface AlertStyle {
+  borderColor: string;
+  bg: string;
+  textColor: string;
+  icon: string;
+  label: string;
+}
+
+const ALERT_STYLES: Record<AlertType, AlertStyle> = {
+  NOTE: { borderColor: "#0969da", bg: "rgba(9,105,218,0.08)", textColor: "#0969da", icon: "ℹ", label: "Note" },
+  TIP: { borderColor: "#1a7f37", bg: "rgba(26,127,55,0.08)", textColor: "#1a7f37", icon: "💡", label: "Tip" },
+  IMPORTANT: { borderColor: "#8250df", bg: "rgba(130,80,223,0.08)", textColor: "#8250df", icon: "❗", label: "Important" },
+  WARNING: { borderColor: "#9a6700", bg: "rgba(154,103,0,0.08)", textColor: "#9a6700", icon: "⚠", label: "Warning" },
+  CAUTION: { borderColor: "#cf222e", bg: "rgba(207,34,46,0.08)", textColor: "#cf222e", icon: "🚫", label: "Caution" },
+};
+
+/**
+ * Detect a GFM Alert (GitHub-style callout). Source convention:
+ *   > [!NOTE]
+ *   > body...
+ * The first non-marker content on line 0 must match `[!TYPE]` exactly
+ * (whitespace allowed before/after). Returns the type and the original
+ * head-line length so the caller can register a parentSpan that hides
+ * the inline link decoration the lezer adapter emits for `[!TYPE]`.
+ */
+function detectAlert(source: string): {
+  type: AlertType;
+  headLineEnd: number;
+  tagStartInLine: number;
+  tagEndInLine: number;
+} | null {
+  const newlineIdx = source.indexOf("\n");
+  const firstLine = newlineIdx === -1 ? source : source.slice(0, newlineIdx);
+  const markerMatch = BLOCKQUOTE_MARKER_RE.exec(firstLine);
+  if (!markerMatch) return null;
+  const after = firstLine.slice(markerMatch[0].length);
+  const alertMatch = ALERT_TAG_RE.exec(after);
+  if (!alertMatch) return null;
+  return {
+    type: alertMatch[1] as AlertType,
+    headLineEnd: firstLine.length,
+    tagStartInLine: markerMatch[0].length,
+    tagEndInLine: markerMatch[0].length + alertMatch[0].trimEnd().length,
+  };
+}
+
+/**
+ * Decorate a blockquote range. Returns the detected GFM alert type when the
+ * blockquote opens with `> [!NOTE]` / `[!TIP]` / etc., so the caller can
+ * register a parent span over the head line (the line containing `[!TYPE]`)
+ * and suppress the link decoration the inline pass emits for that bracket
+ * pair. Subsequent lines stay open to inline markdown like `**bold**`.
+ */
+function buildBlockquoteDecorations(
+  range: { from: number; to: number; source: string },
+  selection: readonly SelectionRange[],
+  decos: Range<Decoration>[]
+): { alertHeadEnd: number } | null {
+  const source = range.source;
+  const lines = source.split("\n");
+  const cursorInBlockquote = selectionIntersects(range.from, range.to, selection, true);
+  const alert = detectAlert(source);
+  const style = alert ? ALERT_STYLES[alert.type] : null;
+  let offset = range.from;
+  let alertHeadEnd = -1;
+
+  const lineStyleFor = (i: number): string => {
+    if (style) {
+      const radiusTop = i === 0 ? "6px 6px" : "0 0";
+      const radiusBottom = i === lines.length - 1 ? "6px 6px" : "0 0";
+      return (
+        `color:var(--nexus-text);` +
+        `border-left:4px solid ${style.borderColor};` +
+        `background:${style.bg};` +
+        `padding:2px 12px;` +
+        `border-radius:${radiusTop} ${radiusBottom};`
+      );
+    }
+    return (
+      "color:var(--nexus-text-muted);" +
+      "border-left:3px solid var(--nexus-border);" +
+      "padding-left:12px;"
+    );
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineStart = offset;
+    const lineEnd = offset + line.length;
+
+    decos.push(
+      Decoration.line({ attributes: { style: lineStyleFor(i) } }).range(lineStart)
+    );
+
+    const markerMatch = BLOCKQUOTE_MARKER_RE.exec(line);
+    if (!cursorInBlockquote && markerMatch) {
+      const markerEnd = lineStart + markerMatch[0].length;
+      if (markerEnd <= lineEnd) {
+        decos.push(Decoration.replace({}).range(lineStart, markerEnd));
+      }
+
+      // Replace the `[!TYPE]` tag on the head line with a styled badge.
+      if (alert && style && i === 0) {
+        const tagStart = lineStart + alert.tagStartInLine;
+        const tagEnd = lineStart + alert.tagEndInLine;
+        if (tagEnd > tagStart) {
+          const badge = document.createElement("span");
+          badge.className = "nexus-alert-label";
+          badge.style.cssText =
+            `display:inline-flex;align-items:center;gap:6px;` +
+            `color:${style.textColor};font-weight:600;font-size:0.95em;`;
+          const iconSpan = document.createElement("span");
+          iconSpan.textContent = style.icon;
+          iconSpan.setAttribute("aria-hidden", "true");
+          const labelSpan = document.createElement("span");
+          labelSpan.textContent = style.label;
+          badge.appendChild(iconSpan);
+          badge.appendChild(labelSpan);
           decos.push(
-            Decoration.mark({
-              attributes: { style: "text-decoration: line-through; color: var(--nexus-text-muted)" }
-            }).range(checkEnd, lineEnd)
+            Decoration.replace({
+              widget: createWidget(badge, false, undefined, `alert:${alert.type}:${tagStart}`),
+            }).range(tagStart, tagEnd)
           );
+          alertHeadEnd = lineEnd;
         }
       }
     }
 
     offset = lineEnd + 1;
   }
-}
 
-const BLOCKQUOTE_MARKER_RE = /^( {0,3}>[ \t]?)/;
-
-function buildBlockquoteDecorations(
-  range: { from: number; to: number; source: string },
-  selection: readonly SelectionRange[],
-  decos: Range<Decoration>[]
-): void {
-  const source = range.source;
-  const lines = source.split("\n");
-  const cursorInBlockquote = selectionIntersects(range.from, range.to, selection, true);
-  let offset = range.from;
-
-  for (const line of lines) {
-    const lineStart = offset;
-    const lineEnd = offset + line.length;
-    decos.push(
-      Decoration.line({
-        attributes: {
-          style:
-            "color:var(--nexus-text-muted);" +
-            "border-left:3px solid var(--nexus-border);" +
-            "padding-left:12px;",
-        },
-      }).range(lineStart)
-    );
-
-    const marker = BLOCKQUOTE_MARKER_RE.exec(line);
-    if (!cursorInBlockquote && marker) {
-      const markerEnd = lineStart + marker[0].length;
-      if (markerEnd <= lineEnd) {
-        decos.push(Decoration.replace({}).range(lineStart, markerEnd));
-      }
-    }
-
-    offset = lineEnd + 1;
-  }
+  return alertHeadEnd >= 0 ? { alertHeadEnd } : null;
 }
 
 // Token-to-CSS-variable map (colors come from the theme)
@@ -802,10 +1027,29 @@ function buildDecorations(
           block: true
         }).range(range.from, range.to)
       );
+    } else if (range.node.type === "html") {
+      buildHtmlDecorations(
+        range as { from: number; to: number; node: Html; source: string },
+        selection,
+        decos,
+        config,
+        viewRef
+      );
     } else if (range.node.type === "list") {
       buildListDecorations(range as { from: number; to: number; node: List }, doc, decos, viewRef);
     } else if (range.node.type === "blockquote") {
-      buildBlockquoteDecorations(range as { from: number; to: number; source: string }, selection, decos);
+      const alertInfo = buildBlockquoteDecorations(
+        range as { from: number; to: number; source: string },
+        selection,
+        decos
+      );
+      if (alertInfo) {
+        // GFM Alert: suppress the inline link decoration that lezer emits for
+        // the `[!TYPE]` bracket pair on the head line — the badge widget
+        // replaces the source there anyway, and a competing link decoration
+        // shows up as orange-underline bleed-through.
+        parentSpans.push([range.from, alertInfo.alertHeadEnd]);
+      }
     } else if (range.node.type === "code" && !config.renderers.code) {
       buildCodeBlockDecorations(range as { from: number; to: number; node: Code; source: string }, selection, decos, viewRef, codeTokens);
     } else if (range.node.type === "image") {
@@ -845,7 +1089,12 @@ function buildDecorations(
       const inlineStyle = getInlineMarkerStyle("link", range.source);
       if (inlineStyle) {
         const { openLen, closeLen, style, attrs } = inlineStyle;
-        // Always render as widget — no cursor-on/off switching (avoids viewport instability)
+        const cursorOnLink = selectionIntersects(range.from, range.to, selection, true);
+        // When the caret reaches the link source range (for example by
+        // pressing ArrowLeft from the right edge), show the raw markdown so
+        // users can edit `[text](url)`. Outside the caret range we keep the
+        // compact link widget for preview / click navigation.
+        if (cursorOnLink) continue;
         const linkText = range.source.slice(openLen, range.source.length - closeLen);
         const span = document.createElement("span");
         span.textContent = linkText;
@@ -855,7 +1104,12 @@ function buildDecorations(
         if (attrs) {
           for (const [k, v] of Object.entries(attrs)) span.setAttribute(k, v);
         }
-        decos.push(Decoration.replace({ widget: createWidget(span) }).range(range.from, range.to));
+        const linkKey = `link:${range.from}-${range.to}:${range.source}`;
+        decos.push(
+          Decoration.replace({
+            widget: createWidget(span, false, undefined, linkKey),
+          }).range(range.from, range.to)
+        );
       }
     } else if (range.node.type === "definition") {
       // Link reference definitions [id]: url — always render with muted color.
@@ -871,7 +1125,12 @@ function buildDecorations(
       const sup = document.createElement("sup");
       sup.textContent = ref.identifier;
       sup.style.cssText = "color:var(--nexus-accent);cursor:pointer;font-size:0.8em;vertical-align:super;";
-      decos.push(Decoration.replace({ widget: createWidget(sup) }).range(range.from, range.to));
+      const fnRefKey = `fnref:${range.from}-${range.to}:${ref.identifier}`;
+      decos.push(
+        Decoration.replace({
+          widget: createWidget(sup, false, undefined, fnRefKey),
+        }).range(range.from, range.to)
+      );
     } else if (range.node.type === "footnoteDefinition") {
       const def = range.node as FootnoteDefinition;
       const defText = range.source.replace(/^\[\^\w+\]:\s*/, "");
@@ -886,32 +1145,43 @@ function buildDecorations(
       decos.push(Decoration.line({
         attributes: { style: "padding:0;margin:0;min-height:0;" }
       }).range(range.from));
+      const fnDefKey = `fndef:${range.from}-${range.to}:${def.identifier}:${range.source}`;
       decos.push(
-        Decoration.replace({ widget: createWidget(el) }).range(range.from, range.to)
+        Decoration.replace({
+          widget: createWidget(el, false, undefined, fnDefKey),
+        }).range(range.from, range.to)
       );
     } else {
       if (range.node.type === "heading" || range.node.type === "table") {
         parentSpans.push([range.from, range.to]);
       }
 
-      // Inline formatting: Decoration.replace for markers (standard CM6 approach).
-      // Ranges are always emitted; we check cursor line here to decide whether to decorate.
+      // Inline formatting: Decoration.replace hides the syntactic markers when
+      // the cursor isn't on the same line. The inner style (bold/italic/etc.)
+      // is applied via Decoration.mark on the content range REGARDLESS of
+      // cursor position — that way editing a line with **bold** still shows
+      // the bold rendering, just with the `**` markers visible. Without this,
+      // any line under the cursor flattens to raw markup with no styling,
+      // which is what made nested markers (checked task + **bold** + ~~strike~~)
+      // look broken when the user was editing the line.
       const inlineStyle = getInlineMarkerStyle(range.node.type, range.source);
       if (inlineStyle && !config.renderers[range.node.type]) {
+        const { openLen, closeLen, style, attrs } = inlineStyle;
         const cursorOnLine = selectionOnSameLine(range.from, range.to, doc, selection);
+        const textFrom = range.from + openLen;
+        const textTo = range.to - closeLen;
+
         if (!cursorOnLine) {
-          const { openLen, closeLen, style, attrs } = inlineStyle;
           if (openLen > 0) {
             decos.push(Decoration.replace({}).range(range.from, range.from + openLen));
           }
           if (closeLen > 0) {
             decos.push(Decoration.replace({}).range(range.to - closeLen, range.to));
           }
-          const textFrom = range.from + openLen;
-          const textTo = range.to - closeLen;
-          if (textTo > textFrom) {
-            decos.push(Decoration.mark({ attributes: { style, ...attrs } }).range(textFrom, textTo));
-          }
+        }
+
+        if (textTo > textFrom) {
+          decos.push(Decoration.mark({ attributes: { style, ...attrs } }).range(textFrom, textTo));
         }
       } else {
         // Block fallback for thematicBreak: always render as widget.

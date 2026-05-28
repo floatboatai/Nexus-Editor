@@ -194,6 +194,98 @@ describe("widget extension", () => {
     editor.destroy();
   });
 
+  it("renders inline-flagged widgets without forcing them onto their own line", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Before `TOKEN` after",
+      plugins: [
+        {
+          name: "inline-widget",
+          widgets: [
+            {
+              nodeType: "inlineCode",
+              match: (node: any) => node.value === "TOKEN",
+              block: false,
+              render() {
+                const el = document.createElement("span");
+                el.setAttribute("data-widget", "inline");
+                el.textContent = "X";
+                return el;
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    // Cursor on a different position so the widget isn't suppressed by
+    // selectionIntersects.
+    editor.setSelection(0);
+
+    // Inline widget — Decoration.replace must NOT use block:true. The
+    // surrounding "Before" / "after" must stay on the same visual line.
+    const widget = container.querySelector("[data-widget='inline']") as HTMLElement | null;
+    expect(widget).not.toBeNull();
+    // CM6 wraps block decorations in a separate cm-line. An inline widget
+    // shares its line with the surrounding text — so its closest cm-line
+    // should also contain "after".
+    const line = widget?.closest(".cm-line") as HTMLElement | null;
+    expect(line?.textContent ?? "").toContain("after");
+    editor.destroy();
+  });
+
+  it("passes a context with from/to/setSelection to render so widgets can build edit affordances", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Intro\n\n```js\nconsole.log(1)\n```",
+      plugins: [
+        {
+          name: "code-widget",
+          widgets: [
+            {
+              nodeType: "code",
+              ignoreEvents: true,
+              render(_node, _source, ctx) {
+                const el = document.createElement("div");
+                el.setAttribute("data-widget", "code");
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.setAttribute("data-edit", "1");
+                btn.addEventListener("mousedown", (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                });
+                btn.addEventListener("click", (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  ctx?.setSelection(ctx.from);
+                  ctx?.focus();
+                });
+                el.appendChild(btn);
+                return el;
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const widget = container.querySelector<HTMLElement>("[data-widget='code']");
+    expect(widget).not.toBeNull();
+
+    // The widget swallows clicks (ignoreEvents: true); the explicit edit
+    // button is the only entry into edit mode.
+    const editBtn = widget?.querySelector<HTMLElement>("[data-edit='1']");
+    expect(editBtn).not.toBeNull();
+    editBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    expect(container.querySelector("[data-widget='code']")).toBeNull();
+    expect(container.textContent).toContain("```js");
+    editor.destroy();
+  });
+
   it("produces no extensions when no widgets are registered", () => {
     const container = document.createElement("div");
     const editor = createEditor({

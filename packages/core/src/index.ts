@@ -37,5 +37,6 @@ export type {
   SlashCommandDef,
   SlashMenuState,
   TocEntry,
-  WidgetDefinition
+  WidgetDefinition,
+  WidgetRenderContext
 } from "./types";

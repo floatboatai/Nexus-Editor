@@ -63,6 +63,21 @@ export interface ToolbarUI {
 
 let tooltipId = 0;
 
+/**
+ * Pick an overlay mount target that stays visible under the HTML Fullscreen API.
+ * The Fullscreen API only renders the fullscreen element subtree; anything
+ * appended to `document.body` outside that subtree is hidden behind the
+ * fullscreen backdrop. So when the toolbar (or its anchor button) lives inside
+ * a fullscreen element, mount overlays into that element instead.
+ */
+function pickOverlayMount(anchor: HTMLElement | Document): HTMLElement {
+  const doc = anchor instanceof Document ? anchor : anchor.ownerDocument;
+  const node = anchor instanceof Document ? null : anchor;
+  const fullscreenEl = doc.fullscreenElement as HTMLElement | null;
+  if (fullscreenEl && (!node || fullscreenEl.contains(node))) return fullscreenEl;
+  return doc.body;
+}
+
 function positionToolbarTooltip(button: HTMLElement, tooltip: HTMLElement): void {
   const rect = button.getBoundingClientRect();
   tooltip.style.left = `${rect.left + rect.width / 2}px`;
@@ -81,7 +96,7 @@ function installToolbarTooltip(button: HTMLButtonElement): () => void {
     if (!label.trim()) return;
     tooltip.textContent = label;
     tooltip.dataset.state = "open";
-    if (!tooltip.isConnected) document.body.appendChild(tooltip);
+    if (!tooltip.isConnected) pickOverlayMount(button).appendChild(tooltip);
     positionToolbarTooltip(button, tooltip);
   };
   const hide = () => {
@@ -311,7 +326,7 @@ function showHeadingDropdown(
     menu.appendChild(item);
   }
 
-  document.body.appendChild(menu);
+  pickOverlayMount(anchorBtn).appendChild(menu);
 
   return {
     destroy() {
@@ -414,7 +429,7 @@ function showColorPicker(
   }
 
   panel.appendChild(grid);
-  document.body.appendChild(panel);
+  pickOverlayMount(anchorBtn).appendChild(panel);
 
   return {
     destroy() {
