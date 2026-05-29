@@ -8,6 +8,44 @@ function getCurrentLine(doc: string, anchor: number): { lineStart: number; lineE
   return { lineStart, lineEnd, line: doc.slice(lineStart, lineEnd) };
 }
 
+interface LineRange {
+  lineStart: number;
+  lineEnd: number;
+  line: string;
+}
+
+/**
+ * Get all lines touched by the current selection (or just the cursor line
+ * when there is no selection). Returns the lines in document order together
+ * with each line's start/end offsets.
+ */
+function getSelectedLines(doc: string, anchor: number, head: number): LineRange[] {
+  const from = Math.min(anchor, head);
+  const to = Math.max(anchor, head);
+
+  const lines: LineRange[] = [];
+  let pos = 0;
+
+  while (pos <= doc.length) {
+    const lineStart = pos;
+    const nlIdx = doc.indexOf("\n", pos);
+    const lineEnd = nlIdx === -1 ? doc.length : nlIdx;
+    const line = doc.slice(lineStart, lineEnd);
+
+    // A line is "selected" when it overlaps the [from, to) range.
+    // For cursor-only selections (from === to) only the line containing
+    // the cursor is returned.
+    if (lineEnd > from && lineStart < to) {
+      lines.push({ lineStart, lineEnd, line });
+    }
+
+    if (nlIdx === -1) break;
+    pos = nlIdx + 1;
+  }
+
+  return lines;
+}
+
 /** Toggle a line prefix (e.g., "> " for blockquote). */
 function toggleLinePrefix(editor: EditorAPI, prefix: string): boolean {
   const doc = editor.getDocument();
@@ -33,45 +71,128 @@ export function toggleBlockquote(editor: EditorAPI): boolean {
 
 export function toggleOrderedList(editor: EditorAPI): boolean {
   const doc = editor.getDocument();
-  const { anchor } = editor.getSelection();
-  const { lineStart, lineEnd, line } = getCurrentLine(doc, anchor);
+  const { anchor, head } = editor.getSelection();
+  const lines = getSelectedLines(doc, anchor, head);
 
-  const olMatch = line.match(/^\d+\.\s/);
-  let newLine: string;
-  if (olMatch) {
-    newLine = line.slice(olMatch[0].length);
-  } else {
-    // Remove other list markers if present
-    const ulMatch = line.match(/^[-*+]\s/);
-    const content = ulMatch ? line.slice(ulMatch[0].length) : line;
-    newLine = "1. " + content;
+  if (lines.length <= 1) {
+    // Single-line (cursor-only) — original behaviour
+    const { lineStart, lineEnd, line } = lines[0] ?? getCurrentLine(doc, anchor);
+
+    const olMatch = line.match(/^\d+\.\s/);
+    let newLine: string;
+    if (olMatch) {
+      newLine = line.slice(olMatch[0].length);
+    } else {
+      const ulMatch = line.match(/^[-*+]\s/);
+      const content = ulMatch ? line.slice(ulMatch[0].length) : line;
+      newLine = "1. " + content;
+    }
+
+    const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
+    editor.setDocument(newDoc);
+    editor.setSelection(lineStart + newLine.length);
+    return true;
   }
 
-  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
+  // Multi-line: if ALL lines are already ordered-list items → remove;
+  // otherwise add "N. " to every non-OL line (replacing any UL marker).
+  const allOl = lines.every((l) => /^\d+\.\s/.test(l.line));
+
+  let offset = 0;
+  let newDoc = doc;
+  let firstNewLineStart = lines[0].lineStart;
+  let selectionEnd = firstNewLineStart;
+
+  for (let i = 0; i < lines.length; i++) {
+    const { lineStart, lineEnd, line } = lines[i];
+    const adjStart = lineStart + offset;
+    const adjEnd = lineEnd + offset;
+
+    let newLine: string;
+    if (allOl) {
+      const olMatch = line.match(/^\d+\.\s/)!;
+      newLine = line.slice(olMatch[0].length);
+    } else {
+      const ulMatch = line.match(/^[-*+]\s/);
+      const olMatch = line.match(/^\d+\.\s/);
+      const content = ulMatch
+        ? line.slice(ulMatch[0].length)
+        : olMatch
+          ? line.slice(olMatch[0].length)
+          : line;
+      newLine = `${i + 1}. ` + content;
+    }
+
+    newDoc = newDoc.slice(0, adjStart) + newLine + newDoc.slice(adjEnd);
+    offset += newLine.length - (adjEnd - adjStart);
+    selectionEnd = adjStart + newLine.length;
+  }
+
   editor.setDocument(newDoc);
-  editor.setSelection(lineStart + newLine.length);
+  editor.setSelection(firstNewLineStart, selectionEnd);
   return true;
 }
 
 export function toggleUnorderedList(editor: EditorAPI): boolean {
   const doc = editor.getDocument();
-  const { anchor } = editor.getSelection();
-  const { lineStart, lineEnd, line } = getCurrentLine(doc, anchor);
+  const { anchor, head } = editor.getSelection();
+  const lines = getSelectedLines(doc, anchor, head);
 
-  const ulMatch = line.match(/^[-*+]\s/);
-  let newLine: string;
-  if (ulMatch) {
-    newLine = line.slice(ulMatch[0].length);
-  } else {
-    // Remove ordered list marker if present
-    const olMatch = line.match(/^\d+\.\s/);
-    const content = olMatch ? line.slice(olMatch[0].length) : line;
-    newLine = "- " + content;
+  if (lines.length <= 1) {
+    // Single-line (cursor-only) — original behaviour
+    const { lineStart, lineEnd, line } = lines[0] ?? getCurrentLine(doc, anchor);
+
+    const ulMatch = line.match(/^[-*+]\s/);
+    let newLine: string;
+    if (ulMatch) {
+      newLine = line.slice(ulMatch[0].length);
+    } else {
+      const olMatch = line.match(/^\d+\.\s/);
+      const content = olMatch ? line.slice(olMatch[0].length) : line;
+      newLine = "- " + content;
+    }
+
+    const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
+    editor.setDocument(newDoc);
+    editor.setSelection(lineStart + newLine.length);
+    return true;
   }
 
-  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
+  // Multi-line: if ALL lines are already unordered-list items → remove;
+  // otherwise add "- " to every non-UL line (replacing any OL marker).
+  const allUl = lines.every((l) => /^[-*+]\s/.test(l.line));
+
+  let offset = 0;
+  let newDoc = doc;
+  let firstNewLineStart = lines[0].lineStart;
+  let selectionEnd = firstNewLineStart;
+
+  for (const { lineStart, lineEnd, line } of lines) {
+    const adjStart = lineStart + offset;
+    const adjEnd = lineEnd + offset;
+
+    let newLine: string;
+    if (allUl) {
+      const ulMatch = line.match(/^[-*+]\s/)!;
+      newLine = line.slice(ulMatch[0].length);
+    } else {
+      const ulMatch = line.match(/^[-*+]\s/);
+      const olMatch = line.match(/^\d+\.\s/);
+      const content = ulMatch
+        ? line.slice(ulMatch[0].length)
+        : olMatch
+          ? line.slice(olMatch[0].length)
+          : line;
+      newLine = "- " + content;
+    }
+
+    newDoc = newDoc.slice(0, adjStart) + newLine + newDoc.slice(adjEnd);
+    offset += newLine.length - (adjEnd - adjStart);
+    selectionEnd = adjStart + newLine.length;
+  }
+
   editor.setDocument(newDoc);
-  editor.setSelection(lineStart + newLine.length);
+  editor.setSelection(firstNewLineStart, selectionEnd);
   return true;
 }
 
