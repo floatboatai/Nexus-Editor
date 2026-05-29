@@ -6,7 +6,11 @@ import {
   replaceAllMatches
 } from "../src/index";
 
-describe("@floatboat/nexus-plugin-search", () => {
+// ------------------------------------------------------------------
+// findSearchMatches — basic
+// ------------------------------------------------------------------
+
+describe("findSearchMatches", () => {
   it("finds all case-insensitive matches in a document", () => {
     expect(findSearchMatches("Hello hello HELLO", "hello")).toEqual([
       { from: 0, to: 5, text: "Hello" },
@@ -21,10 +25,128 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("returns empty array for empty query", () => {
+    expect(findSearchMatches("hello", "")).toEqual([]);
+  });
+
+  it("escapes regex metacharacters in the query", () => {
+    expect(findSearchMatches("price is $10.00 (USD)", "$10.00")).toEqual([
+      { from: 9, to: 15, text: "$10.00" }
+    ]);
+  });
+});
+
+// ------------------------------------------------------------------
+// findSearchMatches — whole-word matching
+// ------------------------------------------------------------------
+
+describe("findSearchMatches — wholeWord", () => {
+  it("matches only whole words when wholeWord is true", () => {
+    // "cat" appears inside "scatter" — should be excluded
+    expect(findSearchMatches("cat scatter cat", "cat", { wholeWord: true })).toEqual([
+      { from: 0, to: 3, text: "cat" },
+      { from: 12, to: 15, text: "cat" }
+    ]);
+  });
+
+  it("matches whole word at document start", () => {
+    expect(findSearchMatches("hello world", "hello", { wholeWord: true })).toEqual([
+      { from: 0, to: 5, text: "hello" }
+    ]);
+  });
+
+  it("matches whole word at document end", () => {
+    expect(findSearchMatches("say hello", "hello", { wholeWord: true })).toEqual([
+      { from: 4, to: 9, text: "hello" }
+    ]);
+  });
+
+  it("excludes substring matches within longer words", () => {
+    expect(findSearchMatches("testing test tester", "test", { wholeWord: true })).toEqual([
+      { from: 8, to: 12, text: "test" }
+    ]);
+  });
+
+  it("handles word adjacent to punctuation", () => {
+    expect(findSearchMatches("hello, world!", "hello", { wholeWord: true })).toEqual([
+      { from: 0, to: 5, text: "hello" }
+    ]);
+    expect(findSearchMatches("hello, world!", "world", { wholeWord: true })).toEqual([
+      { from: 7, to: 12, text: "world" }
+    ]);
+  });
+
+  it("handles word adjacent to markdown syntax", () => {
+    expect(findSearchMatches("**bold** text", "bold", { wholeWord: true })).toEqual([
+      { from: 2, to: 6, text: "bold" }
+    ]);
+  });
+
+  it("handles single-character word", () => {
+    expect(findSearchMatches("a and b or c", "b", { wholeWord: true })).toEqual([
+      { from: 6, to: 7, text: "b" }
+    ]);
+  });
+
+  it("works with case-insensitive + whole-word combined", () => {
+    expect(findSearchMatches("Cat scatter CAT", "cat", { wholeWord: true })).toEqual([
+      { from: 0, to: 3, text: "Cat" },
+      { from: 12, to: 15, text: "CAT" }
+    ]);
+  });
+
+  it("works with case-sensitive + whole-word combined", () => {
+    expect(findSearchMatches("Cat scatter CAT", "cat", { wholeWord: true, caseSensitive: true })).toEqual([]);
+  });
+
+  it("returns empty when no whole-word match exists", () => {
+    expect(findSearchMatches("cats category catalog", "cat", { wholeWord: true })).toEqual([]);
+  });
+});
+
+// ------------------------------------------------------------------
+// replaceAllMatches — basic
+// ------------------------------------------------------------------
+
+describe("replaceAllMatches", () => {
   it("replaces all matches in a document", () => {
     expect(replaceAllMatches("cat scatter cat", "cat", "dog")).toBe("dog sdogter dog");
   });
 
+  it("returns doc unchanged for empty query", () => {
+    expect(replaceAllMatches("hello", "", "world")).toBe("hello");
+  });
+});
+
+// ------------------------------------------------------------------
+// replaceAllMatches — whole-word matching
+// ------------------------------------------------------------------
+
+describe("replaceAllMatches — wholeWord", () => {
+  it("replaces only whole-word matches", () => {
+    expect(replaceAllMatches("cat scatter cat", "cat", "dog", { wholeWord: true })).toBe("dog scatter dog");
+  });
+
+  it("preserves substring occurrences inside other words", () => {
+    expect(replaceAllMatches("testing test tester", "test", "exam", { wholeWord: true })).toBe("testing exam tester");
+  });
+
+  it("handles multiple whole-word replacements", () => {
+    expect(replaceAllMatches("the cat sat on the mat", "the", "a", { wholeWord: true })).toBe(
+      "a cat sat on a mat"
+    );
+  });
+
+  it("works with case-insensitive + whole-word", () => {
+    expect(replaceAllMatches("Cat scatter CAT", "cat", "dog", { wholeWord: true })).toBe("dog scatter dog");
+  });
+});
+
+// ------------------------------------------------------------------
+// createSearchPlugin
+// ------------------------------------------------------------------
+
+describe("@floatboat/nexus-plugin-search", () => {
   it("creates a search plugin descriptor", () => {
     const plugin = createSearchPlugin();
 
