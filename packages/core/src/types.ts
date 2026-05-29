@@ -200,6 +200,38 @@ export interface WidgetRenderContext {
   setSelection: (anchor: number, head?: number) => void;
   /** Focus the editor (call after `setSelection` so keyboard input lands there). */
   focus: () => void;
+  /**
+   * Acquire an interaction guard. While any guard is active, the widget's
+   * decoration will not be rebuilt — CM6 maps existing decorations via
+   * `decos.map(tr.changes)` instead. This prevents the widget DOM from
+   * being destroyed mid-interaction (e.g., during a drag or cell edit).
+   */
+  acquireGuard: (type: InteractionGuardType) => void;
+  /**
+   * Release an interaction guard. When all guards for a widget are released,
+   * the next transaction will rebuild decorations normally.
+   */
+  releaseGuard: (type: InteractionGuardType) => void;
+}
+
+/**
+ * Types of interaction that a widget can protect from decoration rebuilds.
+ * - `focus`: User is editing content inside the widget (e.g., contentEditable cell)
+ * - `drag`: User is dragging an element inside the widget (e.g., column grip)
+ * - `range`: User is selecting a range of elements (e.g., multi-cell selection)
+ */
+export type InteractionGuardType = 'focus' | 'drag' | 'range';
+
+/**
+ * Declares an interaction guard for a widget. When acquired, the widget's
+ * decoration will not be rebuilt until the guard is released.
+ */
+export interface InteractionGuard {
+  type: InteractionGuardType;
+  /** Called when the guard should be acquired (e.g., on mousedown). */
+  acquire: (dom: HTMLElement) => void;
+  /** Called when the guard should be released (e.g., on mouseup/blur). */
+  release: (dom: HTMLElement) => void;
 }
 
 export interface WidgetDefinition {
@@ -222,6 +254,12 @@ export interface WidgetDefinition {
    * `false` — events bubble through and CM6 places the cursor normally.
    */
   ignoreEvents?: boolean;
+  /**
+   * Declares which interaction types this widget needs protection for.
+   * When any guard is active, the widget's StateField skips decoration
+   * rebuilds and uses `decos.map(tr.changes)` instead.
+   */
+  interactionGuards?: InteractionGuard[];
 }
 
 export interface NexusPlugin {
