@@ -8,7 +8,7 @@ import {
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import type { Content, Parent, Root } from "mdast";
 
-import type { ParserLike, WidgetDefinition, WidgetRenderContext } from "./types";
+import type { InteractionGuardType, ParserLike, WidgetDefinition, WidgetRenderContext } from "./types";
 
 function createEmptyAst(): Root {
   return { type: "root", children: [] };
@@ -92,7 +92,55 @@ function collectWidgetRanges(
   return ranges.sort((a, b) => a.from - b.from);
 }
 
+/**
+ * Tracks active interaction guards across all widget instances.
+ * When any guard is active, the widget StateField skips decoration
+ * rebuilds and uses `decos.map(tr.changes)` instead.
+ */
+class WidgetGuardState {
+  private guards = new Map<string, Set<InteractionGuardType>>();
+
+  acquire(widgetId: string, type: InteractionGuardType): void {
+    let set = this.guards.get(widgetId);
+    if (!set) {
+      set = new Set();
+      this.guards.set(widgetId, set);
+    }
+    set.add(type);
+  }
+
+  release(widgetId: string, type: InteractionGuardType): void {
+    const set = this.guards.get(widgetId);
+    if (set) {
+      set.delete(type);
+      if (set.size === 0) {
+        this.guards.delete(widgetId);
+      }
+    }
+  }
+
+  releaseAll(widgetId: string): void {
+    this.guards.delete(widgetId);
+  }
+
+  hasActiveGuards(): boolean {
+    return this.guards.size > 0;
+  }
+
+  hasGuard(widgetId: string): boolean {
+    const set = this.guards.get(widgetId);
+    return set !== undefined && set.size > 0;
+  }
+}
+
+// Singleton guard state shared across all widget instances
+const globalGuardState = new WidgetGuardState();
+
+let widgetIdCounter = 0;
+
 class NexusWidget extends WidgetType {
+  private widgetId = `widget-${++widgetIdCounter}`;
+
   constructor(
     private definition: WidgetDefinition,
     private node: Content,
@@ -105,6 +153,10 @@ class NexusWidget extends WidgetType {
   }
 
   eq(other: NexusWidget): boolean {
+    // If this widget has active guards, return true to prevent DOM recreation
+    if (globalGuardState.hasGuard(this.widgetId)) {
+      return true;
+    }
     return (
       other.definition === this.definition &&
       other.from === this.from &&
@@ -114,6 +166,7 @@ class NexusWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
+    const self = this;
     const ctx: WidgetRenderContext = {
       from: this.from,
       to: this.to,
@@ -129,13 +182,22 @@ class NexusWidget extends WidgetType {
       focus: () => {
         this.viewRef.current?.focus();
       },
+      acquireGuard: (type: InteractionGuardType) => {
+        globalGuardState.acquire(self.widgetId, type);
+      },
+      releaseGuard: (type: InteractionGuardType) => {
+        globalGuardState.release(self.widgetId, type);
+      },
     };
     const el = this.definition.render(this.node, this.source, ctx);
     el.setAttribute("data-nexus-widget", this.definition.nodeType);
+    el.setAttribute("data-nexus-widget-id", this.widgetId);
     return el;
   }
 
   destroy(dom: HTMLElement): void {
+    // Release all guards for this widget to prevent leaks
+    globalGuardState.releaseAll(this.widgetId);
     this.definition.destroy?.(dom);
   }
 
@@ -195,6 +257,13 @@ export function createWidgetExtension(
     },
     update(decos: DecorationSet, tr: Transaction) {
       if (tr.docChanged || tr.selection) {
+        // When any widget has active interaction guards, skip the full
+        // rebuild and map existing decorations instead. This prevents
+        // CM6 from destroying widget DOM mid-interaction (e.g., during
+        // a drag or cell edit).
+        if (globalGuardState.hasActiveGuards()) {
+          return tr.changes ? decos.map(tr.changes) : decos;
+        }
         return buildWidgetDecorations(
           tr.state.doc.toString(),
           tr.state.selection.ranges,
