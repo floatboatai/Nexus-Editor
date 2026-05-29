@@ -1,1531 +1,501 @@
-import { EditorView, WidgetType, runScopeHandlers } from "@codemirror/view";
-import { Transaction } from "@codemirror/state";
-import type { Table } from "mdast";
-
-import type { LivePreviewLabels } from "./types";
-
-let tableEditingCount = 0;
-
-export function isTableEditing(): boolean {
-  return tableEditingCount > 0;
-}
-
-const SEPARATOR_RE = /^\|?\s*[-:]+\s*(\|\s*[-:]+\s*)*\|?\s*$/;
-
-// Session-scoped store of user-customised column widths. Keyed by the
-// table's header line (e.g. `| 头像 | 用户名 | 主页 |`) so widths survive
-// the widget being rebuilt across edits as long as the header doesn't
-// change. Not persisted across reloads — markdown tables don't have a
-// place to store column widths and we don't want to write sidecar files
-// for this. Values: [rowGripWidth, ...dataColumnWidths].
-const tableColumnWidths = new Map<string, number[]>();
-
-const ROW_GRIP_WIDTH = 16;
-const MIN_COLUMN_WIDTH = 48;
-const renderedSourceOffsets = new WeakMap<Node, { start: number; end: number }>();
-
-function getNodeSourceOffsets(node: any, tableFrom: number, rawSourceStart: number, inlineCode = false): { start: number; end: number } | null {
-  const startOffset = node?.position?.start?.offset;
-  const endOffset = node?.position?.end?.offset;
-  if (typeof startOffset !== "number" || typeof endOffset !== "number") return null;
-  const markerOffset = inlineCode ? 1 : 0;
-  return {
-    start: startOffset - tableFrom - rawSourceStart + markerOffset,
-    end: endOffset - tableFrom - rawSourceStart - markerOffset,
-  };
-}
-
-function findFirstMappedSourceOffset(node: Node): number | null {
-  const own = renderedSourceOffsets.get(node);
-  if (own) return own.start;
-  for (const child of Array.from(node.childNodes)) {
-    const mapped = findFirstMappedSourceOffset(child);
-    if (mapped !== null) return mapped;
-  }
-  return null;
-}
-
-function findLastMappedSourceOffset(node: Node): number | null {
-  const own = renderedSourceOffsets.get(node);
-  if (own) return own.end;
-  const children = Array.from(node.childNodes);
-  for (let i = children.length - 1; i >= 0; i--) {
-    const mapped = findLastMappedSourceOffset(children[i]);
-    if (mapped !== null) return mapped;
-  }
-  return null;
-}
-
-function rawSourceOffsetFromCaret(container: Node, offset: number): number | null {
-  const own = renderedSourceOffsets.get(container);
-  if (own) return Math.max(own.start, Math.min(own.start + offset, own.end));
-  const children = Array.from(container.childNodes);
-  if (offset > 0) {
-    const previous = children[offset - 1];
-    if (previous) {
-      const mapped = findLastMappedSourceOffset(previous);
-      if (mapped !== null) return mapped;
-    }
-  }
-  const next = children[offset];
-  if (next) {
-    const mapped = findFirstMappedSourceOffset(next);
-    if (mapped !== null) return mapped;
-  }
-  return null;
-}
-
-function rawSourceOffsetFromPoint(td: HTMLElement, event: MouseEvent): number | null {
-  const doc = td.ownerDocument as Document & {
-    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
-    caretRangeFromPoint?: (x: number, y: number) => Range | null;
-  };
-  const position = doc.caretPositionFromPoint?.(event.clientX, event.clientY);
-  if (position && td.contains(position.offsetNode)) {
-    return rawSourceOffsetFromCaret(position.offsetNode, position.offset);
-  }
-  const range = doc.caretRangeFromPoint?.(event.clientX, event.clientY);
-  if (range && td.contains(range.startContainer)) {
-    return rawSourceOffsetFromCaret(range.startContainer, range.startOffset);
-  }
-  return null;
-}
-
-function placeRawSourceCaret(td: HTMLElement, rawOffset: number): void {
-  const text = td.firstChild;
-  if (!text || text.nodeType !== Node.TEXT_NODE) return;
-  const offset = Math.max(0, Math.min(rawOffset, text.textContent?.length ?? 0));
-  const range = td.ownerDocument.createRange();
-  range.setStart(text, offset);
-  range.collapse(true);
-  const selection = td.ownerDocument.getSelection();
-  selection?.removeAllRanges();
-  selection?.addRange(range);
-}
-
-function extractCellText(cell: any): string {
-  if (!cell || !("children" in cell) || !Array.isArray(cell.children)) return "";
-  return cell.children
-    .map((c: any) => {
-      if ("value" in c && typeof c.value === "string") return c.value;
-      if ("children" in c && Array.isArray(c.children))
-        return c.children.map((n: any) => ("value" in n ? n.value : "")).join("");
-      return "";
-    })
-    .join("");
-}
-
-/**
- * Render an inline mdast node into DOM. Supports the inline subset that
- * appears inside table cells: text, link, strong, emphasis, delete,
- * inlineCode. Anything else falls back to its text representation so the
- * user still sees content (just unstyled).
- */
-/**
- * A cell is "media-only" when its visible content is a single image
- * (optionally wrapped in a link). Whitespace-only text siblings are
- * ignored. Media-only cells render the image scaled to the cell width
- * so the user can grow / shrink the image by resizing the column.
- */
-function isCellMediaOnly(astCell: any): boolean {
-  if (!astCell || !Array.isArray(astCell.children)) return false;
-  const meaningful = astCell.children.filter((c: any) => {
-    if (!c) return false;
-    if (c.type === "text") return typeof c.value === "string" && c.value.trim() !== "";
-    return true;
-  });
-  if (meaningful.length !== 1) return false;
-  const only = meaningful[0];
-  if (only.type === "image") return true;
-  if (only.type === "link" && Array.isArray(only.children)) {
-    const linkInner = only.children.filter((c: any) => {
-      if (!c) return false;
-      if (c.type === "text") return typeof c.value === "string" && c.value.trim() !== "";
-      return true;
-    });
-    return linkInner.length === 1 && linkInner[0].type === "image";
-  }
-  return false;
-}
-
-function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourceStart = 0): Node {
-  if (!node) return document.createTextNode("");
-  switch (node.type) {
-    case "text": {
-      const text = document.createTextNode(typeof node.value === "string" ? node.value : "");
-      const sourceOffsets = getNodeSourceOffsets(node, tableFrom, rawSourceStart);
-      if (sourceOffsets) renderedSourceOffsets.set(text, sourceOffsets);
-      return text;
-    }
-    case "link": {
-      const a = document.createElement("a");
-      a.href = typeof node.url === "string" ? node.url : "#";
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      a.style.cssText =
-        "color:var(--nexus-accent);text-decoration:underline;cursor:pointer;";
-      // Stop CM6's editor-level mousedown handler from reading this as a
-      // cursor-placement click — we want the browser's native link click
-      // to win so the user can ⌘-click open in a new tab.
-      a.addEventListener("mousedown", (e) => e.stopPropagation());
-      if (mediaOnly) {
-        // Let the wrapped <img> grow with the cell without the anchor
-        // adding extra inline-baseline whitespace around it.
-        a.style.display = "block";
-        a.style.lineHeight = "0";
-      }
-      for (const child of node.children ?? []) a.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart));
-      return a;
-    }
-    case "strong": {
-      const el = document.createElement("strong");
-      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
-      return el;
-    }
-    case "emphasis": {
-      const el = document.createElement("em");
-      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
-      return el;
-    }
-    case "delete": {
-      const el = document.createElement("del");
-      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
-      return el;
-    }
-    case "inlineCode": {
-      const el = document.createElement("code");
-      const text = document.createTextNode(typeof node.value === "string" ? node.value : "");
-      const sourceOffsets = getNodeSourceOffsets(node, tableFrom, rawSourceStart, true);
-      if (sourceOffsets) renderedSourceOffsets.set(text, sourceOffsets);
-      el.appendChild(text);
-      el.style.cssText =
-        "background:var(--nexus-bg-muted);padding:1px 4px;border-radius:3px;font-family:monospace;";
-      return el;
-    }
-    case "image": {
-      const img = document.createElement("img");
-      img.src = typeof node.url === "string" ? node.url : "";
-      if (typeof node.alt === "string") img.alt = node.alt;
-      if (typeof node.title === "string") img.title = node.title;
-      // Two sizing modes:
-      //   - Inline image (text + image in same cell): cap to ~1 line of
-      //     text so the image doesn't bloat the row height.
-      //   - Media-only cell: grow with cell width so resizing the column
-      //     resizes the image. max-height keeps a sane upper bound to
-      //     stop huge images from forcing a 1000-px-tall row.
-      const styles = mediaOnly
-        ? [
-            "display:block",
-            "width:100%",
-            "max-width:100%",
-            "height:auto",
-            "max-height:240px",
-            "min-height:32px",
-            "border-radius:3px",
-            "background:var(--nexus-bg-muted)",
-            "border:1px solid var(--nexus-border-subtle)",
-            "object-fit:contain",
-          ]
-        : [
-            "max-height:1.6em",
-            "min-height:1.6em",
-            "min-width:1.6em",
-            "max-width:160px",
-            "vertical-align:middle",
-            "border-radius:3px",
-            "background:var(--nexus-bg-muted)",
-            "border:1px solid var(--nexus-border-subtle)",
-            "object-fit:contain",
-          ];
-      img.style.cssText = styles.join(";") + ";";
-      // Stop CM6's cell mousedown handler from intercepting clicks on the
-      // image (otherwise ⌘-clicking the image to open the link wouldn't
-      // work, and a plain click would unexpectedly enter cell-edit mode).
-      img.addEventListener("mousedown", (e) => e.stopPropagation());
-      return img;
-    }
-    default: {
-      if (Array.isArray(node.children)) {
-        const frag = document.createDocumentFragment();
-        for (const child of node.children) frag.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
-        return frag;
-      }
-      const text = document.createTextNode(typeof node.value === "string" ? node.value : "");
-      const sourceOffsets = getNodeSourceOffsets(node, tableFrom, rawSourceStart);
-      if (sourceOffsets) renderedSourceOffsets.set(text, sourceOffsets);
-      return text;
-    }
-  }
-}
-
-function renderCellRich(td: HTMLElement, astCell: any, tableFrom = 0, rawSourceStart = 0): void {
-  td.textContent = "";
-  if (!astCell || !Array.isArray(astCell.children)) return;
-  const mediaOnly = isCellMediaOnly(astCell);
-  for (const child of astCell.children) td.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart));
-}
-
-const GRIP_BG = "var(--nexus-bg-muted)";
-const GRIP_BG_HOVER = "var(--nexus-border)";
-const SELECT_BG = "rgba(124, 108, 250, 0.12)";
-const SELECT_BORDER = "var(--nexus-accent)";
-const DRAG_HIGHLIGHT_BG = "rgba(124, 108, 250, 0.08)";
-
-export class EditableTableWidget extends WidgetType {
-  private editing = false;
-  private cleanupEditingLocks: (() => void) | null = null;
-
-  constructor(
-    private node: Table,
-    private tableFrom: number,
-    private source: string,
-    private viewRef: { current: EditorView | null },
-    private labels: Required<LivePreviewLabels>
-  ) { super(); }
-
-  eq(other: EditableTableWidget): boolean {
-    if (this.editing) return true;
-    return this.source === other.source;
-  }
-
-  ignoreEvent(): boolean { return true; }
-
-  destroy(): void {
-    this.cleanupEditingLocks?.();
-    this.cleanupEditingLocks = null;
-  }
-
-  get estimatedHeight(): number {
-    const rows = this.node.children?.length ?? 1;
-    // rows × ~32px (cell padding + text) + 16px wrapper padding (8px top + 8px bottom)
-    return rows * 32 + 16;
-  }
-
-  private dispatch(newSource: string): void {
-    const v = this.viewRef.current;
-    if (!v) return;
-    v.dispatch({ changes: { from: this.tableFrom, to: this.tableFrom + this.source.length, insert: newSource } });
-  }
-
-  private deleteColumn(colIdx: number): void {
-    const lines = this.source.split("\n");
-    const newLines = lines.map((line) => {
-      const cells = line.split("|").filter((_, i, a) => i > 0 && i < a.length - 1);
-      if (cells.length === 0) return line;
-      cells.splice(colIdx, 1);
-      return "|" + cells.join("|") + "|";
-    });
-    this.dispatch(newLines.join("\n"));
-  }
-
-  private deleteRow(rowIdx: number): void {
-    const lines = this.source.split("\n");
-    const dataLines: number[] = [];
-    for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dataLines.push(i);
-    const lineIdx = dataLines[rowIdx];
-    if (lineIdx === undefined) return;
-    lines.splice(lineIdx, 1);
-    this.dispatch(lines.join("\n"));
-  }
-
-  private addColumn(): void {
-    const lines = this.source.split("\n");
-    const nl = lines.map((l) => SEPARATOR_RE.test(l) ? l.replace(/\|?\s*$/, " | --- |") : l.replace(/\|?\s*$/, " |  |"));
-    this.dispatch(nl.join("\n"));
-  }
-
-  private addRow(): void {
-    const cc = (this.node.children?.[0] as any)?.children?.length ?? 2;
-    const nr = "\n| " + Array(cc).fill("  ").join(" | ") + " |";
-    const v = this.viewRef.current;
-    if (!v) return;
-    v.dispatch({ changes: { from: this.tableFrom + this.source.length, insert: nr } });
-  }
-
-  private moveColumn(from: number, to: number): void {
-    const lines = this.source.split("\n");
-    const nl = lines.map((line) => {
-      const p = line.split("|"), cells = p.slice(1, -1);
-      if (from >= cells.length || to >= cells.length) return line;
-      const [m] = cells.splice(from, 1);
-      cells.splice(to, 0, m);
-      return "|" + cells.join("|") + "|";
-    });
-    this.dispatch(nl.join("\n"));
-  }
-
-  private moveRow(from: number, to: number): void {
-    const lines = this.source.split("\n");
-    const dl: number[] = [];
-    for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dl.push(i);
-    const s = dl[from], d = dl[to];
-    if (s === undefined || d === undefined) return;
-    const [m] = lines.splice(s, 1);
-    lines.splice(d, 0, m);
-    this.dispatch(lines.join("\n"));
-  }
-
-  toDOM(): HTMLElement {
-    const self = this;
-    const rows = this.node.children ?? [];
-    // Normalise irregular markdown tables: if some rows have more cells than
-    // the header (extra cells overflowing) or fewer (missing trailing cells),
-    // pick the MAX cell count seen so the rendered grid is rectangular.
-    // Short rows are padded with empty cells in the cell loop below; long
-    // rows reserve the extra slots in the header / grip row here.
-    let colCount = 0;
-    for (const row of rows) {
-      const len = "children" in row && Array.isArray(row.children) ? row.children.length : 0;
-      if (len > colCount) colCount = len;
-    }
-    const sourceLines = this.source.split("\n");
-    const dataLineIndices: number[] = [];
-    for (let i = 0; i < sourceLines.length; i++) if (!SEPARATOR_RE.test(sourceLines[i])) dataLineIndices.push(i);
-
-    // State
-    let selectedCol = -1;
-    let selectedRow = -1;
-
-    // Cell range selection (Excel-style)
-    let rangeStart: { row: number; col: number } | null = null;
-    let rangeEnd: { row: number; col: number } | null = null;
-    let isRangeSelecting = false;
-    let cellMouseDown = false; // true between mousedown and mouseup on a cell
-    let rangeActive = false;   // true when a multi-cell range is displayed (survives mouseup)
-    let cellEditRecorded = false; // true after the first keystroke in a cell edit is recorded in history
-
-    // Custom drag state (no HTML5 drag API)
-    let draggingCol = -1;   // which column is being dragged
-    let draggingRow = -1;   // which row is being dragged
-    let dropTargetCol = -1;
-    let dropTargetRow = -1;
-    const editingLocks = {
-      focus: false,
-      range: false,
-      drag: false,
-    };
-
-    function hasEditingLocks(): boolean {
-      return editingLocks.focus || editingLocks.range || editingLocks.drag;
-    }
-
-    function acquireEditingLock(lock: keyof typeof editingLocks): void {
-      if (editingLocks[lock]) return;
-      editingLocks[lock] = true;
-      self.editing = true;
-      tableEditingCount++;
-    }
-
-    function releaseEditingLock(lock: keyof typeof editingLocks): void {
-      if (!editingLocks[lock]) return;
-      editingLocks[lock] = false;
-      tableEditingCount = Math.max(0, tableEditingCount - 1);
-      self.editing = hasEditingLocks();
-    }
-
-    this.cleanupEditingLocks = () => {
-      releaseEditingLock("focus");
-      releaseEditingLock("range");
-      releaseEditingLock("drag");
-    };
-
-    function blurActiveCellForDrag(): void {
-      const active = document.activeElement;
-      if (!(active instanceof HTMLElement) || !wrapper.contains(active) || !active.classList.contains("nexus-cell")) return;
-      active.blur();
-      releaseEditingLock("focus");
-      active.contentEditable = "false";
-    }
-
-    // ── Root wrapper ──
-    const wrapper = document.createElement("div");
-    wrapper.className = "nexus-table-wrapper";
-    // CRITICAL: use padding, not margin. CM6 measures block widget height via
-    // getBoundingClientRect which EXCLUDES margin. margin:8px caused 16px of
-    // untracked height per table → cumulative click-drift below every table.
-    wrapper.style.cssText = "display:inline-block;position:relative;padding:8px 0;user-select:none;";
-
-    // ── Table ──
-    const table = document.createElement("table");
-    table.setAttribute("role", "grid");
-    table.setAttribute("aria-label", "Editable table");
-    table.style.cssText = "border-collapse:collapse;display:table;";
-    if (rows.length === 0) { wrapper.appendChild(table); return wrapper; }
-
-    // ── Column-width persistence ──
-    // Keyed by the table's header source line so widths stick across
-    // widget rebuilds caused by editing other cells.
-    const widthKey = sourceLines[dataLineIndices[0] ?? 0] ?? "";
-
-    /**
-     * Apply (or refresh) an explicit `<colgroup>` + `table-layout: fixed`
-     * with the given widths. `widths` is one entry per column in the
-     * rendered table — including the row-grip column at index 0.
-     */
-    const applyColumnWidths = (widths: number[]): void => {
-      let colgroup = table.querySelector(":scope > colgroup") as HTMLTableColElement | null;
-      if (!colgroup) {
-        colgroup = document.createElement("colgroup") as HTMLTableColElement;
-        for (let i = 0; i < widths.length; i++) {
-          const col = document.createElement("col");
-          col.style.width = widths[i] + "px";
-          colgroup.appendChild(col);
-        }
-        table.insertBefore(colgroup, table.firstChild);
-      } else {
-        const cols = Array.from(colgroup.children);
-        for (let i = 0; i < widths.length && i < cols.length; i++) {
-          (cols[i] as HTMLElement).style.width = widths[i] + "px";
-        }
-      }
-      const total = widths.reduce((s, w) => s + w, 0);
-      table.style.tableLayout = "fixed";
-      table.style.width = total + "px";
-    };
-
-    /**
-     * Read the current rendered column widths from the DOM. Used as the
-     * baseline when the user starts dragging a resize handle. Falls back
-     * to a sane minimum when a cell hasn't laid out yet.
-     */
-    const measureColumnWidths = (): number[] => {
-      const widths: number[] = [];
-      // table.rows = [gripRow, headerRow, ...dataRows] — measure off the
-      // header row because it has the same cell-count as data rows and is
-      // never the all-empty fallback.
-      const headerRow = table.rows[1];
-      if (!headerRow) return widths;
-      for (let i = 0; i < headerRow.cells.length; i++) {
-        const w = (headerRow.cells[i] as HTMLElement).getBoundingClientRect().width;
-        widths.push(Math.max(i === 0 ? ROW_GRIP_WIDTH : MIN_COLUMN_WIDTH, Math.round(w)));
-      }
-      return widths;
-    };
-
-    /**
-     * Start a column-resize drag for the data column at `dataColIdx`
-     * (0-based among data columns — the row-grip is column 0 in the DOM
-     * but never resizable, so the dragged column lives at colgroup
-     * index `dataColIdx + 1`).
-     */
-    const startColumnResize = (dataColIdx: number, startX: number): void => {
-      acquireEditingLock("drag");
-      const baseWidths = (() => {
-        const saved = tableColumnWidths.get(widthKey);
-        if (saved && saved.length === colCount + 1) return saved.slice();
-        return measureColumnWidths();
-      })();
-      applyColumnWidths(baseWidths);
-      const initial = baseWidths[dataColIdx + 1];
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-
-      const onMove = (ev: MouseEvent): void => {
-        const delta = ev.clientX - startX;
-        const next = Math.max(MIN_COLUMN_WIDTH, initial + delta);
-        const updated = baseWidths.slice();
-        updated[dataColIdx + 1] = next;
-        applyColumnWidths(updated);
-        baseWidths[dataColIdx + 1] = next;
-      };
-      const onUp = (): void => {
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-        tableColumnWidths.set(widthKey, baseWidths.slice());
-        releaseEditingLock("drag");
-      };
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    };
-
-    // ── Selection overlay — highlights entire table when CM6 selection covers it ──
-    const selectionOverlay = document.createElement("div");
-    selectionOverlay.style.cssText =
-      "position:absolute;inset:0;background:rgba(124,108,250,0.1);pointer-events:none;" +
-      "display:none;z-index:1;border-radius:2px;";
-    wrapper.appendChild(selectionOverlay);
-
-    // Poll CM6 selection to show/hide overlay and clear range when focus leaves table
-    const checkSelection = (): void => {
-      if (!wrapper.isConnected) return;
-      const v = self.viewRef.current;
-      if (v && !self.editing) {
-        const sel = v.state.selection.main;
-        const tableEnd = self.tableFrom + self.source.length;
-        const isSelected = sel.from !== sel.to && sel.from <= self.tableFrom && sel.to >= tableEnd;
-        selectionOverlay.style.display = isSelected ? "block" : "none";
-        // If cursor moved outside table, no active interaction, no active range, clear range selection
-        if (rangeStart && !isRangeSelecting && !cellMouseDown && !rangeActive && (sel.head < self.tableFrom || sel.head > tableEnd)) {
-          clearRangeSelection();
-        }
-      } else {
-        selectionOverlay.style.display = "none";
-      }
-      requestAnimationFrame(checkSelection);
-    };
-    requestAnimationFrame(checkSelection);
-
-    // ── Drag indicator overlay (full-height vertical line) ──
-    const colIndicator = document.createElement("div");
-    colIndicator.style.cssText =
-      "position:absolute;width:2px;background:" + SELECT_BORDER + ";pointer-events:none;" +
-      "top:0;bottom:0;display:none;z-index:2;border-radius:1px;";
-    wrapper.appendChild(colIndicator);
-
-    const rowIndicator = document.createElement("div");
-    rowIndicator.style.cssText =
-      "position:absolute;height:2px;background:" + SELECT_BORDER + ";pointer-events:none;" +
-      "left:0;right:0;display:none;z-index:2;border-radius:1px;";
-    wrapper.appendChild(rowIndicator);
-
-    // Floating pill that follows the mouse during column drag
-    const floatingPill = document.createElement("div");
-    floatingPill.style.cssText =
-      "position:absolute;width:16px;height:6px;border-radius:3px;background:" + SELECT_BORDER + ";" +
-      "pointer-events:none;display:none;z-index:3;top:4px;";
-    wrapper.appendChild(floatingPill);
-
-    // Floating pill for row drag
-    const floatingRowPill = document.createElement("div");
-    floatingRowPill.style.cssText =
-      "position:absolute;width:6px;height:16px;border-radius:3px;background:" + SELECT_BORDER + ";" +
-      "pointer-events:none;display:none;z-index:3;left:5px;";
-    wrapper.appendChild(floatingRowPill);
-
-    // ── Helpers ──
-
-    function getColumnCells(colIdx: number): HTMLElement[] {
-      const result: HTMLElement[] = [];
-      table.querySelectorAll("tr").forEach((tr) => {
-        const cells = tr.querySelectorAll(".nexus-cell");
-        if (cells[colIdx]) result.push(cells[colIdx] as HTMLElement);
-      });
-      return result;
-    }
-
-    function getHeaderCells(): NodeListOf<Element> {
-      return table.querySelectorAll("tr:nth-child(2) .nexus-cell");
-    }
-
-    function colAtClientX(clientX: number): number {
-      const cells = getHeaderCells();
-      for (let i = 0; i < cells.length; i++) {
-        const rect = cells[i].getBoundingClientRect();
-        if (clientX >= rect.left && clientX <= rect.right) return i;
-      }
-      return -1;
-    }
-
-    function rowAtClientY(clientY: number): number {
-      // Skip header (index 0), only match data rows (index >= 1)
-      const dataRows = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
-      for (let i = 1; i < dataRows.length; i++) { // start at 1 to skip header row
-        const rect = dataRows[i].getBoundingClientRect();
-        if (clientY >= rect.top && clientY <= rect.bottom) return i;
-      }
-      return -1;
-    }
-
-    function showColIndicator(targetCol: number): void {
-      if (draggingCol < 0 || targetCol === draggingCol) { colIndicator.style.display = "none"; dropTargetCol = -1; return; }
-      dropTargetCol = targetCol;
-      const cells = getHeaderCells();
-      const cell = cells[targetCol] as HTMLElement | undefined;
-      if (!cell) return;
-      const wrapperRect = wrapper.getBoundingClientRect();
-      const cellRect = cell.getBoundingClientRect();
-      const bounds = getContentBounds();
-      const rawX = draggingCol < targetCol ? cellRect.right : cellRect.left;
-      const clampedX = Math.max(bounds.left, Math.min(rawX, bounds.right));
-      colIndicator.style.left = (clampedX - wrapperRect.left - 1) + "px";
-      colIndicator.style.display = "block";
-    }
-
-    function showRowIndicator(targetRow: number): void {
-      if (draggingRow < 0 || targetRow === draggingRow) { rowIndicator.style.display = "none"; dropTargetRow = -1; return; }
-      dropTargetRow = targetRow;
-      const dataRows = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
-      const row = dataRows[targetRow] as HTMLElement | undefined;
-      if (!row) return;
-      const wrapperRect = wrapper.getBoundingClientRect();
-      const rowRect = row.getBoundingClientRect();
-      const y = draggingRow < targetRow ? rowRect.bottom - wrapperRect.top : rowRect.top - wrapperRect.top;
-      rowIndicator.style.top = (y - 1) + "px";
-      rowIndicator.style.display = "block";
-    }
-
-    function hideIndicators(): void {
-      colIndicator.style.display = "none";
-      rowIndicator.style.display = "none";
-      dropTargetCol = -1;
-      dropTargetRow = -1;
-    }
-
-    function clearDragHighlights(): void {
-      table.querySelectorAll(".nexus-cell").forEach((el) => {
-        const h = el as HTMLElement;
-        h.style.background = h.tagName === "TH" ? "var(--nexus-bg-subtle)" : "";
-      });
-    }
-
-    // ── Range selection border overlay ──
-    const rangeBorder = document.createElement("div");
-    rangeBorder.style.cssText =
-      "position:absolute;border:2px solid " + SELECT_BORDER + ";pointer-events:none;" +
-      "display:none;z-index:1;border-radius:2px;";
-    wrapper.appendChild(rangeBorder);
-
-    function getNormalizedRange(): { r1: number; c1: number; r2: number; c2: number } | null {
-      if (!rangeStart || !rangeEnd) return null;
-      return {
-        r1: Math.min(rangeStart.row, rangeEnd.row),
-        c1: Math.min(rangeStart.col, rangeEnd.col),
-        r2: Math.max(rangeStart.row, rangeEnd.row),
-        c2: Math.max(rangeStart.col, rangeEnd.col),
-      };
-    }
-
-    function getCellElement(row: number, col: number): HTMLElement | null {
-      const dataRows = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
-      const tr = dataRows[row];
-      if (!tr) return null;
-      const cells = tr.querySelectorAll(".nexus-cell");
-      return (cells[col] as HTMLElement) ?? null;
-    }
-
-    function renderRangeSelection(): void {
-      const range = getNormalizedRange();
-      if (!range) { rangeBorder.style.display = "none"; return; }
-
-      // Highlight cells in range
-      const dataRows = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
-      dataRows.forEach((tr, rowIdx) => {
-        tr.querySelectorAll(".nexus-cell").forEach((cell, colIdx) => {
-          const h = cell as HTMLElement;
-          if (rowIdx >= range.r1 && rowIdx <= range.r2 && colIdx >= range.c1 && colIdx <= range.c2) {
-            h.style.background = SELECT_BG;
-          } else {
-            h.style.background = h.tagName === "TH" ? "var(--nexus-bg-subtle)" : "";
-          }
-        });
-      });
-
-      // Position the border overlay around the selected range
-      const topLeft = getCellElement(range.r1, range.c1);
-      const bottomRight = getCellElement(range.r2, range.c2);
-      if (!topLeft || !bottomRight) { rangeBorder.style.display = "none"; return; }
-
-      const wrapperRect = wrapper.getBoundingClientRect();
-      const tlRect = topLeft.getBoundingClientRect();
-      const brRect = bottomRight.getBoundingClientRect();
-
-      rangeBorder.style.left = (tlRect.left - wrapperRect.left - 1) + "px";
-      rangeBorder.style.top = (tlRect.top - wrapperRect.top - 1) + "px";
-      rangeBorder.style.width = (brRect.right - tlRect.left) + "px";
-      rangeBorder.style.height = (brRect.bottom - tlRect.top) + "px";
-      rangeBorder.style.display = "block";
-    }
-
-    function clearRangeSelection(): void {
-      // Release editing lock if range was active (we locked it in mouseup)
-      if (rangeActive) {
-        releaseEditingLock("range");
-      }
-      rangeStart = null;
-      rangeEnd = null;
-      isRangeSelecting = false;
-      rangeActive = false;
-      rangeBorder.style.display = "none";
-      table.querySelectorAll(".nexus-cell").forEach((el) => {
-        const h = el as HTMLElement;
-        h.style.background = h.tagName === "TH" ? "var(--nexus-bg-subtle)" : "";
-        h.removeAttribute("aria-selected");
-      });
-    }
-
-    function cellAtPoint(clientX: number, clientY: number): { row: number; col: number } | null {
-      const dataRows = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
-      for (let r = 0; r < dataRows.length; r++) {
-        const cells = dataRows[r].querySelectorAll(".nexus-cell");
-        for (let c = 0; c < cells.length; c++) {
-          const rect = cells[c].getBoundingClientRect();
-          if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
-            return { row: r, col: c };
-          }
-        }
-      }
-      return null;
-    }
-
-    function clearSelection(): void {
-      selectedCol = -1;
-      selectedRow = -1;
-      table.querySelectorAll(".nexus-cell").forEach((el) => {
-        const h = el as HTMLElement;
-        h.style.background = h.tagName === "TH" ? "var(--nexus-bg-subtle)" : "";
-        h.removeAttribute("aria-selected");
-      });
-      table.querySelectorAll(".nexus-col-grip").forEach((el) => {
-        (el as HTMLElement).style.background = "";
-      });
-      table.querySelectorAll(".nexus-row-grip").forEach((el) => {
-        (el as HTMLElement).style.background = "";
-      });
-    }
-
-    function highlightColumn(colIdx: number): void {
-      clearSelection();
-      selectedCol = colIdx;
-      const gripCells = table.querySelectorAll(".nexus-col-grip");
-      if (gripCells[colIdx]) (gripCells[colIdx] as HTMLElement).style.background = SELECT_BORDER;
-      getColumnCells(colIdx).forEach((el) => { el.style.background = SELECT_BG; });
-    }
-
-    function highlightRow(rowIdx: number): void {
-      clearSelection();
-      selectedRow = rowIdx;
-      const trs = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
-      if (trs[rowIdx]) {
-        trs[rowIdx].querySelectorAll(".nexus-cell").forEach((el) => {
-          (el as HTMLElement).style.background = SELECT_BG;
-        });
-        const grip = trs[rowIdx].querySelector(".nexus-row-grip");
-        if (grip) (grip as HTMLElement).style.background = SELECT_BORDER;
-      }
-    }
-
-    function createGripPill(): HTMLElement {
-      const pill = document.createElement("div");
-      pill.style.cssText =
-        "width:16px;height:6px;border-radius:3px;background:" + GRIP_BG + ";" +
-        "margin:0 auto;transition:background .15s;";
-      return pill;
-    }
-
-    // ── Custom drag handlers (mousedown/mousemove/mouseup, no HTML5 drag) ──
-
-    // Get the content area boundaries (excluding grip column)
-    function getContentBounds(): { left: number; right: number; top: number; bottom: number } {
-      const cells = getHeaderCells();
-      if (cells.length === 0) return wrapper.getBoundingClientRect();
-      const first = cells[0].getBoundingClientRect();
-      const last = cells[cells.length - 1].getBoundingClientRect();
-      return { left: first.left, right: last.right, top: first.top, bottom: last.bottom };
-    }
-
-    function onDragMove(e: MouseEvent): void {
-      e.preventDefault();
-      if (!wrapper.isConnected) { onDragEnd(); return; }
-      const wrapperRect = wrapper.getBoundingClientRect();
-
-      if (draggingCol >= 0) {
-        const bounds = getContentBounds();
-        const clampedX = Math.max(bounds.left, Math.min(e.clientX, bounds.right));
-        floatingPill.style.left = (clampedX - wrapperRect.left - 8) + "px";
-
-        const target = colAtClientX(clampedX);
-        if (target >= 0 && target !== draggingCol) {
-          showColIndicator(target);
-        } else {
-          colIndicator.style.display = "none";
-          dropTargetCol = -1;
-        }
-      }
-      if (draggingRow >= 0) {
-        // Move floating pill vertically, constrained to non-header data rows
-        const dataRows = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
-        // dataRows[0] is header, dataRows[1+] are body rows — clamp to body rows only
-        const firstBodyRow = dataRows[1]?.getBoundingClientRect();
-        const lastRow = dataRows[dataRows.length - 1]?.getBoundingClientRect();
-        const minY = firstBodyRow ? firstBodyRow.top : wrapperRect.top;
-        const maxY = lastRow ? lastRow.bottom : wrapperRect.bottom;
-        const clampedY = Math.max(minY, Math.min(e.clientY, maxY));
-        floatingRowPill.style.top = (clampedY - wrapperRect.top - 8) + "px";
-
-        const target = rowAtClientY(clampedY);
-        if (target >= 0 && target !== draggingRow) {
-          showRowIndicator(target);
-        } else {
-          rowIndicator.style.display = "none";
-          dropTargetRow = -1;
-        }
-      }
-    }
-
-    function onDragEnd(): void {
-      const movedCol = draggingCol >= 0 && dropTargetCol >= 0 && dropTargetCol !== draggingCol;
-      const movedRow = draggingRow >= 0 && dropTargetRow >= 0 && dropTargetRow !== draggingRow;
-      const savedDragCol = draggingCol;
-      const savedDropCol = dropTargetCol;
-      const savedDragRow = draggingRow;
-      const savedDropRow = dropTargetRow;
-
-      // Clean up visual state FIRST
-      clearDragHighlights();
-      hideIndicators();
-      floatingPill.style.display = "none";
-      floatingRowPill.style.display = "none";
-      gripRow.style.opacity = "0";
-      draggingCol = -1;
-      draggingRow = -1;
-      document.removeEventListener("mousemove", onDragMove);
-      document.removeEventListener("mouseup", onDragEnd);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-
-      // Release editing lock BEFORE dispatch so the resulting update rebuilds widget
-      releaseEditingLock("drag");
-
-      // Now dispatch the move — this triggers a full decoration rebuild with new source
-      if (movedCol) self.moveColumn(savedDragCol, savedDropCol);
-      if (movedRow) self.moveRow(savedDragRow, savedDropRow);
-    }
-
-    function startColDrag(colIdx: number, startX: number): void {
-      draggingCol = colIdx;
-      draggingRow = -1;
-      // Lock editing to prevent CM6 from recreating widget DOM mid-drag
-      acquireEditingLock("drag");
-      blurActiveCellForDrag();
-      clearRangeSelection();
-      clearSelection();
-      // Highlight source column
-      getColumnCells(colIdx).forEach((el) => { el.style.background = DRAG_HIGHLIGHT_BG; });
-      // Hide grip row, show floating pill instead
-      gripRow.style.opacity = "0";
-      const wrapperRect = wrapper.getBoundingClientRect();
-      floatingPill.style.left = (startX - wrapperRect.left - 8) + "px";
-      floatingPill.style.display = "block";
-      document.addEventListener("mousemove", onDragMove);
-      document.addEventListener("mouseup", onDragEnd);
-      document.body.style.cursor = "grabbing";
-      document.body.style.userSelect = "none";
-    }
-
-    function startRowDrag(rowIdx: number, startY: number): void {
-      draggingRow = rowIdx;
-      draggingCol = -1;
-      // Lock editing to prevent CM6 from recreating widget DOM mid-drag
-      acquireEditingLock("drag");
-      blurActiveCellForDrag();
-      clearRangeSelection();
-      clearSelection();
-      // Highlight source row
-      const trs = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
-      if (trs[rowIdx]) {
-        trs[rowIdx].querySelectorAll(".nexus-cell").forEach((el) => {
-          (el as HTMLElement).style.background = DRAG_HIGHLIGHT_BG;
-        });
-      }
-      // Show floating row pill
-      const wrapperRect = wrapper.getBoundingClientRect();
-      floatingRowPill.style.top = (startY - wrapperRect.top - 8) + "px";
-      floatingRowPill.style.display = "block";
-      // Hide the source row grip
-      const grip = trs[rowIdx]?.querySelector(".nexus-row-grip") as HTMLElement | null;
-      if (grip) grip.style.opacity = "0";
-      document.addEventListener("mousemove", onDragMove);
-      document.addEventListener("mouseup", onDragEnd);
-      document.body.style.cursor = "grabbing";
-      document.body.style.userSelect = "none";
-    }
-
-    // ── Column grip row ──
-    const gripRow = document.createElement("tr");
-    gripRow.style.cssText = "opacity:0;transition:opacity .15s;";
-
-    const gripSpacer = document.createElement("td");
-    gripSpacer.style.cssText = "width:16px;min-width:16px;padding:0;border:none;";
-    gripRow.appendChild(gripSpacer);
-
-    for (let c = 0; c < colCount; c++) {
-      const gripCell = document.createElement("td");
-      gripCell.className = "nexus-col-grip";
-      gripCell.style.cssText =
-        "padding:4px 0;text-align:center;cursor:grab;user-select:none;border:none;";
-      const pill = createGripPill();
-      gripCell.appendChild(pill);
-
-      gripCell.addEventListener("mouseenter", () => { if (draggingCol < 0) pill.style.background = GRIP_BG_HOVER; });
-      gripCell.addEventListener("mouseleave", () => { if (draggingCol < 0) pill.style.background = GRIP_BG; });
-
-      const colIdx = c;
-
-      gripCell.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        startColDrag(colIdx, e.clientX);
-      });
-
-      gripCell.addEventListener("click", (e) => {
-        e.stopPropagation();
-        highlightColumn(colIdx);
-        wrapper.focus({ preventScroll: true });
-      });
-
-      gripRow.appendChild(gripCell);
-    }
-    table.appendChild(gripRow);
-
-    // ── Data rows ──
-    let rowIdx = 0;
-    for (const astRow of rows) {
-      const isHeader = rowIdx === 0;
-      const tr = document.createElement("tr");
-      const astCells = "children" in astRow && Array.isArray(astRow.children) ? astRow.children : [];
-      const sourceLineIdx = dataLineIndices[rowIdx];
-      const curRowIdx = rowIdx;
-
-      // Row grip
-      const rowGrip = document.createElement(isHeader ? "th" : "td");
-      rowGrip.className = "nexus-row-grip";
-      rowGrip.style.cssText =
-        "width:16px;min-width:16px;max-width:16px;padding:6px 2px;text-align:center;" +
-        "cursor:" + (isHeader ? "default" : "grab") + ";user-select:none;border:none;" +
-        "border-right:1px solid var(--nexus-border);vertical-align:middle;" +
-        "opacity:0;transition:opacity .15s;";
-
-      if (!isHeader) {
-        const rowPill = createGripPill();
-        rowPill.style.width = "6px";
-        rowPill.style.height = "16px";
-        rowPill.style.borderRadius = "3px";
-        rowGrip.appendChild(rowPill);
-
-        rowGrip.addEventListener("mouseenter", () => { if (draggingRow < 0) rowPill.style.background = GRIP_BG_HOVER; });
-        rowGrip.addEventListener("mouseleave", () => { if (draggingRow < 0) rowPill.style.background = GRIP_BG; });
-
-        rowGrip.addEventListener("mousedown", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          startRowDrag(curRowIdx, e.clientY);
-        });
-
-        rowGrip.addEventListener("click", (e) => {
-          e.stopPropagation();
-          highlightRow(curRowIdx);
-          wrapper.focus({ preventScroll: true });
-        });
-      }
-
-      tr.appendChild(rowGrip);
-
-      // Content cells — iterate up to the normalised `colCount` so every row
-      // gets the same number of <td>/<th> elements. Missing trailing cells in
-      // the markdown source are rendered as empty editable cells (typing into
-      // one writes back through the same source-line dispatch as the regular
-      // cells, so the user just lengthens the row in the source).
-      for (let colIdx = 0; colIdx < colCount; colIdx++) {
-        const astCell = colIdx < astCells.length ? astCells[colIdx] : undefined;
-        const td = document.createElement(isHeader ? "th" : "td");
-        td.className = "nexus-cell";
-        // Stash the raw markdown source for this cell so we can (a) render
-        // it as rich DOM by default — links, bold, code, etc. — and (b)
-        // swap back to the raw text when the cell is focused for editing.
-        // Without this, `extractCellText` flattens `[X](url)` to `X` and the
-        // source-line dispatch in the input handler would clobber the link.
-        let rawSource = "";
-        let rawSourceStart = 0;
-        const startOffset = astCell?.position?.start?.offset;
-        const endOffset = astCell?.position?.end?.offset;
-        if (typeof startOffset === "number" && typeof endOffset === "number") {
-          const sliceStart = startOffset - self.tableFrom;
-          const sliceEnd = endOffset - self.tableFrom;
-          if (sliceStart >= 0 && sliceEnd >= sliceStart && sliceEnd <= self.source.length) {
-            const rawSlice = self.source.slice(sliceStart, sliceEnd);
-            const leadingWhitespace = rawSlice.match(/^\s*/)?.[0].length ?? 0;
-            rawSource = rawSlice.trim();
-            rawSourceStart = sliceStart + leadingWhitespace;
-          }
-        }
-        td.dataset.source = rawSource;
-        if (astCell && Array.isArray(astCell.children) && astCell.children.length > 0) {
-          renderCellRich(td, astCell, self.tableFrom, rawSourceStart);
-        } else {
-          td.textContent = rawSource;
-        }
-        td.style.cssText =
-          "position:relative;border-bottom:1px solid var(--nexus-border);border-right:1px solid var(--nexus-border);padding:8px 12px;" +
-          "text-align:left;outline:none;min-width:60px;vertical-align:top;cursor:text;";
-        if (isHeader) {
-          td.style.fontWeight = "bold";
-          td.style.background = "var(--nexus-bg-subtle)";
-          td.style.borderTop = "1px solid var(--nexus-border)";
-          // Column-resize handle on the right edge of each header cell.
-          // Sits half-on, half-off the border so the col-resize cursor is
-          // discoverable on hover without obscuring cell text. Captures
-          // its own mousedown (stopPropagation) so the cell's range-
-          // selection handler doesn't fire when the user grabs the
-          // handle.
-          const resizeHandle = document.createElement("div");
-          resizeHandle.className = "nexus-col-resize";
-          resizeHandle.style.cssText = [
-            "position:absolute",
-            "top:0",
-            "right:-3px",
-            "width:7px",
-            "height:100%",
-            "cursor:col-resize",
-            "z-index:3",
-            "user-select:none",
-          ].join(";") + ";";
-          const handleColIdx = colIdx;
-          resizeHandle.addEventListener("mousedown", (e) => {
-            if (e.button !== 0) return;
-            e.preventDefault();
-            e.stopPropagation();
-            startColumnResize(handleColIdx, e.clientX);
-          });
-          // Tiny background flash on hover so the user can see where the
-          // handle lives without us drawing a permanent divider line.
-          resizeHandle.addEventListener("mouseenter", () => {
-            resizeHandle.style.background = "var(--nexus-border)";
-          });
-          resizeHandle.addEventListener("mouseleave", () => {
-            resizeHandle.style.background = "";
-          });
-          td.appendChild(resizeHandle);
-        }
-
-        // Cell interaction: single click = edit, drag = range select
-        const cellRow = curRowIdx;
-        const cellCol = colIdx;
-        let cellMouseMoved = false;
-
-        const enterRawEditingMode = (): void => {
-          // Pin THIS cell to its currently rendered width before swapping
-          // to raw markdown. The column width in table-layout:auto is
-          // `max(cellWidth_i)` over all cells in the column — so if one
-          // cell tries to widen, the whole column expands and every
-          // other cell in it visibly shifts. Capping the focused cell at
-          // its existing width prevents it from being the new max →
-          // column stays put → no sideways jump as the user clicks
-          // between rows.
-          const renderedWidth = td.getBoundingClientRect().width;
-          if (renderedWidth > 0) {
-            td.style.maxWidth = renderedWidth + "px";
-            td.style.width = renderedWidth + "px";
-          }
-          // Inside the capped cell, let long URLs wrap (the rendered
-          // text was usually shorter than the raw markdown).
-          td.style.wordBreak = "break-all";
-          td.style.whiteSpace = "pre-wrap";
-          // Swap rendered rich DOM for the raw markdown source so the user
-          // edits the actual `[text](url)` text instead of just "text".
-          td.textContent = td.dataset.source ?? "";
-        };
-
-        const activateCellEditing = (): void => {
-          if (td.contentEditable !== "true") {
-            td.contentEditable = "true";
-          }
-          if (td.ownerDocument.activeElement !== td) {
-            td.focus({ preventScroll: true });
-          }
-          enterRawEditingMode();
-        };
-
-        td.addEventListener("mousedown", (e) => {
-          if (e.button !== 0) return; // only left button
-          e.preventDefault();
-          e.stopPropagation();
-          const rawCaretOffset = rawSourceOffsetFromPoint(td, e);
-          cellMouseMoved = false;
-          clearSelection();
-
-          // Prepare range selection but don't render until mouse moves to a different cell
-          clearRangeSelection();
-          cellMouseDown = true;
-          rangeStart = { row: cellRow, col: cellCol };
-          rangeEnd = { row: cellRow, col: cellCol };
-          const onCellMouseMove = (me: MouseEvent): void => {
-            const target = cellAtPoint(me.clientX, me.clientY);
-            if (target && (target.row !== rangeStart!.row || target.col !== rangeStart!.col)) {
-              cellMouseMoved = true;
-              isRangeSelecting = true;
-              rangeEnd = target;
-              renderRangeSelection();
-            }
-          };
-          const onCellMouseUp = (): void => {
-            document.removeEventListener("mousemove", onCellMouseMove);
-            document.removeEventListener("mouseup", onCellMouseUp);
-            cellMouseDown = false;
-            isRangeSelecting = false;
-
-            const range = getNormalizedRange();
-            if (!cellMouseMoved || (range && range.r1 === range.r2 && range.c1 === range.c2)) {
-              // Single cell click — activate editing
-              clearRangeSelection();
-              activateCellEditing();
-              if (rawCaretOffset !== null) {
-                placeRawSourceCaret(td, rawCaretOffset);
-                window.setTimeout(() => {
-                  if (td.contentEditable === "true") {
-                    placeRawSourceCaret(td, rawCaretOffset);
-                  }
-                }, 0);
-              }
-            } else {
-              // Multi-cell range selected — keep range visible, focus wrapper for key events
-              rangeActive = true;
-              // Lock editing to prevent CM6 from rebuilding the widget and losing range state
-              acquireEditingLock("range");
-              wrapper.focus({ preventScroll: true });
-            }
-          };
-          document.addEventListener("mousemove", onCellMouseMove);
-          document.addEventListener("mouseup", onCellMouseUp);
-        });
-
-        td.addEventListener("focus", () => {
-          acquireEditingLock("focus");
-          cellEditRecorded = false;
-          clearRangeSelection();
-          enterRawEditingMode();
-        });
-        td.addEventListener("blur", () => {
-          releaseEditingLock("focus");
-          td.contentEditable = "false";
-          // Restore default text-flow + width rules — we set them on
-          // focus to keep the column from jumping. Rich-rendered content
-          // reads better with default whitespace handling and lets the
-          // column re-flow naturally now that no cell is in raw-source
-          // mode.
-          td.style.wordBreak = "";
-          td.style.whiteSpace = "";
-          td.style.maxWidth = "";
-          td.style.width = "";
-
-          // Restore rich render immediately so the user sees the rendered
-          // DOM (links / bold / inline images) without waiting for a
-          // follow-up CM6 transaction. This matters for two reasons:
-          //
-          // 1. The EditableTableWidget's eq() returns true when `source`
-          //    matches — i.e. when the user clicked-and-blurred without
-          //    editing — so CM6 REUSES the existing DOM and never calls
-          //    toDOM() again to rebuild the rich cell content.
-          // 2. Even when the user edited (source changed), CM6 needs a
-          //    follow-up tr.selection / tr.docChanged after blur to fire
-          //    the StateField rebuild. If the next click lands inside
-          //    another swallowing widget, no transaction fires, and the
-          //    cell stays in raw-source mode.
-          if (astCell && Array.isArray(astCell.children) && astCell.children.length > 0) {
-            renderCellRich(td, astCell, self.tableFrom, rawSourceStart);
-          } else {
-            td.textContent = td.dataset.source ?? "";
-          }
-
-          // For the edited-then-blurred case, queue a no-op selection
-          // dispatch so the live-preview StateField rebuilds the widget
-          // with the up-to-date AST. `queueMicrotask` lets the blur
-          // settle before we re-enter CM6.
-          queueMicrotask(() => {
-            const v = self.viewRef.current;
-            if (!v) return;
-            const sel = v.state.selection.main;
-            try {
-              v.dispatch({ selection: { anchor: sel.anchor, head: sel.head } });
-            } catch {
-              // ignore — view may have been destroyed during the microtask.
-            }
-          });
-        });
-
-        td.addEventListener("input", () => {
-          const v = self.viewRef.current;
-          if (!v || sourceLineIdx === undefined) return;
-          // The currently edited cell holds the user's in-progress text; sync
-          // its dataset.source so we read a coherent set of values below.
-          td.dataset.source = td.textContent ?? "";
-          const vals: string[] = [];
-          tr.querySelectorAll<HTMLElement>(".nexus-cell").forEach((el) => {
-            // Use dataset.source as the authoritative source for every cell.
-            // Untouched cells still display rich DOM (links, bold) — reading
-            // their textContent would strip URLs and lose inline markdown.
-            vals.push(el.dataset.source ?? el.textContent ?? "");
-          });
-          const newLine = "| " + vals.join(" | ") + " |";
-          let off = self.tableFrom;
-          for (let i = 0; i < sourceLineIdx; i++) off += sourceLines[i].length + 1;
-          const end = off + sourceLines[sourceLineIdx].length;
-          sourceLines[sourceLineIdx] = newLine;
-          // Suppress history recording for intermediate keystrokes.
-          // The first keystroke in a cell edit is recorded normally so
-          // that Ctrl+Z reverts to the pre-edit state. Subsequent
-          // keystrokes are suppressed to avoid creating N undo entries.
-          v.dispatch({
-            changes: { from: off, to: end, insert: newLine },
-            annotations: cellEditRecorded
-              ? Transaction.addToHistory.of(false)
-              : undefined,
-          });
-          cellEditRecorded = true;
-        });
-
-        td.addEventListener("keydown", (e) => {
-          if (e.key === "Tab") {
-            e.preventDefault();
-            const all = table.querySelectorAll(".nexus-cell");
-            const idx = Array.from(all).indexOf(td);
-            const next = e.shiftKey ? idx - 1 : idx + 1;
-            if (next >= 0 && next < all.length) (all[next] as HTMLElement).focus({ preventScroll: true });
-            return;
-          }
-
-          // Forward editor-level shortcuts to CM6's keymap. The cell is
-          // contentEditable + the widget has `ignoreEvent: true`, so
-          // without this CM6 never sees the event and shortcuts like
-          // Mod-F (open search) silently fail inside table cells.
-          //
-          // Allow standard text-editing shortcuts (copy / paste / cut /
-          // select-all / undo / redo) to fall through to the browser's
-          // native contentEditable handling — they target the cell text,
-          // not the whole document.
-          const isMod = e.metaKey || e.ctrlKey;
-          if (!isMod) return;
-          const passthrough = new Set(["c", "v", "x", "a", "z", "y", "C", "V", "X", "A", "Z", "Y"]);
-          if (passthrough.has(e.key)) return;
-          const v = self.viewRef.current;
-          if (!v) return;
-          if (runScopeHandlers(v, e, "editor")) {
-            e.preventDefault();
-          }
-        });
-
-        tr.appendChild(td);
-      }
-
-      tr.addEventListener("contextmenu", (e) => {
-        e.preventDefault();
-        const clickedCell = (e.target as HTMLElement).closest("th,td") as HTMLElement | null;
-        let clickedCol = 0;
-        if (clickedCell) {
-          const cells = Array.from(tr.querySelectorAll("th,td"));
-          const cellIdx = cells.indexOf(clickedCell);
-          clickedCol = Math.max(0, cellIdx - 1);
-        }
-        showContextMenu(e.clientX, e.clientY, self, self.labels, curRowIdx, isHeader, clickedCol, colCount, rows.length, wrapper);
-      });
-
-      table.appendChild(tr);
-      rowIdx++;
-    }
-
-    wrapper.appendChild(table);
-
-    // Re-apply column widths the user previously set via drag (keyed by
-    // header line in `tableColumnWidths`). Done after the rows are
-    // mounted so colgroup + the widths take effect on the actual DOM.
-    const savedWidths = tableColumnWidths.get(widthKey);
-    if (savedWidths && savedWidths.length === colCount + 1) {
-      applyColumnWidths(savedWidths);
-    }
-
-    // ── "+" buttons ──
-    const btnCss = "position:absolute;width:20px;height:20px;border:1px solid var(--nexus-border-subtle);" +
-      "border-radius:50%;background:var(--nexus-bg);cursor:pointer;font-size:14px;line-height:1;" +
-      "display:flex;align-items:center;justify-content:center;color:var(--nexus-text-muted);padding:0;" +
-      "opacity:0;transition:opacity .15s;z-index:1;";
-
-    const addCol = document.createElement("button");
-    addCol.textContent = "+";
-    addCol.title = self.labels.addColumn;
-    addCol.style.cssText = btnCss + "right:-24px;top:50%;transform:translateY(-50%);";
-    addCol.addEventListener("click", () => self.addColumn());
-    wrapper.appendChild(addCol);
-
-    const addRow = document.createElement("button");
-    addRow.textContent = "+";
-    addRow.title = self.labels.addRow;
-    addRow.style.cssText = btnCss + "bottom:-24px;left:50%;transform:translateX(-50%);";
-    addRow.addEventListener("click", () => self.addRow());
-    wrapper.appendChild(addRow);
-
-    // ── Per-element hover (suppressed during drag) ──
-    function isDragging(): boolean { return draggingCol >= 0 || draggingRow >= 0; }
-
-    const headerTr = table.querySelectorAll("tr")[1] as HTMLElement | undefined;
-    gripRow.addEventListener("mouseenter", () => { if (!isDragging()) gripRow.style.opacity = "1"; });
-    gripRow.addEventListener("mouseleave", () => { if (!isDragging()) gripRow.style.opacity = "0"; });
-    if (headerTr) {
-      headerTr.addEventListener("mouseenter", () => { if (!isDragging()) gripRow.style.opacity = "1"; });
-      headerTr.addEventListener("mouseleave", () => { if (!isDragging()) gripRow.style.opacity = "0"; });
-    }
-
-    table.querySelectorAll("tr").forEach((tr, trIdx) => {
-      if (trIdx === 0) return;
-      const grip = tr.querySelector(".nexus-row-grip") as HTMLElement | null;
-      if (!grip) return;
-      tr.addEventListener("mouseenter", () => { if (!isDragging()) grip.style.opacity = "1"; });
-      tr.addEventListener("mouseleave", () => { if (!isDragging()) grip.style.opacity = "0"; });
-    });
-
-    addCol.addEventListener("mouseenter", () => { if (!isDragging()) addCol.style.opacity = "1"; });
-    addCol.addEventListener("mouseleave", () => { if (!isDragging()) addCol.style.opacity = "0"; });
-    table.querySelectorAll("tr").forEach((tr, trIdx) => {
-      if (trIdx === 0) return;
-      const cells = tr.querySelectorAll("th,td");
-      const lastCell = cells[cells.length - 1] as HTMLElement | null;
-      if (lastCell) {
-        lastCell.addEventListener("mouseenter", () => { if (!isDragging()) addCol.style.opacity = "1"; });
-        lastCell.addEventListener("mouseleave", () => { if (!isDragging()) addCol.style.opacity = "0"; });
-      }
-    });
-
-    addRow.addEventListener("mouseenter", () => { addRow.style.opacity = "1"; });
-    addRow.addEventListener("mouseleave", () => { addRow.style.opacity = "0"; });
-    const allDataRows = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
-    const lastDataRow = allDataRows[allDataRows.length - 1] as HTMLElement | undefined;
-    if (lastDataRow) {
-      lastDataRow.addEventListener("mouseenter", () => { addRow.style.opacity = "1"; });
-      lastDataRow.addEventListener("mouseleave", () => { addRow.style.opacity = "0"; });
-    }
-
-    wrapper.addEventListener("click", (e) => {
-      // Skip if a range drag just completed (this click is the tail of that drag)
-      if (rangeActive) return;
-      if (!(e.target as HTMLElement).closest(".nexus-cell") &&
-          !(e.target as HTMLElement).closest(".nexus-row-grip") &&
-          !(e.target as HTMLElement).closest(".nexus-col-grip")) {
-        clearSelection();
-        clearRangeSelection();
-      }
-    });
-
-    // Click outside table clears all selection
-    const onDocMouseDown = (e: MouseEvent): void => {
-      if (!wrapper.isConnected) { document.removeEventListener("mousedown", onDocMouseDown); return; }
-      if (!wrapper.contains(e.target as Node)) {
-        clearSelection();
-        clearRangeSelection();
-      }
-    };
-    document.addEventListener("mousedown", onDocMouseDown);
-
-    wrapper.addEventListener("keydown", (e) => {
-      if (e.key === "Delete" || e.key === "Backspace") {
-        // Range selection: clear cell contents in selected range
-        const range = getNormalizedRange();
-        if (range) {
-          e.preventDefault();
-          const lines = self.source.split("\n");
-          const dl: number[] = [];
-          for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dl.push(i);
-          for (let r = range.r1; r <= range.r2; r++) {
-            const lineIdx = dl[r];
-            if (lineIdx === undefined) continue;
-            const cells = lines[lineIdx].split("|").filter((_, i, a) => i > 0 && i < a.length - 1);
-            for (let c = range.c1; c <= range.c2; c++) {
-              if (c < cells.length) cells[c] = "  ";
-            }
-            lines[lineIdx] = "|" + cells.join("|") + "|";
-          }
-          self.dispatch(lines.join("\n"));
-          clearRangeSelection();
-          return;
-        }
-        // Column/row grip selection: delete column/row
-        if (selectedCol >= 0) {
-          e.preventDefault();
-          self.deleteColumn(selectedCol);
-        } else if (selectedRow >= 0) {
-          e.preventDefault();
-          self.deleteRow(selectedRow);
-        }
-      }
-    });
-    wrapper.tabIndex = -1;
-    wrapper.style.outline = "none";
-
-    return wrapper;
-  }
-}
-
-function showContextMenu(
-  x: number, y: number,
-  widget: EditableTableWidget,
-  labels: Required<LivePreviewLabels>,
-  rowIdx: number, isHeader: boolean,
-  colIdx: number, colCount: number, rowCount: number,
-  container: HTMLElement
-): void {
-  const ownerDocument = container.ownerDocument;
-  const ownerWindow = ownerDocument.defaultView;
-  const fullscreenEl = ownerDocument.fullscreenElement as HTMLElement | null;
-  const mountTarget: HTMLElement =
-    fullscreenEl && fullscreenEl.contains(container) ? fullscreenEl : ownerDocument.body;
-  mountTarget.querySelector(".nexus-table-ctx")?.remove();
-
-  const menu = ownerDocument.createElement("div");
-  const menuBg = "var(--nexus-menu-bg, var(--nexus-bg, #ffffff))";
-  const menuText = "var(--nexus-menu-text, var(--nexus-text, #111827))";
-  const menuBorder = "var(--nexus-menu-border, var(--nexus-border-subtle, rgba(15,23,42,.14)))";
-  const itemHoverBg = "var(--nexus-menu-hover-bg, var(--nexus-bg-muted, rgba(124,108,250,.10)))";
-  const disabledText = "var(--nexus-menu-disabled-text, var(--nexus-text-faint, rgba(17,24,39,.42)))";
-  menu.className = "nexus-table-ctx";
-  menu.setAttribute("role", "menu");
-  menu.style.cssText =
-    `position:fixed;z-index:9999;box-sizing:border-box;display:flex;flex-direction:column;gap:2px;background:${menuBg};` +
-    `color:${menuText};border:1px solid ${menuBorder};border-radius:10px;` +
-    "box-shadow:0 18px 42px rgba(15,23,42,.18);padding:6px;min-width:180px;font-size:13px;line-height:1.4;" +
-    "backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);";
-  menu.style.left = x + "px";
-  menu.style.top = y + "px";
-  menu.addEventListener("contextmenu", (event) => event.preventDefault());
-
-  function addItem(label: string, action: () => void, disabled = false): void {
-    const item = ownerDocument.createElement("button");
-    item.type = "button";
-    item.setAttribute("role", "menuitem");
-    item.textContent = label;
-    item.style.cssText =
-      "box-sizing:border-box;width:100%;border:0;border-radius:8px;background:transparent;color:inherit;display:block;" +
-      "font:inherit;text-align:left;padding:7px 12px;cursor:pointer;white-space:nowrap;";
-    if (disabled) {
-      item.disabled = true;
-      item.setAttribute("aria-disabled", "true");
-      item.style.color = disabledText;
-      item.style.cursor = "default";
-    } else {
-      item.addEventListener("mouseenter", () => { item.style.background = itemHoverBg; });
-      item.addEventListener("mouseleave", () => { item.style.background = ""; });
-      item.addEventListener("click", () => { cleanup(); action(); });
-    }
-    menu.appendChild(item);
-  }
-
-  if (!isHeader) {
-    addItem(labels.deleteRow, () => (widget as any).deleteRow(rowIdx));
-  }
-  addItem(labels.deleteColumn, () => (widget as any).deleteColumn(colIdx), colCount <= 1);
-  addItem(labels.insertRowBelow, () => (widget as any).addRow());
-  addItem(labels.insertColumnAfter, () => (widget as any).addColumn());
-
-  mountTarget.appendChild(menu);
-
-  const viewportWidth = ownerWindow?.innerWidth ?? ownerDocument.documentElement.clientWidth;
-  const viewportHeight = ownerWindow?.innerHeight ?? ownerDocument.documentElement.clientHeight;
-  const rect = menu.getBoundingClientRect();
-  const margin = 8;
-  if (rect.right > viewportWidth - margin) {
-    menu.style.left = Math.max(margin, x - rect.width) + "px";
-  }
-  if (rect.bottom > viewportHeight - margin) {
-    menu.style.top = Math.max(margin, y - rect.height) + "px";
-  }
-
-  function cleanup(): void {
-    menu.remove();
-    ownerDocument.removeEventListener("mousedown", close);
-  }
-
-  function close(e: MouseEvent): void {
-    if (!menu.contains(e.target as Node)) {
-      cleanup();
-    }
-  }
-  setTimeout(() => ownerDocument.addEventListener("mousedown", close), 0);
-}
+     1|import { EditorView, WidgetType, runScopeHandlers } from "@codemirror/view";
+     2|import { Transaction } from "@codemirror/state";
+     3|import type { Table } from "mdast";
+     4|
+     5|import type { InteractionGuardType, LivePreviewLabels, WidgetRenderContext } from "./types";
+     6|import { globalGuardState } from "./widget-extension";
+     7|
+     8|let tableEditingCount = 0;
+     9|
+    10|export function isTableEditing(): boolean {
+    11|  return tableEditingCount > 0;
+    12|}
+    13|
+    14|const SEPARATOR_RE = /^\|?\s*[-:]+\s*(\|\s*[-:]+\s*)*\|?\s*$/;
+    15|
+    16|// Session-scoped store of user-customised column widths. Keyed by the
+    17|// table's header line (e.g. `| 头像 | 用户名 | 主页 |`) so widths survive
+    18|// the widget being rebuilt across edits as long as the header doesn't
+    19|// change. Not persisted across reloads — markdown tables don't have a
+    20|// place to store column widths and we don't want to write sidecar files
+    21|// for this. Values: [rowGripWidth, ...dataColumnWidths].
+    22|const tableColumnWidths = new Map<string, number[]>();
+    23|
+    24|const ROW_GRIP_WIDTH = 16;
+    25|const MIN_COLUMN_WIDTH = 48;
+    26|const renderedSourceOffsets = new WeakMap<Node, { start: number; end: number }>();
+    27|
+    28|function getNodeSourceOffsets(node: any, tableFrom: number, rawSourceStart: number, inlineCode = false): { start: number; end: number } | null {
+    29|  const startOffset = node?.position?.start?.offset;
+    30|  const endOffset = node?.position?.end?.offset;
+    31|  if (typeof startOffset !== "number" || typeof endOffset !== "number") return null;
+    32|  const markerOffset = inlineCode ? 1 : 0;
+    33|  return {
+    34|    start: startOffset - tableFrom - rawSourceStart + markerOffset,
+    35|    end: endOffset - tableFrom - rawSourceStart - markerOffset,
+    36|  };
+    37|}
+    38|
+    39|function findFirstMappedSourceOffset(node: Node): number | null {
+    40|  const own = renderedSourceOffsets.get(node);
+    41|  if (own) return own.start;
+    42|  for (const child of Array.from(node.childNodes)) {
+    43|    const mapped = findFirstMappedSourceOffset(child);
+    44|    if (mapped !== null) return mapped;
+    45|  }
+    46|  return null;
+    47|}
+    48|
+    49|function findLastMappedSourceOffset(node: Node): number | null {
+    50|  const own = renderedSourceOffsets.get(node);
+    51|  if (own) return own.end;
+    52|  const children = Array.from(node.childNodes);
+    53|  for (let i = children.length - 1; i >= 0; i--) {
+    54|    const mapped = findLastMappedSourceOffset(children[i]);
+    55|    if (mapped !== null) return mapped;
+    56|  }
+    57|  return null;
+    58|}
+    59|
+    60|function rawSourceOffsetFromCaret(container: Node, offset: number): number | null {
+    61|  const own = renderedSourceOffsets.get(container);
+    62|  if (own) return Math.max(own.start, Math.min(own.start + offset, own.end));
+    63|  const children = Array.from(container.childNodes);
+    64|  if (offset > 0) {
+    65|    const previous = children[offset - 1];
+    66|    if (previous) {
+    67|      const mapped = findLastMappedSourceOffset(previous);
+    68|      if (mapped !== null) return mapped;
+    69|    }
+    70|  }
+    71|  const next = children[offset];
+    72|  if (next) {
+    73|    const mapped = findFirstMappedSourceOffset(next);
+    74|    if (mapped !== null) return mapped;
+    75|  }
+    76|  return null;
+    77|}
+    78|
+    79|function rawSourceOffsetFromPoint(td: HTMLElement, event: MouseEvent): number | null {
+    80|  const doc = td.ownerDocument as Document & {
+    81|    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+    82|    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+    83|  };
+    84|  const position = doc.caretPositionFromPoint?.(event.clientX, event.clientY);
+    85|  if (position && td.contains(position.offsetNode)) {
+    86|    return rawSourceOffsetFromCaret(position.offsetNode, position.offset);
+    87|  }
+    88|  const range = doc.caretRangeFromPoint?.(event.clientX, event.clientY);
+    89|  if (range && td.contains(range.startContainer)) {
+    90|    return rawSourceOffsetFromCaret(range.startContainer, range.startOffset);
+    91|  }
+    92|  return null;
+    93|}
+    94|
+    95|function placeRawSourceCaret(td: HTMLElement, rawOffset: number): void {
+    96|  const text = td.firstChild;
+    97|  if (!text || text.nodeType !== Node.TEXT_NODE) return;
+    98|  const offset = Math.max(0, Math.min(rawOffset, text.textContent?.length ?? 0));
+    99|  const range = td.ownerDocument.createRange();
+   100|  range.setStart(text, offset);
+   101|  range.collapse(true);
+   102|  const selection = td.ownerDocument.getSelection();
+   103|  selection?.removeAllRanges();
+   104|  selection?.addRange(range);
+   105|}
+   106|
+   107|function extractCellText(cell: any): string {
+   108|  if (!cell || !("children" in cell) || !Array.isArray(cell.children)) return "";
+   109|  return cell.children
+   110|    .map((c: any) => {
+   111|      if ("value" in c && typeof c.value === "string") return c.value;
+   112|      if ("children" in c && Array.isArray(c.children))
+   113|        return c.children.map((n: any) => ("value" in n ? n.value : "")).join("");
+   114|      return "";
+   115|    })
+   116|    .join("");
+   117|}
+   118|
+   119|/**
+   120| * Render an inline mdast node into DOM. Supports the inline subset that
+   121| * appears inside table cells: text, link, strong, emphasis, delete,
+   122| * inlineCode. Anything else falls back to its text representation so the
+   123| * user still sees content (just unstyled).
+   124| */
+   125|/**
+   126| * A cell is "media-only" when its visible content is a single image
+   127| * (optionally wrapped in a link). Whitespace-only text siblings are
+   128| * ignored. Media-only cells render the image scaled to the cell width
+   129| * so the user can grow / shrink the image by resizing the column.
+   130| */
+   131|function isCellMediaOnly(astCell: any): boolean {
+   132|  if (!astCell || !Array.isArray(astCell.children)) return false;
+   133|  const meaningful = astCell.children.filter((c: any) => {
+   134|    if (!c) return false;
+   135|    if (c.type === "text") return typeof c.value === "string" && c.value.trim() !== "";
+   136|    return true;
+   137|  });
+   138|  if (meaningful.length !== 1) return false;
+   139|  const only = meaningful[0];
+   140|  if (only.type === "image") return true;
+   141|  if (only.type === "link" && Array.isArray(only.children)) {
+   142|    const linkInner = only.children.filter((c: any) => {
+   143|      if (!c) return false;
+   144|      if (c.type === "text") return typeof c.value === "string" && c.value.trim() !== "";
+   145|      return true;
+   146|    });
+   147|    return linkInner.length === 1 && linkInner[0].type === "image";
+   148|  }
+   149|  return false;
+   150|}
+   151|
+   152|function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourceStart = 0): Node {
+   153|  if (!node) return document.createTextNode("");
+   154|  switch (node.type) {
+   155|    case "text": {
+   156|      const text = document.createTextNode(typeof node.value === "string" ? node.value : "");
+   157|      const sourceOffsets = getNodeSourceOffsets(node, tableFrom, rawSourceStart);
+   158|      if (sourceOffsets) renderedSourceOffsets.set(text, sourceOffsets);
+   159|      return text;
+   160|    }
+   161|    case "link": {
+   162|      const a = document.createElement("a");
+   163|      a.href = typeof node.url === "string" ? node.url : "#";
+   164|      a.target = "_blank";
+   165|      a.rel = "noopener noreferrer";
+   166|      a.style.cssText =
+   167|        "color:var(--nexus-accent);text-decoration:underline;cursor:pointer;";
+   168|      // Stop CM6's editor-level mousedown handler from reading this as a
+   169|      // cursor-placement click — we want the browser's native link click
+   170|      // to win so the user can ⌘-click open in a new tab.
+   171|      a.addEventListener("mousedown", (e) => e.stopPropagation());
+   172|      if (mediaOnly) {
+   173|        // Let the wrapped <img> grow with the cell without the anchor
+   174|        // adding extra inline-baseline whitespace around it.
+   175|        a.style.display = "block";
+   176|        a.style.lineHeight = "0";
+   177|      }
+   178|      for (const child of node.children ?? []) a.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart));
+   179|      return a;
+   180|    }
+   181|    case "strong": {
+   182|      const el = document.createElement("strong");
+   183|      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+   184|      return el;
+   185|    }
+   186|    case "emphasis": {
+   187|      const el = document.createElement("em");
+   188|      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+   189|      return el;
+   190|    }
+   191|    case "delete": {
+   192|      const el = document.createElement("del");
+   193|      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+   194|      return el;
+   195|    }
+   196|    case "inlineCode": {
+   197|      const el = document.createElement("code");
+   198|      const text = document.createTextNode(typeof node.value === "string" ? node.value : "");
+   199|      const sourceOffsets = getNodeSourceOffsets(node, tableFrom, rawSourceStart, true);
+   200|      if (sourceOffsets) renderedSourceOffsets.set(text, sourceOffsets);
+   201|      el.appendChild(text);
+   202|      el.style.cssText =
+   203|        "background:var(--nexus-bg-muted);padding:1px 4px;border-radius:3px;font-family:monospace;";
+   204|      return el;
+   205|    }
+   206|    case "image": {
+   207|      const img = document.createElement("img");
+   208|      img.src = typeof node.url === "string" ? node.url : "";
+   209|      if (typeof node.alt === "string") img.alt = node.alt;
+   210|      if (typeof node.title === "string") img.title = node.title;
+   211|      // Two sizing modes:
+   212|      //   - Inline image (text + image in same cell): cap to ~1 line of
+   213|      //     text so the image doesn't bloat the row height.
+   214|      //   - Media-only cell: grow with cell width so resizing the column
+   215|      //     resizes the image. max-height keeps a sane upper bound to
+   216|      //     stop huge images from forcing a 1000-px-tall row.
+   217|      const styles = mediaOnly
+   218|        ? [
+   219|            "display:block",
+   220|            "width:100%",
+   221|            "max-width:100%",
+   222|            "height:auto",
+   223|            "max-height:240px",
+   224|            "min-height:32px",
+   225|            "border-radius:3px",
+   226|            "background:var(--nexus-bg-muted)",
+   227|            "border:1px solid var(--nexus-border-subtle)",
+   228|            "object-fit:contain",
+   229|          ]
+   230|        : [
+   231|            "max-height:1.6em",
+   232|            "min-height:1.6em",
+   233|            "min-width:1.6em",
+   234|            "max-width:160px",
+   235|            "vertical-align:middle",
+   236|            "border-radius:3px",
+   237|            "background:var(--nexus-bg-muted)",
+   238|            "border:1px solid var(--nexus-border-subtle)",
+   239|            "object-fit:contain",
+   240|          ];
+   241|      img.style.cssText = styles.join(";") + ";";
+   242|      // Stop CM6's cell mousedown handler from intercepting clicks on the
+   243|      // image (otherwise ⌘-clicking the image to open the link wouldn't
+   244|      // work, and a plain click would unexpectedly enter cell-edit mode).
+   245|      img.addEventListener("mousedown", (e) => e.stopPropagation());
+   246|      return img;
+   247|    }
+   248|    default: {
+   249|      if (Array.isArray(node.children)) {
+   250|        const frag = document.createDocumentFragment();
+   251|        for (const child of node.children) frag.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+   252|        return frag;
+   253|      }
+   254|      const text = document.createTextNode(typeof node.value === "string" ? node.value : "");
+   255|      const sourceOffsets = getNodeSourceOffsets(node, tableFrom, rawSourceStart);
+   256|      if (sourceOffsets) renderedSourceOffsets.set(text, sourceOffsets);
+   257|      return text;
+   258|    }
+   259|  }
+   260|}
+   261|
+   262|function renderCellRich(td: HTMLElement, astCell: any, tableFrom = 0, rawSourceStart = 0): void {
+   263|  td.textContent = "";
+   264|  if (!astCell || !Array.isArray(astCell.children)) return;
+   265|  const mediaOnly = isCellMediaOnly(astCell);
+   266|  for (const child of astCell.children) td.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart));
+   267|}
+   268|
+   269|const GRIP_BG = "var(--nexus-bg-muted)";
+   270|const GRIP_BG_HOVER = "var(--nexus-border)";
+   271|const SELECT_BG = "rgba(124, 108, 250, 0.12)";
+   272|const SELECT_BORDER = "var(--nexus-accent)";
+   273|const DRAG_HIGHLIGHT_BG = "rgba(124, 108, 250, 0.08)";
+   274|
+   275|export class EditableTableWidget extends WidgetType {
+   276|  private static idCounter = 0;
+   277|  readonly widgetId = `table-${++EditableTableWidget.idCounter}`;
+   278|  private editing = false;
+   279|  private cleanupEditingLocks: (() => void) | null = null;
+   280|
+   281|  constructor(
+   282|    private node: Table,
+   283|    private tableFrom: number,
+   284|    private source: string,
+   285|    private viewRef: { current: EditorView | null },
+   286|    private labels: Required<LivePreviewLabels>
+   287|  ) { super(); }
+   288|
+   289|  eq(other: EditableTableWidget): boolean {
+   290|    if (this.editing || globalGuardState.hasGuard(this.widgetId)) return true;
+   291|    return this.source === other.source;
+   292|  }
+   293|
+   294|  ignoreEvent(): boolean { return true; }
+   295|
+   296|  destroy(): void {
+   297|    this.cleanupEditingLocks?.();
+   298|    this.cleanupEditingLocks = null;
+   299|    globalGuardState.releaseAll(this.widgetId);
+   300|  }
+   301|
+   302|  get estimatedHeight(): number {
+   303|    const rows = this.node.children?.length ?? 1;
+   304|    // rows × ~32px (cell padding + text) + 16px wrapper padding (8px top + 8px bottom)
+   305|    return rows * 32 + 16;
+   306|  }
+   307|
+   308|  private dispatch(newSource: string): void {
+   309|    const v = this.viewRef.current;
+   310|    if (!v) return;
+   311|    v.dispatch({ changes: { from: this.tableFrom, to: this.tableFrom + this.source.length, insert: newSource } });
+   312|  }
+   313|
+   314|  private deleteColumn(colIdx: number): void {
+   315|    const lines = this.source.split("\n");
+   316|    const newLines = lines.map((line) => {
+   317|      const cells = line.split("|").filter((_, i, a) => i > 0 && i < a.length - 1);
+   318|      if (cells.length === 0) return line;
+   319|      cells.splice(colIdx, 1);
+   320|      return "|" + cells.join("|") + "|";
+   321|    });
+   322|    this.dispatch(newLines.join("\n"));
+   323|  }
+   324|
+   325|  private deleteRow(rowIdx: number): void {
+   326|    const lines = this.source.split("\n");
+   327|    const dataLines: number[] = [];
+   328|    for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dataLines.push(i);
+   329|    const lineIdx = dataLines[rowIdx];
+   330|    if (lineIdx === undefined) return;
+   331|    lines.splice(lineIdx, 1);
+   332|    this.dispatch(lines.join("\n"));
+   333|  }
+   334|
+   335|  private addColumn(): void {
+   336|    const lines = this.source.split("\n");
+   337|    const nl = lines.map((l) => SEPARATOR_RE.test(l) ? l.replace(/\|?\s*$/, " | --- |") : l.replace(/\|?\s*$/, " |  |"));
+   338|    this.dispatch(nl.join("\n"));
+   339|  }
+   340|
+   341|  private addRow(): void {
+   342|    const cc = (this.node.children?.[0] as any)?.children?.length ?? 2;
+   343|    const nr = "\n| " + Array(cc).fill("  ").join(" | ") + " |";
+   344|    const v = this.viewRef.current;
+   345|    if (!v) return;
+   346|    v.dispatch({ changes: { from: this.tableFrom + this.source.length, insert: nr } });
+   347|  }
+   348|
+   349|  private moveColumn(from: number, to: number): void {
+   350|    const lines = this.source.split("\n");
+   351|    const nl = lines.map((line) => {
+   352|      const p = line.split("|"), cells = p.slice(1, -1);
+   353|      if (from >= cells.length || to >= cells.length) return line;
+   354|      const [m] = cells.splice(from, 1);
+   355|      cells.splice(to, 0, m);
+   356|      return "|" + cells.join("|") + "|";
+   357|    });
+   358|    this.dispatch(nl.join("\n"));
+   359|  }
+   360|
+   361|  private moveRow(from: number, to: number): void {
+   362|    const lines = this.source.split("\n");
+   363|    const dl: number[] = [];
+   364|    for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dl.push(i);
+   365|    const s = dl[from], d = dl[to];
+   366|    if (s === undefined || d === undefined) return;
+   367|    const [m] = lines.splice(s, 1);
+   368|    lines.splice(d, 0, m);
+   369|    this.dispatch(lines.join("\n"));
+   370|  }
+   371|
+   372|  toDOM(): HTMLElement {
+   373|    const self = this;
+   374|    // Build a WidgetRenderContext that bridges to the global guard state so
+   375|    // the StateField knows this widget is mid-interaction.
+   376|    const ctx: WidgetRenderContext = {
+   377|      from: this.tableFrom,
+   378|      to: this.tableFrom + this.source.length,
+   379|      setSelection: (anchor, head) => {
+   380|        const v = self.viewRef.current;
+   381|        if (!v) return;
+   382|        const safeAnchor = Math.max(0, Math.min(anchor, v.state.doc.length));
+   383|        const safeHead = head === undefined
+   384|          ? safeAnchor
+   385|          : Math.max(0, Math.min(head, v.state.doc.length));
+   386|        v.dispatch({ selection: { anchor: safeAnchor, head: safeHead } });
+   387|      },
+   388|      focus: () => { self.viewRef.current?.focus(); },
+   389|      acquireGuard: (type: InteractionGuardType) => {
+   390|        globalGuardState.acquire(self.widgetId, type);
+   391|      },
+   392|      releaseGuard: (type: InteractionGuardType) => {
+   393|        globalGuardState.release(self.widgetId, type);
+   394|      },
+   395|      releaseAllGuards: () => {
+   396|        globalGuardState.releaseAll(self.widgetId);
+   397|      },
+   398|    };
+   399|    const rows = this.node.children ?? [];
+   400|    // Normalise irregular markdown tables: if some rows have more cells than
+   401|    // the header (extra cells overflowing) or fewer (missing trailing cells),
+   402|    // pick the MAX cell count seen so the rendered grid is rectangular.
+   403|    // Short rows are padded with empty cells in the cell loop below; long
+   404|    // rows reserve the extra slots in the header / grip row here.
+   405|    let colCount = 0;
+   406|    for (const row of rows) {
+   407|      const len = "children" in row && Array.isArray(row.children) ? row.children.length : 0;
+   408|      if (len > colCount) colCount = len;
+   409|    }
+   410|    const sourceLines = this.source.split("\n");
+   411|    const dataLineIndices: number[] = [];
+   412|    for (let i = 0; i < sourceLines.length; i++) if (!SEPARATOR_RE.test(sourceLines[i])) dataLineIndices.push(i);
+   413|
+   414|    // State
+   415|    let selectedCol = -1;
+   416|    let selectedRow = -1;
+   417|
+   418|    // Cell range selection (Excel-style)
+   419|    let rangeStart: { row: number; col: number } | null = null;
+   420|    let rangeEnd: { row: number; col: number } | null = null;
+   421|    let isRangeSelecting = false;
+   422|    let cellMouseDown = false; // true between mousedown and mouseup on a cell
+   423|    let rangeActive = false;   // true when a multi-cell range is displayed (survives mouseup)
+   424|    let cellEditRecorded = false; // true after the first keystroke in a cell edit is recorded in history
+   425|
+   426|    // Custom drag state (no HTML5 drag API)
+   427|    let draggingCol = -1;   // which column is being dragged
+   428|    let draggingRow = -1;   // which row is being dragged
+   429|    let dropTargetCol = -1;
+   430|    let dropTargetRow = -1;
+   431|    const editingLocks = {
+   432|      focus: false,
+   433|      range: false,
+   434|      drag: false,
+   435|    };
+   436|
+   437|    function hasEditingLocks(): boolean {
+   438|      return editingLocks.focus || editingLocks.range || editingLocks.drag;
+   439|    }
+   440|
+   441|    function acquireEditingLock(lock: keyof typeof editingLocks): void {
+   442|      if (editingLocks[lock]) return;
+   443|      editingLocks[lock] = true;
+   444|      self.editing = true;
+   445|      tableEditingCount++;
+   446|      ctx.acquireGuard(lock as InteractionGuardType);
+   447|    }
+   448|
+   449|    function releaseEditingLock(lock: keyof typeof editingLocks): void {
+   450|      if (!editingLocks[lock]) return;
+   451|      editingLocks[lock] = false;
+   452|      tableEditingCount = Math.max(0, tableEditingCount - 1);
+   453|      self.editing = hasEditingLocks();
+   454|      ctx.releaseGuard(lock as InteractionGuardType);
+   455|    }
+   456|
+   457|    this.cleanupEditingLocks = () => {
+   458|      releaseEditingLock("focus");
+   459|      releaseEditingLock("range");
+   460|      releaseEditingLock("drag");
+   461|      ctx.releaseAllGuards();
+   462|    };
+   463|
+   464|    function blurActiveCellForDrag(): void {
+   465|      const active = document.activeElement;
+   466|      if (!(active instanceof HTMLElement) || !wrapper.contains(active) || !active.classList.contains("nexus-cell")) return;
+   467|      active.blur();
+   468|      releaseEditingLock("focus");
+   469|      active.contentEditable = "false";
+   470|    }
+   471|
+   472|    // ── Root wrapper ──
+   473|    const wrapper = document.createElement("div");
+   474|    wrapper.className = "nexus-table-wrapper";
+   475|    // CRITICAL: use padding, not margin. CM6 measures block widget height via
+   476|    // getBoundingClientRect which EXCLUDES margin. margin:8px caused 16px of
+   477|    // untracked height per table → cumulative click-drift below every table.
+   478|    wrapper.style.cssText = "display:inline-block;position:relative;padding:8px 0;user-select:none;";
+   479|
+   480|    // ── Table ──
+   481|    const table = document.createElement("table");
+   482|    table.setAttribute("role", "grid");
+   483|    table.setAttribute("aria-label", "Editable table");
+   484|    table.style.cssText = "border-collapse:collapse;display:table;";
+   485|    if (rows.length === 0) { wrapper.appendChild(table); return wrapper; }
+   486|
+   487|    // ── Column-width persistence ──
+   488|    // Keyed by the table's header source line so widths stick across
+   489|    // widget rebuilds caused by editing other cells.
+   490|    const widthKey = sourceLines[dataLineIndices[0] ?? 0] ?? "";
+   491|
+   492|    /**
+   493|     * Apply (or refresh) an explicit `<colgroup>` + `table-layout: fixed`
+   494|     * with the given widths. `widths` is one entry per column in the
+   495|     * rendered table — including the row-grip column at index 0.
+   496|     */
+   497|    const applyColumnWidths = (widths: number[]): void => {
+   498|      let colgroup = table.querySelector(":scope > colgroup") as HTMLTableColElement | null;
+   499|      if (!colgroup) {
+   500|        colgroup = document.createElement("colgroup") as HTMLTableColElement;
+   501|
