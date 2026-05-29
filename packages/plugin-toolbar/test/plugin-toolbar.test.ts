@@ -150,9 +150,6 @@ describe("createToolbarPlugin", () => {
   it("registers every formatting action as a slash command", () => {
     const plugin = createToolbarPlugin();
     const ids = (plugin.slashCommands ?? []).map((c) => c.id);
-    // Spot-check the four user-facing categories; the full catalogue is
-    // documented in src/index.ts and intentionally not pinned here so
-    // adding more commands later isn't a test churn.
     expect(ids).toEqual(expect.arrayContaining(["h1", "h2", "bold", "image", "hr"]));
     for (const cmd of plugin.slashCommands ?? []) {
       expect(typeof cmd.run).toBe("function");
@@ -252,6 +249,40 @@ describe("toggleOrderedList – multi-line", () => {
     expect(editor.getDocument()).toBe("apple\n1. banana\ncherry");
     editor.destroy();
   });
+
+  it("handles mixed OL/plain/UL lines", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "1. apple\n- banana\ncherry" });
+
+    editor.setSelection(0, 23);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. apple\n2. banana\n3. cherry");
+    editor.destroy();
+  });
+
+  it("preserves text content after list markers", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- hello world\n- foo bar" });
+
+    editor.setSelection(0, 23);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. hello world\n2. foo bar");
+    editor.destroy();
+  });
+
+  it("handles selection that starts mid-line", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "aaa\nbbb\nccc" });
+
+    // Select from middle of first line to middle of last line
+    editor.setSelection(2, 9);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. aaa\n2. bbb\n3. ccc");
+    editor.destroy();
+  });
 });
 
 describe("toggleUnorderedList – multi-line", () => {
@@ -285,6 +316,67 @@ describe("toggleUnorderedList – multi-line", () => {
     toggleUnorderedList(editor);
 
     expect(editor.getDocument()).toBe("- apple\n- banana\n- cherry");
+    editor.destroy();
+  });
+
+  it("handles mixed UL/plain/OL lines", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- apple\n1. banana\ncherry" });
+
+    editor.setSelection(0, 24);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("- apple\n- banana\n- cherry");
+    editor.destroy();
+  });
+
+  it("falls back to single-line behaviour when cursor only", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "apple\nbanana\ncherry" });
+
+    editor.setSelection(9);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("apple\n- banana\ncherry");
+    editor.destroy();
+  });
+});
+
+// ------------------------------------------------------------------
+// Multi-line blockquote toggle
+// ------------------------------------------------------------------
+
+describe("toggleBlockquote – multi-line", () => {
+  it("adds blockquote prefix to multiple plain lines", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello\nworld" });
+
+    editor.setSelection(0, 11);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("> hello\n> world");
+    editor.destroy();
+  });
+
+  it("removes blockquote prefix when all lines are already quoted", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "> hello\n> world" });
+
+    editor.setSelection(0, 15);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("hello\nworld");
+    editor.destroy();
+  });
+
+  it("falls back to single-line when cursor only", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello\nworld" });
+
+    editor.setSelection(3);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("> hello\nworld");
     editor.destroy();
   });
 });
