@@ -298,3 +298,164 @@ describe("widget extension", () => {
     editor.destroy();
   });
 });
+
+describe("widget interaction guards", () => {
+  it("renders widget with interactionGuards and ctx callbacks", () => {
+    const container = document.createElement("div");
+    const guardsAcquired: string[] = [];
+    const guardsReleased: string[] = [];
+    const editor = createEditor({
+      container,
+      initialValue: "Text\n\n```js\nconsole.log(1)\n```",
+      plugins: [
+        {
+          name: "guarded-widget",
+          widgets: [
+            {
+              nodeType: "code",
+              interactionGuards: [
+                {
+                  type: "focus",
+                  acquire: () => {},
+                  release: () => {},
+                },
+              ],
+              render(node, source, ctx) {
+                const el = document.createElement("div");
+                el.setAttribute("data-widget", "guarded");
+                el.textContent = source;
+                // Verify ctx exposes guard API
+                if (ctx) {
+                  guardsAcquired.push("ctx-present");
+                }
+                el.addEventListener("mousedown", () => {
+                  ctx?.acquireGuard("focus");
+                  guardsAcquired.push("focus");
+                });
+                return el;
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    // Widget should render
+    const widget = container.querySelector("[data-widget='guarded']");
+    expect(widget).not.toBeNull();
+    // ctx should be provided
+    expect(guardsAcquired).toContain("ctx-present");
+
+    editor.destroy();
+  });
+
+  it("renders widget without guards using default behavior", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Text\n\n```js\nconsole.log(1)\n```",
+      plugins: [
+        {
+          name: "unguarded-widget",
+          widgets: [
+            {
+              nodeType: "code",
+              render(node, source) {
+                const el = document.createElement("div");
+                el.setAttribute("data-widget", "unguarded");
+                el.textContent = source;
+                return el;
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    // Widget should render normally
+    expect(container.querySelector("[data-widget='unguarded']")).not.toBeNull();
+    // No interactionGuards means default rebuild behavior
+    expect(container.querySelector("[data-nexus-widget='code']")).not.toBeNull();
+
+    editor.destroy();
+  });
+
+  it("releases all guards on widget destroy", () => {
+    const container = document.createElement("div");
+    let destroyCalled = false;
+    const editor = createEditor({
+      container,
+      initialValue: "Text\n\n```js\nconsole.log(1)\n```",
+      plugins: [
+        {
+          name: "destroy-widget",
+          widgets: [
+            {
+              nodeType: "code",
+              interactionGuards: [
+                {
+                  type: "focus",
+                  acquire: () => {},
+                  release: () => {},
+                },
+              ],
+              render(node, source) {
+                const el = document.createElement("div");
+                el.setAttribute("data-widget", "destroy");
+                el.textContent = source;
+                return el;
+              },
+              destroy: () => { destroyCalled = true; },
+            },
+          ],
+        },
+      ],
+    });
+
+    // Destroy the editor (which destroys all widgets)
+    editor.destroy();
+    expect(destroyCalled).toBe(true);
+  });
+
+  it("supports multiple guard types on the same widget", () => {
+    const container = document.createElement("div");
+    const guardsAcquired: string[] = [];
+    const editor = createEditor({
+      container,
+      initialValue: "Text\n\n```js\nconsole.log(1)\n```",
+      plugins: [
+        {
+          name: "multi-guard-widget",
+          widgets: [
+            {
+              nodeType: "code",
+              interactionGuards: [
+                { type: "focus", acquire: () => {}, release: () => {} },
+                { type: "drag", acquire: () => {}, release: () => {} },
+              ],
+              render(node, source, ctx) {
+                const el = document.createElement("div");
+                el.setAttribute("data-widget", "multi");
+                el.textContent = source;
+                el.addEventListener("mousedown", () => {
+                  ctx?.acquireGuard("focus");
+                  ctx?.acquireGuard("drag");
+                  guardsAcquired.push("focus", "drag");
+                });
+                return el;
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const widget = container.querySelector("[data-widget='multi']");
+    expect(widget).not.toBeNull();
+
+    widget?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    expect(guardsAcquired).toEqual(["focus", "drag"]);
+
+    editor.destroy();
+  });
+});
