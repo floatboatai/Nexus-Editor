@@ -15,30 +15,28 @@ interface LineRange {
 }
 
 /**
- * Get all lines touched by the current selection (or just the cursor line
- * when there is no selection). Returns the lines in document order together
- * with each line's start/end offsets.
+ * Get all lines touched by the [from, to) range. For cursor-only
+ * selections (from === to) only the cursor line is returned.
+ *
+ * Starts scanning from the line containing `from` instead of pos 0.
  */
-function getSelectedLines(doc: string, anchor: number, head: number): LineRange[] {
-  const from = Math.min(anchor, head);
-  const to = Math.max(anchor, head);
-
+function getSelectedLines(doc: string, from: number, to: number): LineRange[] {
   const lines: LineRange[] = [];
-  let pos = 0;
+
+  // Find the start of the line containing `from`
+  let pos = doc.lastIndexOf("\n", from - 1) + 1;
 
   while (pos <= doc.length) {
     const lineStart = pos;
     const nlIdx = doc.indexOf("\n", pos);
     const lineEnd = nlIdx === -1 ? doc.length : nlIdx;
-    const line = doc.slice(lineStart, lineEnd);
 
-    // A line is "selected" when it overlaps the [from, to) range.
-    // For cursor-only selections (from === to) only the line containing
-    // the cursor is returned.
-    if (lineEnd > from && lineStart < to) {
-      lines.push({ lineStart, lineEnd, line });
+    if (lineEnd >= from && lineStart < to) {
+      lines.push({ lineStart, lineEnd, line: doc.slice(lineStart, lineEnd) });
     }
 
+    // Past the selection — stop early
+    if (lineStart >= to) break;
     if (nlIdx === -1) break;
     pos = nlIdx + 1;
   }
@@ -46,18 +44,82 @@ function getSelectedLines(doc: string, anchor: number, head: number): LineRange[
   return lines;
 }
 
-/** Toggle a line prefix (e.g., "> " for blockquote). */
-function toggleLinePrefix(editor: EditorAPI, prefix: string): boolean {
+// ---------------------------------------------------------------
+//  Shared multi-line list helper
+// ---------------------------------------------------------------
+
+type LineMatcher = (line: string) => boolean;
+type LineTransformer = (line: string, index: number) => string;
+
+/**
+ * Toggle a list prefix across one or more lines.
+ *
+ * - **Single-line** (cursor only): delegates to `singleFn`.
+ * - **Multi-line**: if ALL lines match `isAlready` → strip via `stripFn`;
+ *   otherwise transform every line via `addFn`.
+ */
+function toggleList(
+  editor: EditorAPI,
+  isAlready: LineMatcher,
+  stripFn: (line: string) => string,
+  addFn: LineTransformer,
+  singleFn: (editor: EditorAPI) => boolean,
+): boolean {
+  const doc = editor.getDocument();
+  const { anchor, head } = editor.getSelection();
+  const lines = getSelectedLines(doc, Math.min(anchor, head), Math.max(anchor, head));
+
+  if (lines.length <= 1) {
+    return singleFn(editor);
+  }
+
+  const allMatch = lines.every((l) => isAlready(l.line));
+
+  let offset = 0;
+  let newDoc = doc;
+  const firstStart = lines[0].lineStart;
+  let selEnd = firstStart;
+
+  for (let i = 0; i < lines.length; i++) {
+    const { lineStart, lineEnd, line } = lines[i];
+    const adjStart = lineStart + offset;
+    const adjEnd = lineEnd + offset;
+
+    const newLine = allMatch ? stripFn(line) : addFn(line, i);
+
+    newDoc = newDoc.slice(0, adjStart) + newLine + newDoc.slice(adjEnd);
+    offset += newLine.length - (adjEnd - adjStart);
+    selEnd = adjStart + newLine.length;
+  }
+
+  editor.setDocument(newDoc);
+  editor.setSelection(firstStart, selEnd);
+  return true;
+}
+
+// ---------------------------------------------------------------
+//  Single-line helpers (original behaviour, preserved verbatim)
+// ---------------------------------------------------------------
+
+function stripOl(line: string): string {
+  return line.replace(/^\d+\.\s/, "");
+}
+
+function stripUl(line: string): string {
+  return line.replace(/^[-*+]\s/, "");
+}
+
+function stripAnyList(line: string): string {
+  return stripOl(stripUl(line));
+}
+
+function singleToggleOrderedList(editor: EditorAPI): boolean {
   const doc = editor.getDocument();
   const { anchor } = editor.getSelection();
   const { lineStart, lineEnd, line } = getCurrentLine(doc, anchor);
 
-  let newLine: string;
-  if (line.startsWith(prefix)) {
-    newLine = line.slice(prefix.length);
-  } else {
-    newLine = prefix + line;
-  }
+  const olMatch = line.match(/^\d+\.\s/);
+  const newLine = olMatch ? line.slice(olMatch[0].length) : "1. " + stripUl(line);
 
   const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
   editor.setDocument(newDoc);
@@ -65,134 +127,79 @@ function toggleLinePrefix(editor: EditorAPI, prefix: string): boolean {
   return true;
 }
 
-export function toggleBlockquote(editor: EditorAPI): boolean {
-  return toggleLinePrefix(editor, "> ");
-}
-
-export function toggleOrderedList(editor: EditorAPI): boolean {
+function singleToggleUnorderedList(editor: EditorAPI): boolean {
   const doc = editor.getDocument();
-  const { anchor, head } = editor.getSelection();
-  const lines = getSelectedLines(doc, anchor, head);
+  const { anchor } = editor.getSelection();
+  const { lineStart, lineEnd, line } = getCurrentLine(doc, anchor);
 
-  if (lines.length <= 1) {
-    // Single-line (cursor-only) — original behaviour
-    const { lineStart, lineEnd, line } = lines[0] ?? getCurrentLine(doc, anchor);
+  const ulMatch = line.match(/^[-*+]\s/);
+  const newLine = ulMatch ? line.slice(ulMatch[0].length) : "- " + stripOl(line);
 
-    const olMatch = line.match(/^\d+\.\s/);
-    let newLine: string;
-    if (olMatch) {
-      newLine = line.slice(olMatch[0].length);
-    } else {
-      const ulMatch = line.match(/^[-*+]\s/);
-      const content = ulMatch ? line.slice(ulMatch[0].length) : line;
-      newLine = "1. " + content;
-    }
-
-    const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
-    editor.setDocument(newDoc);
-    editor.setSelection(lineStart + newLine.length);
-    return true;
-  }
-
-  // Multi-line: if ALL lines are already ordered-list items → remove;
-  // otherwise add "N. " to every non-OL line (replacing any UL marker).
-  const allOl = lines.every((l) => /^\d+\.\s/.test(l.line));
-
-  let offset = 0;
-  let newDoc = doc;
-  let firstNewLineStart = lines[0].lineStart;
-  let selectionEnd = firstNewLineStart;
-
-  for (let i = 0; i < lines.length; i++) {
-    const { lineStart, lineEnd, line } = lines[i];
-    const adjStart = lineStart + offset;
-    const adjEnd = lineEnd + offset;
-
-    let newLine: string;
-    if (allOl) {
-      const olMatch = line.match(/^\d+\.\s/)!;
-      newLine = line.slice(olMatch[0].length);
-    } else {
-      const ulMatch = line.match(/^[-*+]\s/);
-      const olMatch = line.match(/^\d+\.\s/);
-      const content = ulMatch
-        ? line.slice(ulMatch[0].length)
-        : olMatch
-          ? line.slice(olMatch[0].length)
-          : line;
-      newLine = `${i + 1}. ` + content;
-    }
-
-    newDoc = newDoc.slice(0, adjStart) + newLine + newDoc.slice(adjEnd);
-    offset += newLine.length - (adjEnd - adjStart);
-    selectionEnd = adjStart + newLine.length;
-  }
-
+  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
   editor.setDocument(newDoc);
-  editor.setSelection(firstNewLineStart, selectionEnd);
+  editor.setSelection(lineStart + newLine.length);
   return true;
 }
 
+// ---------------------------------------------------------------
+//  Public API
+// ---------------------------------------------------------------
+
+export function toggleOrderedList(editor: EditorAPI): boolean {
+  return toggleList(
+    editor,
+    (line) => /^\d+\.\s/.test(line),
+    stripOl,
+    (line, i) => `${i + 1}. ` + stripAnyList(line),
+    singleToggleOrderedList,
+  );
+}
+
 export function toggleUnorderedList(editor: EditorAPI): boolean {
+  return toggleList(
+    editor,
+    (line) => /^[-*+]\s/.test(line),
+    stripUl,
+    (line) => "- " + stripAnyList(line),
+    singleToggleUnorderedList,
+  );
+}
+
+export function toggleBlockquote(editor: EditorAPI): boolean {
   const doc = editor.getDocument();
   const { anchor, head } = editor.getSelection();
-  const lines = getSelectedLines(doc, anchor, head);
+  const from = Math.min(anchor, head);
+  const to = Math.max(anchor, head);
+  const lines = getSelectedLines(doc, from, to);
 
   if (lines.length <= 1) {
-    // Single-line (cursor-only) — original behaviour
+    // Single-line — original behaviour
     const { lineStart, lineEnd, line } = lines[0] ?? getCurrentLine(doc, anchor);
-
-    const ulMatch = line.match(/^[-*+]\s/);
-    let newLine: string;
-    if (ulMatch) {
-      newLine = line.slice(ulMatch[0].length);
-    } else {
-      const olMatch = line.match(/^\d+\.\s/);
-      const content = olMatch ? line.slice(olMatch[0].length) : line;
-      newLine = "- " + content;
-    }
-
+    const newLine = line.startsWith("> ") ? line.slice(2) : "> " + line;
     const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
     editor.setDocument(newDoc);
     editor.setSelection(lineStart + newLine.length);
     return true;
   }
 
-  // Multi-line: if ALL lines are already unordered-list items → remove;
-  // otherwise add "- " to every non-UL line (replacing any OL marker).
-  const allUl = lines.every((l) => /^[-*+]\s/.test(l.line));
+  const allBq = lines.every((l) => l.line.startsWith("> "));
 
   let offset = 0;
   let newDoc = doc;
-  let firstNewLineStart = lines[0].lineStart;
-  let selectionEnd = firstNewLineStart;
+  const firstStart = lines[0].lineStart;
+  let selEnd = firstStart;
 
   for (const { lineStart, lineEnd, line } of lines) {
     const adjStart = lineStart + offset;
     const adjEnd = lineEnd + offset;
-
-    let newLine: string;
-    if (allUl) {
-      const ulMatch = line.match(/^[-*+]\s/)!;
-      newLine = line.slice(ulMatch[0].length);
-    } else {
-      const ulMatch = line.match(/^[-*+]\s/);
-      const olMatch = line.match(/^\d+\.\s/);
-      const content = ulMatch
-        ? line.slice(ulMatch[0].length)
-        : olMatch
-          ? line.slice(olMatch[0].length)
-          : line;
-      newLine = "- " + content;
-    }
-
+    const newLine = allBq ? line.slice(2) : "> " + line;
     newDoc = newDoc.slice(0, adjStart) + newLine + newDoc.slice(adjEnd);
     offset += newLine.length - (adjEnd - adjStart);
-    selectionEnd = adjStart + newLine.length;
+    selEnd = adjStart + newLine.length;
   }
 
   editor.setDocument(newDoc);
-  editor.setSelection(firstNewLineStart, selectionEnd);
+  editor.setSelection(firstStart, selEnd);
   return true;
 }
 
@@ -214,7 +221,6 @@ export function insertCodeBlock(editor: EditorAPI): boolean {
   const newDoc = doc.slice(0, from) + block + doc.slice(to);
   editor.setDocument(newDoc);
 
-  // Place cursor on the language line (after ```)
   const langPos = from + (needsLeadingNewline ? 1 : 0) + 3;
   editor.setSelection(langPos);
   return true;
@@ -232,7 +238,6 @@ export function insertImage(editor: EditorAPI): boolean {
   const newDoc = doc.slice(0, from) + md + doc.slice(to);
   editor.setDocument(newDoc);
 
-  // Select the "url" part
   const urlStart = from + alt.length + 4;
   editor.setSelection(urlStart, urlStart + 3);
   return true;
