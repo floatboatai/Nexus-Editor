@@ -1,4 +1,5 @@
 import { EditorView, WidgetType, runScopeHandlers } from "@codemirror/view";
+import { Transaction } from "@codemirror/state";
 import type { Table } from "mdast";
 
 import type { LivePreviewLabels } from "./types";
@@ -391,6 +392,7 @@ export class EditableTableWidget extends WidgetType {
     let isRangeSelecting = false;
     let cellMouseDown = false; // true between mousedown and mouseup on a cell
     let rangeActive = false;   // true when a multi-cell range is displayed (survives mouseup)
+    let cellEditRecorded = false; // true after the first keystroke in a cell edit is recorded in history
 
     // Custom drag state (no HTML5 drag API)
     let draggingCol = -1;   // which column is being dragged
@@ -1180,6 +1182,7 @@ export class EditableTableWidget extends WidgetType {
 
         td.addEventListener("focus", () => {
           acquireEditingLock("focus");
+          cellEditRecorded = false;
           clearRangeSelection();
           enterRawEditingMode();
         });
@@ -1249,7 +1252,17 @@ export class EditableTableWidget extends WidgetType {
           for (let i = 0; i < sourceLineIdx; i++) off += sourceLines[i].length + 1;
           const end = off + sourceLines[sourceLineIdx].length;
           sourceLines[sourceLineIdx] = newLine;
-          v.dispatch({ changes: { from: off, to: end, insert: newLine } });
+          // Suppress history recording for intermediate keystrokes.
+          // The first keystroke in a cell edit is recorded normally so
+          // that Ctrl+Z reverts to the pre-edit state. Subsequent
+          // keystrokes are suppressed to avoid creating N undo entries.
+          v.dispatch({
+            changes: { from: off, to: end, insert: newLine },
+            annotations: cellEditRecorded
+              ? Transaction.addToHistory.of(false)
+              : undefined,
+          });
+          cellEditRecorded = true;
         });
 
         td.addEventListener("keydown", (e) => {
