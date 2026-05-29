@@ -25,6 +25,7 @@ export interface SearchMatch {
 
 export interface SearchOptions {
   caseSensitive?: boolean;
+  wholeWord?: boolean;
 }
 
 export interface SearchPluginOptions {
@@ -79,6 +80,32 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Check whether the character at `pos` in `doc` is a word character.
+ * Returns false for out-of-bounds positions (start/end of document),
+ * which makes `\b`-style boundary checks work at document edges.
+ */
+function isWordChar(doc: string, pos: number): boolean {
+  if (pos < 0 || pos >= doc.length) return false;
+  // \w matches [A-Za-z0-9_] — extend if CJK support is needed later.
+  return /\w/.test(doc[pos]);
+}
+
+/**
+ * Test whether the substring at [matchFrom, matchTo) is surrounded by
+ * word boundaries in `doc`. A word boundary exists where one side is
+ * a word character and the other is not (or is out of bounds).
+ */
+function isWholeWordMatch(doc: string, matchFrom: number, matchTo: number): boolean {
+  const beforeWord = isWordChar(doc, matchFrom - 1);
+  const atStart = isWordChar(doc, matchFrom);
+  const atEnd = isWordChar(doc, matchTo - 1);
+  const afterWord = isWordChar(doc, matchTo);
+
+  // Both sides must be word-boundary transitions.
+  return beforeWord !== atStart && atEnd !== afterWord;
+}
+
 export function findSearchMatches(
   doc: string,
   query: string,
@@ -95,12 +122,13 @@ export function findSearchMatches(
   for (const match of doc.matchAll(pattern)) {
     const text = match[0];
     const from = match.index ?? 0;
+    const to = from + text.length;
 
-    matches.push({
-      from,
-      to: from + text.length,
-      text
-    });
+    if (options.wholeWord && !isWholeWordMatch(doc, from, to)) {
+      continue;
+    }
+
+    matches.push({ from, to, text });
   }
 
   return matches;
@@ -116,8 +144,20 @@ export function replaceAllMatches(
     return doc;
   }
 
-  const flags = options.caseSensitive ? "g" : "gi";
-  return doc.replace(new RegExp(escapeRegExp(query), flags), replacement);
+  if (!options.wholeWord) {
+    const flags = options.caseSensitive ? "g" : "gi";
+    return doc.replace(new RegExp(escapeRegExp(query), flags), replacement);
+  }
+
+  // Whole-word replace: find matches first, then apply in reverse order
+  // so offsets remain valid.
+  const matches = findSearchMatches(doc, query, options);
+  let result = doc;
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const m = matches[i];
+    result = result.slice(0, m.from) + replacement + result.slice(m.to);
+  }
+  return result;
 }
 
 function resolveLabel(
