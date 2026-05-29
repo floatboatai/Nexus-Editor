@@ -9,6 +9,9 @@ import {
   toggleHeading,
   createToolbarPlugin,
   createToolbarUI,
+  toggleOrderedList,
+  toggleUnorderedList,
+  toggleBlockquote,
 } from "../src/index";
 
 describe("toggleBold", () => {
@@ -197,6 +200,91 @@ describe("createToolbarUI", () => {
     expect(document.getElementById(button?.getAttribute("aria-describedby") ?? "")).toBeNull();
 
     toolbar.destroy();
+    editor.destroy();
+  });
+});
+
+// ------------------------------------------------------------------
+// Multi-line list toggle (ROADMAP #1)
+// ------------------------------------------------------------------
+
+describe("toggleOrderedList – multi-line", () => {
+  it("adds ordered list markers to multiple plain lines", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "apple\nbanana\ncherry" });
+
+    editor.setSelection(0, 18);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. apple\n2. banana\n3. cherry");
+    editor.destroy();
+  });
+
+  it("removes ordered list markers when all lines are already OL", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "1. apple\n2. banana\n3. cherry" });
+
+    editor.setSelection(0, 27);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("apple\nbanana\ncherry");
+    editor.destroy();
+  });
+
+  it("converts unordered list lines to ordered list", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- apple\n- banana\n- cherry" });
+
+    editor.setSelection(0, 24);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. apple\n2. banana\n3. cherry");
+    editor.destroy();
+  });
+
+  it("falls back to single-line behaviour when cursor only", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "apple\nbanana\ncherry" });
+
+    editor.setSelection(9);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("apple\n1. banana\ncherry");
+    editor.destroy();
+  });
+});
+
+describe("toggleUnorderedList – multi-line", () => {
+  it("adds unordered list markers to multiple plain lines", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "apple\nbanana\ncherry" });
+
+    editor.setSelection(0, 18);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("- apple\n- banana\n- cherry");
+    editor.destroy();
+  });
+
+  it("removes unordered list markers when all lines are already UL", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- apple\n- banana\n- cherry" });
+
+    editor.setSelection(0, 24);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("apple\nbanana\ncherry");
+    editor.destroy();
+  });
+
+  it("converts ordered list lines to unordered list", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "1. apple\n2. banana\n3. cherry" });
+
+    editor.setSelection(0, 27);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("- apple\n- banana\n- cherry");
     editor.destroy();
   });
 });
