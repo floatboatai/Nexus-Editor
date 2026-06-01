@@ -36,12 +36,10 @@ export default defineConfig({
   // are never masked by automatic retries.
   retries: process.env.CI ? 1 : 0,
 
-  // In CI: emit a JSON report alongside the list reporter so duration data
-  // is available for trend analysis without imposing hard latency gates
-  // (CI machine variance makes fixed thresholds unreliable).
-  reporter: process.env.CI
-    ? [["list"], ["json", { outputFile: "test-results/e2e-results.json" }]]
-    : "list",
+  // Emit a JSON report alongside the list reporter so duration data is
+  // available for local demos and CI trend analysis without imposing hard
+  // latency gates (CI machine variance makes fixed thresholds unreliable).
+  reporter: [["list"], ["json", { outputFile: "test-results/e2e-results.json" }]],
 
   use: {
     baseURL: "http://localhost:5173",

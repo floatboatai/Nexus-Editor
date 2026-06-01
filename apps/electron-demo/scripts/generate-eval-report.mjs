@@ -2,7 +2,7 @@
 /**
  * generate-eval-report.mjs
  *
- * Reads the Playwright JSON report produced by the CI stability gate and
+ * Reads the Playwright JSON report produced by the E2E stability gate and
  * writes a Markdown eval summary to $GITHUB_STEP_SUMMARY so the result is
  * visible directly on the Actions run page — no external dashboard needed.
  *
@@ -11,7 +11,7 @@
  * retries; partial failures surface as flaky signals rather than being silently
  * absorbed by the retry mechanism.
  *
- * Usage (local):  node scripts/generate-eval-report.mjs
+ * Usage (local):  pnpm test:e2e:stability && pnpm run generate-eval-report
  * Usage (CI):     automatically run after `pnpm test:e2e:stability`
  */
 
@@ -29,8 +29,8 @@ let report;
 try {
   report = JSON.parse(readFileSync(REPORT_PATH, "utf8"));
 } catch {
-  // Report is only emitted in CI (see playwright.config.ts reporter setting).
-  // In local runs without CI=true the file won't exist — exit cleanly.
+  // The report exists after running `pnpm test:e2e` or `pnpm test:e2e:stability`.
+  // If neither command has run yet, exit cleanly.
   console.warn(`[eval-report] ${REPORT_PATH} not found — skipping summary`);
   process.exit(0);
 }
