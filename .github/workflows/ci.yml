@@ -53,6 +53,12 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+      - name: Install Playwright browsers
+        run: pnpm --filter @floatboat/nexus-electron-demo exec playwright install --with-deps chromium
+
+      - name: Run Electron demo E2E tests
+        run: pnpm test:e2e
+
       - name: Build packages
         run: pnpm build
 

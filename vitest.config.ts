@@ -1,5 +1,5 @@
 import path from "node:path";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
@@ -20,6 +20,6 @@ export default defineConfig({
     environment: "jsdom",
     // Exclude Playwright E2E specs — they use a different runner (@playwright/test)
     // and must not be collected by vitest.
-    exclude: ["**/e2e/**", "**/node_modules/**"]
+    exclude: [...configDefaults.exclude, "**/e2e/**"]
   }
 });
