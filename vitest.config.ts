@@ -17,6 +17,9 @@ export default defineConfig({
     }
   },
   test: {
-    environment: "jsdom"
+    environment: "jsdom",
+    // Exclude Playwright E2E specs — they use a different runner (@playwright/test)
+    // and must not be collected by vitest.
+    exclude: ["**/e2e/**", "**/node_modules/**"]
   }
 });
