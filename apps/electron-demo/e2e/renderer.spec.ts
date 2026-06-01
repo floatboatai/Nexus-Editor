@@ -197,3 +197,59 @@ test("search: Ctrl+F opens search bar with focused Find input", async ({
   await expect(findInput).toBeVisible();
   await expect(findInput).toBeFocused();
 });
+
+// ── Multi-step scenario ───────────────────────────────────────────────────────
+//
+// Models a realistic user workflow as a sequential chain of tool calls:
+//   open file  →  edit content  →  search for edit  →  close search  →  save
+//
+// Beyond the individual action assertions, this test makes a content-quality
+// assertion on the saveFile payload: the saved markdown must contain the
+// edit string verbatim. This catches "usable but degraded" regressions where
+// the editor appears to work (no crash, dirty flag clears) but the document
+// content is silently corrupted or truncated before being handed to the bridge.
+
+test("multi-step: open → edit → search → save preserves content integrity", async ({
+  page,
+}) => {
+  // ── Step 1: open a file ───────────────────────────────────────────────────
+  await page.evaluate(() => {
+    (window as any).__mockOpenFile = {
+      path: "/vault/notes/draft.md",
+      content: "# Draft\n\nOriginal content here.",
+    };
+  });
+  await page.getByRole("button", { name: "Open" }).click();
+  await expect(page.locator(".cm-editor")).toContainText("Original content");
+
+  // ── Step 2: edit the document ─────────────────────────────────────────────
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" appended");
+  await expect(page.locator("#status-line")).toContainText("[modified]");
+
+  // ── Step 3: search for the edit to confirm it landed in the document ──────
+  await page.keyboard.press("Control+f");
+  const findInput = page.locator('.nexus-search-bar input[placeholder="Find..."]');
+  await expect(findInput).toBeVisible();
+  await findInput.fill("appended");
+  // Count label must show at least one match — "0 results" means the edit
+  // did not reach the CM document model.
+  const countLabel = page.locator(".nexus-search-bar span");
+  await expect(countLabel).not.toContainText("0 results");
+
+  // ── Step 4: close search and save ─────────────────────────────────────────
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+
+  // ── Step 5: content-quality assertion ─────────────────────────────────────
+  // The bridge must receive the full edited document, not a stale snapshot.
+  const calls = await page.evaluate(() => (window as any).__bridgeCalls);
+  expect(calls.saveFile).toHaveLength(1);
+  expect(calls.saveFile[0][0]).toBe("/vault/notes/draft.md");
+  // Verify the saved payload is exactly the edited markdown. This catches
+  // silent content-corruption bugs that pass/fail alone cannot surface.
+  expect(calls.saveFile[0][1]).toBe("# Draft\n\nOriginal content here. appended");
+
+  await expect(page.locator("#status-line")).not.toContainText("[modified]");
+});

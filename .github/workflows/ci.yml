@@ -65,6 +65,10 @@ jobs:
       - name: Run E2E stability gate (3× repeat, no retries)
         run: pnpm test:e2e:stability
 
+      - name: Generate eval report
+        if: always()
+        run: pnpm --filter @floatboat/nexus-electron-demo run generate-eval-report
+
       - name: Upload E2E results
         if: always()
         uses: actions/upload-artifact@v4

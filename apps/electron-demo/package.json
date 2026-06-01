@@ -16,6 +16,7 @@
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:stability": "playwright test --repeat-each=3 --workers=1 --retries=0",
+    "generate-eval-report": "node scripts/generate-eval-report.mjs",
     "dist": "pnpm run build && electron-builder",
     "dist:mac": "pnpm run build && electron-builder --mac",
     "dist:mac-arm64": "pnpm run build && electron-builder --mac --arm64",
