@@ -253,3 +253,56 @@ test("multi-step: open → edit → search → save preserves content integrity"
 
   await expect(page.locator("#status-line")).not.toContainText("[modified]");
 });
+
+// ── Error-path scenarios ──────────────────────────────────────────────────────
+//
+// Validates that the renderer handles bridge failures gracefully:
+// no crashes, no silent state corruption, and user-visible error signals.
+
+test("open-file returns null: editor state unchanged, no crash", async ({
+  page,
+}) => {
+  // __mockOpenFile is unset → openFile() returns null.
+  // handleOpen() branches on `if (!result) return` — the editor must stay
+  // in its initial clean state without throwing or corrupting state.
+  await page.getByRole("button", { name: "Open" }).click();
+
+  await expect(page.locator(".cm-editor")).toBeVisible();
+  await expect(page.locator("#status-line")).toContainText("Untitled");
+  await expect(page.locator("#status-line")).not.toContainText("[modified]");
+  await expect(page.locator("#status-line")).not.toContainText("Error");
+});
+
+test("save failure: dirty flag preserved and error surfaced in status", async ({
+  page,
+}) => {
+  // Open a file to establish a known save path.
+  await page.evaluate(() => {
+    (window as any).__mockOpenFile = {
+      path: "/vault/notes/fragile.md",
+      content: "# Fragile",
+    };
+  });
+  await page.getByRole("button", { name: "Open" }).click();
+  await expect(page.locator(".cm-editor")).toContainText("Fragile");
+
+  // Edit to make dirty, then inject a bridge failure before saving.
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" edit");
+  await expect(page.locator("#status-line")).toContainText("[modified]");
+
+  // Override saveFile on the live mock to simulate an IPC / disk error.
+  await page.evaluate(() => {
+    (window as any).nexusDemo.saveFile = async () => {
+      throw new Error("disk full");
+    };
+  });
+
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+
+  // The document was NOT saved — dirty flag must remain set.
+  await expect(page.locator("#status-line")).toContainText("[modified]");
+  // The error must surface in the status line so the user knows the save failed.
+  await expect(page.locator("#status-line")).toContainText("Error");
+});
