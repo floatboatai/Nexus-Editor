@@ -119,11 +119,38 @@ export interface SlashMenuState {
 }
 
 export interface EditorEventMap {
+  /** Fired (debounced) when the document content changes. */
   change: (doc: string, ast: Root) => void;
   focus: () => void;
   blur: () => void;
   selectionChange: (selection: { anchor: number; head: number }) => void;
   slashMenuChange: (state: SlashMenuState) => void;
+  // ── New lifecycle / DOM events ──────────────────────────────────────
+  /** Fired once after the editor is fully initialised and the view is mounted. */
+  editorReady: () => void;
+  /** Fired on every paste event (before the default handler). */
+  paste: (event: ClipboardEvent) => void;
+  /** Fired on every drop event (before the default handler). */
+  drop: (event: DragEvent) => void;
+  /** Fired on every keydown event (before the default handler). */
+  keydown: (event: KeyboardEvent) => void;
+  /** Fired after the theme is changed via `setTheme()`. */
+  themeChange: (theme: import("./theme").NexusTheme) => void;
+  /**
+   * Fired before a `change` event is emitted. Return `false` in a
+   * listener to prevent downstream consumers from receiving `change`.
+   * Note: the document has already been modified at this point.
+   */
+  beforeChange: (ctx: { doc: string; ast: Root }) => void;
+  /** Fired before `setDocument()` replaces the content. */
+  beforeSetDocument: (ctx: { next: string; silent: boolean }) => void;
+  /** Fired when the editor is being destroyed. */
+  destroy: () => void;
+  /**
+   * Fired when an internal error occurs (e.g. a plugin hook throws).
+   * Listeners can inspect the error for logging / telemetry.
+   */
+  error: (error: Error, source?: string) => void;
 }
 
 export interface TocEntry {
@@ -173,6 +200,22 @@ export interface EditorAPI {
   destroy(): void;
   on<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
   off<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
+  // ── New: dynamic plugin management ──────────────────────────────────
+  /**
+   * Register a plugin at runtime. Returns `false` if a plugin with the
+   * same name is already registered.
+   */
+  addPlugin(plugin: NexusPlugin): boolean;
+  /**
+   * Unregister a plugin by name. Returns `false` if no plugin with that
+   * name is registered. Fires `onDestroy` on the removed plugin.
+   */
+  removePlugin(name: string): boolean;
+  /**
+   * Check whether a plugin is currently registered.
+   */
+  hasPlugin(name: string): boolean;
+  // ── End new ─────────────────────────────────────────────────────────
   getCoordsAtPos(pos: number): { left: number; right: number; top: number; bottom: number } | null;
   /**
    * 返回某个 DOM 节点当前对应的文档偏移（基于 CodeMirror 的 DOM↔文档映射）。
@@ -301,4 +344,35 @@ export interface NexusPlugin {
   remarkPlugins?: Array<Plugin<[], Root, Root>>;
   cmExtensions?: Extension[];
   widgets?: WidgetDefinition[];
+  // ── 插件生命周期钩子（Plugin Lifecycle Hooks）───────────────────────
+  /**
+   * 编辑器初始化完成后触发。此时 EditorAPI 已就绪，可安全调用 getDocument() 等。
+   * 异步（返回 Promise）时不会阻塞编辑器启动。
+   */
+  onEditorReady?: (editor: EditorAPI) => void | Promise<void>;
+  /**
+   * 在 change 事件对外派发前触发。返回 false 可阻止 change 事件向外发送（但不阻止文档变更本身）。
+   */
+  onBeforeChange?: (ctx: {
+    doc: string;
+    ast: Root;
+  }) => boolean | void;
+  /**
+   * change 事件对外派发后触发。
+   */
+  onAfterChange?: (ctx: { doc: string; ast: Root }) => void;
+  /**
+   * 在 setDocument 替换文档内容前触发。返回 false 可阻止替换。
+   */
+  onBeforeSetDocument?: (ctx: {
+    next: string;
+    silent: boolean;
+  }) => boolean | void;
+  /** 编辑器销毁时触发。用于清理插件资源（定时器、DOM 节点、事件监听）。 */
+  onDestroy?: (editor: EditorAPI) => void;
+  /** 选区变化时触发。 */
+  onSelectionChange?: (ctx: {
+    anchor: number;
+    head: number;
+  }) => void;
 }
