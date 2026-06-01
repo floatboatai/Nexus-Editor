@@ -15,6 +15,7 @@
     "test": "vitest run --config ../../vitest.config.ts",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
+    "test:e2e:stability": "playwright test --repeat-each=3 --workers=1 --retries=0",
     "dist": "pnpm run build && electron-builder",
     "dist:mac": "pnpm run build && electron-builder --mac",
     "dist:mac-arm64": "pnpm run build && electron-builder --mac --arm64",

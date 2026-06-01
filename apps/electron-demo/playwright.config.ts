@@ -17,6 +17,9 @@ import { defineConfig, devices } from "@playwright/test";
  *
  * Run in headed mode (useful for debugging):
  *   pnpm test:e2e:headed
+ *
+ * Run the stability gate (3× repeat, no retries — catches flaky tests):
+ *   pnpm test:e2e:stability
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -29,9 +32,16 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
 
   // One retry in CI to absorb transient Vite startup jitter.
+  // The stability pass overrides this to 0 via CLI flag so flaky failures
+  // are never masked by automatic retries.
   retries: process.env.CI ? 1 : 0,
 
-  reporter: "list",
+  // In CI: emit a JSON report alongside the list reporter so duration data
+  // is available for trend analysis without imposing hard latency gates
+  // (CI machine variance makes fixed thresholds unreliable).
+  reporter: process.env.CI
+    ? [["list"], ["json", { outputFile: "test-results/e2e-results.json" }]]
+    : "list",
 
   use: {
     baseURL: "http://localhost:5173",
