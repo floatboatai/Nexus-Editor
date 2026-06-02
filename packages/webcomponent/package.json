@@ -17,7 +17,12 @@
     "build": "tsup src/index.ts --format esm --dts --clean"
   },
   "dependencies": {
-    "@floatboat/nexus-core": "workspace:*"
+    "@floatboat/nexus-core": "workspace:*",
+    "@floatboat/nexus-preset-gfm": "workspace:*",
+    "@floatboat/nexus-plugin-history": "workspace:*",
+    "@floatboat/nexus-plugin-toolbar": "workspace:*",
+    "@floatboat/nexus-plugin-search": "workspace:*",
+    "@floatboat/nexus-plugin-slash": "workspace:*"
   },
   "publishConfig": {
     "access": "public",

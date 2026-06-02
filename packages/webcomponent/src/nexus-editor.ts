@@ -1,20 +1,36 @@
-import { createEditor, lightTheme, type EditorAPI, type EditorConfig, type NexusTheme } from "@floatboat/nexus-core";
+import { 
+  createEditor, 
+  lightTheme, 
+  darkTheme,
+  type EditorAPI, 
+  type EditorConfig, 
+  type NexusTheme
+} from "@floatboat/nexus-core";
+import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
+import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
+import { createToolbarPlugin, createToolbarUI, type ToolbarUI } from "@floatboat/nexus-plugin-toolbar";
+import { createSearchPlugin } from "@floatboat/nexus-plugin-search";
+import { createSlashMenuUI, type SlashMenuUI } from "@floatboat/nexus-plugin-slash";
 
 export class NexusEditor extends HTMLElement {
   private container: HTMLDivElement | null = null;
   private editor: EditorAPI | null = null;
+  private toolbar: ToolbarUI | null = null;
+  private slashMenu: SlashMenuUI | null = null;
   private _theme: NexusTheme = lightTheme;
   private _value: string = "";
   private _readOnly: boolean = false;
   private _tabSize: number = 4;
   private _indentGuides: boolean = false;
+  private _livePreview: boolean = true;
 
   static observedAttributes = [
     "value",
     "theme",
     "read-only",
     "tab-size",
-    "indent-guides"
+    "indent-guides",
+    "live-preview"
   ];
 
   constructor() {
@@ -49,6 +65,9 @@ export class NexusEditor extends HTMLElement {
       case "indent-guides":
         this._indentGuides = newValue !== null;
         break;
+      case "live-preview":
+        this._livePreview = newValue !== null;
+        break;
     }
   }
 
@@ -77,7 +96,11 @@ export class NexusEditor extends HTMLElement {
 
   set readOnly(value: boolean) {
     this._readOnly = value;
-    this.setAttribute("read-only", value ? "" : "");
+    if (value) {
+      this.setAttribute("read-only", "");
+    } else {
+      this.removeAttribute("read-only");
+    }
   }
 
   private render() {
@@ -89,14 +112,23 @@ export class NexusEditor extends HTMLElement {
           display: block;
           width: 100%;
           height: 100%;
+          display: flex;
+          flex-direction: column;
+        }
+        .editor-wrapper {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
         }
         .editor-container {
-          width: 100%;
-          height: 100%;
-          min-height: 200px;
+          flex: 1;
+          min-height: 0;
         }
       </style>
-      <div class="editor-container"></div>
+      <div class="editor-wrapper">
+        <div class="editor-container"></div>
+      </div>
     `;
 
     this.container = this.shadowRoot.querySelector(".editor-container");
@@ -112,6 +144,13 @@ export class NexusEditor extends HTMLElement {
       readOnly: this._readOnly,
       tabSize: this._tabSize,
       indentGuides: this._indentGuides,
+      livePreview: this._livePreview,
+      plugins: [
+        createGfmPreset(),
+        createHistoryPlugin(),
+        createToolbarPlugin(),
+        createSearchPlugin()
+      ],
       onChange: (markdown) => {
         this._value = markdown;
         this.dispatchEvent(new CustomEvent("change", {
@@ -135,11 +174,25 @@ export class NexusEditor extends HTMLElement {
     };
 
     this.editor = createEditor(config);
+
+    if (this.editor) {
+      this.toolbar = createToolbarUI(this.editor);
+      const wrapper = this.shadowRoot?.querySelector(".editor-wrapper");
+      if (wrapper && this.toolbar) {
+        wrapper.insertBefore(this.toolbar.element, this.container);
+      }
+
+      this.slashMenu = createSlashMenuUI(this.editor);
+    }
   }
 
   private destroyEditor() {
+    this.slashMenu?.destroy();
+    this.toolbar?.destroy();
     this.editor?.destroy();
     this.editor = null;
+    this.toolbar = null;
+    this.slashMenu = null;
   }
 
   private updateValue() {
@@ -151,9 +204,9 @@ export class NexusEditor extends HTMLElement {
   private setThemeByName(themeName: string) {
     const themes: Record<string, NexusTheme> = {
       light: lightTheme,
-      dark: lightTheme
+      dark: darkTheme
     };
-    this.theme = themes[themeName] || lightTheme;
+    this.theme = themes[themeName.toLowerCase()] || lightTheme;
   }
 
   focus(): void {
@@ -178,6 +231,9 @@ export class NexusEditor extends HTMLElement {
 
   setDocument(value: string, silent?: boolean): void {
     this.editor?.setDocument(value, { silent });
+    if (!silent) {
+      this._value = value;
+    }
   }
 
   getSelection(): { anchor: number; head: number } {
