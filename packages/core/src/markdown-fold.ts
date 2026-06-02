@@ -1,5 +1,5 @@
-import { type Extension } from "@codemirror/state";
 import { foldGutter, foldService } from "@codemirror/language";
+import type { Extension } from "@codemirror/state";
 
 const HEADING_RE = /^(#{1,6}) /;
 const FENCE_OPEN_RE = /^[ \t]*(`{3,}|~{3,})/;
@@ -13,7 +13,7 @@ const INDENT_RE = /^([ \t]*)/;
  * - Fenced code blocks fold from the opening fence to the closing fence.
  */
 export function markdownFoldService(): Extension {
-  return foldService.of((state, lineStart, lineEnd) => {
+  return foldService.of((state, lineStart, _lineEnd) => {
     const line = state.doc.lineAt(lineStart);
     const text = line.text;
 
@@ -47,7 +47,10 @@ export function markdownFoldService(): Extension {
       for (let i = line.number + 1; i <= state.doc.lines; i++) {
         const nextLine = state.doc.line(i);
         const trimmed = nextLine.text.trimStart();
-        if (trimmed.startsWith(fenceChar.repeat(fenceLen)) && trimmed.trim().length <= fenceLen + 1) {
+        if (
+          trimmed.startsWith(fenceChar.repeat(fenceLen)) &&
+          trimmed.trim().length <= fenceLen + 1
+        ) {
           return { from: line.to, to: nextLine.to };
         }
       }
@@ -83,8 +86,5 @@ export function markdownFoldService(): Extension {
 
 /** Fold gutter + fold service for markdown documents. */
 export function markdownFold(): Extension {
-  return [
-    markdownFoldService(),
-    foldGutter()
-  ];
+  return [markdownFoldService(), foldGutter()];
 }

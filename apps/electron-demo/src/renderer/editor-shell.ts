@@ -1,16 +1,20 @@
 import {
-  createEditor,
-  createWikilinksPlugin,
   type EditorAPI,
   type LivePreviewRenderContext,
+  createEditor,
+  createWikilinksPlugin,
 } from "@floatboat/nexus-core";
-import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
-import { createToolbarPlugin, createToolbarUI, type ToolbarUI } from "@floatboat/nexus-plugin-toolbar";
 import { createSearchPlugin } from "@floatboat/nexus-plugin-search";
-import { createSlashMenuUI, type SlashMenuUI } from "@floatboat/nexus-plugin-slash";
-import type { AppState } from "./state";
+import { type SlashMenuUI, createSlashMenuUI } from "@floatboat/nexus-plugin-slash";
+import {
+  type ToolbarUI,
+  createToolbarPlugin,
+  createToolbarUI,
+} from "@floatboat/nexus-plugin-toolbar";
+import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 import { type EditorSettings, settingsToTheme } from "./settings";
+import type { AppState } from "./state";
 
 // Parse Obsidian-style size specifier from the alt text: `alt|width` or
 // `alt|widthxheight`. Returns { alt, width, height } with the size stripped
@@ -31,20 +35,16 @@ function parseImageSize(raw: string): { alt: string; width?: number; height?: nu
 
 // Rewrite relative image URLs to the custom nexus-vault:// scheme registered
 // in the main process. Absolute URLs (http, https, data, etc) pass through.
-function resolveImageSrc(
-  url: string,
-  activeFile: string | null,
-  vaultRoot: string | null
-): string {
+function resolveImageSrc(url: string, activeFile: string | null, vaultRoot: string | null): string {
   if (/^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith("//")) return url;
   if (!activeFile || !vaultRoot) return url;
 
-  const sep = activeFile.includes("\\") && !activeFile.includes("/") ? "\\" : "/";
+  const _sep = activeFile.includes("\\") && !activeFile.includes("/") ? "\\" : "/";
   const normActive = activeFile.replace(/\\/g, "/");
   const normVault = vaultRoot.replace(/\\/g, "/").replace(/\/+$/, "");
   const lastSlash = normActive.lastIndexOf("/");
   const activeDir = lastSlash >= 0 ? normActive.slice(0, lastSlash) : "";
-  const joined = activeDir + "/" + url.replace(/\\/g, "/");
+  const joined = `${activeDir}/${url.replace(/\\/g, "/")}`;
 
   const parts: string[] = [];
   for (const p of joined.split("/")) {
@@ -54,7 +54,7 @@ function resolveImageSrc(
   }
   const absNorm = (joined.startsWith("/") ? "/" : "") + parts.join("/");
 
-  if (absNorm !== normVault && !absNorm.startsWith(normVault + "/")) return url;
+  if (absNorm !== normVault && !absNorm.startsWith(`${normVault}/`)) return url;
   const rel = absNorm.slice(normVault.length + 1);
   const encoded = rel.split("/").map(encodeURIComponent).join("/");
   return `nexus-vault://vault/${encoded}`;
@@ -156,8 +156,8 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
               img.style.maxWidth = "100%";
               img.style.height = "auto";
               img.style.borderRadius = "4px";
-              if (typeof width === "number") img.style.width = width + "px";
-              if (typeof height === "number") img.style.height = height + "px";
+              if (typeof width === "number") img.style.width = `${width}px`;
+              if (typeof height === "number") img.style.height = `${height}px`;
 
               // Top-right action: jump cursor to image source.
               const srcBtn = document.createElement("button");
@@ -165,7 +165,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
               srcBtn.title = "View source";
               srcBtn.setAttribute("aria-label", "View image markdown source");
               srcBtn.textContent = "</>";
-              srcBtn.style.cssText = [
+              srcBtn.style.cssText = `${[
                 "position:absolute",
                 "top:6px",
                 "right:6px",
@@ -183,8 +183,14 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
                 "user-select:none",
                 "transition:opacity .15s",
                 "box-shadow:0 1px 2px rgba(0,0,0,0.08)",
-              ].join(";") + ";";
-              srcBtn.addEventListener("mousedown", (e) => { e.stopPropagation(); }, true);
+              ].join(";")};`;
+              srcBtn.addEventListener(
+                "mousedown",
+                (e) => {
+                  e.stopPropagation();
+                },
+                true,
+              );
               srcBtn.addEventListener("click", (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -200,7 +206,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
               // back `|width` into the image's alt in markdown.
               const resizeDot = document.createElement("span");
               resizeDot.title = "Drag to resize";
-              resizeDot.style.cssText = [
+              resizeDot.style.cssText = `${[
                 "position:absolute",
                 "bottom:2px",
                 "right:2px",
@@ -212,7 +218,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
                 "z-index:2",
                 "cursor:nwse-resize",
                 "transition:opacity .15s",
-              ].join(";") + ";";
+              ].join(";")};`;
 
               let dragging = false;
               let startX = 0;
@@ -220,7 +226,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
               const onMove = (e: MouseEvent) => {
                 if (!dragging) return;
                 const newW = Math.max(40, Math.round(startW + (e.clientX - startX)));
-                img.style.width = newW + "px";
+                img.style.width = `${newW}px`;
                 img.style.height = "auto";
               };
               const onUp = (e: MouseEvent) => {
@@ -343,8 +349,13 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       // decoration rebuild chain (live-preview buildDecorations), so this
       // number is the practical "time to render the opened file".
       // eslint-disable-next-line no-console
-      console.log("%c[perf]", "color:#0aa;font-weight:bold", "editor.setDocument",
-        `${(t1 - t0).toFixed(1)}ms`, { bytes: content.length });
+      console.log(
+        "%c[perf]",
+        "color:#0aa;font-weight:bold",
+        "editor.setDocument",
+        `${(t1 - t0).toFixed(1)}ms`,
+        { bytes: content.length },
+      );
     },
     destroy() {
       slashMenu.destroy();

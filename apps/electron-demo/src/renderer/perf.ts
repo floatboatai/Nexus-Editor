@@ -55,11 +55,7 @@ export async function perfAsync<T>(
   }
 }
 
-export function perfSync<T>(
-  label: string,
-  fn: () => T,
-  extras?: Record<string, unknown>,
-): T {
+export function perfSync<T>(label: string, fn: () => T, extras?: Record<string, unknown>): T {
   const s = perfStart(label, extras);
   try {
     return fn();
@@ -72,7 +68,8 @@ let longTaskInstalled = false;
 export function installLongTaskWatch(thresholdMs = 50): void {
   if (longTaskInstalled) return;
   longTaskInstalled = true;
-  const PO = (globalThis as { PerformanceObserver?: typeof PerformanceObserver }).PerformanceObserver;
+  const PO = (globalThis as { PerformanceObserver?: typeof PerformanceObserver })
+    .PerformanceObserver;
   if (!PO) return;
   try {
     const obs = new PO((list) => {
@@ -80,12 +77,10 @@ export function installLongTaskWatch(thresholdMs = 50): void {
       for (const entry of list.getEntries()) {
         if (entry.duration < thresholdMs) continue;
         // eslint-disable-next-line no-console
-        console.warn(
-          PREFIX,
-          STYLE,
-          `long-task ${fmt(entry.duration)}`,
-          { name: entry.name, at: entry.startTime.toFixed(0) },
-        );
+        console.warn(PREFIX, STYLE, `long-task ${fmt(entry.duration)}`, {
+          name: entry.name,
+          at: entry.startTime.toFixed(0),
+        });
       }
     });
     obs.observe({ entryTypes: ["longtask"] });

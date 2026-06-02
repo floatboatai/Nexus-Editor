@@ -1,4 +1,4 @@
-import type { LinkIndex, BacklinkHit } from "./link-index";
+import type { BacklinkHit, LinkIndex } from "./link-index";
 
 export interface BacklinksPanelOptions {
   index: LinkIndex;
@@ -237,9 +237,13 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
       const t1 = performance.now();
       if ((globalThis as { NEXUS_PERF?: boolean }).NEXUS_PERF !== false && t1 - t0 > 5) {
         // eslint-disable-next-line no-console
-        console.log("%c[perf]", "color:#0aa;font-weight:bold",
-          "backlinks.unlinked-scan", `${(t1 - t0).toFixed(1)}ms`,
-          { hits: unlinked.length });
+        console.log(
+          "%c[perf]",
+          "color:#0aa;font-weight:bold",
+          "backlinks.unlinked-scan",
+          `${(t1 - t0).toFixed(1)}ms`,
+          { hits: unlinked.length },
+        );
       }
       header.textContent = `Backlinks · ${linked.length} linked · ${unlinked.length} mention${unlinked.length === 1 ? "" : "s"}`;
       unlinkedHeader.textContent = "";

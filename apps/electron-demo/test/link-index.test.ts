@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { LinkIndex, stripAnchor, parseAnchor, findAnchorPosition } from "../src/renderer/link-index";
+import {
+  LinkIndex,
+  findAnchorPosition,
+  parseAnchor,
+  stripAnchor,
+} from "../src/renderer/link-index";
 
 describe("LinkIndex.resolve", () => {
   it("resolves a globally unique basename", () => {
@@ -204,7 +209,7 @@ describe("LinkIndex.resolve — anchor-aware", () => {
       { path: "/v/Projects/Ideas.md", content: "[[Projects/Nexus-Editor^block]]" },
     ]);
     expect(idx.resolve("Projects/Nexus-Editor^block", "/v/Projects/Ideas.md")).toBe(
-      "/v/Projects/Nexus-Editor.md"
+      "/v/Projects/Nexus-Editor.md",
     );
   });
 
@@ -256,9 +261,7 @@ describe("LinkIndex.getUnlinkedMentions", () => {
 
   it("excludes self-mentions in the target file", () => {
     const idx = new LinkIndex();
-    idx.rebuild([
-      { path: "/v/Meeting.md", content: "# Meeting — the word Meeting appears" },
-    ]);
+    idx.rebuild([{ path: "/v/Meeting.md", content: "# Meeting — the word Meeting appears" }]);
     expect(idx.getUnlinkedMentions("/v/Meeting.md")).toEqual([]);
   });
 

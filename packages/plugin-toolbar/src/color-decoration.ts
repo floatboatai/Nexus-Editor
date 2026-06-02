@@ -7,21 +7,19 @@
  *   <mark style="background:#ffff00">text</mark>
  */
 
-import { type Extension } from "@codemirror/state";
+import type { Extension } from "@codemirror/state";
 import {
   Decoration,
   type DecorationSet,
-  EditorView,
+  type EditorView,
   ViewPlugin,
   type ViewUpdate,
   WidgetType,
 } from "@codemirror/view";
 
 // Matches <span style="color:...">...</span> and <mark style="background:...">...</mark>
-const COLOR_RE =
-  /<span\s+style="color:\s*([^"]+)">([\s\S]*?)<\/span>/g;
-const HIGHLIGHT_RE =
-  /<mark\s+style="background:\s*([^"]+)">([\s\S]*?)<\/mark>/g;
+const COLOR_RE = /<span\s+style="color:\s*([^"]+)">([\s\S]*?)<\/span>/g;
+const HIGHLIGHT_RE = /<mark\s+style="background:\s*([^"]+)">([\s\S]*?)<\/mark>/g;
 
 /** Zero-width widget used to replace opening/closing tags (hides them). */
 class HiddenTagWidget extends WidgetType {
@@ -30,7 +28,9 @@ class HiddenTagWidget extends WidgetType {
     el.style.display = "none";
     return el;
   }
-  ignoreEvent(): boolean { return false; }
+  ignoreEvent(): boolean {
+    return false;
+  }
 }
 
 const hiddenWidget = Decoration.replace({ widget: new HiddenTagWidget() });
@@ -55,6 +55,7 @@ function findColorRanges(doc: string): ColorRange[] {
 
   COLOR_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: standard RegExp loop idiom
   while ((m = COLOR_RE.exec(doc)) !== null) {
     const from = m.index;
     const openTag = `<span style="color:${m[1]}">`;
@@ -70,6 +71,7 @@ function findColorRanges(doc: string): ColorRange[] {
   }
 
   HIGHLIGHT_RE.lastIndex = 0;
+  // biome-ignore lint/suspicious/noAssignInExpressions: standard RegExp loop idiom
   while ((m = HIGHLIGHT_RE.exec(doc)) !== null) {
     const from = m.index;
     const openTag = `<mark style="background:${m[1]}">`;
@@ -111,7 +113,9 @@ function buildDecorations(view: EditorView): DecorationSet {
     const markDeco =
       r.kind === "color"
         ? Decoration.mark({ attributes: { style: `color:${r.color}` } })
-        : Decoration.mark({ attributes: { style: `background:${r.color};border-radius:2px;padding:0 1px` } });
+        : Decoration.mark({
+            attributes: { style: `background:${r.color};border-radius:2px;padding:0 1px` },
+          });
     decorations.push({ from: r.innerFrom, to: r.innerTo, value: markDeco });
 
     // Hide closing tag

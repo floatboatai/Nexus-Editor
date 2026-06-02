@@ -6,7 +6,13 @@ import {
   StateField,
   type Transaction,
 } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
+import {
+  Decoration,
+  type DecorationSet,
+  EditorView,
+  ViewPlugin,
+  WidgetType,
+} from "@codemirror/view";
 import type { Content, Parent, Root } from "mdast";
 
 import type { ParserLike, WidgetDefinition, WidgetRenderContext } from "./types";
@@ -28,7 +34,7 @@ function parseDocument(parser: ParserLike, markdown: string): Root {
 function selectionIntersects(
   from: number,
   to: number,
-  selection: readonly SelectionRange[]
+  selection: readonly SelectionRange[],
 ): boolean {
   return selection.some((range) => {
     const rangeFrom = Math.min(range.anchor, range.head);
@@ -59,7 +65,7 @@ function collectWidgetRanges(
   ast: Root,
   doc: string,
   selection: readonly SelectionRange[],
-  widgets: WidgetDefinition[]
+  widgets: WidgetDefinition[],
 ): WidgetRange[] {
   const ranges: WidgetRange[] = [];
 
@@ -70,7 +76,7 @@ function collectWidgetRanges(
 
       if (typeof from === "number" && typeof to === "number") {
         const matched = widgets.find(
-          (w) => w.nodeType === child.type && (!w.match || w.match(child))
+          (w) => w.nodeType === child.type && (!w.match || w.match(child)),
         );
 
         if (matched && !selectionIntersects(from, to, selection)) {
@@ -102,7 +108,7 @@ class NexusWidget extends WidgetType {
     private source: string,
     private from: number,
     private to: number,
-    private viewRef: { current: EditorView | null }
+    private viewRef: { current: EditorView | null },
   ) {
     super();
   }
@@ -124,9 +130,8 @@ class NexusWidget extends WidgetType {
         const v = this.viewRef.current;
         if (!v) return;
         const safeAnchor = Math.max(0, Math.min(anchor, v.state.doc.length));
-        const safeHead = head === undefined
-          ? safeAnchor
-          : Math.max(0, Math.min(head, v.state.doc.length));
+        const safeHead =
+          head === undefined ? safeAnchor : Math.max(0, Math.min(head, v.state.doc.length));
         v.dispatch({ selection: { anchor: safeAnchor, head: safeHead } });
       },
       focus: () => {
@@ -152,7 +157,7 @@ function buildWidgetDecorations(
   selection: readonly SelectionRange[],
   parser: ParserLike,
   widgets: WidgetDefinition[],
-  viewRef: { current: EditorView | null }
+  viewRef: { current: EditorView | null },
 ): DecorationSet {
   const ast = parseDocument(parser, doc);
   const ranges = collectWidgetRanges(ast, doc, selection, widgets);
@@ -168,10 +173,10 @@ function buildWidgetDecorations(
           range.source,
           range.from,
           range.to,
-          viewRef
+          viewRef,
         ),
         block: isBlock,
-      }).range(range.from, range.to)
+      }).range(range.from, range.to),
     );
   }
 
@@ -180,7 +185,7 @@ function buildWidgetDecorations(
 
 export function createWidgetExtension(
   parser: ParserLike,
-  widgets: WidgetDefinition[]
+  widgets: WidgetDefinition[],
 ): Extension[] {
   if (widgets.length === 0) return [];
 
@@ -194,7 +199,7 @@ export function createWidgetExtension(
         state.selection.ranges,
         parser,
         widgets,
-        viewRef
+        viewRef,
       );
     },
     update(decos: DecorationSet, tr: Transaction) {
@@ -204,7 +209,7 @@ export function createWidgetExtension(
           tr.state.selection.ranges,
           parser,
           widgets,
-          viewRef
+          viewRef,
         );
       }
       if (tr.isUserEvent("input.type.compose")) {
@@ -216,7 +221,7 @@ export function createWidgetExtension(
           tr.state.selection.ranges,
           parser,
           widgets,
-          viewRef
+          viewRef,
         );
       }
       return decos;
@@ -237,7 +242,7 @@ export function createWidgetExtension(
       destroy(): void {
         if (viewRef.current === this.view) viewRef.current = null;
       }
-    }
+    },
   );
 
   const compositionHandler = EditorView.domEventHandlers({

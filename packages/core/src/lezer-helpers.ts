@@ -1,5 +1,5 @@
-import type { EditorState } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
+import type { EditorState } from "@codemirror/state";
 import type { SyntaxNode, Tree } from "@lezer/common";
 
 /**
@@ -15,7 +15,9 @@ export function iterateInRange(
   tree: Tree,
   from: number,
   to: number,
-  visit: (info: { name: string; from: number; to: number; node: SyntaxNode | null }) => void | boolean,
+  visit: (info: { name: string; from: number; to: number; node: SyntaxNode | null }) =>
+    | undefined
+    | boolean,
 ): void {
   tree.iterate({
     from,

@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  computeSlashState,
-  filterSlashCommands,
-  getSlashMatch,
-} from "../src/slash-state";
+import { computeSlashState, filterSlashCommands, getSlashMatch } from "../src/slash-state";
 import type { SlashCommandDef } from "../src/types";
 
-function cmds(...defs: Array<Partial<SlashCommandDef> & { id: string; title: string }>): SlashCommandDef[] {
-  return defs.map((d) => ({ ...d } as SlashCommandDef));
+function cmds(
+  ...defs: Array<Partial<SlashCommandDef> & { id: string; title: string }>
+): SlashCommandDef[] {
+  return defs.map((d) => ({ ...d }) as SlashCommandDef);
 }
 
 describe("getSlashMatch", () => {
@@ -43,11 +41,7 @@ describe("filterSlashCommands ranking", () => {
       { id: "h1", title: "Heading 1" },
       { id: "bold", title: "Bold" },
     );
-    expect(filterSlashCommands(list, "").map((c) => c.id)).toEqual([
-      "table",
-      "h1",
-      "bold",
-    ]);
+    expect(filterSlashCommands(list, "").map((c) => c.id)).toEqual(["table", "h1", "bold"]);
   });
 
   it("ranks exact title match above prefix match", () => {
@@ -68,10 +62,7 @@ describe("filterSlashCommands ranking", () => {
     );
     // Query "h": both Title prefix → tiebreaker is title.length (Heading=7, Highlight=9),
     // so Heading wins.
-    expect(filterSlashCommands(list, "h").map((c) => c.id)).toEqual([
-      "heading",
-      "highlight",
-    ]);
+    expect(filterSlashCommands(list, "h").map((c) => c.id)).toEqual(["heading", "highlight"]);
   });
 
   it("ranks title-prefix above keyword-prefix when only one is a title hit", () => {
@@ -79,10 +70,7 @@ describe("filterSlashCommands ranking", () => {
       { id: "alpha", title: "Alpha", keywords: ["zeta"] },
       { id: "bravo", title: "Other", keywords: ["alphabet"] },
     );
-    expect(filterSlashCommands(list, "alpha").map((c) => c.id)).toEqual([
-      "alpha",
-      "bravo",
-    ]);
+    expect(filterSlashCommands(list, "alpha").map((c) => c.id)).toEqual(["alpha", "bravo"]);
   });
 
   it("filters out non-matches entirely", () => {
@@ -99,33 +87,22 @@ describe("filterSlashCommands ranking", () => {
       { id: "hr", title: "Page rule line", keywords: ["divider"] },
       { id: "rule-cmd", title: "Other", keywords: ["rule"] },
     );
-    expect(filterSlashCommands(list, "rule").map((c) => c.id)).toEqual([
-      "rule-cmd",
-      "hr",
-    ]);
+    expect(filterSlashCommands(list, "rule").map((c) => c.id)).toEqual(["rule-cmd", "hr"]);
   });
 
   it("is case-insensitive on both title and keywords", () => {
-    const list = cmds(
-      { id: "h1", title: "HEADING", keywords: ["TITLE"] },
-    );
+    const list = cmds({ id: "h1", title: "HEADING", keywords: ["TITLE"] });
     expect(filterSlashCommands(list, "tit").map((c) => c.id)).toEqual(["h1"]);
     expect(filterSlashCommands(list, "head").map((c) => c.id)).toEqual(["h1"]);
   });
 
   it("returns deterministic order on identical scores", () => {
-    const list = cmds(
-      { id: "z", title: "Zeta" },
-      { id: "a", title: "Alpha" },
-    );
+    const list = cmds({ id: "z", title: "Zeta" }, { id: "a", title: "Alpha" });
     // Empty query preserves input order.
     expect(filterSlashCommands(list, "").map((c) => c.id)).toEqual(["z", "a"]);
     // A query matching both via title-substring with identical
     // tiebreakers (offset 1) sorts alphabetically.
-    const list2 = cmds(
-      { id: "z", title: "Zoo" },
-      { id: "a", title: "Aoo" },
-    );
+    const list2 = cmds({ id: "z", title: "Zoo" }, { id: "a", title: "Aoo" });
     expect(filterSlashCommands(list2, "oo").map((c) => c.id)).toEqual(["a", "z"]);
   });
 });

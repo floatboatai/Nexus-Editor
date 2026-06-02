@@ -41,7 +41,9 @@ interface ClickSnapshot {
   cmLineCount: number;
 }
 
-function diagOn(): boolean { return Boolean((globalThis as any).__NEXUS_DIAG__); }
+function diagOn(): boolean {
+  return Boolean((globalThis as any).__NEXUS_DIAG__);
+}
 
 let clickCounter = 0;
 let txCounter = 0;
@@ -49,7 +51,10 @@ let txCounter = 0;
 function describeTarget(el: EventTarget | null): string {
   if (!(el instanceof HTMLElement)) return String(el ?? "null");
   const tag = el.tagName.toLowerCase();
-  const cls = el.className && typeof el.className === "string" ? "." + el.className.split(/\s+/).slice(0, 3).join(".") : "";
+  const cls =
+    el.className && typeof el.className === "string"
+      ? `.${el.className.split(/\s+/).slice(0, 3).join(".")}`
+      : "";
   const role = el.getAttribute("role");
   const txt = (el.textContent ?? "").trim().slice(0, 30).replace(/\s+/g, " ");
   return `${tag}${cls}${role ? `[role=${role}]` : ""} "${txt}"`;
@@ -58,12 +63,7 @@ function describeTarget(el: EventTarget | null): string {
 function probeHeightmap(view: EditorView): HeightProbe[] {
   const docLen = view.state.doc.length;
   // Probe the whole doc at 10% intervals plus the viewport edges.
-  const positions = new Set<number>([
-    0,
-    view.viewport.from,
-    view.viewport.to,
-    docLen,
-  ]);
+  const positions = new Set<number>([0, view.viewport.from, view.viewport.to, docLen]);
   for (let i = 1; i < 10; i++) positions.add(Math.floor((docLen * i) / 10));
 
   const probes: HeightProbe[] = [];
@@ -108,7 +108,10 @@ function auditWidgets(view: EditorView): WidgetSample[] {
   return samples;
 }
 
-function diffProbes(before: HeightProbe[], after: HeightProbe[]): Array<{ pos: number; delta: number }> {
+function diffProbes(
+  before: HeightProbe[],
+  after: HeightProbe[],
+): Array<{ pos: number; delta: number }> {
   const deltas: Array<{ pos: number; delta: number }> = [];
   const map = new Map(before.map((p) => [p.pos, p.y]));
   for (const a of after) {
@@ -121,7 +124,12 @@ function diffProbes(before: HeightProbe[], after: HeightProbe[]): Array<{ pos: n
   return deltas;
 }
 
-function snapshot(view: EditorView, clickX: number, clickY: number, target: EventTarget | null): ClickSnapshot {
+function snapshot(
+  view: EditorView,
+  clickX: number,
+  clickY: number,
+  target: EventTarget | null,
+): ClickSnapshot {
   return {
     clickNo: ++clickCounter,
     clickX,
@@ -139,14 +147,17 @@ function snapshot(view: EditorView, clickX: number, clickY: number, target: Even
   };
 }
 
-function logClick(snap: ClickSnapshot, post: {
-  selectionHead: number;
-  scrollTop: number;
-  probes: HeightProbe[];
-  cursorY: number | null;
-  contentHeightAfter: number;
-  widgets: WidgetSample[];
-}): void {
+function logClick(
+  snap: ClickSnapshot,
+  post: {
+    selectionHead: number;
+    scrollTop: number;
+    probes: HeightProbe[];
+    cursorY: number | null;
+    contentHeightAfter: number;
+    widgets: WidgetSample[];
+  },
+): void {
   const probeDeltas = diffProbes(snap.probes, post.probes);
   const scrollDelta = post.scrollTop - snap.scrollTop;
   const clickToCursorDrift = post.cursorY != null ? Math.round(post.cursorY - snap.clickY) : null;
@@ -160,42 +171,49 @@ function logClick(snap: ClickSnapshot, post: {
   const probesPost = post.probes.map((p) => `${p.pos}→${p.y}`).join(" | ");
   const widgetDiff = compareWidgets(snap.widgets, post.widgets);
   const widgetsPre = snap.widgets.map((w) => `${w.kind}@${w.top}h${w.height}`).join(" | ");
-  const hmShift = probeDeltas.length > 0
-    ? "HEIGHTMAP SHIFTED: " + probeDeltas.map((d) => `pos ${d.pos} Δ${d.delta > 0 ? "+" : ""}${d.delta}px`).join(", ")
-    : "heightmap stable";
-  const wShift = widgetDiff.length > 0
-    ? "WIDGETS SHIFTED: " + widgetDiff.map((w) => `${w.kind} top:${w.beforeTop}→${w.afterTop} hΔ:${w.heightDelta}`).join(", ")
-    : `widgets(n=${snap.widgets.length}) stable`;
+  const hmShift =
+    probeDeltas.length > 0
+      ? `HEIGHTMAP SHIFTED: ${probeDeltas.map((d) => `pos ${d.pos} Δ${d.delta > 0 ? "+" : ""}${d.delta}px`).join(", ")}`
+      : "heightmap stable";
+  const wShift =
+    widgetDiff.length > 0
+      ? `WIDGETS SHIFTED: ${widgetDiff
+          .map((w) => `${w.kind} top:${w.beforeTop}→${w.afterTop} hΔ:${w.heightDelta}`)
+          .join(", ")}`
+      : `widgets(n=${snap.widgets.length}) stable`;
 
   console.log(
     `${icon} [NEXUS-DIAG] click #${snap.clickNo}\n` +
-    `  click        (${snap.clickX},${snap.clickY})\n` +
-    `  target       ${snap.targetDescribe}\n` +
-    `  posAtCoords  ${snap.posAtCoords} → after: ${post.selectionHead} (Δ=${post.selectionHead - (snap.posAtCoords ?? 0)})\n` +
-    `  scroll       ${snap.scrollTop} → ${post.scrollTop} (Δ=${scrollDelta})\n` +
-    `  viewport     [${snap.viewportFrom}, ${snap.viewportTo}]\n` +
-    `  contentH     ${snap.contentHeight} → ${post.contentHeightAfter} (Δ=${post.contentHeightAfter - snap.contentHeight})\n` +
-    `  cursorY      ${post.cursorY} vs clickY ${snap.clickY}  drift=${clickToCursorDrift}px\n` +
-    `  ${hmShift}\n` +
-    `  ${wShift}\n` +
-    `  probes(pre)  ${probesPre}\n` +
-    `  probes(post) ${probesPost}\n` +
-    `  widgets      ${widgetsPre}`
+      `  click        (${snap.clickX},${snap.clickY})\n` +
+      `  target       ${snap.targetDescribe}\n` +
+      `  posAtCoords  ${snap.posAtCoords} → after: ${post.selectionHead} (Δ=${post.selectionHead - (snap.posAtCoords ?? 0)})\n` +
+      `  scroll       ${snap.scrollTop} → ${post.scrollTop} (Δ=${scrollDelta})\n` +
+      `  viewport     [${snap.viewportFrom}, ${snap.viewportTo}]\n` +
+      `  contentH     ${snap.contentHeight} → ${post.contentHeightAfter} (Δ=${post.contentHeightAfter - snap.contentHeight})\n` +
+      `  cursorY      ${post.cursorY} vs clickY ${snap.clickY}  drift=${clickToCursorDrift}px\n` +
+      `  ${hmShift}\n` +
+      `  ${wShift}\n` +
+      `  probes(pre)  ${probesPre}\n` +
+      `  probes(post) ${probesPost}\n` +
+      `  widgets      ${widgetsPre}`,
   );
 }
 
-function compareWidgets(before: WidgetSample[], after: WidgetSample[]): Array<{ kind: string; beforeTop: number; afterTop: number; heightDelta: number }> {
+function compareWidgets(
+  before: WidgetSample[],
+  after: WidgetSample[],
+): Array<{ kind: string; beforeTop: number; afterTop: number; heightDelta: number }> {
   const out: Array<{ kind: string; beforeTop: number; afterTop: number; heightDelta: number }> = [];
   // Pair widgets by kind + order (approximate — no stable IDs).
   const byKind = new Map<string, WidgetSample[]>();
   for (const w of before) {
     if (!byKind.has(w.kind)) byKind.set(w.kind, []);
-    byKind.get(w.kind)!.push(w);
+    byKind.get(w.kind)?.push(w);
   }
   const afterByKind = new Map<string, WidgetSample[]>();
   for (const w of after) {
     if (!afterByKind.has(w.kind)) afterByKind.set(w.kind, []);
-    afterByKind.get(w.kind)!.push(w);
+    afterByKind.get(w.kind)?.push(w);
   }
   for (const [kind, bList] of byKind) {
     const aList = afterByKind.get(kind) ?? [];
@@ -234,7 +252,9 @@ export function createLivePreviewDiagnostics(): Extension {
           try {
             const c = view.coordsAtPos(sel);
             cursorY = c ? Math.round(c.top) : null;
-          } catch { cursorY = null; }
+          } catch {
+            cursorY = null;
+          }
 
           logClick(snap, {
             selectionHead: sel,
@@ -257,10 +277,9 @@ export function createLivePreviewDiagnostics(): Extension {
           bannerShown = true;
           const docLen = view.state.doc.length;
           console.log(
-            "%c[NEXUS-DIAG]%c active — docLen=" + docLen + " lines=" + (view.state.doc.lines) +
-              "\n  click anywhere to capture a snapshot.",
+            `%c[NEXUS-DIAG]%c active — docLen=${docLen} lines=${view.state.doc.lines}\n  click anywhere to capture a snapshot.`,
             "background:#f60;color:#fff;padding:2px 6px;border-radius:3px",
-            "color:#888"
+            "color:#888",
           );
         }
       }
@@ -277,12 +296,12 @@ export function createLivePreviewDiagnostics(): Extension {
             if (u.heightChanged) changed.push("H");
             const sel = u.state.selection.main.head;
             console.debug(
-              `[NEXUS-DIAG tx#${txCounter}] ${changed.join(",")} sel=${sel} scroll=${Math.round(u.view.scrollDOM.scrollTop)} contentH=${Math.round(u.view.contentHeight)}`
+              `[NEXUS-DIAG tx#${txCounter}] ${changed.join(",")} sel=${sel} scroll=${Math.round(u.view.scrollDOM.scrollTop)} contentH=${Math.round(u.view.contentHeight)}`,
             );
           }
         }
       }
-    }
+    },
   );
 
   return [clickHandler, updatePlugin];

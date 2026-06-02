@@ -14,7 +14,7 @@ describe("widget extension", () => {
           widgets: [
             {
               nodeType: "code",
-              render(node, source) {
+              render(_node, source) {
                 const el = document.createElement("div");
                 el.setAttribute("data-widget", "code");
                 el.textContent = source;
@@ -26,9 +26,7 @@ describe("widget extension", () => {
       ],
     });
 
-    expect(
-      container.querySelector("[data-widget='code']")
-    ).not.toBeNull();
+    expect(container.querySelector("[data-widget='code']")).not.toBeNull();
     editor.destroy();
   });
 
@@ -69,8 +67,7 @@ describe("widget extension", () => {
     // Prefix with "Text\n\n" so cursor at 0 doesn't intersect the code blocks
     const editor = createEditor({
       container,
-      initialValue:
-        "Text\n\n```mermaid\ngraph LR\n```\n\n```js\nconsole.log(1)\n```",
+      initialValue: "Text\n\n```mermaid\ngraph LR\n```\n\n```js\nconsole.log(1)\n```",
       plugins: [
         {
           name: "mermaid-widget",

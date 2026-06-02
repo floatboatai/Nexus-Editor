@@ -59,10 +59,34 @@ jobs:
       - name: Build Electron demo
         run: pnpm build:electron-demo
 
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
   publish:
     name: Publish Packages
     runs-on: ubuntu-latest
-    needs: verify
+    needs: [verify, lint]
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish)
     steps:
       - name: Checkout

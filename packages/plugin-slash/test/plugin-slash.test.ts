@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  createSlashPlugin,
-  filterSlashCommands,
-  getSlashState,
-  getSlashMatch
-} from "../src/index";
+import { createSlashPlugin, filterSlashCommands, getSlashMatch, getSlashState } from "../src/index";
 
 describe("@floatboat/nexus-plugin-slash", () => {
   it("detects a slash query at the cursor position", () => {
@@ -13,7 +8,7 @@ describe("@floatboat/nexus-plugin-slash", () => {
     expect(getSlashMatch(doc, doc.length)).toEqual({
       from: 7,
       to: 11,
-      query: "hea"
+      query: "hea",
     });
   });
 
@@ -26,12 +21,10 @@ describe("@floatboat/nexus-plugin-slash", () => {
   it("filters slash commands by title and keywords", () => {
     const commands = [
       { id: "heading", title: "Heading", keywords: ["title", "h1"] },
-      { id: "table", title: "Table", keywords: ["grid"] }
+      { id: "table", title: "Table", keywords: ["grid"] },
     ];
 
-    expect(filterSlashCommands(commands, "tit").map((command) => command.id)).toEqual([
-      "heading"
-    ]);
+    expect(filterSlashCommands(commands, "tit").map((command) => command.id)).toEqual(["heading"]);
     expect(filterSlashCommands(commands, "grid").map((command) => command.id)).toEqual(["table"]);
   });
 
@@ -46,7 +39,7 @@ describe("@floatboat/nexus-plugin-slash", () => {
   it("derives slash menu state with filtered commands", () => {
     const commands = [
       { id: "heading", title: "Heading", keywords: ["title"] },
-      { id: "table", title: "Table", keywords: ["grid"] }
+      { id: "table", title: "Table", keywords: ["grid"] },
     ];
     const doc = "/tit";
 
@@ -55,7 +48,7 @@ describe("@floatboat/nexus-plugin-slash", () => {
       from: 0,
       to: 4,
       query: "tit",
-      commands: [{ id: "heading", title: "Heading", keywords: ["title"] }]
+      commands: [{ id: "heading", title: "Heading", keywords: ["title"] }],
     });
   });
 
@@ -65,26 +58,23 @@ describe("@floatboat/nexus-plugin-slash", () => {
       from: null,
       to: null,
       query: "",
-      commands: []
+      commands: [],
     });
   });
 
   it("ranks title-prefix matches above keyword-only matches", () => {
     const commands = [
       { id: "highlight", title: "Highlight" },
-      { id: "heading", title: "Heading", keywords: ["h1"] }
+      { id: "heading", title: "Heading", keywords: ["h1"] },
     ];
     // Title prefix tier; "Heading" (7 chars) wins over "Highlight" (9 chars).
-    expect(filterSlashCommands(commands, "h").map((c) => c.id)).toEqual([
-      "heading",
-      "highlight"
-    ]);
+    expect(filterSlashCommands(commands, "h").map((c) => c.id)).toEqual(["heading", "highlight"]);
   });
 
   it("propagates limit through getSlashState", () => {
     const commands = Array.from({ length: 10 }, (_, i) => ({
       id: `cmd-${i}`,
-      title: `Command ${i}`
+      title: `Command ${i}`,
     }));
     const state = getSlashState("/com", 4, commands, { limit: 2 });
     expect(state.commands).toHaveLength(2);
@@ -92,10 +82,7 @@ describe("@floatboat/nexus-plugin-slash", () => {
 
   it("preserves an optional run callback through filterSlashCommands", () => {
     const run = () => true;
-    const filtered = filterSlashCommands(
-      [{ id: "h1", title: "Heading 1", run }],
-      "head"
-    );
+    const filtered = filterSlashCommands([{ id: "h1", title: "Heading 1", run }], "head");
     expect(filtered[0].run).toBe(run);
   });
 });

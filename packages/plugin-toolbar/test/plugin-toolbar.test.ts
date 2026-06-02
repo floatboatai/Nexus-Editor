@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import { createEditor } from "@floatboat/nexus-core";
 import {
-  toggleBold,
-  toggleItalic,
-  toggleInlineCode,
-  insertLink,
-  toggleHeading,
   createToolbarPlugin,
   createToolbarUI,
+  insertLink,
+  toggleBold,
+  toggleHeading,
+  toggleInlineCode,
+  toggleItalic,
 } from "../src/index";
 
 describe("toggleBold", () => {
@@ -126,7 +126,7 @@ describe("createToolbarPlugin", () => {
 
     expect(plugin.name).toBe("plugin-toolbar");
     expect(plugin.shortcuts).toBeDefined();
-    expect(plugin.shortcuts!.length).toBeGreaterThanOrEqual(6);
+    expect(plugin.shortcuts?.length).toBeGreaterThanOrEqual(6);
   });
 
   it("integrates with the editor shortcut system", () => {
@@ -180,7 +180,9 @@ describe("createToolbarUI", () => {
     const toolbar = createToolbarUI(editor);
     document.body.appendChild(toolbar.element);
 
-    const button = toolbar.element.querySelector<HTMLButtonElement>('[data-toolbar-action="unordered-list"]');
+    const button = toolbar.element.querySelector<HTMLButtonElement>(
+      '[data-toolbar-action="unordered-list"]',
+    );
     expect(button).not.toBeNull();
     expect(button?.title).toBe("");
     expect(button?.getAttribute("aria-label")).toBe("Unordered list");

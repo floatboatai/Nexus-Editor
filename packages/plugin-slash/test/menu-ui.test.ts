@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createEditor, type EditorAPI, type SlashCommandDef } from "@floatboat/nexus-core";
-import { createSlashMenuUI, type SlashMenuUI } from "../src/menu-ui";
+import { type EditorAPI, type SlashCommandDef, createEditor } from "@floatboat/nexus-core";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { type SlashMenuUI, createSlashMenuUI } from "../src/menu-ui";
 
 const PREFIX = "nexus-slash";
 
@@ -13,7 +13,7 @@ interface Harness {
 
 function setup(
   commands: SlashCommandDef[],
-  options: Parameters<typeof createSlashMenuUI>[1] = {}
+  options: Parameters<typeof createSlashMenuUI>[1] = {},
 ): Harness {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -46,9 +46,7 @@ function open(editor: EditorAPI, query: string): void {
 }
 
 function items(menu: SlashMenuUI): HTMLElement[] {
-  return Array.from(
-    menu.element.querySelectorAll<HTMLElement>(`.${PREFIX}-menu__item`)
-  );
+  return Array.from(menu.element.querySelectorAll<HTMLElement>(`.${PREFIX}-menu__item`));
 }
 
 function activeItem(menu: SlashMenuUI): HTMLElement | null {
@@ -89,9 +87,7 @@ describe("createSlashMenuUI lifecycle", () => {
     open(h.editor, "zzz");
     expect(h.menu.element.style.display).toBe("block");
     expect(items(h.menu)).toHaveLength(0);
-    expect(h.menu.element.querySelector(`.${PREFIX}-menu__empty`)?.textContent).toBe(
-      "No matches"
-    );
+    expect(h.menu.element.querySelector(`.${PREFIX}-menu__empty`)?.textContent).toBe("No matches");
   });
 
   it("hides when the trigger disappears", () => {
@@ -152,15 +148,13 @@ describe("createSlashMenuUI rendering", () => {
     ]);
     open(h.editor, "");
     const [withDesc, noDesc] = items(h.menu);
-    expect(withDesc.querySelector(`.${PREFIX}-menu__title`)?.textContent).toBe(
-      "Has description"
-    );
+    expect(withDesc.querySelector(`.${PREFIX}-menu__title`)?.textContent).toBe("Has description");
     expect(withDesc.querySelector<HTMLElement>(`.${PREFIX}-menu__description`)?.textContent).toBe(
-      "Useful note"
+      "Useful note",
     );
-    expect(
-      noDesc.querySelector<HTMLElement>(`.${PREFIX}-menu__description`)?.style.display
-    ).toBe("none");
+    expect(noDesc.querySelector<HTMLElement>(`.${PREFIX}-menu__description`)?.style.display).toBe(
+      "none",
+    );
   });
 
   it("clamps the highlight when the command list shrinks below it", () => {
@@ -322,7 +316,9 @@ describe("createSlashMenuUI document interactions", () => {
   it("ignores mousedown inside the menu element", () => {
     h = setup(baseCommands);
     open(h.editor, "");
-    items(h.menu)[0].dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    items(h.menu)[0].dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+    );
     expect(h.menu.element.style.display).toBe("block");
   });
 

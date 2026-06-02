@@ -115,6 +115,7 @@ interface ContextMenuItem {
 }
 
 function showContextMenu(x: number, y: number, items: ContextMenuItem[]): void {
+  // biome-ignore lint/complexity/noForEach: concise one-liner for DOM cleanup
   document.querySelectorAll(".nexus-vault-ctxmenu").forEach((el) => el.remove());
 
   const menu = document.createElement("div");
@@ -323,7 +324,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     for (const node of currentTree) renderNode(node, 0, tree);
   }
 
-  function beginInlineRename(row: HTMLElement, label: HTMLElement, node: VaultNode): void {
+  function beginInlineRename(_row: HTMLElement, label: HTMLElement, node: VaultNode): void {
     const input = document.createElement("input");
     input.type = "text";
     input.value = node.name;
@@ -374,7 +375,8 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
   }
 
   function openNodeContextMenu(x: number, y: number, node: VaultNode): void {
-    const parentDir = node.kind === "directory" ? node.path : node.path.replace(/[\\/][^\\/]+$/, "");
+    const parentDir =
+      node.kind === "directory" ? node.path : node.path.replace(/[\\/][^\\/]+$/, "");
     const items: ContextMenuItem[] = [];
 
     if (node.kind === "directory") {

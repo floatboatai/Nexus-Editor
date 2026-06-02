@@ -1,5 +1,5 @@
-import { EditorState } from "@codemirror/state";
 import { foldable } from "@codemirror/language";
+import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
 
@@ -9,8 +9,8 @@ function createView(doc: string): EditorView {
   return new EditorView({
     state: EditorState.create({
       doc,
-      extensions: [markdownFoldService()]
-    })
+      extensions: [markdownFoldService()],
+    }),
   });
 }
 
@@ -24,8 +24,8 @@ describe("markdown fold", () => {
     const range = foldable(view.state, line.from, line.to);
 
     expect(range).not.toBeNull();
-    expect(range!.from).toBe(line.to); // fold starts after heading
-    expect(range!.to).toBe(view.state.doc.line(2).to); // fold ends before "# Second"
+    expect(range?.from).toBe(line.to); // fold starts after heading
+    expect(range?.to).toBe(view.state.doc.line(2).to); // fold ends before "# Second"
     view.destroy();
   });
 
@@ -36,7 +36,7 @@ describe("markdown fold", () => {
     const range = foldable(view.state, line.from, line.to);
 
     expect(range).not.toBeNull();
-    expect(range!.to).toBe(doc.length);
+    expect(range?.to).toBe(doc.length);
     view.destroy();
   });
 
@@ -48,7 +48,7 @@ describe("markdown fold", () => {
 
     expect(range).not.toBeNull();
     // Should fold only "Content" line, stopping before "# Top"
-    expect(range!.to).toBe(view.state.doc.line(2).to);
+    expect(range?.to).toBe(view.state.doc.line(2).to);
     view.destroy();
   });
 
@@ -71,10 +71,10 @@ describe("markdown fold", () => {
     const range = foldable(view.state, line.from, line.to);
 
     expect(range).not.toBeNull();
-    expect(range!.from).toBe(line.to);
+    expect(range?.from).toBe(line.to);
     // Should fold to end of closing fence
     const lastLine = view.state.doc.line(4); // "```"
-    expect(range!.to).toBe(lastLine.to);
+    expect(range?.to).toBe(lastLine.to);
     view.destroy();
   });
 

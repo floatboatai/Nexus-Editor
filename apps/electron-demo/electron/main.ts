@@ -1,15 +1,21 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from "electron";
-import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promises";
-import { existsSync, watch, type FSWatcher } from "node:fs";
+import { type FSWatcher, existsSync, watch } from "node:fs";
+import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { net, BrowserWindow, app, dialog, ipcMain, protocol, shell } from "electron";
 
 // Must be called before app ready — declares our custom scheme as privileged
 // so images served via nexus-vault:// pass fetch/<img> with credentials / CORS.
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "nexus-vault",
-    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true },
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      bypassCSP: true,
+    },
   },
 ]);
 
@@ -68,7 +74,10 @@ function createWindow(): void {
   mainWindow.webContents.on("before-input-event", (_event, input) => {
     const meta = input.meta || input.control;
     if (input.type === "keyDown") {
-      if ((meta && input.shift && (input.key === "I" || input.key === "i")) || input.key === "F12") {
+      if (
+        (meta && input.shift && (input.key === "I" || input.key === "i")) ||
+        input.key === "F12"
+      ) {
         mainWindow?.webContents.toggleDevTools();
       }
     }
@@ -100,7 +109,7 @@ ipcMain.handle(
   async (_event: Electron.IpcMainInvokeEvent, filePath: string, content: string) => {
     await writeFile(filePath, content, "utf-8");
     return { path: filePath };
-  }
+  },
 );
 
 ipcMain.handle(
@@ -119,7 +128,7 @@ ipcMain.handle(
 
     await writeFile(result.filePath, content, "utf-8");
     return { path: result.filePath };
-  }
+  },
 );
 
 // -- vault helpers ------------------------------------------------------------
@@ -130,7 +139,7 @@ function assertInsideVault(target: string): string {
   }
   const resolved = path.resolve(target);
   const rel = path.relative(activeVault, resolved);
-  if (rel === "" || rel === "." ) return resolved;
+  if (rel === "" || rel === ".") return resolved;
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
     throw new Error(`Path escapes vault: ${target}`);
   }
@@ -204,7 +213,7 @@ function startWatcher(vaultPath: string): void {
 
   try {
     activeWatcher = watch(vaultPath, { recursive: true }, () => notify());
-  } catch (err) {
+  } catch (_err) {
     // Linux without recursive support — fall back to non-recursive on the root.
     try {
       activeWatcher = watch(vaultPath, () => notify());
@@ -227,7 +236,9 @@ async function readVaultState(): Promise<VaultState> {
     const parsed = JSON.parse(raw) as Partial<VaultState>;
     return {
       lastVault: typeof parsed.lastVault === "string" ? parsed.lastVault : null,
-      recents: Array.isArray(parsed.recents) ? parsed.recents.filter((r) => typeof r === "string") : [],
+      recents: Array.isArray(parsed.recents)
+        ? parsed.recents.filter((r) => typeof r === "string")
+        : [],
     };
   } catch {
     return { lastVault: null, recents: [] };
@@ -316,77 +327,67 @@ ipcMain.handle("vault:write", async (_event, filePath: string, content: string) 
   return { path: abs };
 });
 
-ipcMain.handle(
-  "vault:create-file",
-  async (_event, parentDir: string, name: string) => {
-    const safeInput = name.trim() || "untitled";
-    // Allow the caller to pass a subpath like `Folder/NewNote` — we split it
-    // into an extra parent path relative to `parentDir` and create any
-    // intermediate folders as needed. This is what the wiki-link
-    // create-on-click flow needs when the user types `[[Projects/X]]`.
-    const normInput = safeInput.replace(/\\/g, "/");
-    const segments = normInput.split("/").filter((s) => s.length > 0);
-    if (segments.length === 0) throw new Error("Invalid file name");
-    const baseNameRaw = segments.pop()!;
-    const subDirs = segments.join("/");
+ipcMain.handle("vault:create-file", async (_event, parentDir: string, name: string) => {
+  const safeInput = name.trim() || "untitled";
+  // Allow the caller to pass a subpath like `Folder/NewNote` — we split it
+  // into an extra parent path relative to `parentDir` and create any
+  // intermediate folders as needed. This is what the wiki-link
+  // create-on-click flow needs when the user types `[[Projects/X]]`.
+  const normInput = safeInput.replace(/\\/g, "/");
+  const segments = normInput.split("/").filter((s) => s.length > 0);
+  if (segments.length === 0) throw new Error("Invalid file name");
+  // biome-ignore lint/style/noNonNullAssertion: guarded by length check above
+  const baseNameRaw = segments.pop()!;
+  const subDirs = segments.join("/");
 
-    const parent = assertInsideVault(
-      subDirs ? path.join(parentDir, subDirs) : parentDir
-    );
-    if (subDirs) {
-      await mkdir(parent, { recursive: true });
-    }
-
-    const hasExt = SUPPORTED_EXT.has(path.extname(baseNameRaw).toLowerCase());
-    const baseName = hasExt ? baseNameRaw : `${baseNameRaw}.md`;
-    const ext = path.extname(baseName);
-    const stem = baseName.slice(0, baseName.length - ext.length);
-
-    let candidate = path.join(parent, baseName);
-    let suffix = 1;
-    while (existsSync(candidate)) {
-      candidate = path.join(parent, `${stem}-${suffix}${ext}`);
-      suffix += 1;
-    }
-
-    const finalPath = assertInsideVault(candidate);
-    await writeFile(finalPath, "", "utf-8");
-    return { path: finalPath };
+  const parent = assertInsideVault(subDirs ? path.join(parentDir, subDirs) : parentDir);
+  if (subDirs) {
+    await mkdir(parent, { recursive: true });
   }
-);
 
-ipcMain.handle(
-  "vault:create-folder",
-  async (_event, parentDir: string, name: string) => {
-    const parent = assertInsideVault(parentDir);
-    const safeName = name.trim() || "new-folder";
-    const target = assertInsideVault(path.join(parent, safeName));
-    if (existsSync(target)) {
-      throw new Error(`Folder already exists: ${safeName}`);
-    }
-    await mkdir(target, { recursive: false });
-    return { path: target };
-  }
-);
+  const hasExt = SUPPORTED_EXT.has(path.extname(baseNameRaw).toLowerCase());
+  const baseName = hasExt ? baseNameRaw : `${baseNameRaw}.md`;
+  const ext = path.extname(baseName);
+  const stem = baseName.slice(0, baseName.length - ext.length);
 
-ipcMain.handle(
-  "vault:rename",
-  async (_event, oldPath: string, newName: string) => {
-    const src = assertInsideVault(oldPath);
-    const parent = path.dirname(src);
-    const trimmed = newName.trim();
-    if (!trimmed) throw new Error("New name cannot be empty");
-    if (trimmed.includes("/") || trimmed.includes("\\")) {
-      throw new Error("New name cannot contain path separators");
-    }
-    const target = assertInsideVault(path.join(parent, trimmed));
-    if (existsSync(target) && target !== src) {
-      throw new Error(`Target already exists: ${trimmed}`);
-    }
-    await rename(src, target);
-    return { path: target };
+  let candidate = path.join(parent, baseName);
+  let suffix = 1;
+  while (existsSync(candidate)) {
+    candidate = path.join(parent, `${stem}-${suffix}${ext}`);
+    suffix += 1;
   }
-);
+
+  const finalPath = assertInsideVault(candidate);
+  await writeFile(finalPath, "", "utf-8");
+  return { path: finalPath };
+});
+
+ipcMain.handle("vault:create-folder", async (_event, parentDir: string, name: string) => {
+  const parent = assertInsideVault(parentDir);
+  const safeName = name.trim() || "new-folder";
+  const target = assertInsideVault(path.join(parent, safeName));
+  if (existsSync(target)) {
+    throw new Error(`Folder already exists: ${safeName}`);
+  }
+  await mkdir(target, { recursive: false });
+  return { path: target };
+});
+
+ipcMain.handle("vault:rename", async (_event, oldPath: string, newName: string) => {
+  const src = assertInsideVault(oldPath);
+  const parent = path.dirname(src);
+  const trimmed = newName.trim();
+  if (!trimmed) throw new Error("New name cannot be empty");
+  if (trimmed.includes("/") || trimmed.includes("\\")) {
+    throw new Error("New name cannot contain path separators");
+  }
+  const target = assertInsideVault(path.join(parent, trimmed));
+  if (existsSync(target) && target !== src) {
+    throw new Error(`Target already exists: ${trimmed}`);
+  }
+  await rename(src, target);
+  return { path: target };
+});
 
 ipcMain.handle("vault:delete", async (_event, targetPath: string) => {
   const abs = assertInsideVault(targetPath);

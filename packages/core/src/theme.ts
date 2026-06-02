@@ -105,9 +105,10 @@ function themeToEditorTheme(theme: NexusTheme): Extension {
     vars[cssVar] = theme[key as keyof NexusTheme] as string;
   }
 
-  const fontSize = (theme.fontSize ?? 15) + "px";
+  const fontSize = `${theme.fontSize ?? 15}px`;
   const fontFamily = theme.fontFamily ?? "system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  const fontFamilyMono = theme.fontFamilyMono ?? "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+  const fontFamilyMono =
+    theme.fontFamilyMono ?? "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
   const contentMaxWidth = theme.contentMaxWidth;
 
   const contentStyles: Record<string, string> = { padding: "16px 0" };
@@ -123,7 +124,7 @@ function themeToEditorTheme(theme: NexusTheme): Extension {
       color: "var(--nexus-text)",
       fontSize,
       fontFamily,
-      ...vars
+      ...vars,
     },
     ".cm-content": contentStyles,
     ".cm-line": { padding: "0 20px" },
@@ -160,6 +161,6 @@ export function createThemeExtension(theme: NexusTheme): {
     extension: ext,
     reconfigure(next: NexusTheme) {
       return { effects: themeCompartment.reconfigure(themeToEditorTheme(next)) };
-    }
+    },
   };
 }

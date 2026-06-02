@@ -13,7 +13,7 @@ export interface SlashMenuCommandContext {
 
 export type SlashMenuCommandHandler = (
   command: SlashCommandDef,
-  context: SlashMenuCommandContext
+  context: SlashMenuCommandContext,
 ) => void;
 
 export interface SlashMenuUIOptions {
@@ -67,7 +67,7 @@ function generateId(prefix: string): string {
 
 export function createSlashMenuUI(
   editor: EditorAPI,
-  options: SlashMenuUIOptions = {}
+  options: SlashMenuUIOptions = {},
 ): SlashMenuUI {
   const prefix = options.classPrefix ?? DEFAULT_PREFIX;
   const offset = options.offset ?? DEFAULT_OFFSET;

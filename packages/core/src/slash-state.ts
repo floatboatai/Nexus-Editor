@@ -29,7 +29,7 @@ const DEFAULT_LIMIT = 8;
 // Keep the gaps wide enough that the tiebreaker can never bridge two
 // adjacent tiers (max tiebreaker offset is bounded by title length, in
 // practice < 100, so a gap of 1000 is safe).
-const SCORE_EMPTY_PRESERVE_ORDER = 0;
+const _SCORE_EMPTY_PRESERVE_ORDER = 0;
 const SCORE_TITLE_EXACT = 6000;
 const SCORE_TITLE_PREFIX = 5000;
 const SCORE_KEYWORD_EXACT = 4000;
@@ -69,11 +69,7 @@ interface ScoredCommand {
   index: number;
 }
 
-function scoreCommand(
-  cmd: SlashCommandDef,
-  query: string,
-  index: number
-): ScoredCommand | null {
+function scoreCommand(cmd: SlashCommandDef, query: string, index: number): ScoredCommand | null {
   const title = cmd.title.toLowerCase();
 
   if (title === query) {
@@ -115,10 +111,7 @@ function scoreCommand(
   return null;
 }
 
-export function filterSlashCommands(
-  commands: SlashCommandDef[],
-  query: string
-): SlashCommandDef[] {
+export function filterSlashCommands(commands: SlashCommandDef[], query: string): SlashCommandDef[] {
   if (query === "") {
     // Empty query is the "menu just opened" case — keep the registration
     // order so the host can choose a "frequently used first" layout via
@@ -154,7 +147,7 @@ export function computeSlashState(
   doc: string,
   cursor: number,
   commands: SlashCommandDef[],
-  options?: SlashStateOptions
+  options?: SlashStateOptions,
 ): SlashStateResult {
   const match = getSlashMatch(doc, cursor);
   if (!match) {

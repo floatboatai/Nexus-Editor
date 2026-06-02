@@ -1,5 +1,5 @@
-import type { Root } from "mdast";
 import { EditorView, ViewPlugin } from "@codemirror/view";
+import type { Root } from "mdast";
 import type { Plugin } from "unified";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createEditor } from "../src/index";
@@ -59,7 +59,7 @@ describe("createEditor", () => {
       },
       onBlur() {
         events.push("blur");
-      }
+      },
     });
 
     editor.focus();
@@ -80,7 +80,7 @@ describe("createEditor", () => {
       onChange(_doc, ast) {
         nodeTypes.push(ast.type);
         nodeTypes.push(ast.children[0]?.type ?? "missing");
-      }
+      },
     });
 
     editor.setDocument("# Heading");
@@ -98,11 +98,11 @@ describe("createEditor", () => {
       parser: {
         parse() {
           throw new Error("boom");
-        }
+        },
       },
       onChange(doc) {
         docs.push(doc);
-      }
+      },
     });
 
     editor.setDocument("after failure");
@@ -116,20 +116,18 @@ describe("createEditor", () => {
     const container = document.createElement("div");
     let nodeTypes: string[] = [];
     let shortcutResult = false;
-    const appendParagraph: Plugin<[], Root, Root> = function () {
-      return (tree) => {
-        tree.children.push({
-          type: "paragraph",
-          children: [{ type: "text", value: "plugin" }]
-        });
-      };
+    const appendParagraph: Plugin<[], Root, Root> = () => (tree) => {
+      tree.children.push({
+        type: "paragraph",
+        children: [{ type: "text", value: "plugin" }],
+      });
     };
     const editor = createEditor({
       container,
       plugins: [
         {
           name: "remark-transform",
-          remarkPlugins: [appendParagraph]
+          remarkPlugins: [appendParagraph],
         },
         {
           name: "shortcut",
@@ -140,14 +138,14 @@ describe("createEditor", () => {
                 api.setDocument("shortcut-ran");
                 shortcutResult = true;
                 return true;
-              }
-            }
-          ]
-        }
+              },
+            },
+          ],
+        },
       ],
       onChange(_doc, ast) {
         nodeTypes = ast.children.map((child: { type: string }) => child.type);
-      }
+      },
     });
 
     editor.setDocument("# Heading");
@@ -168,9 +166,9 @@ describe("createEditor", () => {
       parse(markdown: string): Root {
         return {
           type: "root",
-          children: [{ type: "paragraph", children: [{ type: "text", value: markdown }] }]
+          children: [{ type: "paragraph", children: [{ type: "text", value: markdown }] }],
         };
-      }
+      },
     };
     const editor = createEditor({
       container,
@@ -178,7 +176,7 @@ describe("createEditor", () => {
       parseDelayMs: 20,
       onChange(doc) {
         docs.push(doc);
-      }
+      },
     });
 
     editor.setDocument("first");
@@ -201,14 +199,14 @@ describe("createEditor", () => {
         constructor(readonly view: EditorView) {
           capturedView = view;
         }
-      }
+      },
     );
     const editor = createEditor({
       container,
       plugins: [{ name: "capture-view", cmExtensions: [captureView] }],
       onChange(doc) {
         docs.push(doc);
-      }
+      },
     });
 
     expect(capturedView).not.toBeNull();
@@ -239,7 +237,7 @@ describe("createEditor", () => {
       parseDelayMs: 20,
       onChange(doc) {
         docs.push(doc);
-      }
+      },
     });
 
     editor.setDocument("queued");
@@ -260,7 +258,7 @@ describe("createEditor", () => {
       },
       onBlur() {
         events.push("blur");
-      }
+      },
     });
 
     const content = container.querySelector("[contenteditable='true']");
@@ -287,11 +285,11 @@ describe("createEditor", () => {
               run(api) {
                 api.setDocument("shortcut-keyboard");
                 return true;
-              }
-            }
-          ]
-        }
-      ]
+              },
+            },
+          ],
+        },
+      ],
     });
 
     const content = container.querySelector("[contenteditable='true']");
@@ -303,8 +301,8 @@ describe("createEditor", () => {
         key: "k",
         ctrlKey: true,
         bubbles: true,
-        cancelable: true
-      })
+        cancelable: true,
+      }),
     );
 
     expect(editor.getDocument()).toBe("shortcut-keyboard");
@@ -318,13 +316,13 @@ describe("createEditor", () => {
       plugins: [
         {
           name: "slash-a",
-          slashCommands: [{ id: "heading", title: "Heading" }]
+          slashCommands: [{ id: "heading", title: "Heading" }],
         },
         {
           name: "slash-b",
-          slashCommands: [{ id: "table", title: "Table" }]
-        }
-      ]
+          slashCommands: [{ id: "table", title: "Table" }],
+        },
+      ],
     });
 
     expect(editor.getSlashCommands().map((command) => command.id)).toEqual(["heading", "table"]);
@@ -339,7 +337,7 @@ describe("createEditor", () => {
       onAssetUpload(uploadedFile) {
         expect(uploadedFile).toBe(file);
         return Promise.resolve("https://cdn.example.com/image.png");
-      }
+      },
     });
 
     await expect(editor.uploadAsset(file)).resolves.toBe("https://cdn.example.com/image.png");
@@ -360,7 +358,7 @@ describe("createEditor", () => {
       },
       onBlur() {
         events.push("blur");
-      }
+      },
     });
 
     editor.destroy();
@@ -381,7 +379,7 @@ describe("createEditor", () => {
       plugins: [
         {
           name: "editor-attributes",
-          cmExtensions: [EditorView.editorAttributes.of({ "data-plugin": "yes" })]
+          cmExtensions: [EditorView.editorAttributes.of({ "data-plugin": "yes" })],
         },
         {
           name: "update-listener",
@@ -390,10 +388,10 @@ describe("createEditor", () => {
               if (update.docChanged) {
                 seenDocs.push(update.state.doc.toString());
               }
-            })
-          ]
-        }
-      ]
+            }),
+          ],
+        },
+      ],
     });
 
     editor.setDocument("from-extension");
@@ -410,7 +408,7 @@ describe("createEditor", () => {
     const container = document.createElement("div");
     const editor = createEditor({
       container,
-      initialValue: "# Title\n\nIntro\n\n## Section A\n\n### Sub\n\n## Section B"
+      initialValue: "# Title\n\nIntro\n\n## Section A\n\n### Sub\n\n## Section B",
     });
 
     const toc = editor.getTableOfContents();
@@ -439,7 +437,7 @@ describe("createEditor", () => {
     const container = document.createElement("div");
     const editor = createEditor({
       container,
-      initialValue: "# Hello\n\n**bold** text\n\n```js\nconsole.log(1)\n```"
+      initialValue: "# Hello\n\n**bold** text\n\n```js\nconsole.log(1)\n```",
     });
 
     const html = editor.exportHTML();
@@ -457,7 +455,7 @@ function captureViewPlugin(onView: (view: EditorView) => void) {
       constructor(readonly view: EditorView) {
         onView(view);
       }
-    }
+    },
   );
 }
 
@@ -478,7 +476,9 @@ describe("createEditor — composition-safe setDocument", () => {
     const editor = createEditor({
       container,
       initialValue: "base",
-      plugins: [{ name: "capture", cmExtensions: [captureViewPlugin((view) => (capturedView = view))] }],
+      plugins: [
+        { name: "capture", cmExtensions: [captureViewPlugin((view) => (capturedView = view))] },
+      ],
     });
     const view = requireEditorView(capturedView);
 
@@ -496,7 +496,9 @@ describe("createEditor — composition-safe setDocument", () => {
     const editor = createEditor({
       container,
       initialValue: "base",
-      plugins: [{ name: "capture", cmExtensions: [captureViewPlugin((view) => (capturedView = view))] }],
+      plugins: [
+        { name: "capture", cmExtensions: [captureViewPlugin((view) => (capturedView = view))] },
+      ],
     });
     const view = requireEditorView(capturedView);
 
@@ -521,7 +523,9 @@ describe("createEditor — composition-safe setDocument", () => {
       onChange(doc) {
         docs.push(doc);
       },
-      plugins: [{ name: "capture", cmExtensions: [captureViewPlugin((view) => (capturedView = view))] }],
+      plugins: [
+        { name: "capture", cmExtensions: [captureViewPlugin((view) => (capturedView = view))] },
+      ],
     });
     const view = requireEditorView(capturedView);
 
@@ -579,7 +583,7 @@ describe("createEditor — command registry", () => {
 
     const content = container.querySelector("[contenteditable='true']");
     content?.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "j", ctrlKey: true, bubbles: true, cancelable: true })
+      new KeyboardEvent("keydown", { key: "j", ctrlKey: true, bubbles: true, cancelable: true }),
     );
 
     expect(editor.getDocument()).toBe("X");
@@ -690,7 +694,11 @@ describe("createEditor — DOM event hook layer", () => {
     expect(keys).toContain("F2");
     expect(handled.defaultPrevented).toBe(true);
 
-    const passthrough = new KeyboardEvent("keydown", { key: "F3", bubbles: true, cancelable: true });
+    const passthrough = new KeyboardEvent("keydown", {
+      key: "F3",
+      bubbles: true,
+      cancelable: true,
+    });
     content.dispatchEvent(passthrough);
     expect(passthrough.defaultPrevented).toBe(false);
     editor.destroy();

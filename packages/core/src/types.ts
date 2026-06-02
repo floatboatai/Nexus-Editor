@@ -1,5 +1,23 @@
 import type { Extension } from "@codemirror/state";
-import type { Blockquote, Code, Definition, Delete, Emphasis, FootnoteDefinition, FootnoteReference, Heading, Html, Image, InlineCode, Link, List, Root, Strong, Table, ThematicBreak } from "mdast";
+import type {
+  Blockquote,
+  Code,
+  Definition,
+  Delete,
+  Emphasis,
+  FootnoteDefinition,
+  FootnoteReference,
+  Heading,
+  Html,
+  Image,
+  InlineCode,
+  Link,
+  List,
+  Root,
+  Strong,
+  Table,
+  ThematicBreak,
+} from "mdast";
 import type { Plugin } from "unified";
 
 export interface CodeHighlightToken {
@@ -203,7 +221,7 @@ export interface SlashCommandDef {
    * keep their own id-to-action registry can dispatch via the menu UI's
    * `onCommand` override instead.
    */
-  run?: (editor: EditorAPI) => boolean | void;
+  run?: (editor: EditorAPI) => boolean | undefined;
 }
 
 /**
@@ -257,7 +275,7 @@ export interface EditorCommand {
   /** 可读名称，供命令面板 / 菜单展示。 */
   label?: string;
   /** 执行体。返回 false 表示未消费（宿主可继续派发默认行为）。 */
-  run: (editor: EditorAPI) => boolean | void;
+  run: (editor: EditorAPI) => boolean | undefined;
   /** 可选 CodeMirror 快捷键绑定，如 "Mod-b"、"Ctrl-k"。 */
   hotkey?: string;
 }
@@ -278,7 +296,10 @@ export interface EditorEventContext {
  * 事件处理器：返回 `true` 表示已消费该事件——编辑器会阻止默认行为并停止把事件
  * 继续派发给后续处理器（含内置默认逻辑）。返回 `false`/`undefined` 表示放行。
  */
-export type EditorEventHandler<E extends Event> = (event: E, ctx: EditorEventContext) => boolean | void;
+export type EditorEventHandler<E extends Event> = (
+  event: E,
+  ctx: EditorEventContext,
+) => boolean | undefined;
 
 /**
  * 插件可注册的 DOM 事件钩子。内置的图片粘贴 / 拖拽资源上传会作为兜底，在所有

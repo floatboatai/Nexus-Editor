@@ -113,7 +113,17 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   const spacer = document.createElement("div");
   spacer.style.flex = "1";
 
-  bar.append(findInput, prevBtn, nextBtn, countLabel, replaceInput, replaceBtn, replaceAllBtn, spacer, closeBtn);
+  bar.append(
+    findInput,
+    prevBtn,
+    nextBtn,
+    countLabel,
+    replaceInput,
+    replaceBtn,
+    replaceAllBtn,
+    spacer,
+    closeBtn,
+  );
 
   // State
   let matches: Array<{ from: number; to: number }> = [];
@@ -138,7 +148,10 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       const { anchor } = editor.getSelection();
       currentIdx = 0;
       for (let i = 0; i < matches.length; i++) {
-        if (matches[i].from >= anchor) { currentIdx = i; break; }
+        if (matches[i].from >= anchor) {
+          currentIdx = i;
+          break;
+        }
       }
       highlightCurrent();
     }
@@ -186,12 +199,22 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   // Event handlers
   findInput.addEventListener("input", updateMatches);
   findInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.shiftKey ? goPrev() : goNext(); e.preventDefault(); }
-    if (e.key === "Escape") { close(); }
+    if (e.key === "Enter") {
+      e.shiftKey ? goPrev() : goNext();
+      e.preventDefault();
+    }
+    if (e.key === "Escape") {
+      close();
+    }
   });
   replaceInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { doReplace(); e.preventDefault(); }
-    if (e.key === "Escape") { close(); }
+    if (e.key === "Enter") {
+      doReplace();
+      e.preventDefault();
+    }
+    if (e.key === "Escape") {
+      close();
+    }
   });
   nextBtn.addEventListener("click", goNext);
   prevBtn.addEventListener("click", goPrev);
@@ -200,7 +223,11 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   closeBtn.addEventListener("click", close);
 
   function open() {
-    if (visible) { findInput.focus(); findInput.select(); return; }
+    if (visible) {
+      findInput.focus();
+      findInput.select();
+      return;
+    }
     visible = true;
     bar.style.display = "flex";
     findInput.focus();

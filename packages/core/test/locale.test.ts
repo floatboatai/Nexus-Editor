@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { createEditor, enLocale, zhLocale, resolveLocale } from "../src/index";
 import { createGfmPreset } from "../../preset-gfm/src/index";
+import { createEditor, enLocale, resolveLocale, zhLocale } from "../src/index";
 
 describe("internationalization", () => {
   it("resolveLocale returns English by default", () => {
@@ -31,7 +31,7 @@ describe("internationalization", () => {
       initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |",
       livePreview: true,
       locale: zhLocale,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     // The add-column button should have Chinese title
@@ -42,12 +42,23 @@ describe("internationalization", () => {
 
   it("enLocale has all required keys", () => {
     const keys: (keyof typeof enLocale)[] = [
-      "addColumn", "addRow", "deleteColumn", "deleteRow",
-      "insertColumnBefore", "insertColumnAfter",
-      "insertRowAbove", "insertRowBelow",
-      "alignLeft", "alignCenter", "alignRight",
-      "foldCode", "unfoldCode", "foldHeading", "unfoldHeading",
-      "openLink", "codeBlockLabel"
+      "addColumn",
+      "addRow",
+      "deleteColumn",
+      "deleteRow",
+      "insertColumnBefore",
+      "insertColumnAfter",
+      "insertRowAbove",
+      "insertRowBelow",
+      "alignLeft",
+      "alignCenter",
+      "alignRight",
+      "foldCode",
+      "unfoldCode",
+      "foldHeading",
+      "unfoldHeading",
+      "openLink",
+      "codeBlockLabel",
     ];
     for (const key of keys) {
       expect(typeof enLocale[key]).toBe("string");

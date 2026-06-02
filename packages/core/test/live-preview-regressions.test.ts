@@ -10,7 +10,7 @@ describe("live preview regressions", () => {
       container,
       initialValue: "Text **bold**\n\nend",
       livePreview: true,
-      plugins: [createHistoryPlugin()]
+      plugins: [createHistoryPlugin()],
     });
 
     const content = container.querySelector("[contenteditable='true']");
@@ -26,8 +26,8 @@ describe("live preview regressions", () => {
         key: "z",
         ctrlKey: true,
         bubbles: true,
-        cancelable: true
-      })
+        cancelable: true,
+      }),
     );
 
     // Cursor on different line → markers hidden
@@ -44,7 +44,7 @@ describe("live preview regressions", () => {
     const editor = createEditor({
       container,
       initialValue: "Text **bold** end\n\nother line",
-      livePreview: true
+      livePreview: true,
     });
 
     // Cursor on bold line: raw markdown visible
@@ -68,12 +68,12 @@ describe("live preview regressions", () => {
     const editor = createEditor({
       container,
       initialValue: "Text\n\n```js\nconst a = 1;\nconst b = 2;\n```\n\nmore",
-      livePreview: true
+      livePreview: true,
     });
 
     // Code lines have background on the line element (Decoration.line)
-    const bgLines = Array.from(container.querySelectorAll(".cm-line")).filter(
-      (line) => (line as HTMLElement).getAttribute("style")?.includes("background")
+    const bgLines = Array.from(container.querySelectorAll(".cm-line")).filter((line) =>
+      (line as HTMLElement).getAttribute("style")?.includes("background"),
     );
     expect(bgLines.length).toBeGreaterThanOrEqual(2);
     for (const line of bgLines) {
@@ -83,9 +83,9 @@ describe("live preview regressions", () => {
     }
     // Monospace is on child mark spans, not the line itself
     const monoSpans = bgLines.flatMap((line) =>
-      Array.from(line.querySelectorAll("span")).filter(
-        (span) => span.getAttribute("style")?.includes("monospace")
-      )
+      Array.from(line.querySelectorAll("span")).filter((span) =>
+        span.getAttribute("style")?.includes("monospace"),
+      ),
     );
     expect(monoSpans.length).toBeGreaterThan(0);
     editor.destroy();
@@ -99,7 +99,7 @@ describe("live preview regressions", () => {
     const editor = createEditor({
       container,
       initialValue: "Text\n\n[ref]: https://example.com\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     editor.setSelection(0);
@@ -118,7 +118,7 @@ describe("live preview regressions", () => {
     const editor = createEditor({
       container,
       initialValue: "Text\n\n> Editable quote\n> second line\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     editor.setSelection(editor.getDocument().length);
@@ -144,18 +144,20 @@ describe("live preview regressions", () => {
     const editor = createEditor({
       container,
       initialValue: "Text\n\n```js\nconst a = 1;\n```\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     editor.setSelection(0);
-    const btnOff = Array.from(container.querySelectorAll("button"))
-      .find((b) => b.getAttribute("aria-label") === "Copy code");
+    const btnOff = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.getAttribute("aria-label") === "Copy code",
+    );
     expect(btnOff).toBeDefined();
 
     // Cursor inside code block — button still there
     editor.setSelection(10);
-    const btnOn = Array.from(container.querySelectorAll("button"))
-      .find((b) => b.getAttribute("aria-label") === "Copy code");
+    const btnOn = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.getAttribute("aria-label") === "Copy code",
+    );
     expect(btnOn).toBeDefined();
     editor.destroy();
   });
@@ -166,10 +168,11 @@ describe("live preview regressions", () => {
     const editorA = createEditor({
       container: withLang,
       initialValue: "```python\nprint(1)\n```",
-      livePreview: true
+      livePreview: true,
     });
-    const btnA = Array.from(withLang.querySelectorAll("button"))
-      .find((b) => b.getAttribute("aria-label") === "Copy code");
+    const btnA = Array.from(withLang.querySelectorAll("button")).find(
+      (b) => b.getAttribute("aria-label") === "Copy code",
+    );
     expect(btnA?.textContent).toBe("python");
     editorA.destroy();
 
@@ -177,10 +180,11 @@ describe("live preview regressions", () => {
     const editorB = createEditor({
       container: noLang,
       initialValue: "```\njust text\n```",
-      livePreview: true
+      livePreview: true,
     });
-    const btnB = Array.from(noLang.querySelectorAll("button"))
-      .find((b) => b.getAttribute("aria-label") === "Copy code");
+    const btnB = Array.from(noLang.querySelectorAll("button")).find(
+      (b) => b.getAttribute("aria-label") === "Copy code",
+    );
     expect(btnB?.textContent).toBe("Copy");
     editorB.destroy();
   });
@@ -195,7 +199,7 @@ describe("live preview regressions", () => {
     const editor = createEditor({
       container,
       initialValue: "Text\n\n![alt](https://example.com/img.png)\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     editor.setSelection(0);

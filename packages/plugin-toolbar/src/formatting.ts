@@ -1,7 +1,10 @@
 import type { EditorAPI } from "@floatboat/nexus-core";
 
 /** Get the current line containing the anchor position. */
-function getCurrentLine(doc: string, anchor: number): { lineStart: number; lineEnd: number; line: string } {
+function getCurrentLine(
+  doc: string,
+  anchor: number,
+): { lineStart: number; lineEnd: number; line: string } {
   const lineStart = doc.lastIndexOf("\n", anchor - 1) + 1;
   const lineEndIdx = doc.indexOf("\n", anchor);
   const lineEnd = lineEndIdx === -1 ? doc.length : lineEndIdx;
@@ -44,7 +47,7 @@ export function toggleOrderedList(editor: EditorAPI): boolean {
     // Remove other list markers if present
     const ulMatch = line.match(/^[-*+]\s/);
     const content = ulMatch ? line.slice(ulMatch[0].length) : line;
-    newLine = "1. " + content;
+    newLine = `1. ${content}`;
   }
 
   const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
@@ -66,7 +69,7 @@ export function toggleUnorderedList(editor: EditorAPI): boolean {
     // Remove ordered list marker if present
     const olMatch = line.match(/^\d+\.\s/);
     const content = olMatch ? line.slice(olMatch[0].length) : line;
-    newLine = "- " + content;
+    newLine = `- ${content}`;
   }
 
   const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
@@ -85,10 +88,7 @@ export function insertCodeBlock(editor: EditorAPI): boolean {
   const needsLeadingNewline = from > 0 && doc[from - 1] !== "\n";
   const needsTrailingNewline = to < doc.length && doc[to] !== "\n";
 
-  const block =
-    (needsLeadingNewline ? "\n" : "") +
-    "```\n" + (selected || "") + "\n```" +
-    (needsTrailingNewline ? "\n" : "");
+  const block = `${needsLeadingNewline ? "\n" : ""}\`\`\`\n${selected || ""}\n\`\`\`${needsTrailingNewline ? "\n" : ""}`;
 
   const newDoc = doc.slice(0, from) + block + doc.slice(to);
   editor.setDocument(newDoc);
@@ -156,7 +156,7 @@ export function insertHorizontalRule(editor: EditorAPI): boolean {
   const { anchor } = editor.getSelection();
 
   const needsLeadingNewline = anchor > 0 && doc[anchor - 1] !== "\n";
-  const hr = (needsLeadingNewline ? "\n" : "") + "---\n";
+  const hr = `${needsLeadingNewline ? "\n" : ""}---\n`;
 
   const newDoc = doc.slice(0, anchor) + hr + doc.slice(anchor);
   editor.setDocument(newDoc);

@@ -1,6 +1,6 @@
 import { markdown } from "@codemirror/lang-markdown";
-import { GFM } from "@lezer/markdown";
 import type { Extension } from "@codemirror/state";
+import { GFM } from "@lezer/markdown";
 
 import { footnoteExtension } from "./lezer-footnote-extension";
 

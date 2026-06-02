@@ -1,5 +1,5 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createGfmPreset } from "../../preset-gfm/src/index";
 import { createEditor } from "../src/index";
@@ -38,7 +38,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text **bold** *italic* `code` [link](https://example.com)\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     // Move cursor to a different line
@@ -60,7 +60,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text **bold**\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     // Cursor on different line → markers hidden
@@ -79,7 +79,7 @@ describe("live preview", () => {
       container,
       initialValue: "Text ~~deleted~~\n\nend",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     editor.setSelection(editor.getDocument().length);
@@ -95,7 +95,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text **bold**\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     editor.setDocument("Text **changed**\n\nend");
@@ -116,7 +116,7 @@ describe("live preview", () => {
         constructor(readonly view: EditorView) {
           capturedView = view;
         }
-      }
+      },
     );
     const editor = createEditor({
       container,
@@ -155,7 +155,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text ***bold italic***\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     editor.setSelection(editor.getDocument().length);
@@ -172,7 +172,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text **_mixed_**\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     editor.setSelection(editor.getDocument().length);
@@ -191,7 +191,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Click [here](https://example.com)\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     editor.setSelection(editor.getDocument().length);
@@ -206,8 +206,9 @@ describe("live preview", () => {
     const container = document.createElement("div");
     const editor = createEditor({
       container,
-      initialValue: "## 目录\n\n1. [项目概述](#项目概述)\n2. [快速开始](#快速开始)\n3. [主要功能](#主要功能)\n\nend",
-      livePreview: true
+      initialValue:
+        "## 目录\n\n1. [项目概述](#项目概述)\n2. [快速开始](#快速开始)\n3. [主要功能](#主要功能)\n\nend",
+      livePreview: true,
     });
 
     editor.setSelection(editor.getDocument().length);
@@ -225,7 +226,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Click [here](https://example.com) now\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     editor.setSelection(editor.getDocument().length);
@@ -243,7 +244,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: source,
-      livePreview: true
+      livePreview: true,
     });
 
     editor.setSelection(source.indexOf(") now") + 1);
@@ -259,7 +260,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: source,
-      livePreview: true
+      livePreview: true,
     });
 
     editor.setSelection(source.indexOf("\n2."));
@@ -276,7 +277,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Intro\n\n# Heading",
-      livePreview: true
+      livePreview: true,
     });
 
     expect(container.querySelector("[data-heading-level='1']")?.textContent).toBe("Heading");
@@ -292,7 +293,7 @@ describe("live preview", () => {
         constructor(readonly view: EditorView) {
           capturedView = view;
         }
-      }
+      },
     );
     const editor = createEditor({
       container,
@@ -332,11 +333,7 @@ describe("live preview", () => {
 
   it("keeps empty ATX heading input on the same line during composition", async () => {
     const container = document.createElement("div");
-    const lines = [
-      ...Array.from({ length: 22 }, (_, index) => `line ${index + 1}`),
-      "### ",
-      "end",
-    ];
+    const lines = [...Array.from({ length: 22 }, (_, index) => `line ${index + 1}`), "### ", "end"];
     const source = lines.join("\n");
     let capturedView: EditorView | null = null;
     let effectOnlyUpdates = 0;
@@ -351,7 +348,7 @@ describe("live preview", () => {
             effectOnlyUpdates++;
           }
         }
-      }
+      },
     );
     const editor = createEditor({
       container,
@@ -395,15 +392,15 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Intro\n\n> Quote\n\n![Alt](https://example.com/image.png)",
-      livePreview: true
+      livePreview: true,
     });
 
     expect(container.querySelector("blockquote")).toBeNull();
     expect(container.textContent).toContain("Quote");
     expect(container.textContent).not.toContain("> Quote");
-    expect(container.querySelector("[data-live-preview-image]")?.getAttribute("data-live-preview-image")).toBe(
-      "https://example.com/image.png"
-    );
+    expect(
+      container.querySelector("[data-live-preview-image]")?.getAttribute("data-live-preview-image"),
+    ).toBe("https://example.com/image.png");
 
     editor.setSelection(9);
     expect(container.textContent).toContain("> Quote");
@@ -415,7 +412,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text\n\n---\n\nMore",
-      livePreview: true
+      livePreview: true,
     });
 
     expect(container.querySelector("hr")).not.toBeNull();
@@ -429,7 +426,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text\n\n```js\nconsole.log(1)\n```",
-      livePreview: true
+      livePreview: true,
     });
 
     expect(container.textContent).toContain("console.log(1)");
@@ -444,7 +441,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text\n\n```js\nconsole.log(1)\n```",
-      livePreview: true
+      livePreview: true,
     });
 
     const textBefore = container.textContent ?? "";
@@ -463,12 +460,13 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text\n\n```py\nx = 1\ny = 2\n```",
-      livePreview: true
+      livePreview: true,
     });
 
     const codeLines = Array.from(container.querySelectorAll(".cm-line")).filter(
-      (line) => (line as HTMLElement).style.background === "rgb(246, 248, 250)"
-        || (line as HTMLElement).getAttribute("style")?.includes("background")
+      (line) =>
+        (line as HTMLElement).style.background === "rgb(246, 248, 250)" ||
+        (line as HTMLElement).getAttribute("style")?.includes("background"),
     );
     expect(codeLines.length).toBeGreaterThanOrEqual(2);
     editor.destroy();
@@ -481,15 +479,16 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text\n\n    indented code\n    second line",
-      livePreview: true
+      livePreview: true,
     });
 
     const text = container.textContent ?? "";
     expect(text).toContain("indented code");
     expect(text).toContain("second line");
     const codeLines = Array.from(container.querySelectorAll(".cm-line")).filter(
-      (line) => (line as HTMLElement).getAttribute("style")?.includes("background") ||
-        (line as HTMLElement).innerHTML.includes("monospace")
+      (line) =>
+        (line as HTMLElement).getAttribute("style")?.includes("background") ||
+        (line as HTMLElement).innerHTML.includes("monospace"),
     );
     expect(codeLines.length).toBeGreaterThanOrEqual(2);
     editor.destroy();
@@ -503,7 +502,7 @@ describe("live preview", () => {
       container,
       initialValue: "Text with footnote[^1]\n\n[^1]: Definition text",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     const sup = container.querySelector("sup");
@@ -520,7 +519,7 @@ describe("live preview", () => {
       container,
       initialValue: "Visit https://example.com today\n\nend",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     editor.setSelection(editor.getDocument().length);
@@ -539,15 +538,15 @@ describe("live preview", () => {
       container,
       initialValue: "Text\n\n| A | B |\n| --- | --- |\n| 1 | 2 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     const table = container.querySelector("table");
     expect(table).not.toBeNull();
     const ths = table?.querySelectorAll("th");
-    expect(ths!.length).toBeGreaterThanOrEqual(3);
-    expect(ths![1]?.textContent).toBe("A");
-    expect(ths![1]?.classList.contains("nexus-cell")).toBe(true);
+    expect(ths?.length).toBeGreaterThanOrEqual(3);
+    expect(ths?.[1]?.textContent).toBe("A");
+    expect(ths?.[1]?.classList.contains("nexus-cell")).toBe(true);
     editor.destroy();
   });
 
@@ -559,13 +558,13 @@ describe("live preview", () => {
         constructor(readonly view: EditorView) {
           capturedView = view;
         }
-      }
+      },
     );
     const editor = createEditor({
       container,
       initialValue: "before\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\nafter",
       livePreview: true,
-      plugins: [createGfmPreset(), { name: "capture", cmExtensions: [captureView] }]
+      plugins: [createGfmPreset(), { name: "capture", cmExtensions: [captureView] }],
     });
     const view = requireEditorView(capturedView);
     // 光标离开表格，使其渲染为不可逐字进入的 block widget。
@@ -594,29 +593,35 @@ describe("live preview", () => {
       container,
       initialValue: "| A | B |\n| --- | --- |\n| 1 | 222 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    const cell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
     expect(cell).not.toBeUndefined();
     expect(cell?.contentEditable).not.toBe("true");
 
-    cell?.dispatchEvent(new MouseEvent("mousedown", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 80,
-      clientY: 40
-    }));
+    cell?.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 80,
+        clientY: 40,
+      }),
+    );
 
     expect(cell?.contentEditable).not.toBe("true");
 
-    document.dispatchEvent(new MouseEvent("mouseup", {
-      bubbles: true,
-      button: 0,
-      clientX: 80,
-      clientY: 40
-    }));
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+        clientX: 80,
+        clientY: 40,
+      }),
+    );
 
     expect(cell?.contentEditable).toBe("true");
     editor.destroy();
@@ -630,11 +635,11 @@ describe("live preview", () => {
       container,
       initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     const dataRows = Array.from(container.querySelectorAll<HTMLElement>("tr")).filter((row) =>
-      row.querySelector(".nexus-cell")
+      row.querySelector(".nexus-cell"),
     );
     const cellOf = (rowIndex: number, colIndex: number): HTMLElement =>
       dataRows[rowIndex].querySelectorAll<HTMLElement>(".nexus-cell")[colIndex];
@@ -644,24 +649,46 @@ describe("live preview", () => {
     // 因此这里用「事件是否被消费 + 目标单元格是否被激活为可编辑」来判定导航，
     // focus 的真实落点由 E2E 在真实 Chromium 中覆盖。
     const start = cellOf(1, 0);
-    start.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, clientX: 80, clientY: 40 }));
-    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, clientX: 80, clientY: 40 }));
+    start.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 80,
+        clientY: 40,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mouseup", { bubbles: true, button: 0, clientX: 80, clientY: 40 }),
+    );
     expect(start.contentEditable).toBe("true");
 
     // ↓ 激活第 3 行第 1 列（"3"），并消费事件。
-    const downEvent = new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true });
+    const downEvent = new KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      bubbles: true,
+      cancelable: true,
+    });
     start.dispatchEvent(downEvent);
     expect(downEvent.defaultPrevented).toBe(true);
     const bottom = cellOf(2, 0);
     expect(bottom.contentEditable).toBe("true");
 
     // ↓ 在最后一行到达边界，不消费（交回默认）。
-    const downAtBottom = new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true });
+    const downAtBottom = new KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      bubbles: true,
+      cancelable: true,
+    });
     bottom.dispatchEvent(downAtBottom);
     expect(downAtBottom.defaultPrevented).toBe(false);
 
     // ↑ 从底行回到第 2 行第 1 列（"1"）。
-    const upEvent = new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true });
+    const upEvent = new KeyboardEvent("keydown", {
+      key: "ArrowUp",
+      bubbles: true,
+      cancelable: true,
+    });
     bottom.dispatchEvent(upEvent);
     expect(upEvent.defaultPrevented).toBe(true);
     expect(start.contentEditable).toBe("true");
@@ -677,10 +704,12 @@ describe("live preview", () => {
       container,
       initialValue: "| A | B |\n| --- | --- |\n| 1 | **加粗** |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    const cell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
     const textNode = cell?.querySelector("strong")?.firstChild;
     expect(cell).not.toBeUndefined();
     expect(textNode?.textContent).toBe("加粗");
@@ -694,19 +723,23 @@ describe("live preview", () => {
       value: () => range,
     });
 
-    cell?.dispatchEvent(new MouseEvent("mousedown", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 80,
-      clientY: 40
-    }));
-    document.dispatchEvent(new MouseEvent("mouseup", {
-      bubbles: true,
-      button: 0,
-      clientX: 80,
-      clientY: 40
-    }));
+    cell?.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 80,
+        clientY: 40,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+        clientX: 80,
+        clientY: 40,
+      }),
+    );
 
     await new Promise((resolve) => window.setTimeout(resolve, 0));
 
@@ -729,10 +762,12 @@ describe("live preview", () => {
       container,
       initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
-    const cells = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell");
+    const cells = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell");
     const firstCell = cells?.[0];
     const secondCell = cells?.[1];
     expect(firstCell).not.toBeUndefined();
@@ -747,7 +782,7 @@ describe("live preview", () => {
       bottom: 30,
       width: 50,
       height: 30,
-      toJSON: () => ({})
+      toJSON: () => ({}),
     });
     secondCell!.getBoundingClientRect = () => ({
       x: 50,
@@ -758,28 +793,34 @@ describe("live preview", () => {
       bottom: 30,
       width: 50,
       height: 30,
-      toJSON: () => ({})
+      toJSON: () => ({}),
     });
 
-    firstCell?.dispatchEvent(new MouseEvent("mousedown", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 25,
-      clientY: 15
-    }));
-    document.dispatchEvent(new MouseEvent("mousemove", {
-      bubbles: true,
-      button: 0,
-      clientX: 75,
-      clientY: 15
-    }));
-    document.dispatchEvent(new MouseEvent("mouseup", {
-      bubbles: true,
-      button: 0,
-      clientX: 75,
-      clientY: 15
-    }));
+    firstCell?.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 25,
+        clientY: 15,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mousemove", {
+        bubbles: true,
+        button: 0,
+        clientX: 75,
+        clientY: 15,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+        clientX: 75,
+        clientY: 15,
+      }),
+    );
 
     expect(firstCell?.contentEditable).not.toBe("true");
     expect(firstCell?.style.background).toContain("124, 108, 250");
@@ -822,7 +863,9 @@ describe("live preview", () => {
 
     // First row, first column: media-only standalone image — width:100%
     // so it grows with the column.
-    const mediaOnlyStandalone = imgs.find((i) => i.getAttribute("src") === "https://example.com/a.png");
+    const mediaOnlyStandalone = imgs.find(
+      (i) => i.getAttribute("src") === "https://example.com/a.png",
+    );
     expect(mediaOnlyStandalone?.style.width).toBe("100%");
     expect(mediaOnlyStandalone?.style.maxHeight).toBe("240px");
 
@@ -917,12 +960,20 @@ describe("live preview", () => {
     // mouseup to commit. The DOM should pick up a <colgroup> + the
     // table should switch to fixed layout afterwards.
     const startX = 200;
-    handle?.dispatchEvent(new MouseEvent("mousedown", {
-      bubbles: true, cancelable: true, button: 0, clientX: startX,
-    }));
-    document.dispatchEvent(new MouseEvent("mousemove", {
-      bubbles: true, clientX: startX + 60,
-    }));
+    handle?.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: startX,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: startX + 60,
+      }),
+    );
     document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
 
     const table = container.querySelector("table") as HTMLTableElement | null;
@@ -945,7 +996,7 @@ describe("live preview", () => {
     });
 
     const rows = Array.from(container.querySelectorAll("tr")).map((row) =>
-      Array.from(row.querySelectorAll(".nexus-cell")).map((cell) => cell.textContent)
+      Array.from(row.querySelectorAll(".nexus-cell")).map((cell) => cell.textContent),
     );
     // Every body row should have the same cell count as the widest row (4).
     // Header padded with one empty extra column; the short row padded too.
@@ -961,11 +1012,11 @@ describe("live preview", () => {
       container,
       initialValue: "| A |  | C |\n| --- | --- | --- |\n| 1 |  | 3 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     const rows = Array.from(container.querySelectorAll("tr")).map((row) =>
-      Array.from(row.querySelectorAll(".nexus-cell")).map((cell) => cell.textContent)
+      Array.from(row.querySelectorAll(".nexus-cell")).map((cell) => cell.textContent),
     );
     expect(rows[1]).toEqual(["A", "", "C"]);
     expect(rows[2]).toEqual(["1", "", "3"]);
@@ -978,17 +1029,17 @@ describe("live preview", () => {
       container,
       initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     const addColumn = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.title === "Add column"
+      (button) => button.title === "Add column",
     );
     expect(addColumn).not.toBeUndefined();
     addColumn?.click();
 
     const rows = Array.from(container.querySelectorAll("tr")).map((row) =>
-      Array.from(row.querySelectorAll(".nexus-cell")).map((cell) => cell.textContent)
+      Array.from(row.querySelectorAll(".nexus-cell")).map((cell) => cell.textContent),
     );
     expect(rows[1]).toEqual(["A", "B", ""]);
     expect(rows[2]).toEqual(["1", "2", ""]);
@@ -1006,9 +1057,9 @@ describe("live preview", () => {
         deleteRow: "删除行",
         deleteColumn: "删除列",
         insertRowBelow: "在下方插入行",
-        insertColumnAfter: "在右侧插入列"
+        insertColumnAfter: "在右侧插入列",
       },
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     const dataCell = container.querySelectorAll("tr")[2]?.querySelector(".nexus-cell");
@@ -1017,7 +1068,7 @@ describe("live preview", () => {
       bubbles: true,
       cancelable: true,
       clientX: 32,
-      clientY: 40
+      clientY: 40,
     });
     dataCell?.dispatchEvent(event);
 
@@ -1049,9 +1100,9 @@ describe("live preview", () => {
             element.setAttribute("data-heading", "custom");
             element.textContent = text.toUpperCase();
             return element;
-          }
-        }
-      }
+          },
+        },
+      },
     });
 
     expect(container.querySelector("[data-heading='custom']")?.textContent).toBe("HEADING");
@@ -1069,9 +1120,9 @@ describe("live preview", () => {
             const element = document.createElement("span");
             element.setAttribute("data-source", source);
             return element;
-          }
-        }
-      }
+          },
+        },
+      },
     });
 
     // Cursor on first line, away from the bold
@@ -1258,7 +1309,7 @@ describe("live preview", () => {
   it("clicking <summary> or <a href> inside an HTML block preserves native behaviour (no edit-mode trigger)", () => {
     const container = document.createElement("div");
     const html =
-      '<details><summary>Toggle</summary><p>Hidden text</p></details>' +
+      "<details><summary>Toggle</summary><p>Hidden text</p></details>" +
       '<p><a href="https://example.com" data-test="link">Link</a></p>';
     const editor = createEditor({
       container,
@@ -1293,7 +1344,7 @@ describe("live preview", () => {
     const container = document.createElement("div");
     const html =
       '<div class="hostile" onclick="alert(1)">' +
-      '<script>window.evil=true;</script>safe content</div>';
+      "<script>window.evil=true;</script>safe content</div>";
     const editor = createEditor({
       container,
       initialValue: `Intro\n\n${html}\n\nend`,
@@ -1320,7 +1371,7 @@ describe("live preview", () => {
       container,
       initialValue: "Intro\n\n1. first\n   - nested a\n   - nested b\n2. second\n3. third\n\nend",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     editor.setSelection(editor.getDocument().length);
@@ -1342,7 +1393,7 @@ describe("live preview", () => {
       container,
       initialValue: "Intro\n\n- [x] done item\n- [ ] open item\n\nend",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     editor.setSelection(editor.getDocument().length);
@@ -1359,7 +1410,7 @@ describe("live preview", () => {
       container,
       initialValue: "intro\n\n- [ ] open item\n- [x] done item\n\nend",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     // 光标放在文末 end 行（不在任一任务行）→ 两个复选框都渲染。
@@ -1379,7 +1430,7 @@ describe("live preview", () => {
       container,
       initialValue: "- [ ] alpha\n- [ ] beta",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     // 光标落在第一行（alpha 项）→ 该行露出 `- [ ] ` 原文，复选框消失；
@@ -1398,7 +1449,7 @@ describe("live preview", () => {
       container,
       initialValue: "1. one\n2. two\n3. three",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     // 光标落在第二项 → 该行露出 `2. ` 原文，但第三项仍须渲染为 `3. `
@@ -1418,7 +1469,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text **bold** here\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     // Cursor on the line with bold — markers should remain visible but
@@ -1427,7 +1478,8 @@ describe("live preview", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("**bold**");
     const boldSpan = Array.from(container.querySelectorAll<HTMLElement>("span")).find(
-      (el) => el.textContent === "bold" && /font-weight\s*:\s*bold/i.test(el.getAttribute("style") ?? "")
+      (el) =>
+        el.textContent === "bold" && /font-weight\s*:\s*bold/i.test(el.getAttribute("style") ?? ""),
     );
     expect(boldSpan).not.toBeUndefined();
     editor.destroy();
@@ -1444,9 +1496,9 @@ describe("live preview", () => {
             const element = document.createElement("span");
             element.textContent = text.toUpperCase();
             return element;
-          }
-        }
-      }
+          },
+        },
+      },
     });
 
     editor.setSelection(0);

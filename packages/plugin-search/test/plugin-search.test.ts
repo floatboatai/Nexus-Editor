@@ -1,23 +1,19 @@
-import { describe, expect, it } from "vitest";
 import { createEditor } from "@floatboat/nexus-core";
-import {
-  createSearchPlugin,
-  findSearchMatches,
-  replaceAllMatches
-} from "../src/index";
+import { describe, expect, it } from "vitest";
+import { createSearchPlugin, findSearchMatches, replaceAllMatches } from "../src/index";
 
 describe("@floatboat/nexus-plugin-search", () => {
   it("finds all case-insensitive matches in a document", () => {
     expect(findSearchMatches("Hello hello HELLO", "hello")).toEqual([
       { from: 0, to: 5, text: "Hello" },
       { from: 6, to: 11, text: "hello" },
-      { from: 12, to: 17, text: "HELLO" }
+      { from: 12, to: 17, text: "HELLO" },
     ]);
   });
 
   it("supports case-sensitive search", () => {
     expect(findSearchMatches("Hello hello HELLO", "hello", { caseSensitive: true })).toEqual([
-      { from: 6, to: 11, text: "hello" }
+      { from: 6, to: 11, text: "hello" },
     ]);
   });
 
@@ -42,10 +38,10 @@ describe("@floatboat/nexus-plugin-search", () => {
         createSearchPlugin({
           labels: {
             find: "查找",
-            next: "下一个"
-          }
-        })
-      ]
+            next: "下一个",
+          },
+        }),
+      ],
     });
 
     const content = container.querySelector<HTMLElement>(".cm-content");
@@ -56,8 +52,8 @@ describe("@floatboat/nexus-plugin-search", () => {
         code: "KeyF",
         metaKey: true,
         bubbles: true,
-        cancelable: true
-      })
+        cancelable: true,
+      }),
     );
     if (!container.querySelector('[data-test-id="markdown-search-bar"]')) {
       content?.dispatchEvent(
@@ -66,25 +62,33 @@ describe("@floatboat/nexus-plugin-search", () => {
           code: "KeyF",
           ctrlKey: true,
           bubbles: true,
-          cancelable: true
-        })
+          cancelable: true,
+        }),
       );
     }
 
     const panel = container.querySelector<HTMLElement>('[data-test-id="markdown-search-bar"]');
-    const input = container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-input"]');
+    const input = container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-input"]',
+    );
     expect(panel).not.toBeNull();
     expect(input).not.toBeNull();
     expect(input?.placeholder).toBe("查找");
-    const nextButton = container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-next"]');
-    const nextTooltip = container.querySelector<HTMLElement>('[data-test-id="markdown-search-next-tooltip"]');
+    const nextButton = container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-next"]',
+    );
+    const nextTooltip = container.querySelector<HTMLElement>(
+      '[data-test-id="markdown-search-next-tooltip"]',
+    );
     const replaceToggle = container.querySelector<HTMLButtonElement>(
-      '[data-test-id="markdown-search-toggle-replace"]'
+      '[data-test-id="markdown-search-toggle-replace"]',
     );
     const replaceToggleTooltip = container.querySelector<HTMLElement>(
-      '[data-test-id="markdown-search-toggle-replace-tooltip"]'
+      '[data-test-id="markdown-search-toggle-replace-tooltip"]',
     );
-    const replaceRow = container.querySelector<HTMLDivElement>('[data-test-id="markdown-search-replace-row"]');
+    const replaceRow = container.querySelector<HTMLDivElement>(
+      '[data-test-id="markdown-search-replace-row"]',
+    );
     expect(nextButton?.textContent).toBe("");
     expect(nextButton?.title).toBe("");
     expect(nextButton?.getAttribute("aria-label")).toBe("下一个");
@@ -122,7 +126,7 @@ describe("@floatboat/nexus-plugin-search", () => {
     const editor = createEditor({
       container,
       initialValue: "alpha beta alpha",
-      plugins: [createSearchPlugin()]
+      plugins: [createSearchPlugin()],
     });
 
     const content = container.querySelector<HTMLElement>(".cm-content");
@@ -132,8 +136,8 @@ describe("@floatboat/nexus-plugin-search", () => {
         code: "KeyF",
         metaKey: true,
         bubbles: true,
-        cancelable: true
-      })
+        cancelable: true,
+      }),
     );
     if (!container.querySelector('[data-test-id="markdown-search-bar"]')) {
       content?.dispatchEvent(
@@ -142,22 +146,24 @@ describe("@floatboat/nexus-plugin-search", () => {
           code: "KeyF",
           ctrlKey: true,
           bubbles: true,
-          cancelable: true
-        })
+          cancelable: true,
+        }),
       );
     }
 
-    const input = container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-input"]');
+    const input = container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-input"]',
+    );
     expect(input).not.toBeNull();
     input!.value = "beta";
-    input!.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
-    input!.dispatchEvent(
+    input?.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    input?.dispatchEvent(
       new KeyboardEvent("keydown", {
         key: "Enter",
         code: "Enter",
         bubbles: true,
-        cancelable: true
-      })
+        cancelable: true,
+      }),
     );
 
     const selection = editor.getSelection();
@@ -178,10 +184,10 @@ describe("@floatboat/nexus-plugin-search", () => {
         createSearchPlugin({
           labels: {
             replaceNext: "",
-            replaceAll: " "
-          }
-        })
-      ]
+            replaceAll: " ",
+          },
+        }),
+      ],
     });
 
     const content = container.querySelector<HTMLElement>(".cm-content");
@@ -191,8 +197,8 @@ describe("@floatboat/nexus-plugin-search", () => {
         code: "KeyF",
         metaKey: true,
         bubbles: true,
-        cancelable: true
-      })
+        cancelable: true,
+      }),
     );
     if (!container.querySelector('[data-test-id="markdown-search-bar"]')) {
       content?.dispatchEvent(
@@ -201,16 +207,22 @@ describe("@floatboat/nexus-plugin-search", () => {
           code: "KeyF",
           ctrlKey: true,
           bubbles: true,
-          cancelable: true
-        })
+          cancelable: true,
+        }),
       );
     }
 
-    const replaceButton = container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-replace"]');
-    const replaceTooltip = container.querySelector<HTMLElement>('[data-test-id="markdown-search-replace-tooltip"]');
-    const replaceAllButton = container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-replace-all"]');
+    const replaceButton = container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-replace"]',
+    );
+    const replaceTooltip = container.querySelector<HTMLElement>(
+      '[data-test-id="markdown-search-replace-tooltip"]',
+    );
+    const replaceAllButton = container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-replace-all"]',
+    );
     const replaceAllTooltip = container.querySelector<HTMLElement>(
-      '[data-test-id="markdown-search-replace-all-tooltip"]'
+      '[data-test-id="markdown-search-replace-all-tooltip"]',
     );
     expect(replaceButton?.getAttribute("aria-label")).toBe("Replace");
     expect(replaceTooltip?.textContent).toBe("Replace");

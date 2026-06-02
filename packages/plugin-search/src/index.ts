@@ -1,19 +1,24 @@
 import {
+  SearchQuery,
   closeSearchPanel,
   findNext,
   findPrevious,
   getSearchQuery,
   highlightSelectionMatches,
-  openSearchPanel,
   replaceAll,
   replaceNext,
   search,
   searchKeymap,
-  SearchQuery,
   selectMatches,
-  setSearchQuery
+  setSearchQuery,
 } from "@codemirror/search";
-import { keymap, runScopeHandlers, type EditorView, type Panel, type ViewUpdate } from "@codemirror/view";
+import {
+  type EditorView,
+  type Panel,
+  type ViewUpdate,
+  keymap,
+  runScopeHandlers,
+} from "@codemirror/view";
 
 import type { NexusPlugin } from "@floatboat/nexus-core";
 
@@ -72,7 +77,7 @@ const DEFAULT_LABELS: SearchPluginLabels = {
   byWord: "By word",
   replaceNext: "Replace",
   replaceAll: "Replace all",
-  close: "Close"
+  close: "Close",
 };
 
 function escapeRegExp(value: string): string {
@@ -82,7 +87,7 @@ function escapeRegExp(value: string): string {
 export function findSearchMatches(
   doc: string,
   query: string,
-  options: SearchOptions = {}
+  options: SearchOptions = {},
 ): SearchMatch[] {
   if (!query) {
     return [];
@@ -99,7 +104,7 @@ export function findSearchMatches(
     matches.push({
       from,
       to: from + text.length,
-      text
+      text,
     });
   }
 
@@ -110,7 +115,7 @@ export function replaceAllMatches(
   doc: string,
   query: string,
   replacement: string,
-  options: SearchOptions = {}
+  options: SearchOptions = {},
 ): string {
   if (!query) {
     return doc;
@@ -124,7 +129,7 @@ function resolveLabel(
   view: EditorView,
   labels: Partial<SearchPluginLabels> | undefined,
   key: keyof SearchPluginLabels,
-  fallback: string
+  fallback: string,
 ): string {
   const candidate = labels?.[key]?.trim();
   if (candidate) return candidate;
@@ -133,7 +138,10 @@ function resolveLabel(
   return phrase || fallback;
 }
 
-function resolveLabels(view: EditorView, labels: Partial<SearchPluginLabels> | undefined): SearchPluginLabels {
+function resolveLabels(
+  view: EditorView,
+  labels: Partial<SearchPluginLabels> | undefined,
+): SearchPluginLabels {
   return {
     find: resolveLabel(view, labels, "find", DEFAULT_LABELS.find),
     replace: resolveLabel(view, labels, "replace", DEFAULT_LABELS.replace),
@@ -147,7 +155,7 @@ function resolveLabels(view: EditorView, labels: Partial<SearchPluginLabels> | u
     byWord: resolveLabel(view, labels, "byWord", DEFAULT_LABELS.byWord),
     replaceNext: resolveLabel(view, labels, "replaceNext", DEFAULT_LABELS.replaceNext),
     replaceAll: resolveLabel(view, labels, "replaceAll", DEFAULT_LABELS.replaceAll),
-    close: resolveLabel(view, labels, "close", DEFAULT_LABELS.close)
+    close: resolveLabel(view, labels, "close", DEFAULT_LABELS.close),
   };
 }
 
@@ -155,7 +163,7 @@ function createButton(
   testId: string,
   name: string,
   label: string,
-  onClick: () => void
+  onClick: () => void,
 ): HTMLButtonElement {
   const button = document.createElement("button");
   button.className = "cm-button";
@@ -272,7 +280,7 @@ function createIconButtonElements(
   name: string,
   label: string,
   icon: SearchIconName,
-  onClick: () => void
+  onClick: () => void,
 ): IconButtonElements {
   const wrapper = document.createElement("span");
   wrapper.className = "nexus-search-tooltip-wrap";
@@ -296,7 +304,7 @@ function createIconButton(
   name: string,
   label: string,
   icon: SearchIconName,
-  onClick: () => void
+  onClick: () => void,
 ): HTMLSpanElement {
   const { wrapper } = createIconButtonElements(testId, name, label, icon, onClick);
   return wrapper;
@@ -332,7 +340,7 @@ class NexusSearchPanel implements Panel {
   constructor(
     private readonly view: EditorView,
     readonly top: boolean,
-    labels: Partial<SearchPluginLabels> | undefined
+    labels: Partial<SearchPluginLabels> | undefined,
   ) {
     this.query = getSearchQuery(view.state);
     const resolvedLabels = resolveLabels(view, labels);
@@ -343,18 +351,30 @@ class NexusSearchPanel implements Panel {
       "search",
       resolvedLabels.find,
       this.query.search,
-      true
+      true,
     );
     this.replaceField = this.createTextField(
       "markdown-search-replace-input",
       "replace",
       resolvedLabels.replace,
       this.query.replace,
-      false
+      false,
     );
-    this.caseField = this.createCheckbox("markdown-search-case-toggle", "case", this.query.caseSensitive);
-    this.regexpField = this.createCheckbox("markdown-search-regexp-toggle", "re", this.query.regexp);
-    this.wholeWordField = this.createCheckbox("markdown-search-word-toggle", "word", this.query.wholeWord);
+    this.caseField = this.createCheckbox(
+      "markdown-search-case-toggle",
+      "case",
+      this.query.caseSensitive,
+    );
+    this.regexpField = this.createCheckbox(
+      "markdown-search-regexp-toggle",
+      "re",
+      this.query.regexp,
+    );
+    this.wholeWordField = this.createCheckbox(
+      "markdown-search-word-toggle",
+      "word",
+      this.query.wholeWord,
+    );
 
     this.dom = document.createElement("div");
     this.dom.className = "cm-search nexus-search-panel";
@@ -369,17 +389,21 @@ class NexusSearchPanel implements Panel {
         "toggleReplace",
         resolvedLabels.showReplace,
         "toggleReplace",
-        () => this.setReplaceExpanded(!this.replaceExpanded, true)
+        () => this.setReplaceExpanded(!this.replaceExpanded, true),
       );
     }
     const navigationGroup = document.createElement("div");
     navigationGroup.className = "nexus-search-button-group";
     navigationGroup.append(
       createIconButton("markdown-search-prev", "prev", resolvedLabels.previous, "previous", () =>
-        findPrevious(view)
+        findPrevious(view),
       ),
-      createIconButton("markdown-search-next", "next", resolvedLabels.next, "next", () => findNext(view)),
-      createIconButton("markdown-search-all", "select", resolvedLabels.all, "all", () => selectMatches(view))
+      createIconButton("markdown-search-next", "next", resolvedLabels.next, "next", () =>
+        findNext(view),
+      ),
+      createIconButton("markdown-search-all", "select", resolvedLabels.all, "all", () =>
+        selectMatches(view),
+      ),
     );
 
     const searchRowChildren: HTMLElement[] = [
@@ -387,7 +411,7 @@ class NexusSearchPanel implements Panel {
       createLabel(this.caseField, resolvedLabels.matchCase),
       createLabel(this.regexpField, resolvedLabels.regexp),
       createLabel(this.wholeWordField, resolvedLabels.byWord),
-      navigationGroup
+      navigationGroup,
     ];
     if (this.replaceToggle) {
       searchRowChildren.unshift(this.replaceToggle.wrapper);
@@ -404,22 +428,28 @@ class NexusSearchPanel implements Panel {
       this.replaceToggle?.button.setAttribute("aria-expanded", "false");
       replaceRow.append(
         this.replaceField,
-        createIconButton("markdown-search-replace", "replace", resolvedLabels.replaceNext, "replace", () =>
-          replaceNext(view)
+        createIconButton(
+          "markdown-search-replace",
+          "replace",
+          resolvedLabels.replaceNext,
+          "replace",
+          () => replaceNext(view),
         ),
         createIconButton(
           "markdown-search-replace-all",
           "replaceAll",
           resolvedLabels.replaceAll,
           "replaceAll",
-          () => replaceAll(view)
-        )
+          () => replaceAll(view),
+        ),
       );
       this.setReplaceExpanded(false);
       this.dom.append(replaceRow);
     }
 
-    const closeButton = createButton("markdown-search-close", "close", "×", () => closeSearchPanel(view));
+    const closeButton = createButton("markdown-search-close", "close", "×", () =>
+      closeSearchPanel(view),
+    );
     closeButton.setAttribute("aria-label", resolvedLabels.close);
     closeButton.title = resolvedLabels.close;
     this.dom.append(closeButton);
@@ -444,7 +474,7 @@ class NexusSearchPanel implements Panel {
     name: string,
     placeholder: string,
     value: string,
-    mainField: boolean
+    mainField: boolean,
   ): HTMLInputElement {
     const input = document.createElement("input");
     input.className = "cm-textfield";
@@ -480,7 +510,7 @@ class NexusSearchPanel implements Panel {
       caseSensitive: this.caseField.checked,
       regexp: this.regexpField.checked,
       wholeWord: this.wholeWordField.checked,
-      replace: this.replaceField.value
+      replace: this.replaceField.value,
     });
 
     if (!query.eq(this.query)) {
@@ -496,7 +526,10 @@ class NexusSearchPanel implements Panel {
     this.replaceRow.hidden = !expanded;
     this.replaceRow.setAttribute("aria-hidden", String(!expanded));
     this.replaceToggle.button.setAttribute("aria-expanded", String(expanded));
-    setIconButtonLabel(this.replaceToggle, expanded ? this.labels.hideReplace : this.labels.showReplace);
+    setIconButtonLabel(
+      this.replaceToggle,
+      expanded ? this.labels.hideReplace : this.labels.showReplace,
+    );
 
     if (expanded && focusReplace) {
       this.replaceField.focus();
@@ -540,9 +573,9 @@ export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlug
       top: options.top ?? true,
       caseSensitive: options.caseSensitive ?? false,
       literal: true,
-      createPanel: (view) => new NexusSearchPanel(view, options.top ?? true, options.labels)
+      createPanel: (view) => new NexusSearchPanel(view, options.top ?? true, options.labels),
     }),
-    keymap.of(searchKeymap)
+    keymap.of(searchKeymap),
   ];
 
   if (options.highlightSelectionMatches ?? true) {
@@ -551,6 +584,6 @@ export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlug
 
   return {
     name: "plugin-search",
-    cmExtensions
+    cmExtensions,
   };
 }
