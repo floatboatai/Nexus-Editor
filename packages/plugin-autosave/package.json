@@ -1,0 +1,28 @@
+{
+  "name": "@floatboat/nexus-plugin-autosave",
+  "version": "0.0.12",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean"
+  },
+  "dependencies": {
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.36.1",
+    "@floatboat/nexus-core": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}
