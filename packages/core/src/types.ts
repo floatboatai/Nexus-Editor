@@ -1,3 +1,4 @@
+import type { EditorView } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
 import type { Blockquote, Code, Definition, Delete, Emphasis, FootnoteDefinition, FootnoteReference, Heading, Html, Image, InlineCode, Link, List, Root, Strong, Table, ThematicBreak } from "mdast";
 import type { Plugin } from "unified";
@@ -158,6 +159,11 @@ export interface EditorAPI {
   off<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
   getCoordsAtPos(pos: number): { left: number; right: number; top: number; bottom: number } | null;
   getDocumentStats(): { characters: number; words: number; lines: number };
+  /**
+   * The underlying CodeMirror EditorView. Used internally by sync-scroll
+   * and other integrations that need access to the scroll DOM or viewport.
+   */
+  view: EditorView;
 }
 
 export interface SlashCommandDef {

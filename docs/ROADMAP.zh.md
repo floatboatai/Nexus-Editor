@@ -50,7 +50,7 @@
 
 | # | 功能 | 归属包 | 优先级 | 状态 | 需要 OpenSpec | 备注 |
 |---|---|---|---|---|---|---|
-| 13 | Markdown live preview 同步滚动 | `core` | P2 | planned | 否 | 仅在分屏 preview 场景生效 |
+| 13 | Markdown live preview 同步滚动 | `core` | P2 | in-progress | 否 | 仅在分屏 preview 场景生效 |
 | 14 | 自定义快捷键界面 | `react` / `vue` + `core` | P2 | planned | 是 | 需要先暴露 keymap 注册 / 查询 API |
 
 ## 6. React / Vue SDK

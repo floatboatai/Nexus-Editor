@@ -7,6 +7,11 @@ import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
+import {
+  createSyncScroll,
+  mdastToPreviewHtml,
+  type SyncScrollController,
+} from "@floatboat/nexus-core";
 
 installLongTaskWatch(50);
 
@@ -20,6 +25,40 @@ let backlinks: BacklinksPanel;
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
+
+// ── Preview panel (module-level state) ──
+let previewVisible = false;
+let syncScroll: SyncScrollController | null = null;
+let previewColumn: HTMLElement;
+let previewContainer: HTMLElement;
+const PREVIEW_COLUMN_CLASS = "preview-column";
+
+function togglePreview(): void {
+  previewVisible = !previewVisible;
+  if (!previewColumn) return;
+  previewColumn.style.display = previewVisible ? "flex" : "none";
+
+  if (previewVisible && syncScroll) {
+    syncScroll.setEnabled(true);
+    syncScroll.refreshPreview();
+  } else if (previewVisible && !syncScroll) {
+    const view = shell?.editor?.view;
+    if (!view) {
+      // eslint-disable-next-line no-console
+      console.error("[preview] shell.editor.view is undefined", { shell: !!shell });
+      return;
+    }
+    syncScroll = createSyncScroll({
+      editor: view,
+      previewContainer,
+      renderPreview: () => mdastToPreviewHtml(shell.editor.getAst()),
+      initialSync: true,
+    });
+    syncScroll.refreshPreview();
+  } else {
+    syncScroll?.setEnabled(false);
+  }
+}
 
 function createAppToolbar(): HTMLElement {
   const toolbar = document.createElement("div");
@@ -77,6 +116,13 @@ function createAppToolbar(): HTMLElement {
   settingsBtn.style.fontSize = "16px";
   settingsBtn.addEventListener("click", handleSettings);
 
+  const previewBtn = document.createElement("button");
+  previewBtn.textContent = "👁"; // 👁
+  previewBtn.title = "Toggle preview panel (editor ↔ preview sync scroll)";
+  previewBtn.style.fontSize = "14px";
+  previewBtn.id = "preview-toggle-btn";
+  previewBtn.addEventListener("click", togglePreview);
+
   toolbar.append(
     vaultBtn,
     openBtn,
@@ -87,8 +133,11 @@ function createAppToolbar(): HTMLElement {
     outlineBtn,
     backlinksBtn,
     searchBtn,
-    settingsBtn
+    settingsBtn,
+    previewBtn
   );
+  // eslint-disable-next-line no-console
+  console.log("[toolbar] buttons created:", toolbar.children.length, "previewBtn id:", previewBtn.id);
   return toolbar;
 }
 
@@ -345,7 +394,6 @@ function boot(): void {
   const root = document.getElementById("app");
   if (!root) throw new Error("Missing #app element");
 
-  const appToolbar = createAppToolbar();
   const statusLine = createStatusLine();
 
   const mainArea = document.createElement("div");
@@ -357,13 +405,25 @@ function boot(): void {
   const editorContainer = document.createElement("div");
   editorContainer.className = "editor-container";
 
+  // ── Init preview panel DOM ──
+  previewColumn = document.createElement("div");
+  previewColumn.className = PREVIEW_COLUMN_CLASS;
+  previewColumn.style.display = "none";
+  previewContainer = document.createElement("div");
+  previewContainer.className = "preview-container";
+  previewColumn.appendChild(previewContainer);
+
+  const appToolbar = createAppToolbar();
   root.append(appToolbar, mainArea, statusLine);
 
   shell = createEditorShell({
     container: editorContainer,
     state,
     settings,
-    onStateChange: renderStatus,
+    onStateChange: () => {
+      renderStatus();
+      if (previewVisible && syncScroll) syncScroll.refreshPreview();
+    },
     resolveWikilink: (name) => linkIndex.resolve(name, state.activeFile),
     suggestWikilinks: (q) => {
       const names = linkIndex.getAllNoteNames();
@@ -375,6 +435,9 @@ function boot(): void {
       void handleWikilinkNavigate(target, opts);
     },
   });
+  // Expose for browser console debugging
+  (window as any).__editor = shell.editor;
+  (window as any).__togglePreview = togglePreview;
 
   vault = createVaultPanel({
     onOpenFile: (filePath) => {
@@ -408,7 +471,7 @@ function boot(): void {
   });
 
   editorColumn.append(searchBar.element, editorContainer);
-  mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
+  mainArea.append(vault.element, editorColumn, previewColumn, outline.element, backlinks.element);
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {

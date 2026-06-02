@@ -40,3 +40,4 @@ export type {
   WidgetDefinition,
   WidgetRenderContext
 } from "./types";
+export { createSyncScroll, mdastToPreviewHtml, type SyncScrollController } from "./live-preview-sync";

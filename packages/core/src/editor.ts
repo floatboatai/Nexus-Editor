@@ -513,6 +513,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
       const lines = view.state.doc.lines;
       return { characters, words, lines };
     },
+    get view(): EditorView {
+      return view;
+    },
     destroy() {
       destroyed = true;
       focused = false;

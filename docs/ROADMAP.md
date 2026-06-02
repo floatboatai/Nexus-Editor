@@ -50,7 +50,7 @@ This document maps every planned feature to **package ownership / priority / sta
 
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
-| 13 | Markdown live preview sync scroll | `core` | P2 | planned | No | Only relevant in split-preview mode |
+| 13 | Markdown live preview sync scroll | `core` | P2 | in-progress | No | Only relevant in split-preview mode |
 | 14 | Custom keymap UI | `react` / `vue` + `core` | P2 | planned | Yes | Need to expose keymap register / query API first |
 
 ## 6. React / Vue SDK

@@ -57,6 +57,23 @@ body,
   flex-shrink: 0;
 }
 
+.preview-column {
+  width: 45%;
+  min-width: 300px;
+  max-width: 600px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #ddd;
+  overflow: hidden;
+}
+
+.preview-container {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: #fff;
+}
+
 .editor-container .cm-editor {
   flex: 1;
   min-height: 0;
