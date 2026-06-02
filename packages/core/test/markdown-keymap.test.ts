@@ -8,8 +8,8 @@ function createView(doc: string, cursor?: number): EditorView {
   const view = new EditorView({
     state: EditorState.create({
       doc,
-      selection: { anchor: cursor ?? doc.length }
-    })
+      selection: { anchor: cursor ?? doc.length },
+    }),
   });
   return view;
 }
@@ -106,8 +106,8 @@ describe("markdown keymap", () => {
     const view = new EditorView({
       state: EditorState.create({
         doc: "- item",
-        selection: { anchor: 2, head: 6 }
-      })
+        selection: { anchor: 2, head: 6 },
+      }),
     });
     const handled = handleMarkdownEnter(view);
 

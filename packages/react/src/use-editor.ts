@@ -20,7 +20,7 @@ export function useEditor(config: UseEditorConfig): UseEditorResult {
 
     const instance = createEditor({
       container,
-      ...configRef.current
+      ...configRef.current,
     });
 
     editorRef.current = instance;
@@ -34,6 +34,6 @@ export function useEditor(config: UseEditorConfig): UseEditorResult {
 
   return {
     containerRef,
-    editor
+    editor,
   };
 }

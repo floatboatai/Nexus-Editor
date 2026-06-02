@@ -8,7 +8,7 @@ import type {
   LivePreviewNode,
   LivePreviewNodeType,
   LivePreviewRenderContext,
-  LivePreviewRenderer
+  LivePreviewRenderer,
 } from "./types";
 
 function getText(node: LivePreviewNode): string {
@@ -29,7 +29,9 @@ function getText(node: LivePreviewNode): string {
 
         if ("children" in child && Array.isArray(child.children)) {
           return child.children
-            .map((nested) => ("value" in nested && typeof nested.value === "string" ? nested.value : ""))
+            .map((nested) =>
+              "value" in nested && typeof nested.value === "string" ? nested.value : "",
+            )
             .join("");
         }
 
@@ -87,7 +89,8 @@ export function createDefaultRenderer(context: LivePreviewRenderContext): HTMLEl
       // (~30px untracked height) → every blockquote would silently shift heightmap.
       const element = document.createElement("blockquote");
       element.textContent = context.text;
-      element.style.cssText = "display:block;margin:0;padding:8px 0 8px 16px;border-left:3px solid var(--nexus-border);color:var(--nexus-text-muted);";
+      element.style.cssText =
+        "display:block;margin:0;padding:8px 0 8px 16px;border-left:3px solid var(--nexus-border);color:var(--nexus-text-muted);";
       return element;
     }
     case "delete": {
@@ -99,7 +102,8 @@ export function createDefaultRenderer(context: LivePreviewRenderContext): HTMLEl
       // CRITICAL: margin:0 — browser default <hr> has ~8px top/bottom margin.
       // Use padding for visual spacing so CM6 measures the full height.
       const element = document.createElement("hr");
-      element.style.cssText = "display:block;margin:0;padding:8px 0;border:0;background:transparent;";
+      element.style.cssText =
+        "display:block;margin:0;padding:8px 0;border:0;background:transparent;";
       const inner = document.createElement("span");
       inner.style.cssText = "display:block;height:1px;background:var(--nexus-border);";
       element.appendChild(inner);
@@ -180,9 +184,7 @@ export function createDefaultRenderer(context: LivePreviewRenderContext): HTMLEl
           }
           // Extract cell text
           if ("children" in cell && Array.isArray(cell.children)) {
-            td.textContent = cell.children
-              .map((c: any) => ("value" in c ? c.value : ""))
-              .join("");
+            td.textContent = cell.children.map((c: any) => ("value" in c ? c.value : "")).join("");
           }
           tr.appendChild(td);
         }
@@ -215,7 +217,7 @@ export function renderLivePreviewNode(
   source: string,
   renderers: Partial<Record<LivePreviewNodeType, LivePreviewRenderer>>,
   from = 0,
-  to = 0
+  to = 0,
 ): HTMLElement {
   const context: LivePreviewRenderContext = {
     node,
@@ -223,7 +225,7 @@ export function renderLivePreviewNode(
     source,
     text: getText(node),
     from,
-    to
+    to,
   };
 
   return renderers[node.type]?.(context) ?? createDefaultRenderer(context);

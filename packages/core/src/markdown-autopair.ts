@@ -3,7 +3,7 @@
  * When the user types **, *, ~~, or ` with a selection, it wraps the selection.
  * When typed without selection, it inserts a matching pair and places the cursor between.
  */
-import { type Extension } from "@codemirror/state";
+import type { Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
 const PAIRS: Array<{ trigger: string; open: string; close: string }> = [
@@ -31,7 +31,10 @@ export function markdownAutoPair(): Extension {
         const selected = view.state.sliceDoc(sel.from, sel.to);
         view.dispatch({
           changes: { from: sel.from, to: sel.to, insert: pair.open + selected + pair.close },
-          selection: { anchor: sel.from + pair.open.length, head: sel.from + pair.open.length + selected.length },
+          selection: {
+            anchor: sel.from + pair.open.length,
+            head: sel.from + pair.open.length + selected.length,
+          },
         });
         return true;
       }
@@ -58,7 +61,11 @@ export function markdownAutoPair(): Extension {
         view.dispatch({
           changes: [
             { from: from - 1, to: from, insert: "" }, // remove the first char
-            { from: sel.from, to: sel.to, insert: pair.open + view.state.sliceDoc(sel.from, sel.to) + pair.close },
+            {
+              from: sel.from,
+              to: sel.to,
+              insert: pair.open + view.state.sliceDoc(sel.from, sel.to) + pair.close,
+            },
           ],
         });
         return true;

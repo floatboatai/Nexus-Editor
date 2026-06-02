@@ -8,7 +8,7 @@ describe("@floatboat/nexus-plugin-history", () => {
     const editor = createEditor({
       container,
       initialValue: "start",
-      plugins: [createHistoryPlugin()]
+      plugins: [createHistoryPlugin()],
     });
 
     const content = container.querySelector("[contenteditable='true']");
@@ -20,8 +20,8 @@ describe("@floatboat/nexus-plugin-history", () => {
         key: "z",
         ctrlKey: true,
         bubbles: true,
-        cancelable: true
-      })
+        cancelable: true,
+      }),
     );
 
     expect(editor.getDocument()).toBe("start");
@@ -33,7 +33,7 @@ describe("@floatboat/nexus-plugin-history", () => {
     const editor = createEditor({
       container,
       initialValue: "start",
-      plugins: [createHistoryPlugin()]
+      plugins: [createHistoryPlugin()],
     });
 
     const content = container.querySelector("[contenteditable='true']");
@@ -45,8 +45,8 @@ describe("@floatboat/nexus-plugin-history", () => {
         key: "z",
         ctrlKey: true,
         bubbles: true,
-        cancelable: true
-      })
+        cancelable: true,
+      }),
     );
 
     content?.dispatchEvent(
@@ -54,8 +54,8 @@ describe("@floatboat/nexus-plugin-history", () => {
         key: "y",
         ctrlKey: true,
         bubbles: true,
-        cancelable: true
-      })
+        cancelable: true,
+      }),
     );
 
     expect(editor.getDocument()).toBe("next");

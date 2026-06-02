@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { scanWikiLinks } from "@floatboat/nexus-core";
+import { describe, expect, it } from "vitest";
 import { LinkIndex, findAnchorPosition, parseAnchor } from "../src/renderer/link-index";
 
 const VAULT_ROOT = path.resolve(__dirname, "../sample-vault");
@@ -25,7 +25,7 @@ async function buildIndex(): Promise<LinkIndex> {
   const paths: string[] = [];
   await collect(VAULT_ROOT, paths);
   const files = await Promise.all(
-    paths.map(async (p) => ({ path: p, content: await readFile(p, "utf-8") }))
+    paths.map(async (p) => ({ path: p, content: await readFile(p, "utf-8") })),
   );
   const idx = new LinkIndex();
   idx.rebuild(files);
@@ -120,7 +120,7 @@ describe("sample-vault fixture — end-to-end wiki-link behavior", () => {
       scanWikiLinks(file.content)
         .filter((match) => match.alias && match.alias !== match.target)
         .map((match) => ({ file, match, resolved: idx.resolve(match.target, file.path) }))
-        .filter((entry): entry is typeof entry & { resolved: string } => entry.resolved != null)
+        .filter((entry): entry is typeof entry & { resolved: string } => entry.resolved != null),
     );
 
     // This validates the fixture behavior without binding the test to one
@@ -136,7 +136,7 @@ describe("sample-vault fixture — end-to-end wiki-link behavior", () => {
             sourcePath: file.path,
             target: match.target,
           }),
-        ])
+        ]),
       );
     }
   });
@@ -144,7 +144,9 @@ describe("sample-vault fixture — end-to-end wiki-link behavior", () => {
   it("Testing.md shows linked backlinks from current sample-vault references", async () => {
     const idx = await buildIndex();
     const testingPath = path.join(VAULT_ROOT, "Topics/Testing.md");
-    const linked = idx.getBacklinks(testingPath).map((m) => path.relative(VAULT_ROOT, m.sourcePath));
+    const linked = idx
+      .getBacklinks(testingPath)
+      .map((m) => path.relative(VAULT_ROOT, m.sourcePath));
     expect(linked.length).toBeGreaterThan(0);
     expect(linked).toContain("Projects/Nexus-Editor.md");
   });
@@ -160,7 +162,9 @@ describe("sample-vault fixture — end-to-end wiki-link behavior", () => {
   it("AI.md has an unlinked mention in Alice.md and Daily/2026-04-20.md has a linked one", async () => {
     const idx = await buildIndex();
     const ai = path.join(VAULT_ROOT, "Topics/AI.md");
-    const unlinked = idx.getUnlinkedMentions(ai).map((m) => path.relative(VAULT_ROOT, m.sourcePath));
+    const unlinked = idx
+      .getUnlinkedMentions(ai)
+      .map((m) => path.relative(VAULT_ROOT, m.sourcePath));
     const linked = idx.getBacklinks(ai).map((m) => path.relative(VAULT_ROOT, m.sourcePath));
     expect(unlinked).toContain("People/Alice.md"); // plain text "AI" in Alice.md
     expect(linked).toContain("Daily/2026-04-20.md"); // [[AI]] in the daily
@@ -170,10 +174,10 @@ describe("sample-vault fixture — end-to-end wiki-link behavior", () => {
     const idx = await buildIndex();
     const ideas = path.join(VAULT_ROOT, "Projects/Ideas.md");
     expect(idx.resolve("Projects/Nexus-Editor#Context", ideas)).toBe(
-      path.join(VAULT_ROOT, "Projects/Nexus-Editor.md")
+      path.join(VAULT_ROOT, "Projects/Nexus-Editor.md"),
     );
     expect(idx.resolve("Projects/Nexus-Editor^some-block", ideas)).toBe(
-      path.join(VAULT_ROOT, "Projects/Nexus-Editor.md")
+      path.join(VAULT_ROOT, "Projects/Nexus-Editor.md"),
     );
   });
 

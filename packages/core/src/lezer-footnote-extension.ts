@@ -1,4 +1,10 @@
-import type { MarkdownConfig, BlockContext, Line, LeafBlock, LeafBlockParser } from "@lezer/markdown";
+import type {
+  BlockContext,
+  LeafBlock,
+  LeafBlockParser,
+  Line,
+  MarkdownConfig,
+} from "@lezer/markdown";
 
 // GFM-style footnote syntax:
 //   * Inline reference: `[^id]` — emits FootnoteReference with FootnoteMark + FootnoteLabel children.
@@ -12,8 +18,8 @@ const OPEN_BRACKET = 91; // [
 const CARET = 94; // ^
 const CLOSE_BRACKET = 93; // ]
 const COLON = 58; // :
-const SPACE = 32;
-const TAB = 9;
+const _SPACE = 32;
+const _TAB = 9;
 const NEWLINE = 10;
 
 function isLabelChar(code: number): boolean {
@@ -27,14 +33,17 @@ class FootnoteDefinitionLeafParser implements LeafBlockParser {
     // GFM-footnote allows lazy continuation on indented lines (>= 4 spaces or
     // a tab) following the marker line. Anything else terminates.
     if (line.next < 0) return true; // EOF
-    const nonBlank = line.text.length > line.basePos &&
-      line.text.slice(line.basePos).trim().length > 0;
+    const nonBlank =
+      line.text.length > line.basePos && line.text.slice(line.basePos).trim().length > 0;
     if (!nonBlank) return false; // blank — keep accumulating until a real line forces close
     if (line.indent < 4) return true; // not indented enough → end definition
     return false;
   }
   finish(cx: BlockContext, leaf: LeafBlock): boolean {
-    cx.addLeafElement(leaf, cx.elt("FootnoteDefinition", leaf.start, leaf.start + leaf.content.length));
+    cx.addLeafElement(
+      leaf,
+      cx.elt("FootnoteDefinition", leaf.start, leaf.start + leaf.content.length),
+    );
     return true;
   }
 }

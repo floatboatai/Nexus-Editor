@@ -9,7 +9,7 @@ describe("@floatboat/nexus-preset-gfm", () => {
     const editor = createEditor({
       container,
       initialValue: "| a | b |\n| - | - |\n| 1 | 2 |",
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     expect(editor.getAst().children[0]?.type).toBe("table");
@@ -21,7 +21,7 @@ describe("@floatboat/nexus-preset-gfm", () => {
     const editor = createEditor({
       container,
       initialValue: "- [x] done",
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     const firstChild = editor.getAst().children[0] as List | undefined;

@@ -9,7 +9,16 @@ import {
   toggleUnorderedList,
 } from "./formatting";
 
-export { toggleBlockquote, toggleOrderedList, toggleUnorderedList, insertCodeBlock, insertImage, insertHorizontalRule, applyTextColor, applyHighlight } from "./formatting";
+export {
+  toggleBlockquote,
+  toggleOrderedList,
+  toggleUnorderedList,
+  insertCodeBlock,
+  insertImage,
+  insertHorizontalRule,
+  applyTextColor,
+  applyHighlight,
+} from "./formatting";
 export { createToolbarUI } from "./toolbar-ui";
 export { colorDecorationExtension } from "./color-decoration";
 export type { ToolbarUI, ToolbarUIOptions, ToolbarButton, ToolbarGroup } from "./toolbar-ui";
@@ -26,18 +35,14 @@ export function toggleWrap(editor: EditorAPI, marker: string): boolean {
 
   if (before === marker && after === marker) {
     // Already wrapped — remove markers
-    const newDoc =
-      doc.slice(0, from - marker.length) +
-      selected +
-      doc.slice(to + marker.length);
+    const newDoc = doc.slice(0, from - marker.length) + selected + doc.slice(to + marker.length);
     editor.setDocument(newDoc);
     editor.setSelection(from - marker.length, to - marker.length);
     return true;
   }
 
   // Wrap selection with markers
-  const newDoc =
-    doc.slice(0, from) + marker + selected + marker + doc.slice(to);
+  const newDoc = doc.slice(0, from) + marker + selected + marker + doc.slice(to);
   editor.setDocument(newDoc);
   editor.setSelection(from + marker.length, to + marker.length);
   return true;
@@ -85,7 +90,7 @@ export function toggleHeading(editor: EditorAPI, level: number): boolean {
   const end = lineEnd === -1 ? doc.length : lineEnd;
   const line = doc.slice(lineStart, end);
 
-  const prefix = "#".repeat(level) + " ";
+  const prefix = `${"#".repeat(level)} `;
   const headingMatch = line.match(/^#{1,6}\s/);
 
   let newLine: string;

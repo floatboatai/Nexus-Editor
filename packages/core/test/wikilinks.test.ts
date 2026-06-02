@@ -1,12 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
-import { EditorState, EditorSelection } from "@codemirror/state";
+import { EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import { describe, expect, it, vi } from "vitest";
 
 import {
-  scanWikiLinks,
+  createEditor,
   createWikilinksExtension,
   createWikilinksPlugin,
-  createEditor,
+  scanWikiLinks,
 } from "../src/index";
 
 describe("scanWikiLinks", () => {
@@ -79,7 +79,7 @@ describe("wikilinks decorations (rendered output)", () => {
 
     const span = container.querySelector("[data-wikilink-target]");
     expect(span).not.toBeNull();
-    expect(span!.getAttribute("data-wikilink-target")).toBe("MyNote");
+    expect(span?.getAttribute("data-wikilink-target")).toBe("MyNote");
     editor.destroy();
   });
 
@@ -98,7 +98,7 @@ describe("wikilinks decorations (rendered output)", () => {
     expect(text).toContain("visible alias");
     expect(text).not.toContain("A Real Target");
     const span = container.querySelector("[data-wikilink-target]");
-    expect(span!.getAttribute("data-wikilink-target")).toBe("A Real Target");
+    expect(span?.getAttribute("data-wikilink-target")).toBe("A Real Target");
     editor.destroy();
   });
 

@@ -91,7 +91,7 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
       item.textContent = entry.text;
       item.title = entry.text;
       item.style.cssText = ITEM_BASE;
-      item.style.paddingLeft = (14 + (entry.level - 1) * 14) + "px";
+      item.style.paddingLeft = `${14 + (entry.level - 1) * 14}px`;
       item.style.fontWeight = entry.level <= 2 ? "600" : "400";
       item.style.fontSize = entry.level === 1 ? "14px" : "13px";
 

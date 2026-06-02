@@ -14,11 +14,7 @@ function parse(markdown: string): Root {
 describe("live preview ranges", () => {
   it("collects stable ranges for block and image previews", () => {
     const doc = "Intro\n\n# Heading\n\n> Quote\n\n![Alt](https://example.com/image.png)";
-    const ranges = collectLivePreviewRanges(
-      parse(doc),
-      doc,
-      [EditorSelection.cursor(0)]
-    );
+    const ranges = collectLivePreviewRanges(parse(doc), doc, [EditorSelection.cursor(0)]);
 
     expect(ranges.map((range) => range.node.type)).toEqual(["heading", "blockquote", "image"]);
     expect(ranges.at(-1)?.source).toBe("![Alt](https://example.com/image.png)");
@@ -27,18 +23,12 @@ describe("live preview ranges", () => {
   it("always emits inline ranges regardless of cursor position", () => {
     const doc = "Text **bold** *italic*\n\nother line";
     // Inline ranges are always emitted; buildDecorations decides styling
-    const rangesSameLine = collectLivePreviewRanges(
-      parse(doc),
-      doc,
-      [EditorSelection.cursor(8)]
-    );
+    const rangesSameLine = collectLivePreviewRanges(parse(doc), doc, [EditorSelection.cursor(8)]);
     expect(rangesSameLine.map((r) => r.node.type)).toEqual(["strong", "emphasis"]);
 
-    const rangesDiffLine = collectLivePreviewRanges(
-      parse(doc),
-      doc,
-      [EditorSelection.cursor(doc.length)]
-    );
+    const rangesDiffLine = collectLivePreviewRanges(parse(doc), doc, [
+      EditorSelection.cursor(doc.length),
+    ]);
     expect(rangesDiffLine.map((r) => r.node.type)).toEqual(["strong", "emphasis"]);
   });
 
@@ -51,11 +41,9 @@ describe("live preview ranges", () => {
       "## After",
     ].join("\n");
 
-    const ranges = collectLivePreviewRanges(
-      lezerStringToMdast(doc),
-      doc,
-      [EditorSelection.cursor(doc.length)]
-    );
+    const ranges = collectLivePreviewRanges(lezerStringToMdast(doc), doc, [
+      EditorSelection.cursor(doc.length),
+    ]);
 
     expect(ranges.map((range) => range.node.type)).toEqual(["table", "heading"]);
   });

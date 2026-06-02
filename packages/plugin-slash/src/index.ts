@@ -1,10 +1,10 @@
 import {
-  computeSlashState,
-  filterSlashCommands,
-  getSlashMatch,
   type SlashMatch,
   type SlashStateOptions,
   type SlashStateResult,
+  computeSlashState,
+  filterSlashCommands,
+  getSlashMatch,
 } from "@floatboat/nexus-core";
 import type { NexusPlugin, SlashCommandDef } from "@floatboat/nexus-core";
 
@@ -21,7 +21,7 @@ export function getSlashState(
   doc: string,
   cursor: number,
   commands: SlashCommandDef[],
-  options?: SlashStateOptions
+  options?: SlashStateOptions,
 ): SlashStateResult {
   return computeSlashState(doc, cursor, commands, options);
 }

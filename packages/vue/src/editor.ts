@@ -7,12 +7,12 @@ export const Editor = defineComponent({
   props: {
     initialValue: {
       type: String,
-      required: false
-    }
+      required: false,
+    },
   },
   setup(props) {
     const { containerRef } = useEditor(props);
 
     return () => h("div", { ref: containerRef });
-  }
+  },
 });

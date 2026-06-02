@@ -35,7 +35,7 @@ export function selectionIntersects(
   from: number,
   to: number,
   selection: readonly SelectionRange[],
-  inclusiveEnd = false
+  inclusiveEnd = false,
 ): boolean {
   return selection.some((range) => {
     const rangeFrom = Math.min(range.anchor, range.head);
@@ -54,7 +54,7 @@ export function selectionOnSameLine(
   from: number,
   to: number,
   doc: string,
-  selection: readonly SelectionRange[]
+  selection: readonly SelectionRange[],
 ): boolean {
   // Find line boundaries for the node
   const nodeLineStart = doc.lastIndexOf("\n", from - 1) + 1;
@@ -69,7 +69,7 @@ export function selectionOnSameLine(
 
 function collectImageRanges(
   doc: string,
-  selection: readonly SelectionRange[]
+  _selection: readonly SelectionRange[],
 ): LivePreviewRange[] {
   const ranges: LivePreviewRange[] = [];
   const pattern = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g;
@@ -87,19 +87,28 @@ function collectImageRanges(
         type: "image",
         alt: match[1] || null,
         url: match[2],
-        title: match[3] || null
-      }
+        title: match[3] || null,
+      },
     });
   }
 
   return ranges;
 }
 
-function isInsideWikiLink(from: number, to: number, wikiLinkSpans: readonly [number, number][]): boolean {
+function isInsideWikiLink(
+  from: number,
+  to: number,
+  wikiLinkSpans: readonly [number, number][],
+): boolean {
   return wikiLinkSpans.some(([wikiFrom, wikiTo]) => from >= wikiFrom && to <= wikiTo);
 }
 
-function shouldSkipInsideWikiLink(node: Content, from: number, to: number, wikiLinkSpans: readonly [number, number][]): boolean {
+function shouldSkipInsideWikiLink(
+  node: Content,
+  from: number,
+  to: number,
+  wikiLinkSpans: readonly [number, number][],
+): boolean {
   return (
     isInsideWikiLink(from, to, wikiLinkSpans) &&
     node.type !== "heading" &&
@@ -114,7 +123,7 @@ function visit(
   doc: string,
   selection: readonly SelectionRange[],
   ranges: LivePreviewRange[],
-  wikiLinkSpans: readonly [number, number][]
+  wikiLinkSpans: readonly [number, number][],
 ): void {
   for (const child of node.children) {
     const from = child.position?.start.offset;
@@ -128,7 +137,13 @@ function visit(
         continue;
       }
 
-      if (child.type === "heading" || child.type === "list" || child.type === "code" || child.type === "definition" || child.type === "html") {
+      if (
+        child.type === "heading" ||
+        child.type === "list" ||
+        child.type === "code" ||
+        child.type === "definition" ||
+        child.type === "html"
+      ) {
         // Always emitted regardless of cursor position.
         // buildDecorations decides decoration treatment based on cursor.
         ranges.push({ from, to, node: child, source: doc.slice(from, to) });
@@ -159,7 +174,7 @@ function visit(
 export function collectLivePreviewRanges(
   ast: Root,
   doc: string,
-  selection: readonly SelectionRange[]
+  selection: readonly SelectionRange[],
 ): LivePreviewRange[] {
   const ranges: LivePreviewRange[] = [];
   const wikiLinkSpans = scanWikiLinks(doc).map((link) => [link.from, link.to] as [number, number]);

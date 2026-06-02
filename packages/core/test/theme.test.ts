@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createEditor, lightTheme, darkTheme } from "../src/index";
+import { createEditor, darkTheme, lightTheme } from "../src/index";
 
 describe("theme system", () => {
   it("applies light theme CSS variables by default", () => {
@@ -10,7 +10,7 @@ describe("theme system", () => {
     const cmEditor = container.querySelector(".cm-editor") as HTMLElement;
     expect(cmEditor).not.toBeNull();
     // The CM6 theme extension sets CSS variables on the editor root
-    const style = cmEditor.style;
+    const _style = cmEditor.style;
     // Variables are set via CM6's theme mechanism on the & selector
     expect(cmEditor.className).toContain("cm-editor");
     editor.destroy();
@@ -21,7 +21,7 @@ describe("theme system", () => {
     const editor = createEditor({
       container,
       initialValue: "hello",
-      theme: darkTheme
+      theme: darkTheme,
     });
 
     // Should create without error
@@ -33,7 +33,7 @@ describe("theme system", () => {
     const container = document.createElement("div");
     const editor = createEditor({
       container,
-      initialValue: "preserve me"
+      initialValue: "preserve me",
     });
 
     editor.setTheme(darkTheme);
@@ -52,7 +52,7 @@ describe("theme system", () => {
     const editor = createEditor({
       container,
       initialValue: "custom theme",
-      theme: custom
+      theme: custom,
     });
 
     expect(editor.getDocument()).toBe("custom theme");

@@ -11,10 +11,5 @@
       "@floatboat/nexus-plugin-toolbar": ["packages/plugin-toolbar/src/index.ts"]
     }
   },
-  "include": [
-    "src/**/*.ts",
-    "src/**/*.d.ts",
-    "electron/**/*.ts",
-    "test/**/*.ts"
-  ]
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "electron/**/*.ts", "test/**/*.ts"]
 }

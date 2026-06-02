@@ -1,44 +1,44 @@
 import type { EditorAPI } from "@floatboat/nexus-core";
 
 import {
-  toggleBold,
-  toggleItalic,
-  toggleStrikethrough,
-  toggleInlineCode,
-  insertLink,
-  toggleHeading,
-  toggleWrap,
-} from "./index";
-import {
+  applyHighlight,
+  applyTextColor,
+  insertCodeBlock,
+  insertImage,
   toggleBlockquote,
   toggleOrderedList,
   toggleUnorderedList,
-  insertCodeBlock,
-  insertImage,
-  applyTextColor,
-  applyHighlight,
 } from "./formatting";
 import {
-  iconUndo,
-  iconRedo,
-  iconLink,
+  iconBlockquote,
+  iconBold,
+  iconCodeBlock,
+  iconFullscreen,
   iconH2,
   iconH3,
   iconHeadingMenu,
-  iconBold,
-  iconItalic,
-  iconStrikethrough,
-  iconUnderline,
-  iconInlineCode,
-  iconBlockquote,
-  iconCodeBlock,
-  iconOrderedList,
-  iconUnorderedList,
-  iconTextColor,
   iconHighlight,
   iconImage,
-  iconFullscreen,
+  iconInlineCode,
+  iconItalic,
+  iconLink,
+  iconOrderedList,
+  iconRedo,
+  iconStrikethrough,
+  iconTextColor,
+  iconUnderline,
+  iconUndo,
+  iconUnorderedList,
 } from "./icons";
+import {
+  insertLink,
+  toggleBold,
+  toggleHeading,
+  toggleInlineCode,
+  toggleItalic,
+  toggleStrikethrough,
+  toggleWrap,
+} from "./index";
 
 export interface ToolbarButton {
   id: string;
@@ -141,9 +141,7 @@ function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
       ],
     },
     {
-      buttons: [
-        { id: "link", title: "Insert link", icon: iconLink, action: insertLink },
-      ],
+      buttons: [{ id: "link", title: "Insert link", icon: iconLink, action: insertLink }],
     },
     {
       buttons: [
@@ -156,8 +154,18 @@ function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
       buttons: [
         { id: "bold", title: "Bold", icon: iconBold, action: toggleBold },
         { id: "italic", title: "Italic", icon: iconItalic, action: toggleItalic },
-        { id: "strikethrough", title: "Strikethrough", icon: iconStrikethrough, action: toggleStrikethrough },
-        { id: "underline", title: "Underline", icon: iconUnderline, action: (e) => toggleWrap(e, "<u>") },
+        {
+          id: "strikethrough",
+          title: "Strikethrough",
+          icon: iconStrikethrough,
+          action: toggleStrikethrough,
+        },
+        {
+          id: "underline",
+          title: "Underline",
+          icon: iconUnderline,
+          action: (e) => toggleWrap(e, "<u>"),
+        },
         { id: "inline-code", title: "Inline code", icon: iconInlineCode, action: toggleInlineCode },
       ],
     },
@@ -169,8 +177,18 @@ function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
     },
     {
       buttons: [
-        { id: "ordered-list", title: "Ordered list", icon: iconOrderedList, action: toggleOrderedList },
-        { id: "unordered-list", title: "Unordered list", icon: iconUnorderedList, action: toggleUnorderedList },
+        {
+          id: "ordered-list",
+          title: "Ordered list",
+          icon: iconOrderedList,
+          action: toggleOrderedList,
+        },
+        {
+          id: "unordered-list",
+          title: "Unordered list",
+          icon: iconUnorderedList,
+          action: toggleUnorderedList,
+        },
       ],
     },
     {
@@ -182,7 +200,12 @@ function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
     {
       buttons: [
         { id: "image", title: "Insert image", icon: iconImage, action: insertImage },
-        { id: "fullscreen", title: "Fullscreen", icon: iconFullscreen, action: () => options?.onFullscreen?.() },
+        {
+          id: "fullscreen",
+          title: "Fullscreen",
+          icon: iconFullscreen,
+          action: () => options?.onFullscreen?.(),
+        },
       ],
     },
   ];
@@ -264,8 +287,8 @@ function showHeadingDropdown(
 
   // Position below the anchor button
   const rect = anchorBtn.getBoundingClientRect();
-  menu.style.top = rect.bottom + 4 + "px";
-  menu.style.left = rect.left + "px";
+  menu.style.top = `${rect.bottom + 4}px`;
+  menu.style.left = `${rect.left}px`;
 
   const levels = [
     { level: 1, label: "Heading 1", fontSize: "17px", fontWeight: "700" },
@@ -311,8 +334,12 @@ function showHeadingDropdown(
       onClose();
     };
 
-    const handleEnter = () => { item.style.background = "var(--nexus-bg-muted, #f0f0f0)"; };
-    const handleLeave = () => { item.style.background = "transparent"; };
+    const handleEnter = () => {
+      item.style.background = "var(--nexus-bg-muted, #f0f0f0)";
+    };
+    const handleLeave = () => {
+      item.style.background = "transparent";
+    };
 
     item.addEventListener("click", handleClick);
     item.addEventListener("mouseenter", handleEnter);
@@ -339,20 +366,72 @@ function showHeadingDropdown(
 
 const COLOR_PALETTE = [
   // row 1: grays + black/white
-  "#000000", "#434343", "#666666", "#999999", "#b7b7b7", "#cccccc", "#d9d9d9", "#efefef", "#f3f3f3", "#ffffff",
+  "#000000",
+  "#434343",
+  "#666666",
+  "#999999",
+  "#b7b7b7",
+  "#cccccc",
+  "#d9d9d9",
+  "#efefef",
+  "#f3f3f3",
+  "#ffffff",
   // row 2: saturated
-  "#ff0000", "#ff9900", "#ffff00", "#00ff00", "#00ffff", "#0000ff", "#9900ff", "#ff00ff", "#f4cccc", "#fce5cd",
+  "#ff0000",
+  "#ff9900",
+  "#ffff00",
+  "#00ff00",
+  "#00ffff",
+  "#0000ff",
+  "#9900ff",
+  "#ff00ff",
+  "#f4cccc",
+  "#fce5cd",
   // row 3: muted
-  "#ea4335", "#ff6d01", "#fbbc04", "#34a853", "#46bdc6", "#4285f4", "#a142f4", "#ff6d9b", "#e06666", "#f6b26b",
+  "#ea4335",
+  "#ff6d01",
+  "#fbbc04",
+  "#34a853",
+  "#46bdc6",
+  "#4285f4",
+  "#a142f4",
+  "#ff6d9b",
+  "#e06666",
+  "#f6b26b",
   // row 4: dark
-  "#cc0000", "#e69138", "#f1c232", "#6aa84f", "#45818e", "#3c78d8", "#674ea7", "#a64d79", "#990000", "#783f04",
+  "#cc0000",
+  "#e69138",
+  "#f1c232",
+  "#6aa84f",
+  "#45818e",
+  "#3c78d8",
+  "#674ea7",
+  "#a64d79",
+  "#990000",
+  "#783f04",
 ];
 
 const HIGHLIGHT_PALETTE = [
-  "#ffff00", "#00ff00", "#00ffff", "#ff9900", "#ff00ff",
-  "#fce5cd", "#d9ead3", "#d0e0e3", "#cfe2f3", "#d9d2e9",
-  "#fff2cc", "#b6d7a8", "#a2c4c9", "#9fc5e8", "#b4a7d6",
-  "#f4cccc", "#ea9999", "#e6b8af", "#dd7e6b", "#cc4125",
+  "#ffff00",
+  "#00ff00",
+  "#00ffff",
+  "#ff9900",
+  "#ff00ff",
+  "#fce5cd",
+  "#d9ead3",
+  "#d0e0e3",
+  "#cfe2f3",
+  "#d9d2e9",
+  "#fff2cc",
+  "#b6d7a8",
+  "#a2c4c9",
+  "#9fc5e8",
+  "#b4a7d6",
+  "#f4cccc",
+  "#ea9999",
+  "#e6b8af",
+  "#dd7e6b",
+  "#cc4125",
 ];
 
 const COLOR_GRID_STYLES = `
@@ -377,8 +456,8 @@ function showColorPicker(
   panel.style.cssText = COLOR_GRID_STYLES;
 
   const rect = anchorBtn.getBoundingClientRect();
-  panel.style.top = rect.bottom + 4 + "px";
-  panel.style.left = rect.left + "px";
+  panel.style.top = `${rect.bottom + 4}px`;
+  panel.style.left = `${rect.left}px`;
 
   const cols = palette.length <= 20 ? 5 : 10;
   const grid = document.createElement("div");
@@ -502,19 +581,37 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
           e.preventDefault();
           e.stopPropagation();
 
-          if (activeDropdown) { closeDropdown(); return; }
+          if (activeDropdown) {
+            closeDropdown();
+            return;
+          }
 
           if (btn.id === "heading-menu") {
             activeDropdown = showHeadingDropdown(editor, button, closeDropdown);
           } else if (btn.id === "text-color") {
-            activeDropdown = showColorPicker(editor, button, COLOR_PALETTE, applyTextColor, closeDropdown);
+            activeDropdown = showColorPicker(
+              editor,
+              button,
+              COLOR_PALETTE,
+              applyTextColor,
+              closeDropdown,
+            );
           } else if (btn.id === "highlight") {
-            activeDropdown = showColorPicker(editor, button, HIGHLIGHT_PALETTE, applyHighlight, closeDropdown);
+            activeDropdown = showColorPicker(
+              editor,
+              button,
+              HIGHLIGHT_PALETTE,
+              applyHighlight,
+              closeDropdown,
+            );
           }
 
           outsideHandler = (ev: MouseEvent) => {
             const dropdownEl = document.querySelector(".nexus-toolbar-dropdown");
-            if (!button.contains(ev.target as Node) && (!dropdownEl || !dropdownEl.contains(ev.target as Node))) {
+            if (
+              !button.contains(ev.target as Node) &&
+              (!dropdownEl || !dropdownEl.contains(ev.target as Node))
+            ) {
               closeDropdown();
             }
           };

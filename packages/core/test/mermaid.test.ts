@@ -25,16 +25,7 @@ function makeContainer(): HTMLElement {
 describe("mermaid live preview", () => {
   it("replaces ```mermaid blocks with a diagram widget when cursor is outside", () => {
     const container = makeContainer();
-    const md = [
-      "before",
-      "",
-      "```mermaid",
-      "graph TD",
-      "  A --> B",
-      "```",
-      "",
-      "after",
-    ].join("\n");
+    const md = ["before", "", "```mermaid", "graph TD", "  A --> B", "```", "", "after"].join("\n");
 
     const editor = createEditor({
       container,
@@ -118,7 +109,7 @@ describe("mermaid live preview", () => {
     const editBtn = container.querySelector(".nexus-mermaid button") as HTMLButtonElement | null;
     expect(editBtn).not.toBeNull();
 
-    editBtn!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    editBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
     const { anchor } = editor.getSelection();
     const blockStart = md.indexOf("```mermaid");

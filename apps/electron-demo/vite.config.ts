@@ -1,5 +1,5 @@
-import { defineConfig } from "vite";
 import path from "node:path";
+import { defineConfig } from "vite";
 
 export default defineConfig({
   root: path.resolve(__dirname, "src/renderer"),
@@ -22,7 +22,13 @@ export default defineConfig({
             if (id.includes("mermaid")) return "mermaid";
             if (id.includes("@codemirror") || id.includes("codemirror")) return "codemirror";
             if (id.includes("highlight.js")) return "hljs";
-            if (id.includes("mdast") || id.includes("micromark") || id.includes("unified") || id.includes("remark")) return "markdown";
+            if (
+              id.includes("mdast") ||
+              id.includes("micromark") ||
+              id.includes("unified") ||
+              id.includes("remark")
+            )
+              return "markdown";
             if (id.includes("katex")) return "katex";
             return "vendor";
           }
@@ -32,29 +38,26 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@floatboat/nexus-core": path.resolve(
-        __dirname,
-        "../../packages/core/src/index.ts"
-      ),
+      "@floatboat/nexus-core": path.resolve(__dirname, "../../packages/core/src/index.ts"),
       "@floatboat/nexus-preset-gfm": path.resolve(
         __dirname,
-        "../../packages/preset-gfm/src/index.ts"
+        "../../packages/preset-gfm/src/index.ts",
       ),
       "@floatboat/nexus-plugin-history": path.resolve(
         __dirname,
-        "../../packages/plugin-history/src/index.ts"
+        "../../packages/plugin-history/src/index.ts",
       ),
       "@floatboat/nexus-plugin-toolbar": path.resolve(
         __dirname,
-        "../../packages/plugin-toolbar/src/index.ts"
+        "../../packages/plugin-toolbar/src/index.ts",
       ),
       "@floatboat/nexus-plugin-search": path.resolve(
         __dirname,
-        "../../packages/plugin-search/src/index.ts"
+        "../../packages/plugin-search/src/index.ts",
       ),
       "@floatboat/nexus-plugin-slash": path.resolve(
         __dirname,
-        "../../packages/plugin-slash/src/index.ts"
+        "../../packages/plugin-slash/src/index.ts",
       ),
     },
   },

@@ -14,7 +14,7 @@ export function useEditor(config: UseEditorConfig): UseEditorResult {
 
     editor.value = createEditor({
       container: containerRef.value,
-      ...config
+      ...config,
     });
   });
 
@@ -25,6 +25,6 @@ export function useEditor(config: UseEditorConfig): UseEditorResult {
 
   return {
     containerRef,
-    editor
+    editor,
   };
 }

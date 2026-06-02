@@ -1,12 +1,12 @@
-import { createState, type AppState } from "./state";
-import { createEditorShell, type EditorShell } from "./editor-shell";
-import { loadSettings, createSettingsPanel, type EditorSettings } from "./settings";
-import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
-import { createSearchBar, type SearchBar } from "./search-bar";
-import { createVaultPanel, type VaultPanel } from "./vault-panel";
-import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
-import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
-import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
+import { type BacklinksPanel, createBacklinksPanel } from "./backlinks-panel";
+import { type EditorShell, createEditorShell } from "./editor-shell";
+import { LinkIndex, findAnchorPosition, parseAnchor } from "./link-index";
+import { type OutlinePanel, createOutlinePanel } from "./outline-panel";
+import { installLongTaskWatch, perfEnd, perfStart } from "./perf";
+import { type SearchBar, createSearchBar } from "./search-bar";
+import { type EditorSettings, createSettingsPanel, loadSettings } from "./settings";
+import { type AppState, createState } from "./state";
+import { type VaultPanel, createVaultPanel } from "./vault-panel";
 
 installLongTaskWatch(50);
 
@@ -87,7 +87,7 @@ function createAppToolbar(): HTMLElement {
     outlineBtn,
     backlinksBtn,
     searchBtn,
-    settingsBtn
+    settingsBtn,
   );
   return toolbar;
 }
@@ -107,9 +107,7 @@ function renderStatus(): void {
   const dirtyMark = state.dirty ? " [modified]" : "";
   const stats = shell?.editor.getDocumentStats();
   const statsText = stats ? ` | ${stats.words} words, ${stats.lines} lines` : "";
-  const vaultLabel = state.vaultPath
-    ? ` | Vault: ${state.vaultPath.split(/[\\/]/).pop()}`
-    : "";
+  const vaultLabel = state.vaultPath ? ` | Vault: ${state.vaultPath.split(/[\\/]/).pop()}` : "";
   const errorText = state.error ? ` — Error: ${state.error}` : "";
   el.textContent = `${pathLabel}${dirtyMark}${statsText}${vaultLabel}${errorText}`;
 }
@@ -270,7 +268,10 @@ async function seedLinkIndex(): Promise<void> {
   perfEnd(total);
 }
 
-async function handleWikilinkNavigate(target: string, opts: { unresolved: boolean }): Promise<void> {
+async function handleWikilinkNavigate(
+  target: string,
+  opts: { unresolved: boolean },
+): Promise<void> {
   try {
     state.error = null;
     // Parse `#heading` / `^blockid` — bare part is what the resolver needs

@@ -1,4 +1,4 @@
-import { Prec, type Extension } from "@codemirror/state";
+import { type Extension, Prec } from "@codemirror/state";
 import { type EditorView, keymap } from "@codemirror/view";
 
 const LIST_RE = /^(\s*)([-*+]|\d+[.)]) /;
@@ -29,7 +29,7 @@ export function handleMarkdownEnter(view: EditorView): boolean {
     if (!content.trim()) {
       view.dispatch({
         changes: { from: line.from, to: line.to, insert: "" },
-        selection: { anchor: line.from }
+        selection: { anchor: line.from },
       });
       return true;
     }
@@ -38,16 +38,14 @@ export function handleMarkdownEnter(view: EditorView): boolean {
     let nextMarker = marker;
     const numMatch = marker.match(/^(\d+)([.)])/);
     if (numMatch) {
-      nextMarker = `${parseInt(numMatch[1]) + 1}${numMatch[2]}`;
+      nextMarker = `${Number.parseInt(numMatch[1]) + 1}${numMatch[2]}`;
     }
 
-    const newPrefix = cbMatch
-      ? `${indent}${nextMarker} [ ] `
-      : `${indent}${nextMarker} `;
+    const newPrefix = cbMatch ? `${indent}${nextMarker} [ ] ` : `${indent}${nextMarker} `;
 
     view.dispatch({
-      changes: { from: sel.head, insert: "\n" + newPrefix },
-      selection: { anchor: sel.head + 1 + newPrefix.length }
+      changes: { from: sel.head, insert: `\n${newPrefix}` },
+      selection: { anchor: sel.head + 1 + newPrefix.length },
     });
     return true;
   }
@@ -62,14 +60,14 @@ export function handleMarkdownEnter(view: EditorView): boolean {
     if (!content.trim()) {
       view.dispatch({
         changes: { from: line.from, to: line.to, insert: "" },
-        selection: { anchor: line.from }
+        selection: { anchor: line.from },
       });
       return true;
     }
 
     view.dispatch({
-      changes: { from: sel.head, insert: "\n" + prefix },
-      selection: { anchor: sel.head + 1 + prefix.length }
+      changes: { from: sel.head, insert: `\n${prefix}` },
+      selection: { anchor: sel.head + 1 + prefix.length },
     });
     return true;
   }

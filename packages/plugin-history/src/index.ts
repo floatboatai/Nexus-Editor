@@ -6,6 +6,6 @@ import type { NexusPlugin } from "@floatboat/nexus-core";
 export function createHistoryPlugin(): NexusPlugin {
   return {
     name: "plugin-history",
-    cmExtensions: [history(), keymap.of(historyKeymap)]
+    cmExtensions: [history(), keymap.of(historyKeymap)],
   };
 }

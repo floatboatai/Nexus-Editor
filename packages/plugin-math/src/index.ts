@@ -13,10 +13,7 @@ import remarkMath from "remark-math";
  * widget-extension) — clicking on an inline formula already drops the
  * caret adjacent to it and toggles into edit mode automatically.
  */
-function attachBlockEditButton(
-  host: HTMLElement,
-  ctx: WidgetRenderContext | undefined
-): void {
+function attachBlockEditButton(host: HTMLElement, ctx: WidgetRenderContext | undefined): void {
   if (!ctx) return;
 
   const btn = document.createElement("button");
@@ -24,7 +21,7 @@ function attachBlockEditButton(
   btn.textContent = "✎";
   btn.title = "Edit formula";
   btn.setAttribute("aria-label", "Edit formula");
-  btn.style.cssText = [
+  btn.style.cssText = `${[
     "position:absolute",
     "top:4px",
     "right:8px",
@@ -42,16 +39,25 @@ function attachBlockEditButton(
     "user-select:none",
     "transition:opacity .15s",
     "pointer-events:auto",
-  ].join(";") + ";";
+  ].join(";")};`;
 
-  host.addEventListener("mouseenter", () => { btn.style.opacity = "1"; });
-  host.addEventListener("mouseleave", () => { btn.style.opacity = "0"; });
-  btn.addEventListener("mouseenter", () => { btn.style.opacity = "1"; });
+  host.addEventListener("mouseenter", () => {
+    btn.style.opacity = "1";
+  });
+  host.addEventListener("mouseleave", () => {
+    btn.style.opacity = "0";
+  });
+  btn.addEventListener("mouseenter", () => {
+    btn.style.opacity = "1";
+  });
 
   // Button events must escape the widget body's `ignoreEvents: true`
   // swallow. The button preventDefaults + stopPropagation so CM6 doesn't
   // see the click at all.
-  btn.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); });
+  btn.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
   btn.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();

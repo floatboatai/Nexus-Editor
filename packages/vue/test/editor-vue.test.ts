@@ -1,14 +1,14 @@
 import { mount } from "@vue/test-utils";
-import { defineComponent, h, nextTick, onMounted } from "vue";
 import { describe, expect, it } from "vitest";
+import { defineComponent, h, nextTick, onMounted } from "vue";
 import { Editor, useEditor } from "../src/index";
 
 describe("@floatboat/nexus-vue", () => {
   it("renders an editor into the provided container through the Editor component", async () => {
     const wrapper = mount(Editor, {
       props: {
-        initialValue: "# Hello"
-      }
+        initialValue: "# Hello",
+      },
     });
 
     await nextTick();
@@ -36,7 +36,7 @@ describe("@floatboat/nexus-vue", () => {
         });
 
         return () => h("div", { ref: containerRef });
-      }
+      },
     });
 
     mount(Harness);

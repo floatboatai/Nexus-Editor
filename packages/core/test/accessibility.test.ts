@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { createEditor } from "../src/index";
 import { createGfmPreset } from "../../preset-gfm/src/index";
+import { createEditor } from "../src/index";
 
 describe("accessibility", () => {
   it("headings have role=heading and aria-level", () => {
@@ -9,7 +9,7 @@ describe("accessibility", () => {
     const editor = createEditor({
       container,
       initialValue: "Intro\n\n# Title\n\n## Sub",
-      livePreview: true
+      livePreview: true,
     });
 
     const h1 = container.querySelector("[role='heading'][aria-level='1']");
@@ -27,7 +27,7 @@ describe("accessibility", () => {
     const editor = createEditor({
       container,
       initialValue: "Text\n\n```js\nconsole.log(1)\n```",
-      livePreview: true
+      livePreview: true,
     });
 
     // Move cursor into the code block to see editing mode (role=code on first line)
@@ -44,7 +44,7 @@ describe("accessibility", () => {
       container,
       initialValue: "Text\n\n| A | B |\n| --- | --- |\n| 1 | 2 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     const table = container.querySelector("table[role='grid']");

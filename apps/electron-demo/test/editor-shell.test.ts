@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createEditorShell } from "../src/renderer/editor-shell";
-import { createState } from "../src/renderer/state";
 import { defaultSettings } from "../src/renderer/settings";
+import { createState } from "../src/renderer/state";
 
 describe("createEditorShell", () => {
   it("creates a core editor in the given container", () => {
