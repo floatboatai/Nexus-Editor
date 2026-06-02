@@ -5,7 +5,7 @@ import {
   type Completion
 } from "@codemirror/autocomplete";
 import { StateEffect, StateField, type Extension, type Range, type Transaction } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView } from "@codemirror/view";
+import { Decoration, type DecorationSet, EditorView, ViewPlugin } from "@codemirror/view";
 
 import type { NexusPlugin } from "./types";
 
@@ -285,9 +285,25 @@ export function createWikilinksExtension(options: WikilinksOptions = {}): Extens
     },
   });
 
+  const viewCapture = ViewPlugin.fromClass(
+    class {
+      compositionTimer: ReturnType<typeof setTimeout> | null = null;
+      destroy(): void {
+        if (this.compositionTimer !== null) {
+          clearTimeout(this.compositionTimer);
+          this.compositionTimer = null;
+        }
+      }
+    },
+  );
+
   const compositionHandler = EditorView.domEventHandlers({
     compositionend(_event, view) {
-      setTimeout(() => {
+      const plugin = view.plugin(viewCapture);
+      if (!plugin) return;
+      if (plugin.compositionTimer) clearTimeout(plugin.compositionTimer);
+      plugin.compositionTimer = setTimeout(() => {
+        plugin.compositionTimer = null;
         if (view.compositionStarted) return;
         try {
           view.dispatch({ effects: rebuildAfterComposition.of(null) });
@@ -315,7 +331,7 @@ export function createWikilinksExtension(options: WikilinksOptions = {}): Extens
     },
   });
 
-  const exts: Extension[] = [field, compositionHandler, clickHandler];
+  const exts: Extension[] = [field, viewCapture, compositionHandler, clickHandler];
 
   if (options.suggest) {
     exts.push(

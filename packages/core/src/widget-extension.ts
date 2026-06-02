@@ -228,6 +228,7 @@ export function createWidgetExtension(
 
   const viewCapture = ViewPlugin.fromClass(
     class {
+      compositionTimer: ReturnType<typeof setTimeout> | null = null;
       constructor(readonly view: EditorView) {
         viewRef.current = view;
       }
@@ -235,6 +236,10 @@ export function createWidgetExtension(
         viewRef.current = this.view;
       }
       destroy(): void {
+        if (this.compositionTimer !== null) {
+          clearTimeout(this.compositionTimer);
+          this.compositionTimer = null;
+        }
         if (viewRef.current === this.view) viewRef.current = null;
       }
     }
@@ -242,7 +247,11 @@ export function createWidgetExtension(
 
   const compositionHandler = EditorView.domEventHandlers({
     compositionend(_event, view) {
-      setTimeout(() => {
+      const plugin = view.plugin(viewCapture);
+      if (!plugin) return;
+      if (plugin.compositionTimer) clearTimeout(plugin.compositionTimer);
+      plugin.compositionTimer = setTimeout(() => {
+        plugin.compositionTimer = null;
         if (view.compositionStarted) return;
         try {
           view.dispatch({ effects: rebuildAfterComposition.of(null) });
