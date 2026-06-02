@@ -215,7 +215,24 @@ function loadMermaid(): Promise<MermaidAPI> {
 }
 
 const MERMAID_CACHE = new Map<string, { svg: string; height: number }>();
+const MERMAID_CACHE_LIMIT = 50;
 let mermaidIdCounter = 0;
+
+function getMermaidCache(key: string): { svg: string; height: number } | undefined {
+  const hit = MERMAID_CACHE.get(key);
+  if (!hit) return undefined;
+  MERMAID_CACHE.delete(key);
+  MERMAID_CACHE.set(key, hit);
+  return hit;
+}
+
+function setMermaidCache(key: string, value: { svg: string; height: number }): void {
+  MERMAID_CACHE.set(key, value);
+  if (MERMAID_CACHE.size > MERMAID_CACHE_LIMIT) {
+    const oldest = MERMAID_CACHE.keys().next().value;
+    if (oldest !== undefined) MERMAID_CACHE.delete(oldest);
+  }
+}
 
 class MermaidWidget extends WidgetType {
   constructor(
@@ -232,7 +249,7 @@ class MermaidWidget extends WidgetType {
   ignoreEvent(): boolean { return true; }
 
   get estimatedHeight(): number {
-    const cached = MERMAID_CACHE.get(this.source);
+    const cached = getMermaidCache(this.source);
     return cached ? cached.height : 80;
   }
 
@@ -308,7 +325,7 @@ class MermaidWidget extends WidgetType {
       svg.style.margin = "0 auto";
     };
 
-    const cached = MERMAID_CACHE.get(this.source);
+    const cached = getMermaidCache(this.source);
     if (cached) {
       diagramHost.innerHTML = cached.svg;
       normalizeSvg(diagramHost);
@@ -396,7 +413,7 @@ class MermaidWidget extends WidgetType {
         const { svg } = await m.render(id, sourceAtRender);
         cleanupOrphans(id);
         if (!container.isConnected) {
-          MERMAID_CACHE.set(sourceAtRender, { svg, height: 0 });
+          setMermaidCache(sourceAtRender, { svg, height: 0 });
           return;
         }
         diagramHost.style.color = "";
@@ -406,7 +423,7 @@ class MermaidWidget extends WidgetType {
         diagramHost.innerHTML = svg;
         normalizeSvg(diagramHost);
         const h = container.offsetHeight || 0;
-        MERMAID_CACHE.set(sourceAtRender, { svg, height: h });
+        setMermaidCache(sourceAtRender, { svg, height: h });
         this.viewRef.current?.requestMeasure();
       } catch (err) {
         cleanupOrphans(id);
@@ -1363,6 +1380,7 @@ export function createLivePreviewExtension(
 
   const viewCapture = ViewPlugin.fromClass(
     class {
+      compositionTimer: ReturnType<typeof setTimeout> | null = null;
       constructor(readonly view: EditorView) {
         viewRef.current = view;
       }
@@ -1372,6 +1390,10 @@ export function createLivePreviewExtension(
       }
 
       destroy(): void {
+        if (this.compositionTimer !== null) {
+          clearTimeout(this.compositionTimer);
+          this.compositionTimer = null;
+        }
         if (viewRef.current === this.view) viewRef.current = null;
       }
     }
@@ -1390,7 +1412,11 @@ export function createLivePreviewExtension(
       return false;
     },
     compositionend(_event, view) {
-      setTimeout(() => {
+      const plugin = view.plugin(viewCapture);
+      if (!plugin) return;
+      if (plugin.compositionTimer) clearTimeout(plugin.compositionTimer);
+      plugin.compositionTimer = setTimeout(() => {
+        plugin.compositionTimer = null;
         if (view.compositionStarted) return;
         try {
           view.dispatch({ effects: rebuildAfterComposition.of(null) });

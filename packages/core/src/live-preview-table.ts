@@ -48,6 +48,23 @@ const SEPARATOR_RE = /^\|?\s*[-:]+\s*(\|\s*[-:]+\s*)*\|?\s*$/;
 // place to store column widths and we don't want to write sidecar files
 // for this. Values: [rowGripWidth, ...dataColumnWidths].
 const tableColumnWidths = new Map<string, number[]>();
+const MAX_WIDTH_ENTRIES = 50;
+
+function getTableWidth(key: string): number[] | undefined {
+  const hit = tableColumnWidths.get(key);
+  if (!hit) return undefined;
+  tableColumnWidths.delete(key);
+  tableColumnWidths.set(key, hit);
+  return hit;
+}
+
+function setTableWidth(key: string, value: number[]): void {
+  tableColumnWidths.set(key, value);
+  if (tableColumnWidths.size > MAX_WIDTH_ENTRIES) {
+    const oldest = tableColumnWidths.keys().next().value;
+    if (oldest !== undefined) tableColumnWidths.delete(oldest);
+  }
+}
 
 const ROW_GRIP_WIDTH = 16;
 const MIN_COLUMN_WIDTH = 48;
@@ -303,6 +320,7 @@ const DRAG_HIGHLIGHT_BG = "rgba(124, 108, 250, 0.08)";
 export class EditableTableWidget extends WidgetType {
   private editing = false;
   private cleanupEditingLocks: (() => void) | null = null;
+  private _docMouseDown: ((e: MouseEvent) => void) | null = null;
 
   constructor(
     private node: Table,
@@ -320,6 +338,10 @@ export class EditableTableWidget extends WidgetType {
   ignoreEvent(): boolean { return true; }
 
   destroy(): void {
+    if (this._docMouseDown) {
+      document.removeEventListener("mousedown", this._docMouseDown);
+      this._docMouseDown = null;
+    }
     this.cleanupEditingLocks?.();
     this.cleanupEditingLocks = null;
   }
@@ -539,7 +561,7 @@ export class EditableTableWidget extends WidgetType {
     const startColumnResize = (dataColIdx: number, startX: number): void => {
       acquireEditingLock("drag");
       const baseWidths = (() => {
-        const saved = tableColumnWidths.get(widthKey);
+        const saved = getTableWidth(widthKey);
         if (saved && saved.length === colCount + 1) return saved.slice();
         return measureColumnWidths();
       })();
@@ -561,7 +583,7 @@ export class EditableTableWidget extends WidgetType {
         document.removeEventListener("mouseup", onUp);
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
-        tableColumnWidths.set(widthKey, baseWidths.slice());
+        setTableWidth(widthKey, baseWidths.slice());
         releaseEditingLock("drag");
       };
       document.addEventListener("mousemove", onMove);
@@ -1455,7 +1477,7 @@ export class EditableTableWidget extends WidgetType {
     // Re-apply column widths the user previously set via drag (keyed by
     // header line in `tableColumnWidths`). Done after the rows are
     // mounted so colgroup + the widths take effect on the actual DOM.
-    const savedWidths = tableColumnWidths.get(widthKey);
+    const savedWidths = getTableWidth(widthKey);
     if (savedWidths && savedWidths.length === colCount + 1) {
       applyColumnWidths(savedWidths);
     }
@@ -1532,14 +1554,14 @@ export class EditableTableWidget extends WidgetType {
     });
 
     // Click outside table clears all selection
-    const onDocMouseDown = (e: MouseEvent): void => {
-      if (!wrapper.isConnected) { document.removeEventListener("mousedown", onDocMouseDown); return; }
+    this._docMouseDown = (e: MouseEvent): void => {
+      if (!wrapper.isConnected) { document.removeEventListener("mousedown", this._docMouseDown!); return; }
       if (!wrapper.contains(e.target as Node)) {
         clearSelection();
         clearRangeSelection();
       }
     };
-    document.addEventListener("mousedown", onDocMouseDown);
+    document.addEventListener("mousedown", this._docMouseDown);
 
     wrapper.addEventListener("keydown", (e) => {
       if (e.key === "Delete" || e.key === "Backspace") {
@@ -1653,7 +1675,13 @@ function showContextMenu(
     menu.style.top = Math.max(margin, y - rect.height) + "px";
   }
 
+  let menuTimer: ReturnType<typeof setTimeout> | null = null;
+
   function cleanup(): void {
+    if (menuTimer !== null) {
+      clearTimeout(menuTimer);
+      menuTimer = null;
+    }
     menu.remove();
     ownerDocument.removeEventListener("mousedown", close);
   }
@@ -1663,5 +1691,8 @@ function showContextMenu(
       cleanup();
     }
   }
-  setTimeout(() => ownerDocument.addEventListener("mousedown", close), 0);
+  menuTimer = setTimeout(() => {
+    ownerDocument.addEventListener("mousedown", close);
+    menuTimer = null;
+  }, 0);
 }
