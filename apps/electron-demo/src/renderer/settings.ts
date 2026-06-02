@@ -1,4 +1,4 @@
-import { lightTheme, darkTheme, type NexusTheme } from "@floatboat/nexus-core";
+import { type NexusTheme, darkTheme, lightTheme } from "@floatboat/nexus-core";
 
 export interface EditorSettings {
   /** "light" | "dark" */
@@ -35,14 +35,18 @@ export function loadSettings(): EditorSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return { ...defaultSettings(), ...JSON.parse(raw) };
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return defaultSettings();
 }
 
 export function saveSettings(settings: EditorSettings): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 export function settingsToTheme(settings: EditorSettings): NexusTheme {
@@ -145,6 +149,7 @@ function createToggle(value: boolean, onChange: (v: boolean) => void): HTMLEleme
   };
   update(value);
   btn.addEventListener("click", () => {
+    // biome-ignore lint/style/noParameterAssign: toggle pattern
     value = !value;
     update(value);
     onChange(value);
@@ -152,7 +157,11 @@ function createToggle(value: boolean, onChange: (v: boolean) => void): HTMLEleme
   return btn;
 }
 
-function createSelect(options: string[], value: string, onChange: (v: string) => void): HTMLElement {
+function createSelect(
+  options: string[],
+  value: string,
+  onChange: (v: string) => void,
+): HTMLElement {
   const sel = document.createElement("select");
   sel.style.cssText = `
     padding: 4px 8px; border-radius: 6px; font-size: 13px;
@@ -172,7 +181,13 @@ function createSelect(options: string[], value: string, onChange: (v: string) =>
   return sel;
 }
 
-function createNumberInput(value: number, min: number, max: number, step: number, onChange: (v: number) => void): HTMLElement {
+function createNumberInput(
+  value: number,
+  min: number,
+  max: number,
+  step: number,
+  onChange: (v: number) => void,
+): HTMLElement {
   const wrap = document.createElement("div");
   wrap.style.cssText = "display:flex;align-items:center;gap:8px;flex-shrink:0;";
 
@@ -186,7 +201,8 @@ function createNumberInput(value: number, min: number, max: number, step: number
 
   const label = document.createElement("span");
   label.textContent = String(value);
-  label.style.cssText = "font-size:13px;min-width:28px;text-align:right;color:var(--nexus-text-muted,#888);";
+  label.style.cssText =
+    "font-size:13px;min-width:28px;text-align:right;color:var(--nexus-text-muted,#888);";
 
   input.addEventListener("input", () => {
     const v = Number(input.value);
@@ -198,7 +214,11 @@ function createNumberInput(value: number, min: number, max: number, step: number
   return wrap;
 }
 
-function createTextInput(value: string, placeholder: string, onChange: (v: string) => void): HTMLElement {
+function createTextInput(
+  value: string,
+  placeholder: string,
+  onChange: (v: string) => void,
+): HTMLElement {
   const input = document.createElement("input");
   input.type = "text";
   input.value = value;
@@ -241,7 +261,10 @@ function sectionTitle(text: string): HTMLElement {
   return el;
 }
 
-export function createSettingsPanel(settings: EditorSettings, onChange: OnChange): SettingsPanelResult {
+export function createSettingsPanel(
+  settings: EditorSettings,
+  onChange: OnChange,
+): SettingsPanelResult {
   const backdrop = document.createElement("div");
   backdrop.style.cssText = PANEL_STYLES;
 
@@ -264,35 +287,135 @@ export function createSettingsPanel(settings: EditorSettings, onChange: OnChange
   body.style.cssText = SECTION_STYLES;
 
   const s = { ...settings };
-  const emit = () => { saveSettings(s); onChange(s); };
+  const emit = () => {
+    saveSettings(s);
+    onChange(s);
+  };
 
   // -- Display section --
   body.appendChild(sectionTitle("Display"));
-  body.appendChild(row("Color scheme", "Light or dark theme", createSelect(["light", "dark"], s.colorScheme, (v) => { s.colorScheme = v as "light" | "dark"; emit(); })));
-  body.appendChild(row("Line numbers", "Show line numbers in the gutter", createToggle(s.lineNumbers, (v) => { s.lineNumbers = v; emit(); })));
-  body.appendChild(row("Live preview", "Render markdown in real-time", createToggle(s.livePreview, (v) => { s.livePreview = v; emit(); })));
-  body.appendChild(row("Indent guides", "Show indentation guide lines", createToggle(s.indentGuides, (v) => { s.indentGuides = v; emit(); })));
-  body.appendChild(row("Content max width", "Limit line width for readability (e.g. 720px)", createTextInput(s.contentMaxWidth, "e.g. 720px", (v) => { s.contentMaxWidth = v; emit(); })));
-  body.appendChild(row("Text direction", "Left-to-right or right-to-left", createSelect(["ltr", "rtl"], s.direction, (v) => { s.direction = v as "ltr" | "rtl"; emit(); })));
+  body.appendChild(
+    row(
+      "Color scheme",
+      "Light or dark theme",
+      createSelect(["light", "dark"], s.colorScheme, (v) => {
+        s.colorScheme = v as "light" | "dark";
+        emit();
+      }),
+    ),
+  );
+  body.appendChild(
+    row(
+      "Line numbers",
+      "Show line numbers in the gutter",
+      createToggle(s.lineNumbers, (v) => {
+        s.lineNumbers = v;
+        emit();
+      }),
+    ),
+  );
+  body.appendChild(
+    row(
+      "Live preview",
+      "Render markdown in real-time",
+      createToggle(s.livePreview, (v) => {
+        s.livePreview = v;
+        emit();
+      }),
+    ),
+  );
+  body.appendChild(
+    row(
+      "Indent guides",
+      "Show indentation guide lines",
+      createToggle(s.indentGuides, (v) => {
+        s.indentGuides = v;
+        emit();
+      }),
+    ),
+  );
+  body.appendChild(
+    row(
+      "Content max width",
+      "Limit line width for readability (e.g. 720px)",
+      createTextInput(s.contentMaxWidth, "e.g. 720px", (v) => {
+        s.contentMaxWidth = v;
+        emit();
+      }),
+    ),
+  );
+  body.appendChild(
+    row(
+      "Text direction",
+      "Left-to-right or right-to-left",
+      createSelect(["ltr", "rtl"], s.direction, (v) => {
+        s.direction = v as "ltr" | "rtl";
+        emit();
+      }),
+    ),
+  );
 
   // -- Font section --
   body.appendChild(sectionTitle("Font"));
-  body.appendChild(row("Font size", "Editor text size in pixels", createNumberInput(s.fontSize, 10, 28, 1, (v) => { s.fontSize = v; emit(); })));
-  body.appendChild(row("Body font", "Font for prose content", createTextInput(s.fontFamily, "system-ui, sans-serif", (v) => { s.fontFamily = v; emit(); })));
-  body.appendChild(row("Code font", "Monospace font for code blocks", createTextInput(s.fontFamilyMono, "ui-monospace, monospace", (v) => { s.fontFamilyMono = v; emit(); })));
+  body.appendChild(
+    row(
+      "Font size",
+      "Editor text size in pixels",
+      createNumberInput(s.fontSize, 10, 28, 1, (v) => {
+        s.fontSize = v;
+        emit();
+      }),
+    ),
+  );
+  body.appendChild(
+    row(
+      "Body font",
+      "Font for prose content",
+      createTextInput(s.fontFamily, "system-ui, sans-serif", (v) => {
+        s.fontFamily = v;
+        emit();
+      }),
+    ),
+  );
+  body.appendChild(
+    row(
+      "Code font",
+      "Monospace font for code blocks",
+      createTextInput(s.fontFamilyMono, "ui-monospace, monospace", (v) => {
+        s.fontFamilyMono = v;
+        emit();
+      }),
+    ),
+  );
 
   // -- Behavior section --
   body.appendChild(sectionTitle("Behavior"));
-  body.appendChild(row("Tab size", "Number of spaces per tab", createNumberInput(s.tabSize, 1, 8, 1, (v) => { s.tabSize = v; emit(); })));
+  body.appendChild(
+    row(
+      "Tab size",
+      "Number of spaces per tab",
+      createNumberInput(s.tabSize, 1, 8, 1, (v) => {
+        s.tabSize = v;
+        emit();
+      }),
+    ),
+  );
 
   dialog.append(header, body);
   backdrop.appendChild(dialog);
 
   const close = () => backdrop.remove();
   closeBtn.addEventListener("click", close);
-  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(); });
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) close();
+  });
 
-  const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") { close(); document.removeEventListener("keydown", handleEsc); } };
+  const handleEsc = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      close();
+      document.removeEventListener("keydown", handleEsc);
+    }
+  };
   document.addEventListener("keydown", handleEsc);
 
   document.body.appendChild(backdrop);

@@ -7,23 +7,30 @@
     "build": "pnpm --filter @floatboat/nexus-core build && pnpm --filter @floatboat/nexus-react build && pnpm --filter @floatboat/nexus-vue build && pnpm --filter @floatboat/nexus-preset-gfm build && pnpm --filter @floatboat/nexus-plugin-slash build && pnpm --filter @floatboat/nexus-plugin-history build && pnpm --filter @floatboat/nexus-plugin-search build && pnpm --filter @floatboat/nexus-plugin-toolbar build && pnpm --filter @floatboat/nexus-plugin-math build && pnpm --filter @floatboat/nexus-plugin-vim build",
     "typecheck": "pnpm -r exec tsc --noEmit",
     "test": "vitest run",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "lint:fix": "biome check --write .",
+    "prepare": "husky",
     "dev:electron-demo": "pnpm --filter @floatboat/nexus-electron-demo dev",
     "build:electron-demo": "pnpm --filter @floatboat/nexus-electron-demo build",
     "publish:packages": "pnpm -r --filter \"./packages/*\" publish --access public --no-git-checks"
   },
   "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
     "@testing-library/react": "^16.3.0",
     "@types/mdast": "^4.0.4",
     "@types/node": "^24.6.0",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
+    "@vitest/coverage-v8": "^2.1.9",
     "@vue/test-utils": "^2.4.6",
+    "husky": "^9.1.7",
     "jsdom": "^25.0.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "tsup": "^8.5.0",
     "typescript": "^5.9.3",
-    "vue": "^3.5.22",
-    "vitest": "^2.1.9"
+    "vitest": "^2.1.9",
+    "vue": "^3.5.22"
   }
 }

@@ -1,5 +1,5 @@
 export class EventEmitter<EventMap extends { [K in keyof EventMap]: (...args: any[]) => void }> {
-  private listeners = new Map<keyof EventMap, Set<Function>>();
+  private listeners = new Map<keyof EventMap, Set<EventMap[keyof EventMap]>>();
 
   on<K extends keyof EventMap>(event: K, handler: EventMap[K]): void {
     let set = this.listeners.get(event);

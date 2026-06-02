@@ -1,10 +1,16 @@
 import {
-  autocompletion,
+  type Completion,
   type CompletionContext,
   type CompletionResult,
-  type Completion
+  autocompletion,
 } from "@codemirror/autocomplete";
-import { StateEffect, StateField, type Extension, type Range, type Transaction } from "@codemirror/state";
+import {
+  type Extension,
+  type Range,
+  StateEffect,
+  StateField,
+  type Transaction,
+} from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView } from "@codemirror/view";
 
 import type { NexusPlugin } from "./types";
@@ -79,6 +85,7 @@ export function scanWikiLinks(doc: string): WikiLinkMatch[] {
   const out: WikiLinkMatch[] = [];
   WIKILINK_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: standard RegExp loop idiom
   while ((match = WIKILINK_RE.exec(doc)) !== null) {
     const from = match.index;
     const source = match[0];
@@ -120,7 +127,7 @@ function selectionOnLine(
   doc: string,
   from: number,
   to: number,
-  selectionHeads: readonly number[]
+  selectionHeads: readonly number[],
 ): boolean {
   const nodeLineStart = doc.lastIndexOf("\n", from - 1) + 1;
   const nl = doc.indexOf("\n", to);
@@ -140,7 +147,7 @@ function buildWikiLinkDecorations(
   doc: string,
   selectionHeads: readonly number[],
   resolve: WikilinksOptions["resolve"],
-  ignore: WikilinksOptions["ignore"]
+  ignore: WikilinksOptions["ignore"],
 ): DecorationSet {
   const matches = scanWikiLinks(doc);
   if (matches.length === 0) return Decoration.none;
@@ -185,10 +192,7 @@ function buildWikiLinkDecorations(
   return Decoration.set(decos, true);
 }
 
-function findWikiContext(
-  doc: string,
-  pos: number
-): { openFrom: number; query: string } | null {
+function findWikiContext(doc: string, pos: number): { openFrom: number; query: string } | null {
   // Walk backwards on the current line to find the nearest unescaped `[[`
   // that has not yet been closed by `]]`.
   const { start, end: _end } = lineBoundaries(doc, pos);
@@ -207,9 +211,7 @@ function findWikiContext(
   return { openFrom: start + openIdx, query: queryPart };
 }
 
-function createAutocompleteSource(
-  suggest: NonNullable<WikilinksOptions["suggest"]>
-) {
+function createAutocompleteSource(suggest: NonNullable<WikilinksOptions["suggest"]>) {
   return async (ctx: CompletionContext): Promise<CompletionResult | null> => {
     const pos = ctx.pos;
     const doc = ctx.state.doc.toString();
@@ -322,7 +324,7 @@ export function createWikilinksExtension(options: WikilinksOptions = {}): Extens
       autocompletion({
         override: [createAutocompleteSource(options.suggest)],
         activateOnTyping: true,
-      })
+      }),
     );
   }
 

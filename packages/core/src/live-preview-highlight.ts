@@ -110,7 +110,11 @@ export function highlightCodeBlock(
   if (cached) {
     if (contentStart === 0) return cached;
     // Cached tokens are stored at contentStart=0; rebase on read.
-    return cached.map((t) => ({ from: t.from + contentStart, to: t.to + contentStart, className: t.className }));
+    return cached.map((t) => ({
+      from: t.from + contentStart,
+      to: t.to + contentStart,
+      className: t.className,
+    }));
   }
 
   let result: { _emitter: unknown };
@@ -124,7 +128,11 @@ export function highlightCodeBlock(
   emit(result._emitter, 0, tokens);
   cacheSet(key, tokens);
   if (contentStart === 0) return tokens;
-  return tokens.map((t) => ({ from: t.from + contentStart, to: t.to + contentStart, className: t.className }));
+  return tokens.map((t) => ({
+    from: t.from + contentStart,
+    to: t.to + contentStart,
+    className: t.className,
+  }));
 }
 
 // hljs's internal token stream walker. `_emitter.rootNode` is a TokenTree
@@ -137,29 +145,25 @@ function emit(emitter: unknown, offset: number, out: CodeHighlightToken[]): void
   walkNode(root.rootNode, offset, [], out);
 }
 
-function walkNode(
-  node: unknown,
-  pos: number,
-  scope: string[],
-  out: CodeHighlightToken[],
-): number {
+function walkNode(node: unknown, pos: number, scope: string[], out: CodeHighlightToken[]): number {
   const n = node as { children?: unknown[] };
   if (!n.children) return pos;
+  let cursor = pos;
   for (const c of n.children) {
     if (typeof c === "string") {
       if (c.length > 0 && scope.length > 0) {
         const className = scope.map((s) => `hljs-${s}`).join(" ");
-        out.push({ from: pos, to: pos + c.length, className });
+        out.push({ from: cursor, to: cursor + c.length, className });
       }
-      pos += c.length;
+      cursor += c.length;
       continue;
     }
     const child = c as { kind?: string; children?: unknown[] };
-    if (child && child.kind) {
-      pos = walkNode(child, pos, [...scope, child.kind], out);
-    } else if (child && child.children) {
-      pos = walkNode(child, pos, scope, out);
+    if (child?.kind) {
+      cursor = walkNode(child, cursor, [...scope, child.kind], out);
+    } else if (child?.children) {
+      cursor = walkNode(child, cursor, scope, out);
     }
   }
-  return pos;
+  return cursor;
 }

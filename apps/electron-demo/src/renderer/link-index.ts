@@ -1,4 +1,4 @@
-import { scanWikiLinks, type WikiLinkMatch } from "@floatboat/nexus-core";
+import { type WikiLinkMatch, scanWikiLinks } from "@floatboat/nexus-core";
 
 /** Prefer requestIdleCallback for yielding; fall back to a macrotask otherwise. */
 function yieldToIdle(): Promise<void> {
@@ -79,9 +79,7 @@ export function stripAnchor(target: string): string {
   return target.slice(0, cut).trim();
 }
 
-export type LinkAnchor =
-  | { kind: "heading"; value: string }
-  | { kind: "block"; value: string };
+export type LinkAnchor = { kind: "heading"; value: string } | { kind: "block"; value: string };
 
 /**
  * Split a wiki-link target into the bare path part and its Obsidian anchor
@@ -119,7 +117,10 @@ function normalizeHeadingText(s: string): string {
  */
 export function findAnchorPosition(content: string, anchor: LinkAnchor): number | null {
   if (anchor.kind === "heading") {
-    const segments = anchor.value.split("#").map((s) => s.trim()).filter(Boolean);
+    const segments = anchor.value
+      .split("#")
+      .map((s) => s.trim())
+      .filter(Boolean);
     if (segments.length === 0) return null;
     const needle = normalizeHeadingText(segments[segments.length - 1]);
     const lines = content.split("\n");
@@ -307,6 +308,7 @@ export class LinkIndex {
       const wikiRanges = this.forward.get(source) ?? [];
       re.lastIndex = 0;
       let m: RegExpExecArray | null;
+      // biome-ignore lint/suspicious/noAssignInExpressions: standard RegExp loop idiom
       while ((m = re.exec(content)) !== null) {
         const start = m.index;
         const end = start + m[0].length;
@@ -353,6 +355,7 @@ export class LinkIndex {
     // a literal filename and falsely reports unresolved.
     const bare = stripAnchor(name);
     if (!bare) return null;
+    // biome-ignore lint/style/noParameterAssign: stripped anchor assigned back to param
     name = bare;
     const normFrom = fromPath ? normalizeSlashes(fromPath) : null;
     const candidates = contents;
@@ -440,7 +443,9 @@ export class LinkIndex {
     const raf: ((cb: () => void) => number) | undefined = (
       globalThis as { requestAnimationFrame?: (cb: () => void) => number }
     ).requestAnimationFrame;
-    const schedule = raf ? (cb: () => void) => raf(cb) : (cb: () => void) => setTimeout(cb, 0) as unknown as number;
+    const schedule = raf
+      ? (cb: () => void) => raf(cb)
+      : (cb: () => void) => setTimeout(cb, 0) as unknown as number;
     this.notifyHandle = schedule(() => {
       this.notifyHandle = null;
       this.notifyNow();

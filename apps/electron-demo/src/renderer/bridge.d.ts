@@ -37,6 +37,7 @@ interface DemoBridge {
   vault: VaultBridge;
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: declaration merging augments global Window
 interface Window {
   nexusDemo: DemoBridge;
 }

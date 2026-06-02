@@ -4,9 +4,9 @@ import { Annotation, EditorState } from "@codemirror/state";
 // setDocument from file open) so updateListener can skip the user-edit path —
 // no onChange emission, no AST reparse for the onChange pipeline.
 const silentDocChange = Annotation.define<boolean>();
-import { EditorView, keymap, dropCursor, lineNumbers, type Direction } from "@codemirror/view";
-import { indentWithTab, undo as cmUndo, redo as cmRedo } from "@codemirror/commands";
 import { closeBrackets } from "@codemirror/autocomplete";
+import { redo as cmRedo, undo as cmUndo, indentWithTab } from "@codemirror/commands";
+import { EditorView, dropCursor, keymap, lineNumbers } from "@codemirror/view";
 import type { Root } from "mdast";
 import type { Heading } from "mdast";
 import rehypeStringify from "rehype-stringify";
@@ -14,17 +14,17 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 
+import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { EventEmitter } from "./event-emitter";
-import { createLivePreviewExtension } from "./live-preview";
 import { createMarkdownLanguageSupport } from "./lezer-markdown";
 import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
-import { markdownFoldService } from "./markdown-fold";
+import { createLivePreviewExtension } from "./live-preview";
 import { resolveLocale } from "./locale";
 import { markdownAutoPair } from "./markdown-autopair";
+import { markdownFoldService } from "./markdown-fold";
 import { markdownKeymap } from "./markdown-keymap";
-import { indentationMarkers } from "@replit/codemirror-indentation-markers";
-import { createThemeExtension, lightTheme, type NexusTheme } from "./theme";
 import { computeSlashState } from "./slash-state";
+import { type NexusTheme, createThemeExtension, lightTheme } from "./theme";
 import type {
   EditorAPI,
   EditorCommand,
@@ -71,7 +71,7 @@ function debugNexus(message: string, details?: Record<string, unknown>): void {
 function createEmptyAst(): Root {
   return {
     type: "root",
-    children: []
+    children: [],
   };
 }
 
@@ -175,7 +175,7 @@ function createParser(plugins: NexusPlugin[]): ParserLike {
     parse(markdown) {
       const tree = processor.parse(markdown);
       return processor.runSync(tree) as Root;
-    }
+    },
   };
 }
 
@@ -245,7 +245,8 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // Custom-parser callers run their plugins inside `parser.parse`, so the
   // transform pass would double-apply.
   const hasRemarkPlugins = plugins.some((plugin) => (plugin.remarkPlugins?.length ?? 0) > 0);
-  const transformProcessor = !customParser && hasRemarkPlugins ? createTransformProcessor(plugins) : null;
+  const transformProcessor =
+    !customParser && hasRemarkPlugins ? createTransformProcessor(plugins) : null;
   const transformAst = (ast: Root): Root =>
     transformProcessor ? transformProcessor.runSync(ast) : ast;
   const locale = resolveLocale(config.locale);
@@ -270,6 +271,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // Forward ref so emitChange/setDocument can run lezerTreeToMdast against
   // the live EditorState once the view is constructed.
   const viewRef: { current: EditorView | null } = { current: null };
+  // biome-ignore lint/style/useConst: assigned after EditorView construction
   let api!: EditorAPI;
 
   function setFocused(next: boolean) {
@@ -377,7 +379,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
       changes: {
         from: 0,
         to: view.state.doc.length,
-        insert: next
+        insert: next,
       },
       annotations: silent ? silentDocChange.of(true) : undefined,
     });
@@ -445,15 +447,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
   }
 
   const themeExt = createThemeExtension(config.theme ?? lightTheme);
-  const tabSizeExt = config.tabSize && config.tabSize !== 4
-    ? EditorState.tabSize.of(config.tabSize)
-    : [];
+  const tabSizeExt =
+    config.tabSize && config.tabSize !== 4 ? EditorState.tabSize.of(config.tabSize) : [];
   const readOnlyExt = config.readOnly
     ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
     : [];
-  const directionExt = config.direction === "rtl"
-    ? EditorView.contentAttributes.of({ dir: "rtl" })
-    : [];
+  const directionExt =
+    config.direction === "rtl" ? EditorView.contentAttributes.of({ dir: "rtl" }) : [];
   const indentGuidesExt = config.indentGuides ? indentationMarkers() : [];
 
   const shortcutExtensions =
@@ -462,16 +462,16 @@ export function createEditor(config: EditorConfig): EditorAPI {
           keymap.of(
             shortcuts.map((shortcut) => ({
               key: shortcut.key,
-              run: () => shortcut.run(api)
-            }))
-          )
+              run: () => shortcut.run(api),
+            })),
+          ),
         ]
       : [];
 
   // 带 hotkey 的命名命令注册成 CodeMirror keymap；返回非 false 视为已消费。
   const hotkeyCommands = commands.filter(
     (command): command is EditorCommand & { hotkey: string } =>
-      typeof command.hotkey === "string" && command.hotkey.length > 0
+      typeof command.hotkey === "string" && command.hotkey.length > 0,
   );
   const commandKeymapExtensions =
     hotkeyCommands.length > 0
@@ -479,9 +479,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
           keymap.of(
             hotkeyCommands.map((command) => ({
               key: command.hotkey,
-              run: () => command.run(api) !== false
-            }))
-          )
+              run: () => command.run(api) !== false,
+            })),
+          ),
         ]
       : [];
 
@@ -523,11 +523,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
             }
             flushCompositionChange(view, "compositionend");
             return false;
-          }
+          },
         }),
         EditorView.updateListener.of((update) => {
           const silent = update.transactions.some((t) => t.annotation(silentDocChange) === true);
-          const compositionTransaction = update.transactions.some((t) => t.isUserEvent("input.type.compose"));
+          const compositionTransaction = update.transactions.some((t) =>
+            t.isUserEvent("input.type.compose"),
+          );
           if (update.docChanged || update.selectionSet) {
             const sel = update.state.selection.main;
             debugNexus("update", {
@@ -548,7 +550,11 @@ export function createEditor(config: EditorConfig): EditorAPI {
             // file from disk — that's not a user edit).
             if (!silent) {
               const markdown = update.state.doc.toString();
-              if (compositionTransaction || update.view.composing || update.view.compositionStarted) {
+              if (
+                compositionTransaction ||
+                update.view.composing ||
+                update.view.compositionStarted
+              ) {
                 debugNexus("composition-change-queued", {
                   documentLength: markdown.length,
                   compositionTransaction,
@@ -583,7 +589,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
                   if (raw) {
                     coords = { left: raw.left, top: raw.top, bottom: raw.bottom };
                   }
-                } catch { /* out of range */ }
+                } catch {
+                  /* out of range */
+                }
               }
 
               emitter.emit("slashMenuChange", { ...state, coords });
@@ -657,9 +665,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
         ...(widgetParser ? createWidgetExtension(widgetParser, widgetDefs) : []),
         ...shortcutExtensions,
         ...commandKeymapExtensions,
-        ...cmExtensions
-      ]
-    })
+        ...cmExtensions,
+      ],
+    }),
   });
 
   // Hand the view to lezerAstFromAnywhere consumers so getAst() / emitChange
@@ -711,7 +719,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
 
       view.dispatch({
         selection: { anchor, head },
-        scrollIntoView: true
+        scrollIntoView: true,
       });
     },
     setDocument(next, opts) {
@@ -838,7 +846,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
       composing = false;
       emitter.clear();
       view.destroy();
-    }
+    },
   };
 
   return api;

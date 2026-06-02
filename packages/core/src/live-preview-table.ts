@@ -1,4 +1,4 @@
-import { EditorView, WidgetType, runScopeHandlers } from "@codemirror/view";
+import { type EditorView, WidgetType, runScopeHandlers } from "@codemirror/view";
 import type { Table } from "mdast";
 
 import type { LivePreviewLabels } from "./types";
@@ -53,7 +53,12 @@ const ROW_GRIP_WIDTH = 16;
 const MIN_COLUMN_WIDTH = 48;
 const renderedSourceOffsets = new WeakMap<Node, { start: number; end: number }>();
 
-function getNodeSourceOffsets(node: any, tableFrom: number, rawSourceStart: number, inlineCode = false): { start: number; end: number } | null {
+function getNodeSourceOffsets(
+  node: any,
+  tableFrom: number,
+  rawSourceStart: number,
+  inlineCode = false,
+): { start: number; end: number } | null {
   const startOffset = node?.position?.start?.offset;
   const endOffset = node?.position?.end?.offset;
   if (typeof startOffset !== "number" || typeof endOffset !== "number") return null;
@@ -132,18 +137,6 @@ function placeRawSourceCaret(td: HTMLElement, rawOffset: number): void {
   selection?.addRange(range);
 }
 
-function extractCellText(cell: any): string {
-  if (!cell || !("children" in cell) || !Array.isArray(cell.children)) return "";
-  return cell.children
-    .map((c: any) => {
-      if ("value" in c && typeof c.value === "string") return c.value;
-      if ("children" in c && Array.isArray(c.children))
-        return c.children.map((n: any) => ("value" in n ? n.value : "")).join("");
-      return "";
-    })
-    .join("");
-}
-
 /**
  * Render an inline mdast node into DOM. Supports the inline subset that
  * appears inside table cells: text, link, strong, emphasis, delete,
@@ -191,8 +184,7 @@ function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourc
       a.href = typeof node.url === "string" ? node.url : "#";
       a.target = "_blank";
       a.rel = "noopener noreferrer";
-      a.style.cssText =
-        "color:var(--nexus-accent);text-decoration:underline;cursor:pointer;";
+      a.style.cssText = "color:var(--nexus-accent);text-decoration:underline;cursor:pointer;";
       // Stop CM6's editor-level mousedown handler from reading this as a
       // cursor-placement click — we want the browser's native link click
       // to win so the user can ⌘-click open in a new tab.
@@ -203,22 +195,26 @@ function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourc
         a.style.display = "block";
         a.style.lineHeight = "0";
       }
-      for (const child of node.children ?? []) a.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart));
+      for (const child of node.children ?? [])
+        a.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart));
       return a;
     }
     case "strong": {
       const el = document.createElement("strong");
-      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+      for (const child of node.children ?? [])
+        el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
       return el;
     }
     case "emphasis": {
       const el = document.createElement("em");
-      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+      for (const child of node.children ?? [])
+        el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
       return el;
     }
     case "delete": {
       const el = document.createElement("del");
-      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+      for (const child of node.children ?? [])
+        el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
       return el;
     }
     case "inlineCode": {
@@ -266,7 +262,7 @@ function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourc
             "border:1px solid var(--nexus-border-subtle)",
             "object-fit:contain",
           ];
-      img.style.cssText = styles.join(";") + ";";
+      img.style.cssText = `${styles.join(";")};`;
       // Stop CM6's cell mousedown handler from intercepting clicks on the
       // image (otherwise ⌘-clicking the image to open the link wouldn't
       // work, and a plain click would unexpectedly enter cell-edit mode).
@@ -276,7 +272,8 @@ function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourc
     default: {
       if (Array.isArray(node.children)) {
         const frag = document.createDocumentFragment();
-        for (const child of node.children) frag.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+        for (const child of node.children)
+          frag.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
         return frag;
       }
       const text = document.createTextNode(typeof node.value === "string" ? node.value : "");
@@ -291,7 +288,8 @@ function renderCellRich(td: HTMLElement, astCell: any, tableFrom = 0, rawSourceS
   td.textContent = "";
   if (!astCell || !Array.isArray(astCell.children)) return;
   const mediaOnly = isCellMediaOnly(astCell);
-  for (const child of astCell.children) td.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart));
+  for (const child of astCell.children)
+    td.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart));
 }
 
 const GRIP_BG = "var(--nexus-bg-muted)";
@@ -309,15 +307,19 @@ export class EditableTableWidget extends WidgetType {
     private tableFrom: number,
     private source: string,
     private viewRef: { current: EditorView | null },
-    private labels: Required<LivePreviewLabels>
-  ) { super(); }
+    private labels: Required<LivePreviewLabels>,
+  ) {
+    super();
+  }
 
   eq(other: EditableTableWidget): boolean {
     if (this.editing) return true;
     return this.source === other.source;
   }
 
-  ignoreEvent(): boolean { return true; }
+  ignoreEvent(): boolean {
+    return true;
+  }
 
   destroy(): void {
     this.cleanupEditingLocks?.();
@@ -333,7 +335,9 @@ export class EditableTableWidget extends WidgetType {
   private dispatch(newSource: string): void {
     const v = this.viewRef.current;
     if (!v) return;
-    v.dispatch({ changes: { from: this.tableFrom, to: this.tableFrom + this.source.length, insert: newSource } });
+    v.dispatch({
+      changes: { from: this.tableFrom, to: this.tableFrom + this.source.length, insert: newSource },
+    });
   }
 
   private deleteColumn(colIdx: number): void {
@@ -342,7 +346,7 @@ export class EditableTableWidget extends WidgetType {
       const cells = line.split("|").filter((_, i, a) => i > 0 && i < a.length - 1);
       if (cells.length === 0) return line;
       cells.splice(colIdx, 1);
-      return "|" + cells.join("|") + "|";
+      return `|${cells.join("|")}|`;
     });
     this.dispatch(newLines.join("\n"));
   }
@@ -359,13 +363,15 @@ export class EditableTableWidget extends WidgetType {
 
   private addColumn(): void {
     const lines = this.source.split("\n");
-    const nl = lines.map((l) => SEPARATOR_RE.test(l) ? l.replace(/\|?\s*$/, " | --- |") : l.replace(/\|?\s*$/, " |  |"));
+    const nl = lines.map((l) =>
+      SEPARATOR_RE.test(l) ? l.replace(/\|?\s*$/, " | --- |") : l.replace(/\|?\s*$/, " |  |"),
+    );
     this.dispatch(nl.join("\n"));
   }
 
   private addRow(): void {
     const cc = (this.node.children?.[0] as any)?.children?.length ?? 2;
-    const nr = "\n| " + Array(cc).fill("  ").join(" | ") + " |";
+    const nr = `\n| ${Array(cc).fill("  ").join(" | ")} |`;
     const v = this.viewRef.current;
     if (!v) return;
     v.dispatch({ changes: { from: this.tableFrom + this.source.length, insert: nr } });
@@ -374,11 +380,12 @@ export class EditableTableWidget extends WidgetType {
   private moveColumn(from: number, to: number): void {
     const lines = this.source.split("\n");
     const nl = lines.map((line) => {
-      const p = line.split("|"), cells = p.slice(1, -1);
+      const p = line.split("|");
+      const cells = p.slice(1, -1);
       if (from >= cells.length || to >= cells.length) return line;
       const [m] = cells.splice(from, 1);
       cells.splice(to, 0, m);
-      return "|" + cells.join("|") + "|";
+      return `|${cells.join("|")}|`;
     });
     this.dispatch(nl.join("\n"));
   }
@@ -387,7 +394,8 @@ export class EditableTableWidget extends WidgetType {
     const lines = this.source.split("\n");
     const dl: number[] = [];
     for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dl.push(i);
-    const s = dl[from], d = dl[to];
+    const s = dl[from];
+    const d = dl[to];
     if (s === undefined || d === undefined) return;
     const [m] = lines.splice(s, 1);
     lines.splice(d, 0, m);
@@ -409,7 +417,8 @@ export class EditableTableWidget extends WidgetType {
     }
     const sourceLines = this.source.split("\n");
     const dataLineIndices: number[] = [];
-    for (let i = 0; i < sourceLines.length; i++) if (!SEPARATOR_RE.test(sourceLines[i])) dataLineIndices.push(i);
+    for (let i = 0; i < sourceLines.length; i++)
+      if (!SEPARATOR_RE.test(sourceLines[i])) dataLineIndices.push(i);
 
     // State
     let selectedCol = -1;
@@ -420,11 +429,11 @@ export class EditableTableWidget extends WidgetType {
     let rangeEnd: { row: number; col: number } | null = null;
     let isRangeSelecting = false;
     let cellMouseDown = false; // true between mousedown and mouseup on a cell
-    let rangeActive = false;   // true when a multi-cell range is displayed (survives mouseup)
+    let rangeActive = false; // true when a multi-cell range is displayed (survives mouseup)
 
     // Custom drag state (no HTML5 drag API)
-    let draggingCol = -1;   // which column is being dragged
-    let draggingRow = -1;   // which row is being dragged
+    let draggingCol = -1; // which column is being dragged
+    let draggingRow = -1; // which row is being dragged
     let dropTargetCol = -1;
     let dropTargetRow = -1;
     const editingLocks = {
@@ -459,7 +468,12 @@ export class EditableTableWidget extends WidgetType {
 
     function blurActiveCellForDrag(): void {
       const active = document.activeElement;
-      if (!(active instanceof HTMLElement) || !wrapper.contains(active) || !active.classList.contains("nexus-cell")) return;
+      if (
+        !(active instanceof HTMLElement) ||
+        !wrapper.contains(active) ||
+        !active.classList.contains("nexus-cell")
+      )
+        return;
       active.blur();
       releaseEditingLock("focus");
       active.contentEditable = "false";
@@ -471,14 +485,18 @@ export class EditableTableWidget extends WidgetType {
     // CRITICAL: use padding, not margin. CM6 measures block widget height via
     // getBoundingClientRect which EXCLUDES margin. margin:8px caused 16px of
     // untracked height per table → cumulative click-drift below every table.
-    wrapper.style.cssText = "display:inline-block;position:relative;padding:8px 0;user-select:none;";
+    wrapper.style.cssText =
+      "display:inline-block;position:relative;padding:8px 0;user-select:none;";
 
     // ── Table ──
     const table = document.createElement("table");
     table.setAttribute("role", "grid");
     table.setAttribute("aria-label", "Editable table");
     table.style.cssText = "border-collapse:collapse;display:table;";
-    if (rows.length === 0) { wrapper.appendChild(table); return wrapper; }
+    if (rows.length === 0) {
+      wrapper.appendChild(table);
+      return wrapper;
+    }
 
     // ── Column-width persistence ──
     // Keyed by the table's header source line so widths stick across
@@ -496,19 +514,19 @@ export class EditableTableWidget extends WidgetType {
         colgroup = document.createElement("colgroup") as HTMLTableColElement;
         for (let i = 0; i < widths.length; i++) {
           const col = document.createElement("col");
-          col.style.width = widths[i] + "px";
+          col.style.width = `${widths[i]}px`;
           colgroup.appendChild(col);
         }
         table.insertBefore(colgroup, table.firstChild);
       } else {
         const cols = Array.from(colgroup.children);
         for (let i = 0; i < widths.length && i < cols.length; i++) {
-          (cols[i] as HTMLElement).style.width = widths[i] + "px";
+          (cols[i] as HTMLElement).style.width = `${widths[i]}px`;
         }
       }
       const total = widths.reduce((s, w) => s + w, 0);
       table.style.tableLayout = "fixed";
-      table.style.width = total + "px";
+      table.style.width = `${total}px`;
     };
 
     /**
@@ -585,7 +603,13 @@ export class EditableTableWidget extends WidgetType {
         const isSelected = sel.from !== sel.to && sel.from <= self.tableFrom && sel.to >= tableEnd;
         selectionOverlay.style.display = isSelected ? "block" : "none";
         // If cursor moved outside table, no active interaction, no active range, clear range selection
-        if (rangeStart && !isRangeSelecting && !cellMouseDown && !rangeActive && (sel.head < self.tableFrom || sel.head > tableEnd)) {
+        if (
+          rangeStart &&
+          !isRangeSelecting &&
+          !cellMouseDown &&
+          !rangeActive &&
+          (sel.head < self.tableFrom || sel.head > tableEnd)
+        ) {
           clearRangeSelection();
         }
       } else {
@@ -597,29 +621,21 @@ export class EditableTableWidget extends WidgetType {
 
     // ── Drag indicator overlay (full-height vertical line) ──
     const colIndicator = document.createElement("div");
-    colIndicator.style.cssText =
-      "position:absolute;width:2px;background:" + SELECT_BORDER + ";pointer-events:none;" +
-      "top:0;bottom:0;display:none;z-index:2;border-radius:1px;";
+    colIndicator.style.cssText = `position:absolute;width:2px;background:${SELECT_BORDER};pointer-events:none;top:0;bottom:0;display:none;z-index:2;border-radius:1px;`;
     wrapper.appendChild(colIndicator);
 
     const rowIndicator = document.createElement("div");
-    rowIndicator.style.cssText =
-      "position:absolute;height:2px;background:" + SELECT_BORDER + ";pointer-events:none;" +
-      "left:0;right:0;display:none;z-index:2;border-radius:1px;";
+    rowIndicator.style.cssText = `position:absolute;height:2px;background:${SELECT_BORDER};pointer-events:none;left:0;right:0;display:none;z-index:2;border-radius:1px;`;
     wrapper.appendChild(rowIndicator);
 
     // Floating pill that follows the mouse during column drag
     const floatingPill = document.createElement("div");
-    floatingPill.style.cssText =
-      "position:absolute;width:16px;height:6px;border-radius:3px;background:" + SELECT_BORDER + ";" +
-      "pointer-events:none;display:none;z-index:3;top:4px;";
+    floatingPill.style.cssText = `position:absolute;width:16px;height:6px;border-radius:3px;background:${SELECT_BORDER};pointer-events:none;display:none;z-index:3;top:4px;`;
     wrapper.appendChild(floatingPill);
 
     // Floating pill for row drag
     const floatingRowPill = document.createElement("div");
-    floatingRowPill.style.cssText =
-      "position:absolute;width:6px;height:16px;border-radius:3px;background:" + SELECT_BORDER + ";" +
-      "pointer-events:none;display:none;z-index:3;left:5px;";
+    floatingRowPill.style.cssText = `position:absolute;width:6px;height:16px;border-radius:3px;background:${SELECT_BORDER};pointer-events:none;display:none;z-index:3;left:5px;`;
     wrapper.appendChild(floatingRowPill);
 
     // ── Helpers ──
@@ -649,7 +665,8 @@ export class EditableTableWidget extends WidgetType {
     function rowAtClientY(clientY: number): number {
       // Skip header (index 0), only match data rows (index >= 1)
       const dataRows = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
-      for (let i = 1; i < dataRows.length; i++) { // start at 1 to skip header row
+      for (let i = 1; i < dataRows.length; i++) {
+        // start at 1 to skip header row
         const rect = dataRows[i].getBoundingClientRect();
         if (clientY >= rect.top && clientY <= rect.bottom) return i;
       }
@@ -657,7 +674,11 @@ export class EditableTableWidget extends WidgetType {
     }
 
     function showColIndicator(targetCol: number): void {
-      if (draggingCol < 0 || targetCol === draggingCol) { colIndicator.style.display = "none"; dropTargetCol = -1; return; }
+      if (draggingCol < 0 || targetCol === draggingCol) {
+        colIndicator.style.display = "none";
+        dropTargetCol = -1;
+        return;
+      }
       dropTargetCol = targetCol;
       const cells = getHeaderCells();
       const cell = cells[targetCol] as HTMLElement | undefined;
@@ -667,20 +688,25 @@ export class EditableTableWidget extends WidgetType {
       const bounds = getContentBounds();
       const rawX = draggingCol < targetCol ? cellRect.right : cellRect.left;
       const clampedX = Math.max(bounds.left, Math.min(rawX, bounds.right));
-      colIndicator.style.left = (clampedX - wrapperRect.left - 1) + "px";
+      colIndicator.style.left = `${clampedX - wrapperRect.left - 1}px`;
       colIndicator.style.display = "block";
     }
 
     function showRowIndicator(targetRow: number): void {
-      if (draggingRow < 0 || targetRow === draggingRow) { rowIndicator.style.display = "none"; dropTargetRow = -1; return; }
+      if (draggingRow < 0 || targetRow === draggingRow) {
+        rowIndicator.style.display = "none";
+        dropTargetRow = -1;
+        return;
+      }
       dropTargetRow = targetRow;
       const dataRows = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
       const row = dataRows[targetRow] as HTMLElement | undefined;
       if (!row) return;
       const wrapperRect = wrapper.getBoundingClientRect();
       const rowRect = row.getBoundingClientRect();
-      const y = draggingRow < targetRow ? rowRect.bottom - wrapperRect.top : rowRect.top - wrapperRect.top;
-      rowIndicator.style.top = (y - 1) + "px";
+      const y =
+        draggingRow < targetRow ? rowRect.bottom - wrapperRect.top : rowRect.top - wrapperRect.top;
+      rowIndicator.style.top = `${y - 1}px`;
       rowIndicator.style.display = "block";
     }
 
@@ -700,9 +726,7 @@ export class EditableTableWidget extends WidgetType {
 
     // ── Range selection border overlay ──
     const rangeBorder = document.createElement("div");
-    rangeBorder.style.cssText =
-      "position:absolute;border:2px solid " + SELECT_BORDER + ";pointer-events:none;" +
-      "display:none;z-index:1;border-radius:2px;";
+    rangeBorder.style.cssText = `position:absolute;border:2px solid ${SELECT_BORDER};pointer-events:none;display:none;z-index:1;border-radius:2px;`;
     wrapper.appendChild(rangeBorder);
 
     function getNormalizedRange(): { r1: number; c1: number; r2: number; c2: number } | null {
@@ -725,14 +749,22 @@ export class EditableTableWidget extends WidgetType {
 
     function renderRangeSelection(): void {
       const range = getNormalizedRange();
-      if (!range) { rangeBorder.style.display = "none"; return; }
+      if (!range) {
+        rangeBorder.style.display = "none";
+        return;
+      }
 
       // Highlight cells in range
       const dataRows = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
       dataRows.forEach((tr, rowIdx) => {
         tr.querySelectorAll(".nexus-cell").forEach((cell, colIdx) => {
           const h = cell as HTMLElement;
-          if (rowIdx >= range.r1 && rowIdx <= range.r2 && colIdx >= range.c1 && colIdx <= range.c2) {
+          if (
+            rowIdx >= range.r1 &&
+            rowIdx <= range.r2 &&
+            colIdx >= range.c1 &&
+            colIdx <= range.c2
+          ) {
             h.style.background = SELECT_BG;
           } else {
             h.style.background = h.tagName === "TH" ? "var(--nexus-bg-subtle)" : "";
@@ -743,16 +775,19 @@ export class EditableTableWidget extends WidgetType {
       // Position the border overlay around the selected range
       const topLeft = getCellElement(range.r1, range.c1);
       const bottomRight = getCellElement(range.r2, range.c2);
-      if (!topLeft || !bottomRight) { rangeBorder.style.display = "none"; return; }
+      if (!topLeft || !bottomRight) {
+        rangeBorder.style.display = "none";
+        return;
+      }
 
       const wrapperRect = wrapper.getBoundingClientRect();
       const tlRect = topLeft.getBoundingClientRect();
       const brRect = bottomRight.getBoundingClientRect();
 
-      rangeBorder.style.left = (tlRect.left - wrapperRect.left - 1) + "px";
-      rangeBorder.style.top = (tlRect.top - wrapperRect.top - 1) + "px";
-      rangeBorder.style.width = (brRect.right - tlRect.left) + "px";
-      rangeBorder.style.height = (brRect.bottom - tlRect.top) + "px";
+      rangeBorder.style.left = `${tlRect.left - wrapperRect.left - 1}px`;
+      rangeBorder.style.top = `${tlRect.top - wrapperRect.top - 1}px`;
+      rangeBorder.style.width = `${brRect.right - tlRect.left}px`;
+      rangeBorder.style.height = `${brRect.bottom - tlRect.top}px`;
       rangeBorder.style.display = "block";
     }
 
@@ -779,7 +814,12 @@ export class EditableTableWidget extends WidgetType {
         const cells = dataRows[r].querySelectorAll(".nexus-cell");
         for (let c = 0; c < cells.length; c++) {
           const rect = cells[c].getBoundingClientRect();
-          if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
+          if (
+            clientX >= rect.left &&
+            clientX <= rect.right &&
+            clientY >= rect.top &&
+            clientY <= rect.bottom
+          ) {
             return { row: r, col: c };
           }
         }
@@ -808,7 +848,9 @@ export class EditableTableWidget extends WidgetType {
       selectedCol = colIdx;
       const gripCells = table.querySelectorAll(".nexus-col-grip");
       if (gripCells[colIdx]) (gripCells[colIdx] as HTMLElement).style.background = SELECT_BORDER;
-      getColumnCells(colIdx).forEach((el) => { el.style.background = SELECT_BG; });
+      getColumnCells(colIdx).forEach((el) => {
+        el.style.background = SELECT_BG;
+      });
     }
 
     function highlightRow(rowIdx: number): void {
@@ -826,9 +868,7 @@ export class EditableTableWidget extends WidgetType {
 
     function createGripPill(): HTMLElement {
       const pill = document.createElement("div");
-      pill.style.cssText =
-        "width:16px;height:6px;border-radius:3px;background:" + GRIP_BG + ";" +
-        "margin:0 auto;transition:background .15s;";
+      pill.style.cssText = `width:16px;height:6px;border-radius:3px;background:${GRIP_BG};margin:0 auto;transition:background .15s;`;
       return pill;
     }
 
@@ -845,13 +885,16 @@ export class EditableTableWidget extends WidgetType {
 
     function onDragMove(e: MouseEvent): void {
       e.preventDefault();
-      if (!wrapper.isConnected) { onDragEnd(); return; }
+      if (!wrapper.isConnected) {
+        onDragEnd();
+        return;
+      }
       const wrapperRect = wrapper.getBoundingClientRect();
 
       if (draggingCol >= 0) {
         const bounds = getContentBounds();
         const clampedX = Math.max(bounds.left, Math.min(e.clientX, bounds.right));
-        floatingPill.style.left = (clampedX - wrapperRect.left - 8) + "px";
+        floatingPill.style.left = `${clampedX - wrapperRect.left - 8}px`;
 
         const target = colAtClientX(clampedX);
         if (target >= 0 && target !== draggingCol) {
@@ -870,7 +913,7 @@ export class EditableTableWidget extends WidgetType {
         const minY = firstBodyRow ? firstBodyRow.top : wrapperRect.top;
         const maxY = lastRow ? lastRow.bottom : wrapperRect.bottom;
         const clampedY = Math.max(minY, Math.min(e.clientY, maxY));
-        floatingRowPill.style.top = (clampedY - wrapperRect.top - 8) + "px";
+        floatingRowPill.style.top = `${clampedY - wrapperRect.top - 8}px`;
 
         const target = rowAtClientY(clampedY);
         if (target >= 0 && target !== draggingRow) {
@@ -920,11 +963,13 @@ export class EditableTableWidget extends WidgetType {
       clearRangeSelection();
       clearSelection();
       // Highlight source column
-      getColumnCells(colIdx).forEach((el) => { el.style.background = DRAG_HIGHLIGHT_BG; });
+      getColumnCells(colIdx).forEach((el) => {
+        el.style.background = DRAG_HIGHLIGHT_BG;
+      });
       // Hide grip row, show floating pill instead
       gripRow.style.opacity = "0";
       const wrapperRect = wrapper.getBoundingClientRect();
-      floatingPill.style.left = (startX - wrapperRect.left - 8) + "px";
+      floatingPill.style.left = `${startX - wrapperRect.left - 8}px`;
       floatingPill.style.display = "block";
       document.addEventListener("mousemove", onDragMove);
       document.addEventListener("mouseup", onDragEnd);
@@ -949,7 +994,7 @@ export class EditableTableWidget extends WidgetType {
       }
       // Show floating row pill
       const wrapperRect = wrapper.getBoundingClientRect();
-      floatingRowPill.style.top = (startY - wrapperRect.top - 8) + "px";
+      floatingRowPill.style.top = `${startY - wrapperRect.top - 8}px`;
       floatingRowPill.style.display = "block";
       // Hide the source row grip
       const grip = trs[rowIdx]?.querySelector(".nexus-row-grip") as HTMLElement | null;
@@ -976,8 +1021,12 @@ export class EditableTableWidget extends WidgetType {
       const pill = createGripPill();
       gripCell.appendChild(pill);
 
-      gripCell.addEventListener("mouseenter", () => { if (draggingCol < 0) pill.style.background = GRIP_BG_HOVER; });
-      gripCell.addEventListener("mouseleave", () => { if (draggingCol < 0) pill.style.background = GRIP_BG; });
+      gripCell.addEventListener("mouseenter", () => {
+        if (draggingCol < 0) pill.style.background = GRIP_BG_HOVER;
+      });
+      gripCell.addEventListener("mouseleave", () => {
+        if (draggingCol < 0) pill.style.background = GRIP_BG;
+      });
 
       const colIdx = c;
 
@@ -1008,7 +1057,9 @@ export class EditableTableWidget extends WidgetType {
     // 切换期间置位，让旧单元格 blur 跳过这个会抢焦点的派发；新单元格 focus 已接管编辑态。
     let navigatingBetweenCells = false;
     function tableDataRows(): HTMLElement[] {
-      return Array.from(table.querySelectorAll<HTMLElement>("tr")).filter((row) => row.querySelector(".nexus-cell"));
+      return Array.from(table.querySelectorAll<HTMLElement>("tr")).filter((row) =>
+        row.querySelector(".nexus-cell"),
+      );
     }
     function cellAt(rowIndex: number, colIndex: number): HTMLElement | null {
       if (rowIndex < 0 || colIndex < 0) return null;
@@ -1053,13 +1104,29 @@ export class EditableTableWidget extends WidgetType {
       // 与单元格点击激活一致：focus/重渲染稳定后再摆一次光标，避免落点丢失。
       window.setTimeout(place, 0);
       // 稍后回看焦点是否仍在目标单元格（若被抢走，说明仍有 dispatch/blur 干扰）。
-      window.setTimeout(() => tableNavDebug("focusCellForNavigation:settled", { active: describeActiveCell() }), 60);
+      window.setTimeout(
+        () => tableNavDebug("focusCellForNavigation:settled", { active: describeActiveCell() }),
+        60,
+      );
     }
-    function navigateFromCell(key: string, cell: HTMLElement, rowIndex: number, colIndex: number): boolean {
+    function navigateFromCell(
+      key: string,
+      cell: HTMLElement,
+      rowIndex: number,
+      colIndex: number,
+    ): boolean {
       const offset = caretOffsetInCell(cell);
       const length = (cell.dataset.source ?? cell.textContent ?? "").length;
       const dataRowCount = tableDataRows().length;
-      tableNavDebug("navigateFromCell", { key, offset, length, rowIndex, colIndex, colCount, dataRowCount });
+      tableNavDebug("navigateFromCell", {
+        key,
+        offset,
+        length,
+        rowIndex,
+        colIndex,
+        colCount,
+        dataRowCount,
+      });
 
       if (key === "ArrowUp") {
         const target = cellAt(rowIndex - 1, colIndex);
@@ -1105,18 +1172,15 @@ export class EditableTableWidget extends WidgetType {
     for (const astRow of rows) {
       const isHeader = rowIdx === 0;
       const tr = document.createElement("tr");
-      const astCells = "children" in astRow && Array.isArray(astRow.children) ? astRow.children : [];
+      const astCells =
+        "children" in astRow && Array.isArray(astRow.children) ? astRow.children : [];
       const sourceLineIdx = dataLineIndices[rowIdx];
       const curRowIdx = rowIdx;
 
       // Row grip
       const rowGrip = document.createElement(isHeader ? "th" : "td");
       rowGrip.className = "nexus-row-grip";
-      rowGrip.style.cssText =
-        "width:16px;min-width:16px;max-width:16px;padding:6px 2px;text-align:center;" +
-        "cursor:" + (isHeader ? "default" : "grab") + ";user-select:none;border:none;" +
-        "border-right:1px solid var(--nexus-border);vertical-align:middle;" +
-        "opacity:0;transition:opacity .15s;";
+      rowGrip.style.cssText = `width:16px;min-width:16px;max-width:16px;padding:6px 2px;text-align:center;cursor:${isHeader ? "default" : "grab"};user-select:none;border:none;border-right:1px solid var(--nexus-border);vertical-align:middle;opacity:0;transition:opacity .15s;`;
 
       if (!isHeader) {
         const rowPill = createGripPill();
@@ -1125,8 +1189,12 @@ export class EditableTableWidget extends WidgetType {
         rowPill.style.borderRadius = "3px";
         rowGrip.appendChild(rowPill);
 
-        rowGrip.addEventListener("mouseenter", () => { if (draggingRow < 0) rowPill.style.background = GRIP_BG_HOVER; });
-        rowGrip.addEventListener("mouseleave", () => { if (draggingRow < 0) rowPill.style.background = GRIP_BG; });
+        rowGrip.addEventListener("mouseenter", () => {
+          if (draggingRow < 0) rowPill.style.background = GRIP_BG_HOVER;
+        });
+        rowGrip.addEventListener("mouseleave", () => {
+          if (draggingRow < 0) rowPill.style.background = GRIP_BG;
+        });
 
         rowGrip.addEventListener("mousedown", (e) => {
           e.preventDefault();
@@ -1155,8 +1223,9 @@ export class EditableTableWidget extends WidgetType {
         // Stash the raw markdown source for this cell so we can (a) render
         // it as rich DOM by default — links, bold, code, etc. — and (b)
         // swap back to the raw text when the cell is focused for editing.
-        // Without this, `extractCellText` flattens `[X](url)` to `X` and the
-        // source-line dispatch in the input handler would clobber the link.
+        // Without raw source stashing, flattening rich nodes to textContent
+        // loses things like `[X](url)` to `X` and the source-line dispatch in
+        // the input handler would clobber the link.
         let rawSource = "";
         let rawSourceStart = 0;
         const startOffset = astCell?.position?.start?.offset;
@@ -1192,7 +1261,7 @@ export class EditableTableWidget extends WidgetType {
           // handle.
           const resizeHandle = document.createElement("div");
           resizeHandle.className = "nexus-col-resize";
-          resizeHandle.style.cssText = [
+          resizeHandle.style.cssText = `${[
             "position:absolute",
             "top:0",
             "right:-3px",
@@ -1201,7 +1270,7 @@ export class EditableTableWidget extends WidgetType {
             "cursor:col-resize",
             "z-index:3",
             "user-select:none",
-          ].join(";") + ";";
+          ].join(";")};`;
           const handleColIdx = colIdx;
           resizeHandle.addEventListener("mousedown", (e) => {
             if (e.button !== 0) return;
@@ -1236,8 +1305,8 @@ export class EditableTableWidget extends WidgetType {
           // between rows.
           const renderedWidth = td.getBoundingClientRect().width;
           if (renderedWidth > 0) {
-            td.style.maxWidth = renderedWidth + "px";
-            td.style.width = renderedWidth + "px";
+            td.style.maxWidth = `${renderedWidth}px`;
+            td.style.width = `${renderedWidth}px`;
           }
           // Inside the capped cell, let long URLs wrap (the rendered
           // text was usually shorter than the raw markdown).
@@ -1273,7 +1342,7 @@ export class EditableTableWidget extends WidgetType {
           rangeEnd = { row: cellRow, col: cellCol };
           const onCellMouseMove = (me: MouseEvent): void => {
             const target = cellAtPoint(me.clientX, me.clientY);
-            if (target && (target.row !== rangeStart!.row || target.col !== rangeStart!.col)) {
+            if (target && (target.row !== rangeStart?.row || target.col !== rangeStart?.col)) {
               cellMouseMoved = true;
               isRangeSelecting = true;
               rangeEnd = target;
@@ -1362,7 +1431,10 @@ export class EditableTableWidget extends WidgetType {
             const v = self.viewRef.current;
             if (!v) return;
             const sel = v.state.selection.main;
-            tableNavDebug("blur-dispatch:run", { anchor: sel.anchor, active: describeActiveCell() });
+            tableNavDebug("blur-dispatch:run", {
+              anchor: sel.anchor,
+              active: describeActiveCell(),
+            });
             try {
               v.dispatch({ selection: { anchor: sel.anchor, head: sel.head } });
             } catch {
@@ -1384,7 +1456,7 @@ export class EditableTableWidget extends WidgetType {
             // their textContent would strip URLs and lose inline markdown.
             vals.push(el.dataset.source ?? el.textContent ?? "");
           });
-          const newLine = "| " + vals.join(" | ") + " |";
+          const newLine = `| ${vals.join(" | ")} |`;
           let off = self.tableFrom;
           for (let i = 0; i < sourceLineIdx; i++) off += sourceLines[i].length + 1;
           const end = off + sourceLines[sourceLineIdx].length;
@@ -1404,7 +1476,12 @@ export class EditableTableWidget extends WidgetType {
           }
 
           // 方向键在单元格之间移动（电子表格式）；边界外不消费，交回默认。
-          if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight") {
+          if (
+            e.key === "ArrowUp" ||
+            e.key === "ArrowDown" ||
+            e.key === "ArrowLeft" ||
+            e.key === "ArrowRight"
+          ) {
             if (navigateFromCell(e.key, td, cellRow, cellCol)) {
               e.preventDefault();
               return;
@@ -1443,7 +1520,18 @@ export class EditableTableWidget extends WidgetType {
           const cellIdx = cells.indexOf(clickedCell);
           clickedCol = Math.max(0, cellIdx - 1);
         }
-        showContextMenu(e.clientX, e.clientY, self, self.labels, curRowIdx, isHeader, clickedCol, colCount, rows.length, wrapper);
+        showContextMenu(
+          e.clientX,
+          e.clientY,
+          self,
+          self.labels,
+          curRowIdx,
+          isHeader,
+          clickedCol,
+          colCount,
+          rows.length,
+          wrapper,
+        );
       });
 
       table.appendChild(tr);
@@ -1461,7 +1549,8 @@ export class EditableTableWidget extends WidgetType {
     }
 
     // ── "+" buttons ──
-    const btnCss = "position:absolute;width:20px;height:20px;border:1px solid var(--nexus-border-subtle);" +
+    const btnCss =
+      "position:absolute;width:20px;height:20px;border:1px solid var(--nexus-border-subtle);" +
       "border-radius:50%;background:var(--nexus-bg);cursor:pointer;font-size:14px;line-height:1;" +
       "display:flex;align-items:center;justify-content:center;color:var(--nexus-text-muted);padding:0;" +
       "opacity:0;transition:opacity .15s;z-index:1;";
@@ -1469,63 +1558,95 @@ export class EditableTableWidget extends WidgetType {
     const addCol = document.createElement("button");
     addCol.textContent = "+";
     addCol.title = self.labels.addColumn;
-    addCol.style.cssText = btnCss + "right:-24px;top:50%;transform:translateY(-50%);";
+    addCol.style.cssText = `${btnCss}right:-24px;top:50%;transform:translateY(-50%);`;
     addCol.addEventListener("click", () => self.addColumn());
     wrapper.appendChild(addCol);
 
     const addRow = document.createElement("button");
     addRow.textContent = "+";
     addRow.title = self.labels.addRow;
-    addRow.style.cssText = btnCss + "bottom:-24px;left:50%;transform:translateX(-50%);";
+    addRow.style.cssText = `${btnCss}bottom:-24px;left:50%;transform:translateX(-50%);`;
     addRow.addEventListener("click", () => self.addRow());
     wrapper.appendChild(addRow);
 
     // ── Per-element hover (suppressed during drag) ──
-    function isDragging(): boolean { return draggingCol >= 0 || draggingRow >= 0; }
+    function isDragging(): boolean {
+      return draggingCol >= 0 || draggingRow >= 0;
+    }
 
     const headerTr = table.querySelectorAll("tr")[1] as HTMLElement | undefined;
-    gripRow.addEventListener("mouseenter", () => { if (!isDragging()) gripRow.style.opacity = "1"; });
-    gripRow.addEventListener("mouseleave", () => { if (!isDragging()) gripRow.style.opacity = "0"; });
+    gripRow.addEventListener("mouseenter", () => {
+      if (!isDragging()) gripRow.style.opacity = "1";
+    });
+    gripRow.addEventListener("mouseleave", () => {
+      if (!isDragging()) gripRow.style.opacity = "0";
+    });
     if (headerTr) {
-      headerTr.addEventListener("mouseenter", () => { if (!isDragging()) gripRow.style.opacity = "1"; });
-      headerTr.addEventListener("mouseleave", () => { if (!isDragging()) gripRow.style.opacity = "0"; });
+      headerTr.addEventListener("mouseenter", () => {
+        if (!isDragging()) gripRow.style.opacity = "1";
+      });
+      headerTr.addEventListener("mouseleave", () => {
+        if (!isDragging()) gripRow.style.opacity = "0";
+      });
     }
 
     table.querySelectorAll("tr").forEach((tr, trIdx) => {
       if (trIdx === 0) return;
       const grip = tr.querySelector(".nexus-row-grip") as HTMLElement | null;
       if (!grip) return;
-      tr.addEventListener("mouseenter", () => { if (!isDragging()) grip.style.opacity = "1"; });
-      tr.addEventListener("mouseleave", () => { if (!isDragging()) grip.style.opacity = "0"; });
+      tr.addEventListener("mouseenter", () => {
+        if (!isDragging()) grip.style.opacity = "1";
+      });
+      tr.addEventListener("mouseleave", () => {
+        if (!isDragging()) grip.style.opacity = "0";
+      });
     });
 
-    addCol.addEventListener("mouseenter", () => { if (!isDragging()) addCol.style.opacity = "1"; });
-    addCol.addEventListener("mouseleave", () => { if (!isDragging()) addCol.style.opacity = "0"; });
+    addCol.addEventListener("mouseenter", () => {
+      if (!isDragging()) addCol.style.opacity = "1";
+    });
+    addCol.addEventListener("mouseleave", () => {
+      if (!isDragging()) addCol.style.opacity = "0";
+    });
     table.querySelectorAll("tr").forEach((tr, trIdx) => {
       if (trIdx === 0) return;
       const cells = tr.querySelectorAll("th,td");
       const lastCell = cells[cells.length - 1] as HTMLElement | null;
       if (lastCell) {
-        lastCell.addEventListener("mouseenter", () => { if (!isDragging()) addCol.style.opacity = "1"; });
-        lastCell.addEventListener("mouseleave", () => { if (!isDragging()) addCol.style.opacity = "0"; });
+        lastCell.addEventListener("mouseenter", () => {
+          if (!isDragging()) addCol.style.opacity = "1";
+        });
+        lastCell.addEventListener("mouseleave", () => {
+          if (!isDragging()) addCol.style.opacity = "0";
+        });
       }
     });
 
-    addRow.addEventListener("mouseenter", () => { addRow.style.opacity = "1"; });
-    addRow.addEventListener("mouseleave", () => { addRow.style.opacity = "0"; });
+    addRow.addEventListener("mouseenter", () => {
+      addRow.style.opacity = "1";
+    });
+    addRow.addEventListener("mouseleave", () => {
+      addRow.style.opacity = "0";
+    });
     const allDataRows = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
     const lastDataRow = allDataRows[allDataRows.length - 1] as HTMLElement | undefined;
     if (lastDataRow) {
-      lastDataRow.addEventListener("mouseenter", () => { addRow.style.opacity = "1"; });
-      lastDataRow.addEventListener("mouseleave", () => { addRow.style.opacity = "0"; });
+      lastDataRow.addEventListener("mouseenter", () => {
+        addRow.style.opacity = "1";
+      });
+      lastDataRow.addEventListener("mouseleave", () => {
+        addRow.style.opacity = "0";
+      });
     }
 
     wrapper.addEventListener("click", (e) => {
       // Skip if a range drag just completed (this click is the tail of that drag)
       if (rangeActive) return;
-      if (!(e.target as HTMLElement).closest(".nexus-cell") &&
-          !(e.target as HTMLElement).closest(".nexus-row-grip") &&
-          !(e.target as HTMLElement).closest(".nexus-col-grip")) {
+      if (
+        !(e.target as HTMLElement).closest(".nexus-cell") &&
+        !(e.target as HTMLElement).closest(".nexus-row-grip") &&
+        !(e.target as HTMLElement).closest(".nexus-col-grip")
+      ) {
         clearSelection();
         clearRangeSelection();
       }
@@ -1533,7 +1654,10 @@ export class EditableTableWidget extends WidgetType {
 
     // Click outside table clears all selection
     const onDocMouseDown = (e: MouseEvent): void => {
-      if (!wrapper.isConnected) { document.removeEventListener("mousedown", onDocMouseDown); return; }
+      if (!wrapper.isConnected) {
+        document.removeEventListener("mousedown", onDocMouseDown);
+        return;
+      }
       if (!wrapper.contains(e.target as Node)) {
         clearSelection();
         clearRangeSelection();
@@ -1557,7 +1681,7 @@ export class EditableTableWidget extends WidgetType {
             for (let c = range.c1; c <= range.c2; c++) {
               if (c < cells.length) cells[c] = "  ";
             }
-            lines[lineIdx] = "|" + cells.join("|") + "|";
+            lines[lineIdx] = `|${cells.join("|")}|`;
           }
           self.dispatch(lines.join("\n"));
           clearRangeSelection();
@@ -1581,18 +1705,23 @@ export class EditableTableWidget extends WidgetType {
 }
 
 function showContextMenu(
-  x: number, y: number,
+  x: number,
+  y: number,
   widget: EditableTableWidget,
   labels: Required<LivePreviewLabels>,
-  rowIdx: number, isHeader: boolean,
-  colIdx: number, colCount: number, rowCount: number,
-  container: HTMLElement
+  rowIdx: number,
+  isHeader: boolean,
+  colIdx: number,
+  colCount: number,
+  _rowCount: number,
+  container: HTMLElement,
 ): void {
   const ownerDocument = container.ownerDocument;
   const ownerWindow = ownerDocument.defaultView;
   const fullscreenEl = ownerDocument.fullscreenElement as HTMLElement | null;
-  const mountTarget: HTMLElement =
-    fullscreenEl && fullscreenEl.contains(container) ? fullscreenEl : ownerDocument.body;
+  const mountTarget: HTMLElement = fullscreenEl?.contains(container)
+    ? fullscreenEl
+    : ownerDocument.body;
   mountTarget.querySelector(".nexus-table-ctx")?.remove();
 
   const menu = ownerDocument.createElement("div");
@@ -1600,16 +1729,13 @@ function showContextMenu(
   const menuText = "var(--nexus-menu-text, var(--nexus-text, #111827))";
   const menuBorder = "var(--nexus-menu-border, var(--nexus-border-subtle, rgba(15,23,42,.14)))";
   const itemHoverBg = "var(--nexus-menu-hover-bg, var(--nexus-bg-muted, rgba(124,108,250,.10)))";
-  const disabledText = "var(--nexus-menu-disabled-text, var(--nexus-text-faint, rgba(17,24,39,.42)))";
+  const disabledText =
+    "var(--nexus-menu-disabled-text, var(--nexus-text-faint, rgba(17,24,39,.42)))";
   menu.className = "nexus-table-ctx";
   menu.setAttribute("role", "menu");
-  menu.style.cssText =
-    `position:fixed;z-index:9999;box-sizing:border-box;display:flex;flex-direction:column;gap:2px;background:${menuBg};` +
-    `color:${menuText};border:1px solid ${menuBorder};border-radius:10px;` +
-    "box-shadow:0 18px 42px rgba(15,23,42,.18);padding:6px;min-width:180px;font-size:13px;line-height:1.4;" +
-    "backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);";
-  menu.style.left = x + "px";
-  menu.style.top = y + "px";
+  menu.style.cssText = `position:fixed;z-index:9999;box-sizing:border-box;display:flex;flex-direction:column;gap:2px;background:${menuBg};color:${menuText};border:1px solid ${menuBorder};border-radius:10px;box-shadow:0 18px 42px rgba(15,23,42,.18);padding:6px;min-width:180px;font-size:13px;line-height:1.4;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);`;
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
   menu.addEventListener("contextmenu", (event) => event.preventDefault());
 
   function addItem(label: string, action: () => void, disabled = false): void {
@@ -1626,9 +1752,16 @@ function showContextMenu(
       item.style.color = disabledText;
       item.style.cursor = "default";
     } else {
-      item.addEventListener("mouseenter", () => { item.style.background = itemHoverBg; });
-      item.addEventListener("mouseleave", () => { item.style.background = ""; });
-      item.addEventListener("click", () => { cleanup(); action(); });
+      item.addEventListener("mouseenter", () => {
+        item.style.background = itemHoverBg;
+      });
+      item.addEventListener("mouseleave", () => {
+        item.style.background = "";
+      });
+      item.addEventListener("click", () => {
+        cleanup();
+        action();
+      });
     }
     menu.appendChild(item);
   }
@@ -1647,10 +1780,10 @@ function showContextMenu(
   const rect = menu.getBoundingClientRect();
   const margin = 8;
   if (rect.right > viewportWidth - margin) {
-    menu.style.left = Math.max(margin, x - rect.width) + "px";
+    menu.style.left = `${Math.max(margin, x - rect.width)}px`;
   }
   if (rect.bottom > viewportHeight - margin) {
-    menu.style.top = Math.max(margin, y - rect.height) + "px";
+    menu.style.top = `${Math.max(margin, y - rect.height)}px`;
   }
 
   function cleanup(): void {

@@ -1,14 +1,43 @@
-import { type EditorState, RangeSet, RangeSetBuilder, StateEffect, StateField, type Extension, type Range, type SelectionRange, type Transaction } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import { ensureSyntaxTree } from "@codemirror/language";
-import type { Code, FootnoteDefinition, FootnoteReference, Heading, Html, List, Root, Table } from "mdast";
+import {
+  type EditorState,
+  type Extension,
+  type Range,
+  RangeSet,
+  RangeSetBuilder,
+  type SelectionRange,
+  StateEffect,
+  StateField,
+  type Transaction,
+} from "@codemirror/state";
+import {
+  Decoration,
+  type DecorationSet,
+  EditorView,
+  ViewPlugin,
+  WidgetType,
+} from "@codemirror/view";
+import type {
+  Code,
+  FootnoteDefinition,
+  FootnoteReference,
+  Heading,
+  Html,
+  List,
+  Root,
+  Table,
+} from "mdast";
 
-import type { CodeHighlightToken } from "./types";
 import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
 import { highlightCodeBlock } from "./live-preview-highlight";
+import type { CodeHighlightToken } from "./types";
 
 import { createLivePreviewDiagnostics } from "./live-preview-diag";
-import { collectLivePreviewRanges, selectionIntersects, selectionOnSameLine } from "./live-preview-ranges";
+import {
+  collectLivePreviewRanges,
+  selectionIntersects,
+  selectionOnSameLine,
+} from "./live-preview-ranges";
 import { renderLivePreviewNode } from "./live-preview-renderers";
 import { EditableTableWidget, isTableEditing } from "./live-preview-table";
 import type {
@@ -81,7 +110,7 @@ function walkCodeBlocks(node: unknown, visit: (n: Code) => void): void {
 }
 
 function normalizeConfig(
-  config: boolean | LivePreviewConfig | undefined
+  config: boolean | LivePreviewConfig | undefined,
 ): NormalizedLivePreviewConfig {
   if (!config) {
     return { enabled: false, renderers: {}, labels: DEFAULT_LABELS };
@@ -92,7 +121,7 @@ function normalizeConfig(
   return {
     enabled: config.enabled ?? true,
     renderers: config.renderers ?? {},
-    labels: { ...DEFAULT_LABELS, ...config.labels }
+    labels: { ...DEFAULT_LABELS, ...config.labels },
   };
 }
 
@@ -112,6 +141,7 @@ function createWidget(
     readonly _eqKey = eqKey;
     toDOM(): HTMLElement {
       if (element) return element;
+      // biome-ignore lint/style/noNonNullAssertion: builder is non-null when element is null
       element = builder!();
       return element;
     }
@@ -123,18 +153,31 @@ function createWidget(
       const otherKey = (other as { _eqKey?: string })._eqKey;
       return otherKey === this._eqKey;
     }
-    ignoreEvent() { return swallowEvents; }
+    ignoreEvent() {
+      return swallowEvents;
+    }
     // For block widgets, giving CM6 a pre-measure height prevents the heightmap
     // from assigning 0 and then jumping to the real height on first measure.
     // That jump shifts every click resolution below the widget until remeasured.
-    get estimatedHeight(): number { return heightHint ?? -1; }
+    get estimatedHeight(): number {
+      return heightHint ?? -1;
+    }
   })();
 }
 
 class CodeCopyWidget extends WidgetType {
-  constructor(private readonly code: string, private readonly lang: string) { super(); }
-  eq(other: CodeCopyWidget): boolean { return other.code === this.code && other.lang === this.lang; }
-  ignoreEvent(): boolean { return true; }
+  constructor(
+    private readonly code: string,
+    private readonly lang: string,
+  ) {
+    super();
+  }
+  eq(other: CodeCopyWidget): boolean {
+    return other.code === this.code && other.lang === this.lang;
+  }
+  ignoreEvent(): boolean {
+    return true;
+  }
   toDOM(): HTMLElement {
     // CM6 measures inline widget DOM elements via offsetHeight and uses that to
     // size the line box. A <button> with position:absolute still has a measurable
@@ -170,21 +213,32 @@ class CodeCopyWidget extends WidgetType {
       "opacity:0.7",
       "z-index:1",
       "user-select:none",
-      "transition:opacity .15s"
+      "transition:opacity .15s",
     ].join(";");
-    btn.addEventListener("mouseenter", () => { btn.style.opacity = "1"; });
-    btn.addEventListener("mouseleave", () => { btn.style.opacity = "0.7"; });
-    btn.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); });
+    btn.addEventListener("mouseenter", () => {
+      btn.style.opacity = "1";
+    });
+    btn.addEventListener("mouseleave", () => {
+      btn.style.opacity = "0.7";
+    });
+    btn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
     btn.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
       try {
         await navigator.clipboard.writeText(this.code);
         btn.textContent = "Copied";
-        setTimeout(() => { btn.textContent = defaultLabel; }, 1200);
+        setTimeout(() => {
+          btn.textContent = defaultLabel;
+        }, 1200);
       } catch {
         btn.textContent = "Failed";
-        setTimeout(() => { btn.textContent = defaultLabel; }, 1200);
+        setTimeout(() => {
+          btn.textContent = defaultLabel;
+        }, 1200);
       }
     });
     wrapper.appendChild(btn);
@@ -199,7 +253,10 @@ class CodeCopyWidget extends WidgetType {
 
 type MermaidAPI = {
   render(id: string, text: string): Promise<{ svg: string }>;
-  parse(text: string, opts?: { suppressErrors?: boolean }): Promise<boolean | { diagramType: string }> | boolean | { diagramType: string };
+  parse(
+    text: string,
+    opts?: { suppressErrors?: boolean },
+  ): Promise<boolean | { diagramType: string }> | boolean | { diagramType: string };
 };
 
 let mermaidPromise: Promise<MermaidAPI> | null = null;
@@ -222,14 +279,18 @@ class MermaidWidget extends WidgetType {
     private readonly source: string,
     private readonly viewRef: { current: EditorView | null },
     private readonly blockFrom: number,
-    private readonly sourceOffsetInBlock: number
-  ) { super(); }
+    private readonly sourceOffsetInBlock: number,
+  ) {
+    super();
+  }
 
   eq(other: MermaidWidget): boolean {
     return other.source === this.source;
   }
 
-  ignoreEvent(): boolean { return true; }
+  ignoreEvent(): boolean {
+    return true;
+  }
 
   get estimatedHeight(): number {
     const cached = MERMAID_CACHE.get(this.source);
@@ -240,7 +301,7 @@ class MermaidWidget extends WidgetType {
     // Container: margin:0, padding for visual spacing (CLAUDE.md rule #11 / thematicBreak pattern).
     const container = document.createElement("div");
     container.className = "nexus-mermaid";
-    container.style.cssText = [
+    container.style.cssText = `${[
       "display:block",
       "position:relative",
       "margin:0",
@@ -250,7 +311,7 @@ class MermaidWidget extends WidgetType {
       "min-height:80px",
       "text-align:center",
       "overflow:hidden",
-    ].join(";") + ";";
+    ].join(";")};`;
 
     // Edit icon — always rendered, always on top. stopPropagation so the
     // click doesn't get swallowed as a widget-surface click.
@@ -259,7 +320,7 @@ class MermaidWidget extends WidgetType {
     editBtn.title = "Edit mermaid source";
     editBtn.setAttribute("aria-label", "Edit mermaid source");
     editBtn.textContent = "✎";
-    editBtn.style.cssText = [
+    editBtn.style.cssText = `${[
       "position:absolute",
       "top:4px",
       "right:8px",
@@ -276,10 +337,17 @@ class MermaidWidget extends WidgetType {
       "z-index:2",
       "user-select:none",
       "transition:opacity .15s",
-    ].join(";") + ";";
-    editBtn.addEventListener("mouseenter", () => { editBtn.style.opacity = "1"; });
-    editBtn.addEventListener("mouseleave", () => { editBtn.style.opacity = "0.7"; });
-    editBtn.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); });
+    ].join(";")};`;
+    editBtn.addEventListener("mouseenter", () => {
+      editBtn.style.opacity = "1";
+    });
+    editBtn.addEventListener("mouseleave", () => {
+      editBtn.style.opacity = "0.7";
+    });
+    editBtn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
     editBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -345,12 +413,17 @@ class MermaidWidget extends WidgetType {
       body.style.cssText = "white-space:pre-wrap;";
 
       const hint = document.createElement("div");
-      hint.style.cssText = "margin-top:8px;font-family:system-ui,sans-serif;color:var(--nexus-text-muted);";
+      hint.style.cssText =
+        "margin-top:8px;font-family:system-ui,sans-serif;color:var(--nexus-text-muted);";
       const editLink = document.createElement("a");
       editLink.href = "#";
       editLink.textContent = "Edit source";
-      editLink.style.cssText = "color:var(--nexus-accent);text-decoration:underline;cursor:pointer;";
-      editLink.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); });
+      editLink.style.cssText =
+        "color:var(--nexus-accent);text-decoration:underline;cursor:pointer;";
+      editLink.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      });
       editLink.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -376,7 +449,7 @@ class MermaidWidget extends WidgetType {
     const cleanupOrphans = (usedId: string) => {
       const orphan = document.getElementById(usedId);
       if (orphan && orphan.parentElement === document.body) orphan.remove();
-      const dOrphan = document.getElementById("d" + usedId);
+      const dOrphan = document.getElementById(`d${usedId}`);
       if (dOrphan && dOrphan.parentElement === document.body) dOrphan.remove();
     };
 
@@ -421,7 +494,12 @@ class MermaidWidget extends WidgetType {
 const BLOCK_NODE_TYPES = new Set(["thematicBreak"]);
 
 const HEADING_FONT_SIZE: Record<number, string> = {
-  1: "1.6em", 2: "1.4em", 3: "1.2em", 4: "1.1em", 5: "1.05em", 6: "1em"
+  1: "1.6em",
+  2: "1.4em",
+  3: "1.2em",
+  4: "1.1em",
+  5: "1.05em",
+  6: "1em",
 };
 
 function shouldRebuildHeadingForCompositionStart(view: EditorView): boolean {
@@ -435,7 +513,7 @@ function buildHeadingDecorations(
   doc: string,
   selection: readonly SelectionRange[],
   decos: Range<Decoration>[],
-  compositionActive: boolean
+  compositionActive: boolean,
 ): void {
   const firstChild = range.node.children[0];
   const textStart = firstChild?.position?.start?.offset;
@@ -450,8 +528,10 @@ function buildHeadingDecorations(
     if (cursorOnHeading) {
       decos.push(
         Decoration.mark({
-          attributes: { style: `font-weight: bold; font-size: ${fontSize}; color: var(--nexus-text-muted)` }
-        }).range(range.from, textStart)
+          attributes: {
+            style: `font-weight: bold; font-size: ${fontSize}; color: var(--nexus-text-muted)`,
+          },
+        }).range(range.from, textStart),
       );
     } else {
       decos.push(Decoration.replace({}).range(range.from, textStart));
@@ -463,9 +543,9 @@ function buildHeadingDecorations(
           style: `font-weight: bold; font-size: ${fontSize}`,
           "data-heading-level": String(range.node.depth),
           role: "heading",
-          "aria-level": String(range.node.depth)
-        }
-      }).range(textStart, range.to)
+          "aria-level": String(range.node.depth),
+        },
+      }).range(textStart, range.to),
     );
   }
 }
@@ -478,7 +558,7 @@ function buildListDecorations(
   doc: string,
   selection: readonly SelectionRange[],
   decos: Range<Decoration>[],
-  viewRef: { current: EditorView | null }
+  viewRef: { current: EditorView | null },
 ): void {
   // Iterate ListItems via mdast structure (not regex over flat source lines).
   // Nested sub-lists are children of a ListItem, not of the outer list, so
@@ -527,7 +607,7 @@ function buildListDecorations(
     decos.push(
       Decoration.replace({
         widget: createWidget(bullet, false, undefined, bulletKey),
-      }).range(markerStart, markerEnd)
+      }).range(markerStart, markerEnd),
     );
 
     const afterMarker = headLine.slice(markerMatch[0].length);
@@ -547,13 +627,15 @@ function buildListDecorations(
       const toggleFrom = checkStart + 1;
       // mousedown 先于 click：阻止 CM6 在 widget 上启动选区拖拽 / 移动光标，
       // 否则点击会被解读成"把光标放到该行"而非切换复选框。
-      checkbox.addEventListener("mousedown", (e) => { e.preventDefault(); });
+      checkbox.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+      });
       checkbox.addEventListener("click", (e) => {
         e.preventDefault();
         const v = viewRef.current;
         if (!v) return;
         v.dispatch({
-          changes: { from: toggleFrom, to: toggleFrom + 1, insert: isChecked ? " " : "x" }
+          changes: { from: toggleFrom, to: toggleFrom + 1, insert: isChecked ? " " : "x" },
         });
       });
 
@@ -563,14 +645,14 @@ function buildListDecorations(
           // swallowEvents=true → ignoreEvent() 返回 true，CM6 不再抢占点击，
           // 复选框自身的 click 处理器得以触发完成切换。
           widget: createWidget(checkbox, true, undefined, taskKey),
-        }).range(checkStart, checkEnd)
+        }).range(checkStart, checkEnd),
       );
 
       if (isChecked && checkEnd < headLineEnd) {
         decos.push(
           Decoration.mark({
-            attributes: { style: "text-decoration: line-through; color: var(--nexus-text-muted)" }
-          }).range(checkEnd, headLineEnd)
+            attributes: { style: "text-decoration: line-through; color: var(--nexus-text-muted)" },
+          }).range(checkEnd, headLineEnd),
         );
       }
     }
@@ -594,7 +676,7 @@ function defaultSanitizeHtml(rawHtml: string): string {
   // Strip inline event handlers: `onclick="…"` / `onload='…'` / onfoo=bareword.
   html = html.replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
   // Strip `javascript:` URLs in href / src attributes.
-  html = html.replace(/(href|src|xlink:href)\s*=\s*(['"])\s*javascript:[^'"]*\2/gi, '$1=$2#$2');
+  html = html.replace(/(href|src|xlink:href)\s*=\s*(['"])\s*javascript:[^'"]*\2/gi, "$1=$2#$2");
   return html;
 }
 
@@ -603,7 +685,7 @@ function buildHtmlDecorations(
   selection: readonly SelectionRange[],
   decos: Range<Decoration>[],
   config: NormalizedLivePreviewConfig,
-  viewRef: { current: EditorView | null }
+  viewRef: { current: EditorView | null },
 ): void {
   // Show raw source while the user is editing the block — same pattern as
   // mermaid / code blocks. `inclusiveEnd: true` so the cursor parked at the
@@ -632,7 +714,8 @@ function buildHtmlDecorations(
   if (!inner) {
     inner = document.createElement("div");
     inner.className = "nexus-html-block-content";
-    inner.style.cssText = "display:block;margin:0;padding:0;line-height:normal;font-family:inherit;";
+    inner.style.cssText =
+      "display:block;margin:0;padding:0;line-height:normal;font-family:inherit;";
     inner.innerHTML = defaultSanitizeHtml(range.node.value ?? range.source);
   }
 
@@ -660,7 +743,7 @@ function buildHtmlDecorations(
   // hence why the early-return uses mousedown rather than click.
   wrapper.addEventListener("mousedown", (event) => {
     const target = event.target as HTMLElement | null;
-    if (target && target.closest(INTERACTIVE_SELECTOR)) {
+    if (target?.closest(INTERACTIVE_SELECTOR)) {
       // Let the native click/toggle/link/focus happen.
       return;
     }
@@ -683,7 +766,7 @@ function buildHtmlDecorations(
     Decoration.replace({
       widget: createWidget(wrapper, true, heightHint, htmlKey),
       block: true,
-    }).range(range.from, range.to)
+    }).range(range.from, range.to),
   );
 }
 
@@ -701,11 +784,41 @@ interface AlertStyle {
 }
 
 const ALERT_STYLES: Record<AlertType, AlertStyle> = {
-  NOTE: { borderColor: "#0969da", bg: "rgba(9,105,218,0.08)", textColor: "#0969da", icon: "ℹ", label: "Note" },
-  TIP: { borderColor: "#1a7f37", bg: "rgba(26,127,55,0.08)", textColor: "#1a7f37", icon: "💡", label: "Tip" },
-  IMPORTANT: { borderColor: "#8250df", bg: "rgba(130,80,223,0.08)", textColor: "#8250df", icon: "❗", label: "Important" },
-  WARNING: { borderColor: "#9a6700", bg: "rgba(154,103,0,0.08)", textColor: "#9a6700", icon: "⚠", label: "Warning" },
-  CAUTION: { borderColor: "#cf222e", bg: "rgba(207,34,46,0.08)", textColor: "#cf222e", icon: "🚫", label: "Caution" },
+  NOTE: {
+    borderColor: "#0969da",
+    bg: "rgba(9,105,218,0.08)",
+    textColor: "#0969da",
+    icon: "ℹ",
+    label: "Note",
+  },
+  TIP: {
+    borderColor: "#1a7f37",
+    bg: "rgba(26,127,55,0.08)",
+    textColor: "#1a7f37",
+    icon: "💡",
+    label: "Tip",
+  },
+  IMPORTANT: {
+    borderColor: "#8250df",
+    bg: "rgba(130,80,223,0.08)",
+    textColor: "#8250df",
+    icon: "❗",
+    label: "Important",
+  },
+  WARNING: {
+    borderColor: "#9a6700",
+    bg: "rgba(154,103,0,0.08)",
+    textColor: "#9a6700",
+    icon: "⚠",
+    label: "Warning",
+  },
+  CAUTION: {
+    borderColor: "#cf222e",
+    bg: "rgba(207,34,46,0.08)",
+    textColor: "#cf222e",
+    icon: "🚫",
+    label: "Caution",
+  },
 };
 
 /**
@@ -748,7 +861,7 @@ function detectAlert(source: string): {
 function buildBlockquoteDecorations(
   range: { from: number; to: number; source: string },
   selection: readonly SelectionRange[],
-  decos: Range<Decoration>[]
+  decos: Range<Decoration>[],
 ): { alertHeadEnd: number } | null {
   const source = range.source;
   const lines = source.split("\n");
@@ -762,13 +875,7 @@ function buildBlockquoteDecorations(
     if (style) {
       const radiusTop = i === 0 ? "6px 6px" : "0 0";
       const radiusBottom = i === lines.length - 1 ? "6px 6px" : "0 0";
-      return (
-        `color:var(--nexus-text);` +
-        `border-left:4px solid ${style.borderColor};` +
-        `background:${style.bg};` +
-        `padding:2px 12px;` +
-        `border-radius:${radiusTop} ${radiusBottom};`
-      );
+      return `color:var(--nexus-text);border-left:4px solid ${style.borderColor};background:${style.bg};padding:2px 12px;border-radius:${radiusTop} ${radiusBottom};`;
     }
     return (
       "color:var(--nexus-text-muted);" +
@@ -782,9 +889,7 @@ function buildBlockquoteDecorations(
     const lineStart = offset;
     const lineEnd = offset + line.length;
 
-    decos.push(
-      Decoration.line({ attributes: { style: lineStyleFor(i) } }).range(lineStart)
-    );
+    decos.push(Decoration.line({ attributes: { style: lineStyleFor(i) } }).range(lineStart));
 
     const markerMatch = BLOCKQUOTE_MARKER_RE.exec(line);
     if (!cursorInBlockquote && markerMatch) {
@@ -800,9 +905,7 @@ function buildBlockquoteDecorations(
         if (tagEnd > tagStart) {
           const badge = document.createElement("span");
           badge.className = "nexus-alert-label";
-          badge.style.cssText =
-            `display:inline-flex;align-items:center;gap:6px;` +
-            `color:${style.textColor};font-weight:600;font-size:0.95em;`;
+          badge.style.cssText = `display:inline-flex;align-items:center;gap:6px;color:${style.textColor};font-weight:600;font-size:0.95em;`;
           const iconSpan = document.createElement("span");
           iconSpan.textContent = style.icon;
           iconSpan.setAttribute("aria-hidden", "true");
@@ -813,7 +916,7 @@ function buildBlockquoteDecorations(
           decos.push(
             Decoration.replace({
               widget: createWidget(badge, false, undefined, `alert:${alert.type}:${tagStart}`),
-            }).range(tagStart, tagEnd)
+            }).range(tagStart, tagEnd),
           );
           alertHeadEnd = lineEnd;
         }
@@ -836,7 +939,7 @@ function buildCodeBlockDecorations(
   selection: readonly SelectionRange[],
   decos: Range<Decoration>[],
   viewRef: { current: EditorView | null },
-  codeTokens?: readonly import("./types").CodeHighlightToken[]
+  codeTokens?: readonly import("./types").CodeHighlightToken[],
 ): void {
   const source = range.source;
   const lines = source.split("\n");
@@ -852,7 +955,7 @@ function buildCodeBlockDecorations(
       Decoration.replace({
         widget: new MermaidWidget(range.node.value ?? "", viewRef, range.from, firstNewline + 1),
         block: true,
-      }).range(range.from, range.to)
+      }).range(range.from, range.to),
     );
     return;
   }
@@ -884,7 +987,11 @@ function buildCodeBlockDecorations(
 
     // Line decoration: ONLY background + border-radius (no font changes).
     // position:relative on first fence line anchors the absolute copy button.
-    const radius = isFirstLine ? "border-radius:4px 4px 0 0;" : isLastLine ? "border-radius:0 0 4px 4px;" : "";
+    const radius = isFirstLine
+      ? "border-radius:4px 4px 0 0;"
+      : isLastLine
+        ? "border-radius:0 0 4px 4px;"
+        : "";
     const firstLineExtra = isFirstLine && isFenced ? "position:relative;" : "";
     const lineAttrs: Record<string, string> = { style: LINE_BG + radius + firstLineExtra };
     if (isFirstLine) {
@@ -895,20 +1002,26 @@ function buildCodeBlockDecorations(
 
     // Fence lines: transparent + monospace via mark; visible when cursor in block.
     if (isFenced && (isFirstLine || isLastLine) && lineEnd > lineStart) {
-      decos.push(Decoration.mark({
-        attributes: {
-          style: MONO_MARK + (cursorOnCode
-            ? "color:var(--nexus-text-faint,#bbb);"
-            : "color:transparent;cursor:text;")
-        }
-      }).range(lineStart, lineEnd));
+      decos.push(
+        Decoration.mark({
+          attributes: {
+            style:
+              MONO_MARK +
+              (cursorOnCode
+                ? "color:var(--nexus-text-faint,#bbb);"
+                : "color:transparent;cursor:text;"),
+          },
+        }).range(lineStart, lineEnd),
+      );
     }
 
     // Content lines (non-fence): monospace via mark.
     if (!(isFenced && (isFirstLine || isLastLine)) && lineEnd > lineStart) {
-      decos.push(Decoration.mark({
-        attributes: { style: MONO_MARK }
-      }).range(lineStart, lineEnd));
+      decos.push(
+        Decoration.mark({
+          attributes: { style: MONO_MARK },
+        }).range(lineStart, lineEnd),
+      );
     }
 
     // Copy button: always present, absolute-positioned inside first fence line.
@@ -916,8 +1029,8 @@ function buildCodeBlockDecorations(
       decos.push(
         Decoration.widget({
           widget: new CodeCopyWidget(codeValue, lang ?? ""),
-          side: 1
-        }).range(lineEnd)
+          side: 1,
+        }).range(lineEnd),
       );
     }
 
@@ -939,9 +1052,7 @@ function buildCodeBlockDecorations(
       if (tok.from >= contentEnd) break;
       if (tok.to <= contentStart) continue;
       if (tok.from < range.from || tok.to > range.to) continue;
-      decos.push(
-        Decoration.mark({ class: tok.className }).range(tok.from, tok.to)
-      );
+      decos.push(Decoration.mark({ class: tok.className }).range(tok.from, tok.to));
     }
   }
 }
@@ -969,8 +1080,10 @@ function getInlineMarkerStyle(nodeType: string, source: string): InlineMarkerSty
       let ticks = 0;
       for (let i = 0; i < source.length && source[i] === "`"; i++) ticks++;
       return {
-        openLen: ticks, closeLen: ticks,
-        style: "font-family:monospace;background:var(--nexus-bg-muted);padding:1px 4px;border-radius:3px"
+        openLen: ticks,
+        closeLen: ticks,
+        style:
+          "font-family:monospace;background:var(--nexus-bg-muted);padding:1px 4px;border-radius:3px",
       };
     }
     case "link": {
@@ -979,25 +1092,27 @@ function getInlineMarkerStyle(nodeType: string, source: string): InlineMarkerSty
       if (bracketClose >= 0) {
         const url = source.slice(bracketClose + 2, source.length - 1);
         return {
-          openLen: 1,                            // hide [
+          openLen: 1, // hide [
           closeLen: source.length - bracketClose, // hide ](url)
           style: "color:var(--nexus-accent);text-decoration:underline;cursor:pointer",
-          attrs: { "data-link-url": url }
+          attrs: { "data-link-url": url },
         };
       }
       // Standard autolink: <URL> — hide angle brackets
       if (source.startsWith("<") && source.endsWith(">")) {
         return {
-          openLen: 1, closeLen: 1,
+          openLen: 1,
+          closeLen: 1,
           style: "color:var(--nexus-accent);text-decoration:underline;cursor:pointer",
-          attrs: { "data-link-url": source.slice(1, -1) }
+          attrs: { "data-link-url": source.slice(1, -1) },
         };
       }
       // GFM autolink literal: bare URL, no markers to hide
       return {
-        openLen: 0, closeLen: 0,
+        openLen: 0,
+        closeLen: 0,
         style: "color:var(--nexus-accent);text-decoration:underline;cursor:pointer",
-        attrs: { "data-link-url": source }
+        attrs: { "data-link-url": source },
       };
     }
     default:
@@ -1018,9 +1133,10 @@ function buildDecorations(
   selection: readonly SelectionRange[],
   config: NormalizedLivePreviewConfig,
   viewRef: { current: EditorView | null },
-  ctx: BuildContext
+  ctx: BuildContext,
 ): { decos: DecorationSet; ast: Root; codeTokens: CodeHighlightToken[] } {
-  if (!config.enabled) return { decos: Decoration.none, ast: ctx.ast ?? createEmptyAst(), codeTokens: [] };
+  if (!config.enabled)
+    return { decos: Decoration.none, ast: ctx.ast ?? createEmptyAst(), codeTokens: [] };
 
   const perfEnabled = (globalThis as { NEXUS_PERF?: boolean }).NEXUS_PERF !== false;
   const t0 = perfEnabled ? performance.now() : 0;
@@ -1034,7 +1150,6 @@ function buildDecorations(
   // Highlight tokens are computed ON DEMAND but cached: identical (lang, code)
   // pairs hit the LRU in highlightCodeBlock so cursor moves don't re-tokenize.
   const codeTokens = ctx.codeTokens ?? highlightAllCodeBlocks(ast, doc);
-  const t1b = perfEnabled ? performance.now() : 0;
   const ranges = collectLivePreviewRanges(ast, doc, selection);
   const t2 = perfEnabled ? performance.now() : 0;
   const astHit = !!ctx.ast;
@@ -1050,16 +1165,20 @@ function buildDecorations(
         doc,
         selection,
         decos,
-        ctx.compositionActive === true
+        ctx.compositionActive === true,
       );
     } else if (range.node.type === "table" && !config.renderers.table) {
       decos.push(
         Decoration.replace({
           widget: new EditableTableWidget(
-            range.node as Table, range.from, range.source, viewRef, config.labels
+            range.node as Table,
+            range.from,
+            range.source,
+            viewRef,
+            config.labels,
           ),
-          block: true
-        }).range(range.from, range.to)
+          block: true,
+        }).range(range.from, range.to),
       );
     } else if (range.node.type === "html") {
       buildHtmlDecorations(
@@ -1067,15 +1186,21 @@ function buildDecorations(
         selection,
         decos,
         config,
-        viewRef
+        viewRef,
       );
     } else if (range.node.type === "list") {
-      buildListDecorations(range as { from: number; to: number; node: List }, doc, selection, decos, viewRef);
+      buildListDecorations(
+        range as { from: number; to: number; node: List },
+        doc,
+        selection,
+        decos,
+        viewRef,
+      );
     } else if (range.node.type === "blockquote") {
       const alertInfo = buildBlockquoteDecorations(
         range as { from: number; to: number; source: string },
         selection,
-        decos
+        decos,
       );
       if (alertInfo) {
         // GFM Alert: suppress the inline link decoration that lezer emits for
@@ -1085,7 +1210,13 @@ function buildDecorations(
         parentSpans.push([range.from, alertInfo.alertHeadEnd]);
       }
     } else if (range.node.type === "code" && !config.renderers.code) {
-      buildCodeBlockDecorations(range as { from: number; to: number; node: Code; source: string }, selection, decos, viewRef, codeTokens);
+      buildCodeBlockDecorations(
+        range as { from: number; to: number; node: Code; source: string },
+        selection,
+        decos,
+        viewRef,
+        codeTokens,
+      );
     } else if (range.node.type === "image") {
       // Cursor-aware + preview-alongside:
       //   * cursor OUT  → replace widget (source hidden).
@@ -1106,8 +1237,8 @@ function buildDecorations(
       if (!cursorOnImage) {
         decos.push(
           Decoration.replace({
-            widget: createWidget(buildImg, true, undefined, imgKey)
-          }).range(range.from, range.to)
+            widget: createWidget(buildImg, true, undefined, imgKey),
+          }).range(range.from, range.to),
         );
       } else {
         // Edit mode: keep source text visible; also render the image below.
@@ -1116,7 +1247,7 @@ function buildDecorations(
             widget: createWidget(buildImg, true, undefined, imgKey),
             block: true,
             side: 1,
-          }).range(range.to)
+          }).range(range.to),
         );
       }
     } else if (range.node.type === "link" && !config.renderers.link) {
@@ -1132,9 +1263,13 @@ function buildDecorations(
         const linkText = range.source.slice(openLen, range.source.length - closeLen);
         const span = document.createElement("span");
         span.textContent = linkText;
-        span.style.cssText = style + ";transition:opacity .15s;";
-        span.addEventListener("mouseenter", () => { span.style.opacity = "0.7"; });
-        span.addEventListener("mouseleave", () => { span.style.opacity = "1"; });
+        span.style.cssText = `${style};transition:opacity .15s;`;
+        span.addEventListener("mouseenter", () => {
+          span.style.opacity = "0.7";
+        });
+        span.addEventListener("mouseleave", () => {
+          span.style.opacity = "1";
+        });
         if (attrs) {
           for (const [k, v] of Object.entries(attrs)) span.setAttribute(k, v);
         }
@@ -1142,7 +1277,7 @@ function buildDecorations(
         decos.push(
           Decoration.replace({
             widget: createWidget(span, false, undefined, linkKey),
-          }).range(range.from, range.to)
+          }).range(range.from, range.to),
         );
       }
     } else if (range.node.type === "definition") {
@@ -1151,39 +1286,45 @@ function buildDecorations(
       // was the single biggest click-drift source. Heights must stay constant regardless
       // of cursor to keep CM6's measurement cache and click-position resolution stable.
       decos.push(
-        Decoration.mark({ attributes: { style: "color:var(--nexus-text-faint)" } })
-          .range(range.from, range.to)
+        Decoration.mark({ attributes: { style: "color:var(--nexus-text-faint)" } }).range(
+          range.from,
+          range.to,
+        ),
       );
     } else if (range.node.type === "footnoteReference") {
       const ref = range.node as FootnoteReference;
       const sup = document.createElement("sup");
       sup.textContent = ref.identifier;
-      sup.style.cssText = "color:var(--nexus-accent);cursor:pointer;font-size:0.8em;vertical-align:super;";
+      sup.style.cssText =
+        "color:var(--nexus-accent);cursor:pointer;font-size:0.8em;vertical-align:super;";
       const fnRefKey = `fnref:${range.from}-${range.to}:${ref.identifier}`;
       decos.push(
         Decoration.replace({
           widget: createWidget(sup, false, undefined, fnRefKey),
-        }).range(range.from, range.to)
+        }).range(range.from, range.to),
       );
     } else if (range.node.type === "footnoteDefinition") {
       const def = range.node as FootnoteDefinition;
       const defText = range.source.replace(/^\[\^\w+\]:\s*/, "");
       const el = document.createElement("div");
-      el.style.cssText = "font-size:0.85em;color:var(--nexus-text-muted);border-top:1px solid var(--nexus-border);padding-top:8px;";
+      el.style.cssText =
+        "font-size:0.85em;color:var(--nexus-text-muted);border-top:1px solid var(--nexus-border);padding-top:8px;";
       const marker = document.createElement("sup");
       marker.textContent = def.identifier;
       marker.style.cssText = "color:var(--nexus-accent);margin-right:4px;";
       el.appendChild(marker);
       el.appendChild(document.createTextNode(defText));
       // Use line decoration + widget for stable viewport height
-      decos.push(Decoration.line({
-        attributes: { style: "padding:0;margin:0;min-height:0;" }
-      }).range(range.from));
+      decos.push(
+        Decoration.line({
+          attributes: { style: "padding:0;margin:0;min-height:0;" },
+        }).range(range.from),
+      );
       const fnDefKey = `fndef:${range.from}-${range.to}:${def.identifier}:${range.source}`;
       decos.push(
         Decoration.replace({
           widget: createWidget(el, false, undefined, fnDefKey),
-        }).range(range.from, range.to)
+        }).range(range.from, range.to),
       );
     } else {
       if (range.node.type === "heading" || range.node.type === "table") {
@@ -1233,13 +1374,20 @@ function buildDecorations(
         decos.push(
           Decoration.replace({
             widget: createWidget(
-              () => renderLivePreviewNode(range.node, range.source, config.renderers, range.from, range.to),
+              () =>
+                renderLivePreviewNode(
+                  range.node,
+                  range.source,
+                  config.renderers,
+                  range.from,
+                  range.to,
+                ),
               isBlock,
               heightHint,
               blockKey,
             ),
-            block: isBlock
-          }).range(range.from, range.to)
+            block: isBlock,
+          }).range(range.from, range.to),
         );
       }
     }
@@ -1257,7 +1405,8 @@ function buildDecorations(
     if (total > 5 || parseMs > 2) {
       // eslint-disable-next-line no-console
       console.log(
-        "%c[perf]", "color:#0aa;font-weight:bold",
+        "%c[perf]",
+        "color:#0aa;font-weight:bold",
         "buildDecorations",
         `total=${total.toFixed(1)}ms`,
         {
@@ -1277,7 +1426,7 @@ function buildDecorations(
 
 export function createLivePreviewExtension(
   config: boolean | LivePreviewConfig | undefined,
-  localeLabels?: LivePreviewLabels
+  localeLabels?: LivePreviewLabels,
 ): Extension[] {
   const normalized = normalizeConfig(config);
   if (!normalized.enabled) return [];
@@ -1297,11 +1446,16 @@ export function createLivePreviewExtension(
   const rebuildForCompositionStart = StateEffect.define<null>();
   const rebuildAfterComposition = StateEffect.define<null>();
 
-  function build(state: EditorState, selection: readonly SelectionRange[], reuseCache: boolean): DecorationSet {
+  function build(
+    state: EditorState,
+    selection: readonly SelectionRange[],
+    reuseCache: boolean,
+  ): DecorationSet {
     const docStr = state.doc.toString();
-    const ctx: BuildContext = reuseCache && lastBuilt && lastBuilt.doc === docStr
-      ? { ast: lastBuilt.ast, codeTokens: lastBuilt.codeTokens }
-      : {};
+    const ctx: BuildContext =
+      reuseCache && lastBuilt && lastBuilt.doc === docStr
+        ? { ast: lastBuilt.ast, codeTokens: lastBuilt.codeTokens }
+        : {};
     try {
       const out = buildDecorations(state, selection, normalized, viewRef, {
         ...ctx,
@@ -1314,7 +1468,10 @@ export function createLivePreviewExtension(
       // markdown"（仍可编辑），并缓存空 AST，避免后续 selection-only 重建反复抛同样的错。
       // 文档再次变更（docChanged，reuseCache=false）会重新尝试完整构建并自动恢复。
       // eslint-disable-next-line no-console
-      console.error("[NexusEditor] live-preview build failed; rendering raw markdown for this view", err);
+      console.error(
+        "[NexusEditor] live-preview build failed; rendering raw markdown for this view",
+        err,
+      );
       lastBuilt = { doc: docStr, ast: createEmptyAst(), codeTokens: [] };
       return Decoration.none;
     }
@@ -1358,7 +1515,7 @@ export function createLivePreviewExtension(
     },
     provide(field) {
       return EditorView.decorations.from(field);
-    }
+    },
   });
 
   const viewCapture = ViewPlugin.fromClass(
@@ -1374,7 +1531,7 @@ export function createLivePreviewExtension(
       destroy(): void {
         if (viewRef.current === this.view) viewRef.current = null;
       }
-    }
+    },
   );
 
   const compositionHandler = EditorView.domEventHandlers({
@@ -1420,8 +1577,10 @@ export function createLivePreviewExtension(
         const doc = view.state.doc.toString();
         const headingRe = /^(#{1,6})\s+(.+)$/gm;
         let m: RegExpExecArray | null;
+        // biome-ignore lint/suspicious/noAssignInExpressions: standard RegExp loop idiom
         while ((m = headingRe.exec(doc)) !== null) {
-          const headingSlug = m[2].trim()
+          const headingSlug = m[2]
+            .trim()
             .toLowerCase()
             .replace(/[^\p{L}\p{N}\s-]/gu, "")
             .trim()
@@ -1431,7 +1590,7 @@ export function createLivePreviewExtension(
           if (headingSlug === targetSlug) {
             view.dispatch({
               selection: { anchor: m.index },
-              effects: EditorView.scrollIntoView(m.index, { y: "start", yMargin: 20 })
+              effects: EditorView.scrollIntoView(m.index, { y: "start", yMargin: 20 }),
             });
             view.focus();
             return true;
@@ -1443,7 +1602,7 @@ export function createLivePreviewExtension(
       // External links: open in new tab
       window.open(url, "_blank", "noopener");
       return true;
-    }
+    },
   });
 
   // 表格被渲染成 block replace widget（整段源码折叠成一个不可逐字进入的部件），
@@ -1467,5 +1626,12 @@ export function createLivePreviewExtension(
     return builder.finish();
   });
 
-  return [field, viewCapture, compositionHandler, linkHandler, tableAtomicRanges, createLivePreviewDiagnostics()];
+  return [
+    field,
+    viewCapture,
+    compositionHandler,
+    linkHandler,
+    tableAtomicRanges,
+    createLivePreviewDiagnostics(),
+  ];
 }
