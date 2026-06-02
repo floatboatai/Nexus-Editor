@@ -8,6 +8,7 @@
     "typecheck": "pnpm -r exec tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "pnpm --filter @floatboat/nexus-electron-demo test:e2e",
+    "test:e2e:headed": "pnpm --filter @floatboat/nexus-electron-demo test:e2e:headed",
     "test:e2e:stability": "pnpm --filter @floatboat/nexus-electron-demo test:e2e:stability",
     "dev:electron-demo": "pnpm --filter @floatboat/nexus-electron-demo dev",
     "build:electron-demo": "pnpm --filter @floatboat/nexus-electron-demo build",
