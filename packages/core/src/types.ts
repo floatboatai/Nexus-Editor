@@ -181,6 +181,12 @@ export interface EditorAPI {
    */
   getPosAtDOM(node: HTMLElement): number | null;
   getDocumentStats(): { characters: number; words: number; lines: number };
+  /** 当前光标位置：1-based 行号、1-based 列号、0-based 绝对偏移。 */
+  getCursorPosition(): { line: number; column: number; offset: number };
+  /** 编辑器滚动信息。无 view 时返回 null。 */
+  getScrollInfo(): { scrollTop: number; scrollLeft: number; scrollHeight: number; clientHeight: number } | null;
+  /** @internal 供内部插件访问 CM6 EditorView，非公共 API。 */
+  _nexusView: import("@codemirror/view").EditorView;
 }
 
 export interface SlashCommandDef {

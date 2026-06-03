@@ -815,6 +815,23 @@ export function createEditor(config: EditorConfig): EditorAPI {
       const lines = view.state.doc.lines;
       return { characters, words, lines };
     },
+    getCursorPosition() {
+      const sel = view.state.selection.main;
+      const line = view.state.doc.lineAt(sel.head);
+      return {
+        line: line.number,
+        column: sel.head - line.from + 1,
+        offset: sel.head,
+      };
+    },
+    getScrollInfo() {
+      return {
+        scrollTop: view.scrollDOM.scrollTop,
+        scrollLeft: view.scrollDOM.scrollLeft,
+        scrollHeight: view.scrollDOM.scrollHeight,
+        clientHeight: view.scrollDOM.clientHeight,
+      };
+    },
     destroy() {
       debugNexus("destroy", {
         documentLength: view.state.doc.length,
@@ -838,7 +855,11 @@ export function createEditor(config: EditorConfig): EditorAPI {
       composing = false;
       emitter.clear();
       view.destroy();
-    }
+    },
+    // @internal — 供 plugin-autosave 等需要访问 CM6 内部的插件使用
+    get _nexusView() {
+      return view;
+    },
   };
 
   return api;
