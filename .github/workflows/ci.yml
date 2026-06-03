@@ -53,6 +53,31 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+      - name: Install Playwright browsers
+        run: pnpm --filter @floatboat/nexus-electron-demo exec playwright install --with-deps chromium
+
+      - name: Run Electron demo E2E tests
+        run: pnpm test:e2e
+
+      # Stability gate: each scenario runs 3× with no retries allowed.
+      # Retries are disabled so nondeterministic failures are never silently
+      # swallowed — a flaky test must fail here before it can reach release.
+      - name: Run E2E stability gate (3× repeat, no retries)
+        run: pnpm test:e2e:stability
+
+      - name: Generate eval report
+        if: always()
+        run: pnpm --filter @floatboat/nexus-electron-demo run generate-eval-report
+
+      - name: Upload E2E results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: apps/electron-demo/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Build packages
         run: pnpm build
 

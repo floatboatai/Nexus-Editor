@@ -80,8 +80,8 @@ This document maps every planned feature to **package ownership / priority / sta
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
 | 24 | TypeScript type coverage | repo-wide | P0 | in-progress | No | Ongoing; new code enforces strict |
-| 25 | End-to-end testing | repo infra | P1 | planned | No | Candidate: Playwright against electron-demo |
-| 26 | CI/CD pipeline polish | `.github/workflows` | P1 | planned | No | Publish workflow exists; missing PR check / e2e gate |
+| 25 | End-to-end testing | repo infra | P1 | in-progress | No | Playwright renderer harness + stability gate — PR #39 |
+| 26 | CI/CD pipeline polish | `.github/workflows` | P1 | in-progress | No | Standard E2E pass + stability gate + eval report — PR #39 |
 
 ---
 
