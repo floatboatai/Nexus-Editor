@@ -33,7 +33,7 @@ This document maps every planned feature to **package ownership / priority / sta
 
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
-| 5 | `getSelectedText()` API | `core` | P0 | in-progress | No | Public API addition; needs types + tests — PR #8 in review |
+| 5 | `getSelectedText()` API | `core` | P0 | done | No | Returns the text within the current selection range |
 | 6 | Multi-cursor / multi-selection | `core` | P1 | planned | Yes | CM6 supports it; must verify live-preview and table interactions |
 | 7 | AST enhancement / Markdown extensions | `core` + `preset-gfm` | P2 | planned | Yes | Affects serialization and every AST-dependent plugin |
 | 8 | Undo / redo grouping | `plugin-history` | P1 | planned | No | Coordinate with table's `tableEditingCount` |
@@ -57,7 +57,7 @@ This document maps every planned feature to **package ownership / priority / sta
 
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
-| 4 | `<Editor />` container pass-through props + `onReady` callback | `react` (and `vue` in lockstep) | P0 | planned | No | Public API addition; semantics must match across bindings |
+| 4 | `<Editor />` container pass-through props + `onReady` callback | `react` (and `vue` in lockstep) | P0 | done | No | HTML attrs forwarded to container; `onReady` fires with `EditorAPI` once |
 
 ## 7. Collaboration
 

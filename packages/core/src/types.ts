@@ -140,6 +140,8 @@ export interface EditorAPI {
   exportHTML(): string;
   setTheme(theme: import("./theme").NexusTheme): void;
   getSelection(): { anchor: number; head: number };
+  /** Return the text within the current selection, or `""` when the selection is empty. */
+  getSelectedText(): string;
   getSlashCommands(): SlashCommandDef[];
   uploadAsset(file: File): Promise<string | null>;
   setSelection(anchor: number, head?: number): void;

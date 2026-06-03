@@ -695,4 +695,33 @@ describe("createEditor — DOM event hook layer", () => {
     expect(passthrough.defaultPrevented).toBe(false);
     editor.destroy();
   });
+
+  it("getSelectedText returns empty string when selection is collapsed", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    expect(editor.getSelectedText()).toBe("");
+    editor.destroy();
+  });
+
+  it("getSelectedText returns the selected range text", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.setSelection(0, 5);
+    expect(editor.getSelectedText()).toBe("hello");
+
+    editor.setSelection(6, 11);
+    expect(editor.getSelectedText()).toBe("world");
+    editor.destroy();
+  });
+
+  it("getSelectedText works with reversed selection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "abcdef" });
+
+    editor.setSelection(6, 2);
+    expect(editor.getSelectedText()).toBe("cdef");
+    editor.destroy();
+  });
 });

@@ -687,6 +687,11 @@ export function createEditor(config: EditorConfig): EditorAPI {
       const sel = view.state.selection.main;
       return { anchor: sel.anchor, head: sel.head };
     },
+    getSelectedText() {
+      const { from, to } = view.state.selection.main;
+      if (from === to) return "";
+      return view.state.doc.sliceString(from, to);
+    },
     getSlashCommands() {
       return slashCommands;
     },
