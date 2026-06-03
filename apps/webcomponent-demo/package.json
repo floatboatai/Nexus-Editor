@@ -1,0 +1,23 @@
+{
+  "name": "@floatboat/nexus-webcomponent-demo",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Web Component Demo for Nexus Editor",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run --config ../../vitest.config.ts"
+  },
+  "dependencies": {
+    "@floatboat/nexus-plugin-search": "workspace:^",
+    "@floatboat/nexus-webcomponent": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.3.0",
+    "vitest": "^2.1.9"
+  }
+}

@@ -1,0 +1,99 @@
+@scope (.backlinks-panel) {
+  :scope {
+    width: 280px;
+    flex-shrink: 0;
+    border-left: 1px solid var(--nexus-border, #eee);
+    background: var(--nexus-bg, #fff);
+    display: flex;
+    flex-direction: column;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 13px;
+    overflow: hidden;
+  }
+
+  .backlinks-header {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--nexus-border, #eee);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--nexus-text-muted, #888);
+    flex-shrink: 0;
+  }
+
+  .backlinks-list {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .backlinks-section-header {
+    padding: 8px 10px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--nexus-text-muted, #888);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-top: 1px solid var(--nexus-border-subtle, #f2f2f2);
+    background: var(--nexus-bg, #fff);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  .backlinks-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--nexus-bg-muted, #eef);
+    color: var(--nexus-text-muted, #666);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .backlinks-empty {
+    padding: 8px 12px 12px;
+    color: var(--nexus-text-faint, #bbb);
+    font-size: 12px;
+    font-style: italic;
+  }
+
+  .backlinks-item {
+    display: block;
+    width: 100%;
+    border: none;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    padding: 6px 10px;
+    color: var(--nexus-text, #24292e);
+    border-bottom: 1px solid var(--nexus-border-subtle, #f2f2f2);
+  }
+
+  .backlinks-item:hover {
+    background: var(--nexus-bg-muted, #f5f5f5);
+  }
+
+  .backlinks-item-title {
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--nexus-text, #24292e);
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .backlinks-item-snippet {
+    font-size: 12px;
+    color: var(--nexus-text-muted, #666);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}

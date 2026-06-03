@@ -1,0 +1,150 @@
+@scope (.nexus-vault-panel) {
+  :scope {
+    width: 240px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--nexus-border, #eee);
+    background: var(--nexus-bg, #fff);
+    overflow: hidden;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .vault-header {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--nexus-border, #eee);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .vault-header-title {
+    flex: 1;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--nexus-text-muted, #888);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .vault-icon-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 3px 7px;
+    font-size: 14px;
+    line-height: 1;
+    color: var(--nexus-text-muted, #555);
+    border-radius: 3px;
+    transition: background 0.12s;
+  }
+
+  .vault-icon-btn:hover:not(:disabled) {
+    background: var(--nexus-bg-muted, #eef);
+  }
+
+  .vault-tree {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 4px 0;
+  }
+
+  .vault-empty {
+    padding: 16px 12px;
+    color: var(--nexus-text-faint, #bbb);
+    font-size: 12px;
+    font-style: italic;
+    text-align: center;
+  }
+
+  .vault-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    border: none;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    padding: 3px 8px;
+    color: var(--nexus-text, #24292e);
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: inherit;
+    user-select: none;
+  }
+
+  .vault-item:hover:not(.active) {
+    background: var(--nexus-bg-muted, #f4f4f4);
+  }
+
+  .vault-item.active {
+    background: var(--nexus-bg-active, #e7f0ff);
+    color: var(--nexus-text, #0366d6);
+  }
+
+  .vault-item-icon {
+    width: 12px;
+    flex-shrink: 0;
+    color: #888;
+    font-size: 11px;
+  }
+
+  .vault-item-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .vault-rename-input {
+    flex: 1;
+    border: 1px solid var(--nexus-accent, #0366d6);
+    padding: 1px 4px;
+    font-size: 13px;
+    font-family: inherit;
+    background: var(--nexus-bg, #fff);
+    color: inherit;
+  }
+}
+
+.nexus-vault-ctxmenu {
+  position: fixed;
+  background: var(--nexus-bg, #fff);
+  border: 1px solid var(--nexus-border, #ddd);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  padding: 4px 0;
+  z-index: 10000;
+  min-width: 160px;
+  font-size: 13px;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.nexus-vault-ctxmenu button {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 6px 12px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.nexus-vault-ctxmenu button:hover {
+  background: var(--nexus-bg-muted, #f0f0f0);
+}
+
+.nexus-vault-ctxmenu button.destructive {
+  color: #d73a49;
+}

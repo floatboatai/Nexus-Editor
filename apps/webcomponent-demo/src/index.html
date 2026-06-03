@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nexus Editor Web Demo</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html,
+      body,
+      #app {
+        height: 100%;
+      }
+
+      #app {
+        display: flex;
+        flex-direction: column;
+        font-family: system-ui, sans-serif;
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 8px;
+        padding: 8px 12px;
+        background: #f0f0f0;
+        border-bottom: 1px solid #ddd;
+        flex-shrink: 0;
+      }
+
+      .toolbar button {
+        padding: 4px 12px;
+        cursor: pointer;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        background: white;
+        font-size: 13px;
+      }
+
+      .toolbar button:hover {
+        background: #f5f5f5;
+      }
+
+      .toolbar .spacer {
+        flex: 1;
+      }
+
+      .main-area {
+        flex: 1;
+        display: flex;
+        overflow: hidden;
+      }
+
+      .editor-column {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .editor-container {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .editor-container .cm-editor {
+        flex: 1;
+        min-height: 0;
+        height: auto;
+      }
+
+      .status-line {
+        padding: 4px 12px;
+        font-size: 13px;
+        color: #666;
+        background: #fafafa;
+        border-top: 1px solid #eee;
+        flex-shrink: 0;
+      }
+
+      .cm-editor .hljs-keyword,
+      .cm-editor .hljs-selector-tag,
+      .cm-editor .hljs-built_in,
+      .cm-editor .hljs-name,
+      .cm-editor .hljs-doctag { color: #d33682; }
+      .cm-editor .hljs-string,
+      .cm-editor .hljs-attr,
+      .cm-editor .hljs-symbol,
+      .cm-editor .hljs-bullet,
+      .cm-editor .hljs-addition,
+      .cm-editor .hljs-regexp,
+      .cm-editor .hljs-link { color: #2aa198; }
+      .cm-editor .hljs-title,
+      .cm-editor .hljs-section { color: #268bd2; }
+      .cm-editor .hljs-comment,
+      .cm-editor .hljs-quote,
+      .cm-editor .hljs-meta { color: #93a1a1; font-style: italic; }
+      .cm-editor .hljs-number,
+      .cm-editor .hljs-literal { color: #b58900; }
+      .cm-editor .hljs-type,
+      .cm-editor .hljs-params { color: #859900; }
+      .cm-editor .hljs-deletion { color: #dc322f; }
+      .cm-editor .hljs-variable,
+      .cm-editor .hljs-template-variable { color: #cb4b16; }
+
+      .nexus-slash-menu {
+        --nexus-slash-bg: var(--nexus-bg, #ffffff);
+        --nexus-slash-border: var(--nexus-border, #e4e7eb);
+        --nexus-slash-text: var(--nexus-text, #24292e);
+        --nexus-slash-text-muted: var(--nexus-text-muted, #6e7681);
+        --nexus-slash-accent: var(--nexus-accent, #0969da);
+        --nexus-slash-active-bg: var(--nexus-bg-muted, #eaeef2);
+
+        min-width: 220px;
+        max-width: 320px;
+        max-height: 320px;
+        overflow-y: auto;
+        background: var(--nexus-slash-bg);
+        color: var(--nexus-slash-text);
+        border: 1px solid var(--nexus-slash-border);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        padding: 4px;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        font-size: 13px;
+        line-height: 1.4;
+        z-index: 1000;
+      }
+
+      .nexus-slash-menu__item {
+        display: flex;
+        flex-direction: column;
+        padding: 6px 10px;
+        border-radius: 5px;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .nexus-slash-menu__item.is-active {
+        background: var(--nexus-slash-active-bg);
+      }
+
+      .nexus-slash-menu__title {
+        font-weight: 500;
+        color: var(--nexus-slash-text);
+      }
+
+      .nexus-slash-menu__description {
+        font-size: 12px;
+        color: var(--nexus-slash-text-muted);
+        margin-top: 1px;
+      }
+
+      .nexus-slash-menu__empty {
+        padding: 12px 10px;
+        color: var(--nexus-slash-text-muted);
+        font-style: italic;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="toolbar">
+        <button id="openBtn">Open</button>
+        <button id="saveBtn">Save</button>
+        <button id="saveAsBtn">Save As</button>
+        <div class="spacer"></div>
+        <button id="vaultToggleBtn" title="Toggle Vault Panel">📑</button>
+        <button id="outlineToggleBtn" title="Toggle Outline">☰</button>
+        <button id="backlinksToggleBtn" title="Toggle Backlinks">🔗</button>
+        <button id="searchBtn" title="Search (Ctrl+F)">🔍</button>
+        <button id="settingsBtn" title="Settings">⚙</button>
+      </div>
+
+      <div class="main-area">
+        <div class="editor-column">
+          <div class="editor-container" id="editorContainer"></div>
+        </div>
+      </div>
+
+      <div class="status-line" id="status-line">Untitled</div>
+    </div>
+
+    <script type="module" src="./app.ts"></script>
+  </body>
+</html>

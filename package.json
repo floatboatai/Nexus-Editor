@@ -9,6 +9,8 @@
     "test": "vitest run",
     "dev:electron-demo": "pnpm --filter @floatboat/nexus-electron-demo dev",
     "build:electron-demo": "pnpm --filter @floatboat/nexus-electron-demo build",
+    "dev:web-demo": "pnpm --filter @floatboat/nexus-web-demo dev",
+    "build:web-demo": "pnpm --filter @floatboat/nexus-web-demo build",
     "publish:packages": "pnpm -r --filter \"./packages/*\" publish --access public --no-git-checks"
   },
   "devDependencies": {

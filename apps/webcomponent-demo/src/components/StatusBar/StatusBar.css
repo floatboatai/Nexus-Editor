@@ -1,0 +1,10 @@
+@scope (.nexus-status-bar) {
+  :scope {
+    padding: 4px 12px;
+    font-size: 12px;
+    color: var(--nexus-text-muted, #888);
+    background: var(--nexus-bg-subtle, #f6f8fa);
+    border-top: 1px solid var(--nexus-border, #eee);
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+}

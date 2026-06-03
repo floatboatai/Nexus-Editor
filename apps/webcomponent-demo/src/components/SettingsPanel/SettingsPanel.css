@@ -1,0 +1,172 @@
+@scope (.nexus-settings-backdrop) {
+  :scope {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.4);
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+
+  .nexus-settings-dialog {
+    background: var(--nexus-bg, #fff);
+    color: var(--nexus-text, #24292e);
+    border: 1px solid var(--nexus-border, #eee);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    width: 520px;
+    max-height: 80vh;
+    overflow-y: auto;
+    padding: 0;
+  }
+
+  .nexus-settings-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--nexus-border, #eee);
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .nexus-settings-body {
+    padding: 8px 24px 16px;
+  }
+
+  .nexus-settings-section-title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--nexus-text-muted, #888);
+    letter-spacing: 0.5px;
+    padding: 12px 0 4px;
+  }
+
+  .nexus-settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--nexus-border-subtle, #f0f0f0);
+    gap: 12px;
+  }
+
+  .nexus-settings-label {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .nexus-settings-label-title {
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+
+  .nexus-settings-label-desc {
+    font-size: 12px;
+    color: var(--nexus-text-muted, #888);
+    line-height: 1.4;
+  }
+
+  .nexus-settings-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 20px;
+    color: var(--nexus-text-muted, #888);
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .nexus-settings-close:hover {
+    background: var(--nexus-bg-muted, #f0f0f0);
+  }
+
+  .nexus-settings-toggle {
+    width: 44px;
+    height: 24px;
+    border-radius: 12px;
+    border: none;
+    cursor: pointer;
+    position: relative;
+    transition: background 0.2s;
+    flex-shrink: 0;
+  }
+
+  .nexus-settings-toggle.enabled {
+    background: var(--nexus-accent, #0969da);
+  }
+
+  .nexus-settings-toggle.disabled {
+    background: var(--nexus-bg-muted, #ccc);
+  }
+
+  .nexus-settings-toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    transition: left 0.2s;
+  }
+
+  .nexus-settings-toggle.enabled::after {
+    left: 22px;
+  }
+
+  .nexus-settings-toggle.disabled::after {
+    left: 2px;
+  }
+
+  .nexus-settings-select {
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 13px;
+    border: 1px solid var(--nexus-border, #ddd);
+    background: var(--nexus-bg, #fff);
+    color: var(--nexus-text, #24292e);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .nexus-settings-number-input {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .nexus-settings-number-input input[type="range"] {
+    width: 100px;
+    cursor: pointer;
+    accent-color: var(--nexus-accent, #0969da);
+  }
+
+  .nexus-settings-number-input span {
+    font-size: 13px;
+    min-width: 28px;
+    text-align: right;
+    color: var(--nexus-text-muted, #888);
+  }
+
+  .nexus-settings-text-input {
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 13px;
+    border: 1px solid var(--nexus-border, #ddd);
+    background: var(--nexus-bg, #fff);
+    color: var(--nexus-text, #24292e);
+    width: 180px;
+    flex-shrink: 0;
+  }
+}

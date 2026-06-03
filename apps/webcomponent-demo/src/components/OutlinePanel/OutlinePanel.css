@@ -1,0 +1,77 @@
+@scope (.nexus-outline-panel) {
+  :scope {
+    width: 220px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--nexus-border, #eee);
+    background: var(--nexus-bg, #fff);
+    overflow-y: auto;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .outline-header {
+    padding: 10px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--nexus-text-muted, #888);
+    border-bottom: 1px solid var(--nexus-border, #eee);
+    flex-shrink: 0;
+  }
+
+  .outline-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+
+  .outline-empty {
+    padding: 16px 14px;
+    color: var(--nexus-text-faint, #bbb);
+    font-size: 12px;
+    font-style: italic;
+  }
+
+  .outline-item {
+    display: block;
+    width: 100%;
+    border: none;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    padding: 4px 14px;
+    color: var(--nexus-text, #24292e);
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: inherit;
+    transition: background 0.1s;
+  }
+
+  .outline-item:hover {
+    background: var(--nexus-bg-muted, #f0f0f0);
+  }
+
+  .outline-item.h1 {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .outline-item.h2 {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .outline-item.h3,
+  .outline-item.h4,
+  .outline-item.h5,
+  .outline-item.h6 {
+    font-size: 13px;
+    font-weight: 400;
+  }
+}

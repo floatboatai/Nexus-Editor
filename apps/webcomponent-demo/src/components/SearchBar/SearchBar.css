@@ -1,0 +1,74 @@
+@scope (.nexus-search-bar) {
+  :scope {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--nexus-bg-subtle, #f6f8fa);
+    border-bottom: 1px solid var(--nexus-border, #eee);
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+
+  &.visible {
+    display: flex;
+  }
+
+  .search-input {
+    padding: 4px 8px;
+    border: 1px solid var(--nexus-border, #ddd);
+    border-radius: 4px;
+    font-size: 13px;
+    font-family: inherit;
+    background: var(--nexus-bg, #fff);
+    color: var(--nexus-text, #24292e);
+    outline: none;
+    width: 200px;
+  }
+
+  .search-input.replace {
+    width: 160px;
+  }
+
+  .search-btn {
+    padding: 4px 10px;
+    border: 1px solid var(--nexus-border, #ddd);
+    border-radius: 4px;
+    background: var(--nexus-bg, #fff);
+    color: var(--nexus-text, #24292e);
+    cursor: pointer;
+    font-size: 12px;
+    font-family: inherit;
+    transition: background 0.1s;
+  }
+
+  .search-btn:hover {
+    background: var(--nexus-bg-muted, #f0f0f0);
+  }
+
+  .search-count {
+    color: var(--nexus-text-muted, #888);
+    font-size: 12px;
+    min-width: 60px;
+  }
+
+  .search-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    color: var(--nexus-text-muted, #888);
+    padding: 2px 6px;
+    border-radius: 4px;
+    line-height: 1;
+  }
+
+  .search-close:hover {
+    background: var(--nexus-bg-muted, #e0e0e0);
+  }
+
+  .search-spacer {
+    flex: 1;
+  }
+}
