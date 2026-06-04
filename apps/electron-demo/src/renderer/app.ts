@@ -51,19 +51,31 @@ function createAppToolbar(): HTMLElement {
   vaultToggleBtn.textContent = "\uD83D\uDCD1"; // 📑
   vaultToggleBtn.title = "Toggle vault panel";
   vaultToggleBtn.style.fontSize = "14px";
-  vaultToggleBtn.addEventListener("click", toggleVault);
+  vaultToggleBtn.classList.add("active"); // 默认显示
+  vaultToggleBtn.addEventListener("click", () => {
+    toggleVault();
+    vaultToggleBtn.classList.toggle("active");
+  });
 
   const outlineBtn = document.createElement("button");
   outlineBtn.textContent = "\u2630"; // ☰
   outlineBtn.title = "Toggle outline";
   outlineBtn.style.fontSize = "14px";
-  outlineBtn.addEventListener("click", toggleOutline);
+  outlineBtn.classList.add("active"); // 默认显示
+  outlineBtn.addEventListener("click", () => {
+    toggleOutline();
+    outlineBtn.classList.toggle("active");
+  });
 
   const backlinksBtn = document.createElement("button");
   backlinksBtn.textContent = "\uD83D\uDD17"; // 🔗
   backlinksBtn.title = "Toggle backlinks panel";
   backlinksBtn.style.fontSize = "14px";
-  backlinksBtn.addEventListener("click", toggleBacklinks);
+  backlinksBtn.classList.add("active"); // 默认显示
+  backlinksBtn.addEventListener("click", () => {
+    toggleBacklinks();
+    backlinksBtn.classList.toggle("active");
+  });
 
   const searchBtn = document.createElement("button");
   searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
@@ -408,7 +420,52 @@ function boot(): void {
   });
 
   editorColumn.append(searchBar.element, editorContainer);
-  mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
+
+  // 创建可拖动分隔条（vault右 / outline左 / backlinks左）
+  function makeResizeHandle(
+    panel: HTMLElement,
+    direction: "right" | "left"
+  ): HTMLElement {
+    const handle = document.createElement("div");
+    handle.className = "resize-handle";
+
+    handle.addEventListener("mousedown", (e: MouseEvent) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = panel.getBoundingClientRect().width;
+      handle.classList.add("dragging");
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+
+      const onMove = (ev: MouseEvent) => {
+        const delta = ev.clientX - startX;
+        // 向右拖 handle 时：right 方向扩展面板，left 方向缩小面板
+        const newW = direction === "right"
+          ? Math.min(350, Math.max(250, startW + delta))
+          : Math.min(350, Math.max(250, startW - delta));
+        panel.style.width = newW + "px";
+      };
+
+      const onUp = () => {
+        handle.classList.remove("dragging");
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+
+    return handle;
+  }
+
+  const vaultHandle = makeResizeHandle(vault.element, "right");
+  const outlineHandle = makeResizeHandle(outline.element, "left");
+  const backlinkHandle = makeResizeHandle(backlinks.element, "left");
+
+  mainArea.append(vault.element, vaultHandle, editorColumn, outlineHandle, outline.element, backlinkHandle, backlinks.element);
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {

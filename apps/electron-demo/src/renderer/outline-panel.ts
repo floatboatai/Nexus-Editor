@@ -7,9 +7,10 @@ export interface OutlinePanel {
 }
 
 const PANEL_STYLES = `
-  width: 220px;
+  width: 250px;
   flex-shrink: 0;
-  border-right: 1px solid var(--nexus-border, #eee);
+  border-left: none;
+  border-right: none;
   background: var(--nexus-bg, #fff);
   overflow-y: auto;
   font-family: system-ui, -apple-system, sans-serif;

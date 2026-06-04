@@ -32,9 +32,9 @@ function scheduleLowPriority(cb: () => void): () => void {
 }
 
 const PANEL_STYLES = `
-  width: 280px;
+  width: 250px;
   flex-shrink: 0;
-  border-left: 1px solid var(--nexus-border, #eee);
+  border-left: none;
   background: var(--nexus-bg, #fff);
   display: flex;
   flex-direction: column;

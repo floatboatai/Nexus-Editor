@@ -61,10 +61,37 @@ body,
   cursor: pointer;
 }
 
+/* 右上角面板切换按钮激活状态 */
+.toolbar button.active {
+  background: #e0e7ff;
+  color: #4f46e5;
+  border-color: #c7d2fe;
+  box-shadow: inset 0 1px 3px rgba(79, 70, 229, 0.15);
+}
+
 .main-area {
   flex: 1;
   display: flex;
   overflow: hidden;
+}
+
+/* ── 面板拖动分隔条 ───────────────────────────────────────────── */
+.resize-handle {
+  width: 4px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  border-left: 1px solid var(--nexus-border, #eee);
+  position: relative;
+  z-index: 10;
+  transition: background 0.15s, border-color 0.15s;
+  user-select: none;
+}
+
+.resize-handle:hover,
+.resize-handle.dragging {
+  background: rgba(124, 108, 244, 0.35);
+  border-color: #7c6cf4;
 }
 
 .editor-column {

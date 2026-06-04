@@ -15,9 +15,9 @@ export interface VaultPanel {
 }
 
 const PANEL_STYLES = `
-  width: 240px;
+  width: 250px;
   flex-shrink: 0;
-  border-right: 1px solid var(--nexus-border, #eee);
+  border-right: none;
   background: var(--nexus-bg, #fff);
   overflow: hidden;
   font-family: system-ui, -apple-system, sans-serif;
