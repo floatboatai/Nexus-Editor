@@ -4,6 +4,37 @@
   box-sizing: border-box;
 }
 
+/* ── 全局滚动条美化 ─────────────────────────────────────────────
+   细条样式，鼠标悬停区域时显示，离开时淡出隐藏               */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+  transition: background 0.2s;
+}
+
+/* 鼠标进入可滚动容器时显示滚动条 */
+*:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.32);
+}
+
+/* 去掉滚动条轨道末端角块 */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 html,
 body,
 #app {

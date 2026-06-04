@@ -44,14 +44,18 @@ const PANEL_STYLES = `
 `;
 
 const HEADER_STYLES = `
-  padding: 8px 10px;
+  height: 43px;
+  padding: 0 10px;
   border-bottom: 1px solid var(--nexus-border, #eee);
+  display: flex;
+  align-items: center;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--nexus-text-muted, #888);
   flex-shrink: 0;
+  box-sizing: border-box;
 `;
 
 const SECTION_HEADER_STYLES = `

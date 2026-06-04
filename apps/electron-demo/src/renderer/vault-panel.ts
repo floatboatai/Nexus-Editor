@@ -27,12 +27,14 @@ const PANEL_STYLES = `
 `;
 
 const HEADER_STYLES = `
-  padding: 8px 10px;
+  height: 43px;
+  padding: 0 10px;
   border-bottom: 1px solid var(--nexus-border, #eee);
   display: flex;
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+  box-sizing: border-box;
 `;
 
 const HEADER_TITLE_STYLES = `

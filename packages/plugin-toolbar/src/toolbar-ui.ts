@@ -193,11 +193,13 @@ const TOOLBAR_STYLES = `
   align-items: center;
   gap: 2px;
   padding: 6px 12px;
+  height: 43px;
   background: var(--nexus-bg-subtle, #f6f8fa);
   border-bottom: 1px solid var(--nexus-border, #eee);
   user-select: none;
   flex-shrink: 0;
   overflow-x: auto;
+  overflow-y: hidden;
   font-family: system-ui, -apple-system, sans-serif;
 `;
 

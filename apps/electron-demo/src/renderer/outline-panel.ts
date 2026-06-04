@@ -19,7 +19,10 @@ const PANEL_STYLES = `
 `;
 
 const HEADER_STYLES = `
-  padding: 10px 14px;
+  height: 43px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -27,6 +30,7 @@ const HEADER_STYLES = `
   color: var(--nexus-text-muted, #888);
   border-bottom: 1px solid var(--nexus-border, #eee);
   flex-shrink: 0;
+  box-sizing: border-box;
 `;
 
 const LIST_STYLES = `
