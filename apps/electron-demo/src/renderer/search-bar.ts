@@ -6,6 +6,8 @@ export interface SearchBar {
   open(): void;
   close(): void;
   isOpen(): boolean;
+  /** 每次搜索栏关闭时回调（× 按钮、Esc、destroy 均触发） */
+  onClose?: () => void;
   destroy(): void;
 }
 
@@ -226,9 +228,10 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     currentIdx = -1;
     countLabel.textContent = "";
     editor.focus();
+    result.onClose?.();
   }
 
-  return {
+  const result: SearchBar = {
     element: bar,
     open,
     close,
@@ -238,4 +241,5 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       bar.remove();
     },
   };
+  return result;
 }

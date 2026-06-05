@@ -78,12 +78,14 @@ function createAppToolbar(): HTMLElement {
   });
 
   const searchBtn = document.createElement("button");
+  searchBtn.id = "toolbar-search-btn";
   searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
   searchBtn.title = "Search (Ctrl+F)";
   searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
 
   const settingsBtn = document.createElement("button");
+  settingsBtn.id = "toolbar-settings-btn";
   settingsBtn.textContent = "\u2699"; // ⚙
   settingsBtn.title = "Settings";
   settingsBtn.style.fontSize = "16px";
@@ -187,10 +189,22 @@ async function handleSaveAs(): Promise<void> {
 }
 
 function handleSettings(): void {
-  createSettingsPanel(settings, (next) => {
+  const settingsBtn = document.getElementById("toolbar-settings-btn");
+  settingsBtn?.classList.add("active");
+
+  const panel = createSettingsPanel(settings, (next) => {
     settings = next;
     shell.applySettings(settings);
   });
+
+  // 面板关闭时移除激活状态
+  const observer = new MutationObserver(() => {
+    if (!document.body.contains(panel.element)) {
+      settingsBtn?.classList.remove("active");
+      observer.disconnect();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: false });
 }
 
 function togglePanel(panel: HTMLElement, onShow?: () => void): void {
@@ -418,6 +432,14 @@ function boot(): void {
     onOpenFile: (filePath) => void handleVaultFileOpen(filePath),
     getActiveFile: () => state.activeFile,
   });
+
+  // 搜索按钮激活状态联动：通过 onClose 回调同步 .active 类
+  const searchBtnEl = document.getElementById("toolbar-search-btn");
+  if (searchBtnEl) {
+    const origOpen = searchBar.open.bind(searchBar);
+    searchBar.open = () => { origOpen(); searchBtnEl.classList.add("active"); };
+    searchBar.onClose = () => searchBtnEl.classList.remove("active");
+  }
 
   editorColumn.append(searchBar.element, editorContainer);
 
