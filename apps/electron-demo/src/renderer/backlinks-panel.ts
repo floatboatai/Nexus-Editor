@@ -1,4 +1,5 @@
 import type { LinkIndex, BacklinkHit } from "./link-index";
+import { t, onLocaleChange } from "./i18n";
 
 export interface BacklinksPanelOptions {
   index: LinkIndex;
@@ -208,18 +209,18 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
     list.textContent = "";
     const active = getActiveFile();
     if (!active) {
-      header.textContent = "Backlinks";
-      renderEmpty("No active file", list);
+      header.textContent = t("backlinks.title");
+      renderEmpty(t("backlinks.noActiveFile"), list);
       return;
     }
 
     // Fast path: linked mentions are O(1) (Map lookup) — render immediately.
     const linked = index.getBacklinks(active);
-    header.textContent = `Backlinks · ${linked.length} linked · … mentions`;
+    header.textContent = `${t("backlinks.title")} · ${linked.length} ${t("backlinks.linked")} · … ${t("backlinks.mentions")}`;
 
-    renderSectionHeader("Linked mentions", linked.length, list);
+    renderSectionHeader(t("backlinks.linked"), linked.length, list);
     if (linked.length === 0) {
-      renderEmpty("No linked mentions", list);
+      renderEmpty(`0 ${t("backlinks.linked")}`, list);
     } else {
       for (const hit of linked) renderItem(hit, list);
     }
@@ -227,8 +228,8 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
     // Placeholder for unlinked section — filled asynchronously so we don't
     // block the UI thread with the O(vault-size) regex scan in
     // getUnlinkedMentions.
-    const unlinkedHeader = renderSectionHeader("Unlinked mentions", 0, list);
-    unlinkedHeader.textContent = "Unlinked mentions — scanning…";
+    const unlinkedHeader = renderSectionHeader(t("backlinks.mentions"), 0, list);
+    unlinkedHeader.textContent = t("backlinks.scanningUnlinked");
     const unlinkedContainer = document.createElement("div");
     list.appendChild(unlinkedContainer);
 
@@ -245,11 +246,12 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
           "backlinks.unlinked-scan", `${(t1 - t0).toFixed(1)}ms`,
           { hits: unlinked.length });
       }
-      header.textContent = `Backlinks · ${linked.length} linked · ${unlinked.length} mention${unlinked.length === 1 ? "" : "s"}`;
+      const mentionWord = unlinked.length === 1 ? t("backlinks.mention") : t("backlinks.mentions");
+      header.textContent = `${t("backlinks.title")} · ${linked.length} ${t("backlinks.linked")} · ${unlinked.length} ${mentionWord}`;
       unlinkedHeader.textContent = "";
-      renderSectionHeaderInto(unlinkedHeader, "Unlinked mentions", unlinked.length);
+      renderSectionHeaderInto(unlinkedHeader, t("backlinks.mentions"), unlinked.length);
       if (unlinked.length === 0) {
-        renderEmpty("No unlinked mentions", unlinkedContainer);
+        renderEmpty(`0 ${mentionWord}`, unlinkedContainer);
       } else {
         for (const hit of unlinked) renderItem(hit, unlinkedContainer);
       }
@@ -257,6 +259,8 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
   }
 
   const unsubscribe = index.subscribe(() => refresh());
+  // 语言切换时刷新所有文本
+  const unsubLocale = onLocaleChange(() => refresh());
   refresh();
 
   return {
@@ -269,6 +273,7 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
         pendingUnlinkedCancel = null;
       }
       unsubscribe();
+      unsubLocale();
       root.remove();
     },
   };

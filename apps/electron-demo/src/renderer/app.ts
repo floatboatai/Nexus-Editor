@@ -7,6 +7,7 @@ import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
+import { t, setLocale, onLocaleChange } from "./i18n";
 
 installLongTaskWatch(50);
 
@@ -26,22 +27,22 @@ function createAppToolbar(): HTMLElement {
   toolbar.className = "toolbar";
 
   const vaultBtn = document.createElement("button");
-  vaultBtn.textContent = "Vault";
-  vaultBtn.title = "Open a folder as a vault";
+  vaultBtn.textContent = t("toolbar.vault");
+  vaultBtn.title = t("toolbar.vault.title");
   vaultBtn.addEventListener("click", () => {
     void vault.promptPickVault();
   });
 
   const openBtn = document.createElement("button");
-  openBtn.textContent = "Open";
+  openBtn.textContent = t("toolbar.open");
   openBtn.addEventListener("click", handleOpen);
 
   const saveBtn = document.createElement("button");
-  saveBtn.textContent = "Save";
+  saveBtn.textContent = t("toolbar.save");
   saveBtn.addEventListener("click", handleSave);
 
   const saveAsBtn = document.createElement("button");
-  saveAsBtn.textContent = "Save As";
+  saveAsBtn.textContent = t("toolbar.saveAs");
   saveAsBtn.addEventListener("click", handleSaveAs);
 
   const spacer = document.createElement("div");
@@ -49,7 +50,7 @@ function createAppToolbar(): HTMLElement {
 
   const vaultToggleBtn = document.createElement("button");
   vaultToggleBtn.textContent = "\uD83D\uDCD1"; // 📑
-  vaultToggleBtn.title = "Toggle vault panel";
+  vaultToggleBtn.title = t("toolbar.toggleVault.title");
   vaultToggleBtn.style.fontSize = "14px";
   vaultToggleBtn.classList.add("active"); // 默认显示
   vaultToggleBtn.addEventListener("click", () => {
@@ -59,7 +60,7 @@ function createAppToolbar(): HTMLElement {
 
   const outlineBtn = document.createElement("button");
   outlineBtn.textContent = "\u2630"; // ☰
-  outlineBtn.title = "Toggle outline";
+  outlineBtn.title = t("toolbar.toggleOutline.title");
   outlineBtn.style.fontSize = "14px";
   outlineBtn.classList.add("active"); // 默认显示
   outlineBtn.addEventListener("click", () => {
@@ -69,7 +70,7 @@ function createAppToolbar(): HTMLElement {
 
   const backlinksBtn = document.createElement("button");
   backlinksBtn.textContent = "\uD83D\uDD17"; // 🔗
-  backlinksBtn.title = "Toggle backlinks panel";
+  backlinksBtn.title = t("toolbar.toggleBacklinks.title");
   backlinksBtn.style.fontSize = "14px";
   backlinksBtn.classList.add("active"); // 默认显示
   backlinksBtn.addEventListener("click", () => {
@@ -80,16 +81,31 @@ function createAppToolbar(): HTMLElement {
   const searchBtn = document.createElement("button");
   searchBtn.id = "toolbar-search-btn";
   searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
-  searchBtn.title = "Search (Ctrl+F)";
+  searchBtn.title = t("toolbar.search.title");
   searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
 
   const settingsBtn = document.createElement("button");
   settingsBtn.id = "toolbar-settings-btn";
   settingsBtn.textContent = "\u2699"; // ⚙
-  settingsBtn.title = "Settings";
+  settingsBtn.title = t("toolbar.settings.title");
   settingsBtn.style.fontSize = "16px";
   settingsBtn.addEventListener("click", handleSettings);
+
+  // 语言切换时更新 toolbar 文本
+  onLocaleChange(() => {
+    vaultBtn.textContent = t("toolbar.vault");
+    vaultBtn.title = t("toolbar.vault.title");
+    openBtn.textContent = t("toolbar.open");
+    saveBtn.textContent = t("toolbar.save");
+    saveAsBtn.textContent = t("toolbar.saveAs");
+    vaultToggleBtn.title = t("toolbar.toggleVault.title");
+    outlineBtn.title = t("toolbar.toggleOutline.title");
+    backlinksBtn.title = t("toolbar.toggleBacklinks.title");
+    searchBtn.title = t("toolbar.search.title");
+    settingsBtn.title = t("toolbar.settings.title");
+    renderStatus();
+  });
 
   toolbar.append(
     vaultBtn,
@@ -117,14 +133,14 @@ function renderStatus(): void {
   const el = document.getElementById("status-line");
   if (!el) return;
 
-  const pathLabel = state.activeFile ?? state.filePath ?? "Untitled";
-  const dirtyMark = state.dirty ? " [modified]" : "";
+  const pathLabel = state.activeFile ?? state.filePath ?? t("status.untitled");
+  const dirtyMark = state.dirty ? t("status.modified") : "";
   const stats = shell?.editor.getDocumentStats();
-  const statsText = stats ? ` | ${stats.words} words, ${stats.lines} lines` : "";
+  const statsText = stats ? ` | ${stats.words} ${t("status.words")}, ${stats.lines} ${t("status.lines")}` : "";
   const vaultLabel = state.vaultPath
-    ? ` | Vault: ${state.vaultPath.split(/[\\/]/).pop()}`
+    ? ` | ${t("status.vault")}: ${state.vaultPath.split(/[\\/]/).pop()}`
     : "";
-  const errorText = state.error ? ` — Error: ${state.error}` : "";
+  const errorText = state.error ? ` — ${t("status.error")}: ${state.error}` : "";
   el.textContent = `${pathLabel}${dirtyMark}${statsText}${vaultLabel}${errorText}`;
 }
 
@@ -372,7 +388,8 @@ function boot(): void {
   const root = document.getElementById("app");
   if (!root) throw new Error("Missing #app element");
 
-  // 启动时立即将主题变量注入 <html>，确保初始颜色正确
+  // 启动时初始化语言和主题
+  setLocale(settings.locale);
   applyThemeToDocument(settings);
 
   const appToolbar = createAppToolbar();

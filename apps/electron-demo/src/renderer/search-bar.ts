@@ -1,5 +1,6 @@
 import type { EditorAPI } from "@floatboat/nexus-core";
 import { findSearchMatches, replaceAllMatches } from "@floatboat/nexus-plugin-search";
+import { t, onLocaleChange } from "./i18n";
 
 export interface SearchBar {
   element: HTMLElement;
@@ -72,13 +73,13 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   // Find input
   const findInput = document.createElement("input");
   findInput.type = "text";
-  findInput.placeholder = "Find...";
+  findInput.placeholder = t("search.findPlaceholder");
   findInput.style.cssText = INPUT_STYLES;
 
   // Replace input
   const replaceInput = document.createElement("input");
   replaceInput.type = "text";
-  replaceInput.placeholder = "Replace...";
+  replaceInput.placeholder = t("search.replacePlaceholder");
   replaceInput.style.cssText = INPUT_STYLES;
   replaceInput.style.width = "160px";
 
@@ -94,11 +95,11 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   nextBtn.style.cssText = BTN_STYLES;
 
   const replaceBtn = document.createElement("button");
-  replaceBtn.textContent = "Replace";
+  replaceBtn.textContent = t("search.replace");
   replaceBtn.style.cssText = BTN_STYLES;
 
   const replaceAllBtn = document.createElement("button");
-  replaceAllBtn.textContent = "All";
+  replaceAllBtn.textContent = t("search.replaceAll");
   replaceAllBtn.title = "Replace all";
   replaceAllBtn.style.cssText = BTN_STYLES;
 
@@ -134,7 +135,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     matches = findSearchMatches(doc, query);
     if (matches.length === 0) {
       currentIdx = -1;
-      countLabel.textContent = "0 results";
+      countLabel.textContent = t("search.noResults");
     } else {
       // Find nearest match to current cursor
       const { anchor } = editor.getSelection();
@@ -151,7 +152,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     const m = matches[currentIdx];
     editor.setSelection(m.from, m.to);
     editor.focus();
-    countLabel.textContent = `${currentIdx + 1} / ${matches.length}`;
+    countLabel.textContent = `${currentIdx + 1} ${t("search.resultOf")} ${matches.length}`;
   }
 
   function goNext() {
@@ -237,9 +238,21 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     close,
     isOpen: () => visible,
     destroy() {
+      unsubLocale();
       close();
       bar.remove();
     },
   };
+
+  // 语言切换时更新 placeholder 和按钮文字
+  const unsubLocale = onLocaleChange(() => {
+    findInput.placeholder = t("search.findPlaceholder");
+    replaceInput.placeholder = t("search.replacePlaceholder");
+    replaceBtn.textContent = t("search.replace");
+    replaceAllBtn.textContent = t("search.replaceAll");
+    // 刷新计数显示（如当前有结果）
+    if (visible) updateMatches();
+  });
+
   return result;
 }

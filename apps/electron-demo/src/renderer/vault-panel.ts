@@ -1,3 +1,5 @@
+import { t, onLocaleChange } from "./i18n";
+
 export interface VaultPanelCallbacks {
   onOpenFile(filePath: string): void;
   onError(message: string): void;
@@ -194,26 +196,26 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
 
   const title = document.createElement("div");
   title.style.cssText = HEADER_TITLE_STYLES;
-  title.textContent = "Vault";
+  title.textContent = t("vault.title");
 
   const openBtn = document.createElement("button");
   openBtn.type = "button";
   openBtn.style.cssText = ICON_BTN_STYLES;
   openBtn.textContent = "\uD83D\uDCC1"; // 📁
-  openBtn.title = "Open vault…";
+  openBtn.title = t("vault.open.title");
 
   const newFileBtn = document.createElement("button");
   newFileBtn.type = "button";
   newFileBtn.style.cssText = ICON_BTN_STYLES;
   newFileBtn.textContent = "\u002B"; // +
-  newFileBtn.title = "New file at root";
+  newFileBtn.title = t("vault.newFile.title");
   newFileBtn.disabled = true;
 
   const newFolderBtn = document.createElement("button");
   newFolderBtn.type = "button";
   newFolderBtn.style.cssText = ICON_BTN_STYLES;
   newFolderBtn.textContent = "\uD83D\uDCC2"; // 📂
-  newFolderBtn.title = "New folder at root";
+  newFolderBtn.title = t("vault.newFolder.title");
   newFolderBtn.disabled = true;
 
   header.append(title, newFileBtn, newFolderBtn, openBtn);
@@ -315,11 +317,11 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
   function renderTree(): void {
     tree.innerHTML = "";
     if (!vaultPath) {
-      renderEmpty("No vault opened. Click 📁 to choose a folder.");
+      renderEmpty(t("vault.noVaultOpened"));
       return;
     }
     if (currentTree.length === 0) {
-      renderEmpty("Vault is empty. Click + to create a note.");
+      renderEmpty(t("vault.vaultEmpty"));
       return;
     }
     for (const node of currentTree) renderNode(node, 0, tree);
@@ -532,7 +534,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
 
   async function openVault(nextPath: string): Promise<void> {
     vaultPath = nextPath;
-    title.textContent = nextPath.split(/[\\/]/).pop() || "Vault";
+    title.textContent = nextPath.split(/[\\/]/).pop() || t("vault.title");
     title.title = nextPath;
     syncButtonEnabled();
     collapsed.clear();
@@ -567,6 +569,16 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
   });
 
   syncButtonEnabled();
+
+  // 语言切换时更新面板标题和按钮 title
+  onLocaleChange(() => {
+    if (!vaultPath) title.textContent = t("vault.title");
+    openBtn.title = t("vault.open.title");
+    newFileBtn.title = t("vault.newFile.title");
+    newFolderBtn.title = t("vault.newFolder.title");
+    // 刷新树内容中的空状态文字
+    renderTree();
+  });
 
   return {
     element: panel,
