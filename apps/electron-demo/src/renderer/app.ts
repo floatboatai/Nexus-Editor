@@ -1,6 +1,6 @@
 import { createState, type AppState } from "./state";
 import { createEditorShell, type EditorShell } from "./editor-shell";
-import { loadSettings, createSettingsPanel, type EditorSettings } from "./settings";
+import { loadSettings, createSettingsPanel, applyThemeToDocument, type EditorSettings } from "./settings";
 import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
 import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
@@ -195,6 +195,7 @@ function handleSettings(): void {
   const panel = createSettingsPanel(settings, (next) => {
     settings = next;
     shell.applySettings(settings);
+    applyThemeToDocument(settings);
   });
 
   // 面板关闭时移除激活状态
@@ -370,6 +371,9 @@ function boot(): void {
   const bootScope = perfStart("boot");
   const root = document.getElementById("app");
   if (!root) throw new Error("Missing #app element");
+
+  // 启动时立即将主题变量注入 <html>，确保初始颜色正确
+  applyThemeToDocument(settings);
 
   const appToolbar = createAppToolbar();
   const statusLine = createStatusLine();

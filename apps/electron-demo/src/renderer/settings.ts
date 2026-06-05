@@ -56,6 +56,26 @@ export function settingsToTheme(settings: EditorSettings): NexusTheme {
   };
 }
 
+/** 将主题颜色变量同步注入到 <html> 根节点，让全局 CSS 可以响应深色模式。 */
+export function applyThemeToDocument(settings: EditorSettings): void {
+  const theme = settingsToTheme(settings);
+  const root = document.documentElement;
+  const vars: [string, string][] = [
+    ["--nexus-bg", theme.bg],
+    ["--nexus-bg-subtle", theme.bgSubtle],
+    ["--nexus-bg-muted", theme.bgMuted],
+    ["--nexus-text", theme.text],
+    ["--nexus-text-muted", theme.textMuted],
+    ["--nexus-text-faint", theme.textFaint],
+    ["--nexus-border", theme.border],
+    ["--nexus-border-subtle", theme.borderSubtle],
+    ["--nexus-accent", theme.accent],
+  ];
+  for (const [k, v] of vars) root.style.setProperty(k, v);
+  // data-color-scheme 方便 CSS 选择器按需覆盖
+  root.dataset.colorScheme = settings.colorScheme;
+}
+
 // ── Settings Panel UI ──
 
 const PANEL_STYLES = `

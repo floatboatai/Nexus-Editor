@@ -106,7 +106,7 @@ const ITEM_BASE = `
 `;
 
 const ACTIVE_STYLES = `
-  background: var(--nexus-bg-active, #e7f0ff);
+  background: var(--nexus-bg-muted, #e7f0ff);
   color: var(--nexus-text, #0366d6);
 `;
 
@@ -261,7 +261,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     if (isActive) row.style.cssText = ITEM_BASE + ACTIVE_STYLES;
 
     const icon = document.createElement("span");
-    icon.style.cssText = "width: 12px; flex-shrink: 0; color: #888; font-size: 11px;";
+    icon.style.cssText = "width: 12px; flex-shrink: 0; color: var(--nexus-text-faint, #888); font-size: 11px;";
     if (node.kind === "directory") {
       const open = !collapsed.has(node.path);
       icon.textContent = folderIcon(open);
@@ -428,7 +428,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     row.style.paddingLeft = "8px";
 
     const icon = document.createElement("span");
-    icon.style.cssText = "width: 12px; flex-shrink: 0; color: #888; font-size: 11px;";
+    icon.style.cssText = "width: 12px; flex-shrink: 0; color: var(--nexus-text-faint, #888); font-size: 11px;";
     icon.textContent = opts.iconChar;
 
     const input = document.createElement("input");
