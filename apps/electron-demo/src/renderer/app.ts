@@ -62,7 +62,7 @@ function createAppToolbar(): HTMLElement {
   outlineBtn.textContent = "\u2630"; // ☰
   outlineBtn.title = t("toolbar.toggleOutline.title");
   outlineBtn.style.fontSize = "14px";
-  outlineBtn.classList.add("active"); // 默认显示
+  // 默认隐藏，不加 active
   outlineBtn.addEventListener("click", () => {
     toggleOutline();
     outlineBtn.classList.toggle("active");
@@ -72,7 +72,7 @@ function createAppToolbar(): HTMLElement {
   backlinksBtn.textContent = "\uD83D\uDD17"; // 🔗
   backlinksBtn.title = t("toolbar.toggleBacklinks.title");
   backlinksBtn.style.fontSize = "14px";
-  backlinksBtn.classList.add("active"); // 默认显示
+  // 默认隐藏，不加 active
   backlinksBtn.addEventListener("click", () => {
     toggleBacklinks();
     backlinksBtn.classList.toggle("active");
@@ -233,17 +233,9 @@ function togglePanel(panel: HTMLElement, onShow?: () => void): void {
   }
 }
 
-function toggleOutline(): void {
-  togglePanel(outline.element, () => outline.update());
-}
-
-function toggleVault(): void {
-  togglePanel(vault.element);
-}
-
-function toggleBacklinks(): void {
-  togglePanel(backlinks.element, () => backlinks.refresh());
-}
+let toggleOutline = (): void => {};
+let toggleVault = (): void => {};
+let toggleBacklinks = (): void => {};
 
 async function handleVaultFileOpen(filePath: string): Promise<void> {
   const total = perfStart("open-file", { filePath });
@@ -484,8 +476,8 @@ function boot(): void {
         const delta = ev.clientX - startX;
         // 向右拖 handle 时：right 方向扩展面板，left 方向缩小面板
         const newW = direction === "right"
-          ? Math.min(350, Math.max(250, startW + delta))
-          : Math.min(350, Math.max(250, startW - delta));
+          ? Math.min(350, Math.max(100, startW + delta))
+          : Math.min(350, Math.max(100, startW - delta));
         panel.style.width = newW + "px";
       };
 
@@ -507,6 +499,31 @@ function boot(): void {
   const vaultHandle = makeResizeHandle(vault.element, "right");
   const outlineHandle = makeResizeHandle(outline.element, "left");
   const backlinkHandle = makeResizeHandle(backlinks.element, "left");
+
+  // 默认只显示左侧 vault 面板，outline 和 backlinks 默认隐藏
+  outline.element.style.display = "none";
+  outlineHandle.style.display = "none";
+  backlinks.element.style.display = "none";
+  backlinkHandle.style.display = "none";
+
+  // 将面板切换函数绑定到 handle，确保分隔条随面板一起显隐
+  toggleVault = () => {
+    const visible = vault.element.style.display === "none";
+    vault.element.style.display = visible ? "" : "none";
+    vaultHandle.style.display = visible ? "" : "none";
+  };
+  toggleOutline = () => {
+    const visible = outline.element.style.display === "none";
+    outline.element.style.display = visible ? "" : "none";
+    outlineHandle.style.display = visible ? "" : "none";
+    if (visible) outline.update();
+  };
+  toggleBacklinks = () => {
+    const visible = backlinks.element.style.display === "none";
+    backlinks.element.style.display = visible ? "" : "none";
+    backlinkHandle.style.display = visible ? "" : "none";
+    if (visible) backlinks.refresh();
+  };
 
   mainArea.append(vault.element, vaultHandle, editorColumn, outlineHandle, outline.element, backlinkHandle, backlinks.element);
 
