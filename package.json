@@ -7,6 +7,7 @@
     "build": "pnpm --filter @floatboat/nexus-core build && pnpm --filter @floatboat/nexus-react build && pnpm --filter @floatboat/nexus-vue build && pnpm --filter @floatboat/nexus-preset-gfm build && pnpm --filter @floatboat/nexus-plugin-slash build && pnpm --filter @floatboat/nexus-plugin-history build && pnpm --filter @floatboat/nexus-plugin-search build && pnpm --filter @floatboat/nexus-plugin-toolbar build && pnpm --filter @floatboat/nexus-plugin-math build && pnpm --filter @floatboat/nexus-plugin-vim build",
     "typecheck": "pnpm -r exec tsc --noEmit",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "dev:electron-demo": "pnpm --filter @floatboat/nexus-electron-demo dev",
     "build:electron-demo": "pnpm --filter @floatboat/nexus-electron-demo build",
     "publish:packages": "pnpm -r --filter \"./packages/*\" publish --access public --no-git-checks"
