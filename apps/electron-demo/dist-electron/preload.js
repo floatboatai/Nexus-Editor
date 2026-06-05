@@ -69,6 +69,11 @@ var bridge = {
   saveFileAs(content) {
     return import_electron.ipcRenderer.invoke("demo:save-file-as", content);
   },
-  vault: vaultBridge
+  vault: vaultBridge,
+  onMenuCommand(cb) {
+    const listener = (_event, command) => cb(command);
+    import_electron.ipcRenderer.on("menu:command", listener);
+    return () => import_electron.ipcRenderer.off("menu:command", listener);
+  }
 };
 import_electron.contextBridge.exposeInMainWorld("nexusDemo", bridge);

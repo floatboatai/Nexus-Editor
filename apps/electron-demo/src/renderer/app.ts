@@ -25,100 +25,7 @@ state.linkIndex = linkIndex;
 function createAppToolbar(): HTMLElement {
   const toolbar = document.createElement("div");
   toolbar.className = "toolbar";
-
-  const vaultBtn = document.createElement("button");
-  vaultBtn.textContent = t("toolbar.vault");
-  vaultBtn.title = t("toolbar.vault.title");
-  vaultBtn.addEventListener("click", () => {
-    void vault.promptPickVault();
-  });
-
-  const openBtn = document.createElement("button");
-  openBtn.textContent = t("toolbar.open");
-  openBtn.addEventListener("click", handleOpen);
-
-  const saveBtn = document.createElement("button");
-  saveBtn.textContent = t("toolbar.save");
-  saveBtn.addEventListener("click", handleSave);
-
-  const saveAsBtn = document.createElement("button");
-  saveAsBtn.textContent = t("toolbar.saveAs");
-  saveAsBtn.addEventListener("click", handleSaveAs);
-
-  const spacer = document.createElement("div");
-  spacer.style.flex = "1";
-
-  const vaultToggleBtn = document.createElement("button");
-  vaultToggleBtn.textContent = "\uD83D\uDCD1"; // 📑
-  vaultToggleBtn.title = t("toolbar.toggleVault.title");
-  vaultToggleBtn.style.fontSize = "14px";
-  vaultToggleBtn.classList.add("active"); // 默认显示
-  vaultToggleBtn.addEventListener("click", () => {
-    toggleVault();
-    vaultToggleBtn.classList.toggle("active");
-  });
-
-  const outlineBtn = document.createElement("button");
-  outlineBtn.textContent = "\u2630"; // ☰
-  outlineBtn.title = t("toolbar.toggleOutline.title");
-  outlineBtn.style.fontSize = "14px";
-  // 默认隐藏，不加 active
-  outlineBtn.addEventListener("click", () => {
-    toggleOutline();
-    outlineBtn.classList.toggle("active");
-  });
-
-  const backlinksBtn = document.createElement("button");
-  backlinksBtn.textContent = "\uD83D\uDD17"; // 🔗
-  backlinksBtn.title = t("toolbar.toggleBacklinks.title");
-  backlinksBtn.style.fontSize = "14px";
-  // 默认隐藏，不加 active
-  backlinksBtn.addEventListener("click", () => {
-    toggleBacklinks();
-    backlinksBtn.classList.toggle("active");
-  });
-
-  const searchBtn = document.createElement("button");
-  searchBtn.id = "toolbar-search-btn";
-  searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
-  searchBtn.title = t("toolbar.search.title");
-  searchBtn.style.fontSize = "14px";
-  searchBtn.addEventListener("click", () => searchBar.open());
-
-  const settingsBtn = document.createElement("button");
-  settingsBtn.id = "toolbar-settings-btn";
-  settingsBtn.textContent = "\u2699"; // ⚙
-  settingsBtn.title = t("toolbar.settings.title");
-  settingsBtn.style.fontSize = "16px";
-  settingsBtn.addEventListener("click", handleSettings);
-
-  // 语言切换时更新 toolbar 文本
-  onLocaleChange(() => {
-    vaultBtn.textContent = t("toolbar.vault");
-    vaultBtn.title = t("toolbar.vault.title");
-    openBtn.textContent = t("toolbar.open");
-    saveBtn.textContent = t("toolbar.save");
-    saveAsBtn.textContent = t("toolbar.saveAs");
-    vaultToggleBtn.title = t("toolbar.toggleVault.title");
-    outlineBtn.title = t("toolbar.toggleOutline.title");
-    backlinksBtn.title = t("toolbar.toggleBacklinks.title");
-    searchBtn.title = t("toolbar.search.title");
-    settingsBtn.title = t("toolbar.settings.title");
-    renderStatus();
-  });
-
-  toolbar.append(
-    vaultBtn,
-    openBtn,
-    saveBtn,
-    saveAsBtn,
-    spacer,
-    vaultToggleBtn,
-    outlineBtn,
-    backlinksBtn,
-    searchBtn,
-    settingsBtn
-  );
+  toolbar.style.display = "none"; // 所有功能已移至原生菜单，隐藏空 toolbar
   return toolbar;
 }
 
@@ -205,23 +112,12 @@ async function handleSaveAs(): Promise<void> {
 }
 
 function handleSettings(): void {
-  const settingsBtn = document.getElementById("toolbar-settings-btn");
-  settingsBtn?.classList.add("active");
-
   const panel = createSettingsPanel(settings, (next) => {
     settings = next;
     shell.applySettings(settings);
     applyThemeToDocument(settings);
   });
-
-  // 面板关闭时移除激活状态
-  const observer = new MutationObserver(() => {
-    if (!document.body.contains(panel.element)) {
-      settingsBtn?.classList.remove("active");
-      observer.disconnect();
-    }
-  });
-  observer.observe(document.body, { childList: true, subtree: false });
+  void panel; // 面板挂载到 body，自行管理生命周期
 }
 
 function togglePanel(panel: HTMLElement, onShow?: () => void): void {
@@ -447,13 +343,6 @@ function boot(): void {
   });
 
   // 搜索按钮激活状态联动：通过 onClose 回调同步 .active 类
-  const searchBtnEl = document.getElementById("toolbar-search-btn");
-  if (searchBtnEl) {
-    const origOpen = searchBar.open.bind(searchBar);
-    searchBar.open = () => { origOpen(); searchBtnEl.classList.add("active"); };
-    searchBar.onClose = () => searchBtnEl.classList.remove("active");
-  }
-
   editorColumn.append(searchBar.element, editorContainer);
 
   // 创建可拖动分隔条（vault右 / outline左 / backlinks左）
@@ -532,10 +421,18 @@ function boot(): void {
     void seedLinkIndex();
   });
 
-  document.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "f") {
-      e.preventDefault();
-      searchBar.open();
+  // 监听原生菜单命令
+  window.nexusDemo.onMenuCommand((command) => {
+    switch (command) {
+      case "openVault": void vault.promptPickVault(); break;
+      case "openFile": void handleOpen(); break;
+      case "saveFile": void handleSave(); break;
+      case "saveFileAs": void handleSaveAs(); break;
+      case "toggleVault": toggleVault(); break;
+      case "toggleOutline": toggleOutline(); break;
+      case "toggleBacklinks": toggleBacklinks(); break;
+      case "openSearch": searchBar.open(); break;
+      case "openSettings": handleSettings(); break;
     }
   });
 

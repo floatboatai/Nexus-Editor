@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, shell } from "electron";
 import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promises";
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
@@ -414,6 +414,146 @@ ipcMain.handle("vault:set-last", async (_event, vaultPath: string) => {
   return { ok: true };
 });
 
+/** 发送菜单命令给渲染进程 */
+function sendMenuCommand(command: string): void {
+  mainWindow?.webContents.send("menu:command", command);
+}
+
+function buildMenu(): void {
+  const isMac = process.platform === "darwin";
+
+  const template: Electron.MenuItemConstructorOptions[] = [
+    // macOS 应用菜单
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: "about" as const },
+        { type: "separator" as const },
+        { role: "services" as const },
+        { type: "separator" as const },
+        { role: "hide" as const },
+        { role: "hideOthers" as const },
+        { role: "unhide" as const },
+        { type: "separator" as const },
+        { role: "quit" as const },
+      ],
+    }] : []),
+
+    // File 菜单
+    {
+      label: "File",
+      submenu: [
+        {
+          label: "Open Vault…",
+          accelerator: "CmdOrCtrl+Shift+O",
+          click: () => sendMenuCommand("openVault"),
+        },
+        { type: "separator" },
+        {
+          label: "Open File…",
+          accelerator: "CmdOrCtrl+O",
+          click: () => sendMenuCommand("openFile"),
+        },
+        {
+          label: "Save",
+          accelerator: "CmdOrCtrl+S",
+          click: () => sendMenuCommand("saveFile"),
+        },
+        {
+          label: "Save As…",
+          accelerator: "CmdOrCtrl+Shift+S",
+          click: () => sendMenuCommand("saveFileAs"),
+        },
+        { type: "separator" },
+        isMac ? { role: "close" as const } : { role: "quit" as const },
+      ],
+    },
+
+    // Edit 菜单（保留原生剪贴板功能）
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" as const },
+        { role: "redo" as const },
+        { type: "separator" as const },
+        { role: "cut" as const },
+        { role: "copy" as const },
+        { role: "paste" as const },
+        ...(isMac ? [
+          { role: "pasteAndMatchStyle" as const },
+          { role: "delete" as const },
+          { role: "selectAll" as const },
+        ] : [
+          { role: "delete" as const },
+          { type: "separator" as const },
+          { role: "selectAll" as const },
+        ]),
+      ],
+    },
+
+    // View 菜单
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" as const },
+        { role: "forceReload" as const },
+        { role: "toggleDevTools" as const },
+        { type: "separator" as const },
+        { role: "resetZoom" as const },
+        { role: "zoomIn" as const },
+        { role: "zoomOut" as const },
+        { type: "separator" as const },
+        { role: "togglefullscreen" as const },
+      ],
+    },
+
+    // Window 菜单
+    {
+      label: "Window",
+      submenu: [
+        { role: "minimize" as const },
+        { role: "zoom" as const },
+        ...(isMac ? [
+          { type: "separator" as const },
+          { role: "front" as const },
+        ] : [
+          { role: "close" as const },
+        ]),
+        { type: "separator" as const },
+        {
+          label: "Toggle Vault Panel",
+          accelerator: "CmdOrCtrl+\\",
+          click: () => sendMenuCommand("toggleVault"),
+        },
+        {
+          label: "Toggle Outline",
+          accelerator: "CmdOrCtrl+Shift+\\",
+          click: () => sendMenuCommand("toggleOutline"),
+        },
+        {
+          label: "Toggle Backlinks",
+          accelerator: "CmdOrCtrl+Alt+\\",
+          click: () => sendMenuCommand("toggleBacklinks"),
+        },
+        { type: "separator" as const },
+        {
+          label: "Find…",
+          accelerator: "CmdOrCtrl+F",
+          click: () => sendMenuCommand("openSearch"),
+        },
+        {
+          label: "Settings…",
+          accelerator: "CmdOrCtrl+,",
+          click: () => sendMenuCommand("openSettings"),
+        },
+      ],
+    },
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
 app.whenReady().then(() => {
   // nexus-vault://vault/<rel> → read from activeVault/<rel>. Path is validated
   // so requests cannot escape the vault (same rule as the IPC handlers).
@@ -435,6 +575,7 @@ app.whenReady().then(() => {
     }
   });
   createWindow();
+  buildMenu();
 });
 
 app.on("window-all-closed", () => {
