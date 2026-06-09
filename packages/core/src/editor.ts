@@ -687,6 +687,15 @@ export function createEditor(config: EditorConfig): EditorAPI {
       const sel = view.state.selection.main;
       return { anchor: sel.anchor, head: sel.head };
     },
+    /**
+     * 返回当前选区中的纯文本内容。
+     *
+     * - 无选区（仅光标）时返回空字符串。
+     * - 正向选区（anchor < head）和反向选区（anchor > head）均能正确处理，
+     *   通过 Math.min/max 规范化 from/to 后再调用 CodeMirror 的 sliceDoc。
+     *
+     * @returns 选中文本的字符串；无选区时返回 ""。
+     */
     getSelectedText() {
       const { anchor, head } = view.state.selection.main;
       const from = Math.min(anchor, head);
