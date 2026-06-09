@@ -666,6 +666,25 @@ describe("createEditor — DOM event hook layer", () => {
     editor.destroy();
   });
 
+  it("getSelectedText returns the text within the current selection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "Hello, world!" });
+
+    // 无选区（光标状态）时返回空字符串
+    expect(editor.getSelectedText()).toBe("");
+
+    // 通过 view.dispatch 直接创建选区，绕过 jsdom 的限制
+    const view = (editor as any).destroy.toString && null;
+    // 用 replaceSelection 插入文本后再设置选区
+    editor.setSelection(0);
+    editor.replaceSelection("Hello");
+    // 此时光标在位置 5，往前选中 5 个字符
+    editor.setSelection(5, 0);
+    expect(editor.getSelectedText()).toBe("Hello");
+
+    editor.destroy();
+  });
+
   it("dispatches keydown to plugin handlers and stops default only when consumed", () => {
     const container = document.createElement("div");
     const keys: string[] = [];
