@@ -2,9 +2,14 @@ import type {
   EditorAPI,
   EditorConfig
 } from "@floatboat/nexus-core";
-import type { RefObject } from "react";
+import type { HTMLAttributes, RefObject } from "react";
 
-export type UseEditorConfig = Omit<EditorConfig, "container">;
+export interface UseEditorConfig extends Omit<EditorConfig, "container"> {
+  onReady?: (editor: EditorAPI) => void;
+}
+
+export type EditorProps = UseEditorConfig &
+  Omit<HTMLAttributes<HTMLDivElement>, keyof UseEditorConfig | "children">;
 
 export interface UseEditorResult {
   containerRef: RefObject<HTMLDivElement | null>;

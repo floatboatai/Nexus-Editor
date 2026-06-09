@@ -84,9 +84,12 @@ import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 export default function App() {
   return (
     <Editor
+      className="nexus-editor-shell"
+      aria-label="Markdown editor"
       initialValue="# Hello, Nexus 👋"
       plugins={[createGfmPreset()]}
       livePreview
+      onReady={(editor) => editor.focus()}
       onChange={(doc, ast) => console.log(doc)}
     />
   );
@@ -94,6 +97,7 @@ export default function App() {
 ```
 
 > 💡 **New to CodeMirror?** You don't need to know it. `<Editor />` handles the lifecycle — just drop it in.
+> `className`, `style`, `data-*`, and `aria-*` props are applied to the host container; `onReady` receives the core editor API after mount.
 </details>
 
 <details>
@@ -107,9 +111,12 @@ import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 
 <template>
   <Editor
+    class="nexus-editor-shell"
+    aria-label="Markdown editor"
     initial-value="# Hello"
     :plugins="[createGfmPreset()]"
     :live-preview="true"
+    :on-ready="(editor) => editor.focus()"
     @change="(doc) => console.log(doc)"
   />
 </template>

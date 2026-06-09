@@ -84,9 +84,12 @@ import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 export default function App() {
   return (
     <Editor
+      className="nexus-editor-shell"
+      aria-label="Markdown editor"
       initialValue="# 你好，Nexus 👋"
       plugins={[createGfmPreset()]}
       livePreview
+      onReady={(editor) => editor.focus()}
       onChange={(doc, ast) => console.log(doc)}
     />
   );
@@ -94,6 +97,7 @@ export default function App() {
 ```
 
 > 💡 **不熟 CodeMirror？** 不需要懂。`<Editor />` 已经处理好生命周期，直接用就行。
+> `className`、`style`、`data-*` 和 `aria-*` 会透传给宿主容器；`onReady` 会在挂载后收到 core editor API。
 </details>
 
 <details>
@@ -107,9 +111,12 @@ import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 
 <template>
   <Editor
+    class="nexus-editor-shell"
+    aria-label="Markdown editor"
     initial-value="# 你好"
     :plugins="[createGfmPreset()]"
     :live-preview="true"
+    :on-ready="(editor) => editor.focus()"
     @change="(doc) => console.log(doc)"
   />
 </template>
