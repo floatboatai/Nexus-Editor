@@ -830,9 +830,6 @@ export function createEditor(config: EditorConfig): EditorAPI {
       const lines = view.state.doc.lines;
       return { characters, words, lines };
     },
-    __test_getView() {
-      return view;
-    },
     destroy() {
       debugNexus("destroy", {
         documentLength: view.state.doc.length,

@@ -174,8 +174,6 @@ export interface EditorAPI {
    * 避免在合成过程中调用 setDocument 打断输入。
    */
   isComposing(): boolean;
-  /** @internal 仅测试用：获取底层 EditorView 实例 */
-  __test_getView(): any;
   destroy(): void;
   on<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
   off<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
