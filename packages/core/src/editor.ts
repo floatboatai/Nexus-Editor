@@ -689,7 +689,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
     },
     getSelectedText() {
       const { anchor, head } = view.state.selection.main;
-      return view.state.sliceDoc(anchor, head);
+      const from = Math.min(anchor, head);
+      const to = Math.max(anchor, head);
+      return view.state.sliceDoc(from, to);
     },
     getSlashCommands() {
       return slashCommands;
@@ -818,6 +820,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
       const words = doc.trim() === "" ? 0 : doc.trim().split(/\s+/).length;
       const lines = view.state.doc.lines;
       return { characters, words, lines };
+    },
+    __test_getView() {
+      return view;
     },
     destroy() {
       debugNexus("destroy", {

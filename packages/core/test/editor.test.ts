@@ -673,13 +673,24 @@ describe("createEditor — DOM event hook layer", () => {
     // 无选区（光标状态）时返回空字符串
     expect(editor.getSelectedText()).toBe("");
 
-    // 通过 view.dispatch 直接创建选区，绕过 jsdom 的限制
-    const view = (editor as any).destroy.toString && null;
-    // 用 replaceSelection 插入文本后再设置选区
-    editor.setSelection(0);
-    editor.replaceSelection("Hello");
-    // 此时光标在位置 5，往前选中 5 个字符
-    editor.setSelection(5, 0);
+    // 通过 __test_getView 获取底层 EditorView，直接 dispatch 选区事务
+    const view = (editor as any).__test_getView() as EditorView;
+    expect(view).toBeInstanceOf(EditorView);
+
+    // 选中 "Hello"（位置 0-5）
+    view.dispatch({ selection: { anchor: 0, head: 5 } });
+    expect(editor.getSelectedText()).toBe("Hello");
+
+    // 选中 "world"（位置 7-12）
+    view.dispatch({ selection: { anchor: 7, head: 12 } });
+    expect(editor.getSelectedText()).toBe("world");
+
+    // 选中含标点 ", world!"（位置 5-13）
+    view.dispatch({ selection: { anchor: 5, head: 13 } });
+    expect(editor.getSelectedText()).toBe(", world!");
+
+    // 反向选区（anchor=5, head=0）选中位置 0-5，即 "Hello"
+    view.dispatch({ selection: { anchor: 5, head: 0 } });
     expect(editor.getSelectedText()).toBe("Hello");
 
     editor.destroy();
