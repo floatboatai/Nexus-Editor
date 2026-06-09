@@ -208,6 +208,7 @@ editor.getDocument()          // current Markdown string
 editor.getAst()               // current mdast Root
 editor.setDocument(md)        // replace entire document
 editor.setSelection(pos)      // move cursor
+editor.getSelectedText()     // selected text, "" when no selection
 editor.focus() / editor.blur()
 editor.destroy()
 

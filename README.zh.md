@@ -208,6 +208,7 @@ editor.getDocument()          // 当前 Markdown 文本
 editor.getAst()               // 当前 mdast 语法树
 editor.setDocument(md)        // 替换整个文档
 editor.setSelection(pos)      // 移动光标
+editor.getSelectedText()     // 选中文本，无选区时返回 ""
 editor.focus() / editor.blur()
 editor.destroy()
 
