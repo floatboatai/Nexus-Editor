@@ -30,7 +30,10 @@ export async function generateImageFromText(text: string): Promise<string> {
         const node: Node = { id: id++, title, level, children: [], parent: parent };
         if (parent) parent.children.push(node);
         else roots.push(node);
-        stack.push(node);
+        // NOTE: do NOT push list items onto the heading stack. Pushing
+        // causes subsequent headings to become children of a list item.
+        // Nested lists are not deeply supported in this stub; keep list
+        // items as siblings under their nearest heading.
       }
     }
     return roots;
