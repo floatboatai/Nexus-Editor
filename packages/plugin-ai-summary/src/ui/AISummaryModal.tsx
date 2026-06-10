@@ -50,12 +50,33 @@ export function AISummaryModal({ onCreated, onClose, initialOpen = true }: Props
     onClose?.();
   }, [onClose]);
 
+  // Reusable modal wrapper component (overlay + centered container)
+  const Modal: React.FC<{
+    children: React.ReactNode;
+    onClose?: () => void;
+    width?: number | string;
+  }> = ({ children, onClose: onCloseProp, width = 720 }) => {
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <div style={{ width, maxWidth: '100%', background: '#fff', padding: 20, borderRadius: 8, boxSizing: 'border-box', boxShadow: '0 10px 30px rgba(0,0,0,0.35)', position: 'relative' }}>
+          <button
+            aria-label="Close"
+            onClick={onCloseProp}
+            style={{ position: 'absolute', right: 12, top: 12, width: 32, height: 32, borderRadius: 6, border: 'none', background: '#f3f4f6', cursor: 'pointer' }}
+          >
+            ×
+          </button>
+          {children}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div>
       {open && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <div style={{ width: 720, maxWidth: '100%', background: '#fff', padding: 20, borderRadius: 8, boxSizing: 'border-box', boxShadow: '0 10px 30px rgba(0,0,0,0.35)' }}>
-            <h3>AI 摘要上传（最多 1 个文件）</h3>
+        <Modal onClose={handleClose} width={720}>
+          <h3 style={{ marginTop: 4 }}>AI 摘要上传（最多 1 个文件）</h3>
             <div
               onDragOver={(e) => e.preventDefault()}
               onDrop={onDrop}
@@ -78,7 +99,7 @@ export function AISummaryModal({ onCreated, onClose, initialOpen = true }: Props
               </div>
             </div>
 
-            <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-start', alignItems: 'center' }}>
+            <div style={{ marginTop: 12, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
               <button
                 disabled={!file || loading}
                 onClick={doProcess}
@@ -95,22 +116,7 @@ export function AISummaryModal({ onCreated, onClose, initialOpen = true }: Props
               >
                 解析并生成
               </button>
-              <button
-                onClick={handleClose}
-                style={{
-                  marginLeft: 8,
-                  height: 36,
-                  padding: '0 14px',
-                  fontSize: 14,
-                  borderRadius: 6,
-                  background: '#e5e7eb',
-                  color: '#111827',
-                  border: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                关闭
-              </button>
+              <button onClick={handleClose} style={{ height: 36, padding: '0 14px', fontSize: 14, borderRadius: 6, background: '#e5e7eb', color: '#111827', border: 'none', cursor: 'pointer' }}>关闭</button>
             </div>
 
             {loading && <div>处理中…</div>}
@@ -121,8 +127,7 @@ export function AISummaryModal({ onCreated, onClose, initialOpen = true }: Props
                 <img src={imageUrl} alt="AI 摘要" style={{ maxWidth: '100%' }} />
               </div>
             )}
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
