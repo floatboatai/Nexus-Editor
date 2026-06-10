@@ -94,14 +94,20 @@ function createAppToolbar(): HTMLElement {
       console.log('[AI-SUMMARY] createRoot exists', typeof createRoot === 'function');
       const existing = document.getElementById('ai-summary-root');
       if (existing) {
-        console.log('[AI-SUMMARY] already mounted - toggling to close');
+        console.log('[AI-SUMMARY] already mounted - requesting close (animated)');
+        // request the mounted modal to close itself (so it can animate)
         try {
-          if (aiSummaryRoot && typeof aiSummaryRoot.unmount === 'function') aiSummaryRoot.unmount();
+          window.dispatchEvent(new CustomEvent('ai-summary-request-close'));
         } catch (e) {
-          console.warn('[AI-SUMMARY] unmount failed', e);
+          console.warn('[AI-SUMMARY] dispatch close request failed, falling back to immediate unmount', e);
+          try {
+            if (aiSummaryRoot && typeof aiSummaryRoot.unmount === 'function') aiSummaryRoot.unmount();
+          } catch (err) {
+            console.warn('[AI-SUMMARY] unmount failed', err);
+          }
+          existing.remove();
+          aiSummaryRoot = null;
         }
-        existing.remove();
-        aiSummaryRoot = null;
         return;
       }
 

@@ -11,6 +11,7 @@ type Props = {
 
 export function AISummaryModal({ onCreated, onClose, initialOpen = true }: Props) {
   const [open, setOpen] = useState<boolean>(initialOpen);
+  const [closing, setClosing] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -47,9 +48,23 @@ export function AISummaryModal({ onCreated, onClose, initialOpen = true }: Props
   }, [file, onCreated]);
 
   const handleClose = useCallback(() => {
-    setOpen(false);
-    onClose?.();
+    // play closing animation, then notify host
+    setClosing(true);
+    setTimeout(() => {
+      setOpen(false);
+      setClosing(false);
+      onClose?.();
+    }, 220);
   }, [onClose]);
+
+  // Listen for external close requests (e.g. toolbar toggle) so we can animate
+  React.useEffect(() => {
+    const handler = () => {
+      handleClose();
+    };
+    window.addEventListener('ai-summary-request-close', handler as EventListener);
+    return () => window.removeEventListener('ai-summary-request-close', handler as EventListener);
+  }, [handleClose]);
 
   // Reusable modal wrapper component (overlay + centered container)
   const Modal: React.FC<{
@@ -57,17 +72,29 @@ export function AISummaryModal({ onCreated, onClose, initialOpen = true }: Props
     onClose?: () => void;
     width?: number | string;
   }> = ({ children, onClose: onCloseProp, width = 720 }) => {
+    const visible = !closing;
     return (
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <div style={{ width, maxWidth: '100%', background: '#fff', padding: 20, borderRadius: 8, boxSizing: 'border-box', boxShadow: '0 10px 30px rgba(0,0,0,0.35)', position: 'relative' }}>
-          <button
-            aria-label="Close"
-            onClick={onCloseProp}
-            style={{ position: 'absolute', right: 12, top: 12, width: 32, height: 32, borderRadius: 6, border: 'none', background: '#f3f4f6', cursor: 'pointer' }}
-          >
-            ×
-          </button>
-          {children}
+        <div style={{ width, maxWidth: '100%', boxSizing: 'border-box', position: 'relative' }}>
+          <div style={{
+            background: '#fff',
+            padding: 20,
+            borderRadius: 8,
+            boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
+            opacity: visible ? 1 : 0,
+            transform: visible ? 'scale(1)' : 'scale(0.985)',
+            transition: 'opacity 200ms ease, transform 200ms ease',
+            position: 'relative'
+          }}>
+            <button
+              aria-label="Close"
+              onClick={onCloseProp}
+              style={{ position: 'absolute', right: 12, top: 12, width: 32, height: 32, borderRadius: 6, border: 'none', background: '#f3f4f6', cursor: 'pointer' }}
+            >
+              ×
+            </button>
+            {children}
+          </div>
         </div>
       </div>
     );

@@ -136,13 +136,18 @@ export async function generateImageFromText(text: string): Promise<string> {
     posMap.set(node.id, { node, x: boxX, y: boxY, w, h });
   }
 
+  // Connector layout constants (tweak to match visual sample)
+  const axisOffset = 40; // how far left of the parent box the vertical axis sits
+  const stubGap = 12; // gap between axis and box edge for horizontal stubs
+  const dashArray = '6,6';
+
   // Draw connectors: from parent to all children
   for (const item of nodes) {
     const { node } = item;
     const nodePos = posMap.get(node.id)!;
     const { x: nodeX, y: nodeY, w: nodeW, h: nodeH } = nodePos;
     const nodeMidY = nodeY + nodeH / 2;
-    const axisX = nodeX - 30;
+    const axisX = nodeX - axisOffset;
 
     // For each child, draw vertical then horizontal dashed connector
     if (node.children && node.children.length > 0) {
@@ -153,13 +158,21 @@ export async function generateImageFromText(text: string): Promise<string> {
           const childMidY = childY + childH / 2;
 
           // Vertical dashed line from parent mid to child mid at axisX
-          linesArr.push(`<path d='M ${axisX} ${nodeMidY} L ${axisX} ${childMidY}' stroke='#9ca3af' stroke-width='1.5' stroke-linecap='round' stroke-dasharray='6,6' opacity='0.45'/>`);
+          // Horizontal dashed from axis to parent box (small stub)
+          const parentStubStart = axisX + stubGap;
+          const parentStubEnd = nodePos.x - stubGap;
+          if (parentStubEnd > parentStubStart) {
+            linesArr.push(`<path d='M ${parentStubStart} ${nodeMidY} L ${parentStubEnd} ${nodeMidY}' stroke='#9ca3af' stroke-width='1.5' stroke-linecap='round' stroke-dasharray='${dashArray}' opacity='0.45'/>`);
+          }
+
+          // Vertical dashed line from parent mid to child mid at axisX
+          linesArr.push(`<path d='M ${axisX} ${nodeMidY} L ${axisX} ${childMidY}' stroke='#9ca3af' stroke-width='1.5' stroke-linecap='round' stroke-dasharray='${dashArray}' opacity='0.45'/>`);
 
           // Horizontal dashed from axis to child box (leave small gap)
-          const startX = axisX + 8;
-          const endX = childPos.x - 8;
+          const startX = axisX + stubGap;
+          const endX = childPos.x - stubGap;
           if (endX > startX) {
-            linesArr.push(`<path d='M ${startX} ${childMidY} L ${endX} ${childMidY}' stroke='#9ca3af' stroke-width='1.5' stroke-linecap='round' stroke-dasharray='6,6' opacity='0.45'/>`);
+            linesArr.push(`<path d='M ${startX} ${childMidY} L ${endX} ${childMidY}' stroke='#9ca3af' stroke-width='1.5' stroke-linecap='round' stroke-dasharray='${dashArray}' opacity='0.45'/>`);
           }
         }
       }
