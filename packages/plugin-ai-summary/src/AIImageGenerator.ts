@@ -7,9 +7,10 @@ export async function generateImageFromText(text: string): Promise<string> {
     const roots: Node[] = [];
     const stack: Node[] = [];
     let id = 1;
-    for (const raw of lines) {
-      const m = raw.match(/^\s*(#{1,6})\s+(.*)$/);
-      if (m) {
+      for (const raw of lines) {
+        const heading = raw.match(/^\s*(#{1,6})\s+(.*)$/);
+        const list = raw.match(/^\s*([-*+]|\d+\.)\s+(.*)$/);
+        if (heading) {
         const level = m[1].length;
         const title = m[2].trim();
         const node: Node = { id: id++, title, level, children: [], parent: null };
@@ -23,9 +24,23 @@ export async function generateImageFromText(text: string): Promise<string> {
         }
         stack.push(node);
       }
+        } else if (list) {
+          const title = list[2].trim();
+          // attach to nearest heading (stack top) or to roots
+          const parent = stack.length > 0 ? stack[stack.length - 1] : null;
+          const level = parent ? parent.level + 1 : 2;
+          const node: Node = { id: id++, title, level, children: [], parent: parent };
+          if (parent) parent.children.push(node);
+          else roots.push(node);
+          // push list items onto stack so nested lists work
+          stack.push(node);
+        }
+        // otherwise ignore non-heading/list lines here (fallback handles them)
     }
     return roots;
-  }
+    // Use Electron-like deep background color
+    const bgColor = '#0b0f14';
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns='http://www.w3.org/2000/svg' width='${width}' height='${height}'>\n  <rect width='100%' height='100%' fill='${bgColor}'/>\n  ${lines.join('\n  ')}\n  ${boxes.join('\n  ')}\n</svg>`;
 
   function buildFallbackTree(input: string): Node[] {
     const lines = input
