@@ -8,6 +8,10 @@ import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
 
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import AISummaryModal from '../../../../packages/plugin-ai-summary/src/ui/AISummaryModal';
+
 installLongTaskWatch(50);
 
 const state: AppState = createState();
@@ -77,6 +81,31 @@ function createAppToolbar(): HTMLElement {
   settingsBtn.style.fontSize = "16px";
   settingsBtn.addEventListener("click", handleSettings);
 
+  const aiSummaryBtn = document.createElement("button");
+  aiSummaryBtn.textContent = "AI 摘要";
+  aiSummaryBtn.title = "AI 摘要";
+  aiSummaryBtn.style.fontSize = "14px";
+  aiSummaryBtn.addEventListener('click', () => {
+    if (document.getElementById('ai-summary-root')) return;
+    const mount = document.createElement('div');
+    mount.id = 'ai-summary-root';
+    document.body.appendChild(mount);
+    const root = createRoot(mount);
+    root.render(React.createElement(AISummaryModal, { onCreated: (notePath?: string | null) => {
+      // When a note is created, refresh vault UI and link index if possible
+      try {
+        // vault variable is defined later but will be available when user interacts
+        // @ts-ignore
+        if (typeof vault !== 'undefined' && vault?.refresh) vault.refresh();
+        // seedLinkIndex is in scope; call it to rebuild index
+        // @ts-ignore
+        if (typeof seedLinkIndex === 'function') void seedLinkIndex();
+      } catch (e) {
+        // ignore
+      }
+    } }));
+  });
+
   toolbar.append(
     vaultBtn,
     openBtn,
@@ -87,7 +116,8 @@ function createAppToolbar(): HTMLElement {
     outlineBtn,
     backlinksBtn,
     searchBtn,
-    settingsBtn
+    settingsBtn,
+    aiSummaryBtn
   );
   return toolbar;
 }
