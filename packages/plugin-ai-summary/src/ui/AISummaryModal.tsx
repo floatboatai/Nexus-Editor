@@ -5,10 +5,12 @@ import { createNote } from '../createNote';
 
 type Props = {
   onCreated?: (notePath: string | null) => void;
+  onClose?: () => void;
+  initialOpen?: boolean;
 };
 
-export default function AISummaryModal({ onCreated }: Props) {
-  const [open, setOpen] = useState(false);
+export function AISummaryModal({ onCreated, onClose, initialOpen = true }: Props) {
+  const [open, setOpen] = useState<boolean>(initialOpen);
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -43,9 +45,13 @@ export default function AISummaryModal({ onCreated }: Props) {
     }
   }, [file, onCreated]);
 
+  const handleClose = useCallback(() => {
+    setOpen(false);
+    onClose?.();
+  }, [onClose]);
+
   return (
     <div>
-      <button onClick={() => setOpen(true)}>AI 摘要</button>
       {open && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)' }}>
           <div style={{ width: 720, margin: '6% auto', background: '#fff', padding: 20 }}>
@@ -64,7 +70,7 @@ export default function AISummaryModal({ onCreated }: Props) {
 
             <div style={{ marginTop: 12 }}>
               <button disabled={!file || loading} onClick={doProcess}>解析并生成</button>
-              <button onClick={() => setOpen(false)} style={{ marginLeft: 8 }}>关闭</button>
+              <button onClick={handleClose} style={{ marginLeft: 8 }}>关闭</button>
             </div>
 
             {loading && <div>处理中…</div>}
@@ -81,3 +87,5 @@ export default function AISummaryModal({ onCreated }: Props) {
     </div>
   );
 }
+
+export default AISummaryModal;

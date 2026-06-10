@@ -123,6 +123,16 @@ function createAppToolbar(): HTMLElement {
               console.warn('[AI-SUMMARY] post-create handlers failed', e);
             }
           },
+          onClose: () => {
+            try {
+              if (aiSummaryRoot && typeof aiSummaryRoot.unmount === 'function') aiSummaryRoot.unmount();
+            } catch (e) {
+              console.warn('[AI-SUMMARY] unmount failed (onClose)', e);
+            }
+            const el = document.getElementById('ai-summary-root');
+            if (el) el.remove();
+            aiSummaryRoot = null;
+          },
         })
       );
     } catch (err) {
