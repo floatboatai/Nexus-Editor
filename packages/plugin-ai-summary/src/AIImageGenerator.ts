@@ -64,6 +64,20 @@ export async function generateImageFromText(text: string): Promise<string> {
   const margin = 28;
   const maxDepth = 3;
 
+  // Helper: calculate adaptive box dimensions based on text length
+  function calcBoxSize(title: string): { w: number; h: number } {
+    const baseW = 220;
+    const maxW = 320;
+    const minW = 120;
+    const baseH = 60;
+    const charLen = title.length;
+    // Estimate: ~20 chars per line at 14px font with 10px padding
+    const estLines = Math.max(1, Math.ceil(charLen / 20));
+    const w = Math.min(maxW, Math.max(minW, 100 + charLen * 8));
+    const h = Math.max(baseH, 30 + estLines * 24);
+    return { w, h };
+  }
+
   // Collect nodes per level in document order (pre-order traversal)
   const levelsArr: Node[][] = [[], [], []];
   function collect(nlist: Node[], depth = 1) {
@@ -90,40 +104,71 @@ export async function generateImageFromText(text: string): Promise<string> {
   }
 
   const maxLevel = Math.max(1, ...levelsArr.map((c) => (c.length ? levelsArr.indexOf(c) + 1 : 0)));
+  
+  // Compute canvas size based on adaptive box dimensions
+  let maxY = 0;
+  for (const item of nodes) {
+    const { w, h } = calcBoxSize(item.node.title);
+    maxY = Math.max(maxY, item.y + h);
+  }
+  
   const width = Math.max(640, margin * 2 + maxDepth * colWidth);
-  const height = Math.max(220, margin * 2 + maxCount * rowHeight);
+  const height = Math.max(220, maxY + margin);
 
   // Build visual elements: vertical dashed column lines + connector branches + boxes with wrapped text
   const linesArr: string[] = [];
   const boxes: string[] = [];
+  const posMap: Map<number, { node: Node; x: number; y: number; w: number; h: number }> = new Map();
 
   // Precompute unique levels
   const levels = Array.from(new Set(nodes.map((n) => n.node.level))).sort((a, b) => a - b);
 
-  // Vertical dashed guide lines per level (positioned slightly left of the boxes column)
-  for (const lvl of levels) {
-    const xLine = margin + (lvl - 1) * colWidth - 30;
-    linesArr.push(`<line x1='${xLine}' y1='${margin}' x2='${xLine}' y2='${height - margin}' stroke='#374151' stroke-width='2' stroke-dasharray='6,6' opacity='0.35'/>`);
-  }
+  // No vertical separators; use dashed connectors between levels instead.
 
   const palette = ['#4338ca', '#7c3aed', '#1e40af', '#0ea5a3', '#2563eb'];
 
+  // First pass: compute all box sizes and positions
   for (const item of nodes) {
     const { node, x, y } = item;
-    const w = 220;
-    const h = 60;
+    const { w, h } = calcBoxSize(node.title);
     const boxX = x;
     const boxY = y;
-    const vertX = margin + (node.level - 1) * colWidth - 30;
+    posMap.set(node.id, { node, x: boxX, y: boxY, w, h });
+  }
 
-    // connector: horizontal line from vertical guide to box left
-    const startX = vertX + 8;
-    const endX = boxX - 8;
-    const midY = boxY + h / 2;
-    if (endX > startX) {
-      linesArr.push(`<path d='M ${startX} ${midY} L ${endX} ${midY}' stroke='#9ca3af' stroke-width='1.5' stroke-linecap='round' opacity='0.45'/>`);
+  // Draw connectors: from parent to all children
+  for (const item of nodes) {
+    const { node } = item;
+    const nodePos = posMap.get(node.id)!;
+    const { x: nodeX, y: nodeY, w: nodeW, h: nodeH } = nodePos;
+    const nodeMidY = nodeY + nodeH / 2;
+    const axisX = nodeX - 30;
+
+    // For each child, draw vertical then horizontal dashed connector
+    if (node.children && node.children.length > 0) {
+      for (const child of node.children) {
+        const childPos = posMap.get(child.id);
+        if (childPos) {
+          const { y: childY, h: childH } = childPos;
+          const childMidY = childY + childH / 2;
+
+          // Vertical dashed line from parent mid to child mid at axisX
+          linesArr.push(`<path d='M ${axisX} ${nodeMidY} L ${axisX} ${childMidY}' stroke='#9ca3af' stroke-width='1.5' stroke-linecap='round' stroke-dasharray='6,6' opacity='0.45'/>`);
+
+          // Horizontal dashed from axis to child box (leave small gap)
+          const startX = axisX + 8;
+          const endX = childPos.x - 8;
+          if (endX > startX) {
+            linesArr.push(`<path d='M ${startX} ${childMidY} L ${endX} ${childMidY}' stroke='#9ca3af' stroke-width='1.5' stroke-linecap='round' stroke-dasharray='6,6' opacity='0.45'/>`);
+          }
+        }
+      }
     }
+  }
 
+  // Second pass: render boxes with adaptive sizes
+  for (const [, pos] of posMap) {
+    const { node, x: boxX, y: boxY, w, h } = pos;
     // box background color by level
     const fill = palette[(node.level - 1) % palette.length];
     const safeTitle = node.title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
