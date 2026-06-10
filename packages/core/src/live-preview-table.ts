@@ -580,12 +580,20 @@ export class EditableTableWidget extends WidgetType {
       if (!wrapper.isConnected) return;
       const v = self.viewRef.current;
       if (v && !self.editing) {
-        const sel = v.state.selection.main;
+        // Multi-cursor: any range fully covering the table counts as
+        // "table selected"; the cell-range only clears when every cursor
+        // has left the table span.
+        const ranges = v.state.selection.ranges;
         const tableEnd = self.tableFrom + self.source.length;
-        const isSelected = sel.from !== sel.to && sel.from <= self.tableFrom && sel.to >= tableEnd;
+        const isSelected = ranges.some(
+          (range) => !range.empty && range.from <= self.tableFrom && range.to >= tableEnd
+        );
         selectionOverlay.style.display = isSelected ? "block" : "none";
         // If cursor moved outside table, no active interaction, no active range, clear range selection
-        if (rangeStart && !isRangeSelecting && !cellMouseDown && !rangeActive && (sel.head < self.tableFrom || sel.head > tableEnd)) {
+        const allOutside = ranges.every(
+          (range) => range.head < self.tableFrom || range.head > tableEnd
+        );
+        if (rangeStart && !isRangeSelecting && !cellMouseDown && !rangeActive && allOutside) {
           clearRangeSelection();
         }
       } else {

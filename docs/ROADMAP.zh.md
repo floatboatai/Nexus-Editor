@@ -34,7 +34,7 @@
 | # | 功能 | 归属包 | 优先级 | 状态 | 需要 OpenSpec | 备注 |
 |---|---|---|---|---|---|---|
 | 5 | `getSelectedText()` API | `core` | P0 | in-progress | 否 | 公共 API 增量，需补类型 + 测试 —— PR #8 review 中 |
-| 6 | 多光标 / 多选支持 | `core` | P1 | planned | 是 | CM6 已有底层，需在 live-preview 与表格交互中验证不破坏 |
+| 6 | 多光标 / 多选支持 | `core` | P1 | in-progress | 是 | `openspec/changes/add-core-multi-cursor` — opt-in `multiCursor` 配置；live-preview 揭示与表格检查已有回归测试覆盖 |
 | 7 | AST 增强 / Markdown 扩展 | `core` + `preset-gfm` | P2 | planned | 是 | 影响序列化与所有依赖 AST 的插件 |
 | 8 | undo / redo 分组 | `plugin-history` | P1 | planned | 否 | 注意与表格交互的 `tableEditingCount` 协同 |
 

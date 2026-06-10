@@ -42,7 +42,12 @@ describe("event system", () => {
     editor.on("selectionChange", handler);
     editor.setSelection(5);
 
-    expect(handler).toHaveBeenCalledWith({ anchor: 5, head: 5 });
+    expect(handler).toHaveBeenCalledWith({
+      anchor: 5,
+      head: 5,
+      ranges: [{ anchor: 5, head: 5 }],
+      mainIndex: 0
+    });
     editor.destroy();
   });
 

@@ -94,6 +94,17 @@ export interface EditorConfig {
   /** Prevent user edits while preserving selection and scrolling. Default: false */
   readOnly?: boolean;
   /**
+   * Enable multi-cursor / multi-selection editing. Default: false.
+   *
+   * When true the editor allows multiple selection ranges, renders secondary
+   * cursors/selections (CodeMirror `drawSelection`), lets Alt-click add a
+   * cursor, and binds `Mod-d` (select next occurrence), `Mod-Alt-ArrowUp/Down`
+   * (add cursor above/below) and `Escape` (collapse to the main selection).
+   * Off by default because `drawSelection` visibly replaces the native caret
+   * and selection rendering for existing consumers.
+   */
+  multiCursor?: boolean;
+  /**
    * Maximum number of slash-menu entries emitted on `slashMenuChange`
    * after ranking. Default: 8. A limit of 0 keeps the menu state open
    * but emits an empty command list (useful for "no results" UIs).
@@ -118,11 +129,24 @@ export interface SlashMenuState {
   coords: { left: number; top: number; bottom: number } | null;
 }
 
+/** One selection range in plain-object form (`anchor` may be after `head`). */
+export interface SelectionRangeJSON {
+  anchor: number;
+  head: number;
+}
+
+/** Full selection snapshot: every range plus which one is the main range. */
+export interface SelectionState {
+  ranges: SelectionRangeJSON[];
+  mainIndex: number;
+}
+
 export interface EditorEventMap {
   change: (doc: string, ast: Root) => void;
   focus: () => void;
   blur: () => void;
-  selectionChange: (selection: { anchor: number; head: number }) => void;
+  /** `anchor` / `head` describe the main range; `ranges` carries all of them. */
+  selectionChange: (selection: { anchor: number; head: number } & SelectionState) => void;
   slashMenuChange: (state: SlashMenuState) => void;
 }
 
@@ -140,9 +164,18 @@ export interface EditorAPI {
   exportHTML(): string;
   setTheme(theme: import("./theme").NexusTheme): void;
   getSelection(): { anchor: number; head: number };
+  /** All selection ranges plus the main-range index. Single-range editors return one entry. */
+  getSelections(): SelectionState;
   getSlashCommands(): SlashCommandDef[];
   uploadAsset(file: File): Promise<string | null>;
   setSelection(anchor: number, head?: number): void;
+  /**
+   * Replace the selection with the given ranges. `mainIndex` defaults to the
+   * last range (CodeMirror's latest-added-is-main convention). Multiple
+   * ranges require `multiCursor: true` — without it CodeMirror collapses the
+   * selection to the main range.
+   */
+  setSelections(ranges: { anchor: number; head?: number }[], mainIndex?: number): void;
   /**
    * Replace the document content.
    *

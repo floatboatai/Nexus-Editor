@@ -118,6 +118,9 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     // edges across the vault). 150ms is imperceptible for typing UX but
     // batches bursts of keystrokes into one parse.
     parseDelayMs: 150,
+    // Multi-cursor editing: Alt-click adds a cursor, Mod-d selects the next
+    // occurrence, Mod-Alt-ArrowUp/Down stacks cursors (ROADMAP #6).
+    multiCursor: true,
     plugins: [
       createGfmPreset(),
       createHistoryPlugin(),

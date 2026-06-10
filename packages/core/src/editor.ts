@@ -1,4 +1,4 @@
-import { Annotation, EditorState } from "@codemirror/state";
+import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
 
 // Annotation attached to dispatches that load content programmatically (e.g.
 // setDocument from file open) so updateListener can skip the user-edit path —
@@ -22,6 +22,7 @@ import { markdownFoldService } from "./markdown-fold";
 import { resolveLocale } from "./locale";
 import { markdownAutoPair } from "./markdown-autopair";
 import { markdownKeymap } from "./markdown-keymap";
+import { multiCursorExtension } from "./multi-cursor";
 import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { createThemeExtension, lightTheme, type NexusTheme } from "./theme";
 import { computeSlashState } from "./slash-state";
@@ -455,6 +456,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
     ? EditorView.contentAttributes.of({ dir: "rtl" })
     : [];
   const indentGuidesExt = config.indentGuides ? indentationMarkers() : [];
+  const multiCursorExt = config.multiCursor ? multiCursorExtension() : [];
 
   const shortcutExtensions =
     shortcuts.length > 0
@@ -567,7 +569,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
             const sel = update.state.selection.main;
 
             if (update.selectionSet) {
-              emitter.emit("selectionChange", { anchor: sel.anchor, head: sel.head });
+              const selection = update.state.selection;
+              emitter.emit("selectionChange", {
+                anchor: sel.anchor,
+                head: sel.head,
+                ranges: selection.ranges.map((range) => ({ anchor: range.anchor, head: range.head })),
+                mainIndex: selection.mainIndex,
+              });
             }
 
             if (slashCommands.length > 0) {
@@ -604,6 +612,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
         directionExt,
         indentGuidesExt,
         markdownKeymap(),
+        multiCursorExt,
         markdownFoldService(),
         keymap.of([indentWithTab]),
         closeBrackets(),
@@ -687,6 +696,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
       const sel = view.state.selection.main;
       return { anchor: sel.anchor, head: sel.head };
     },
+    getSelections() {
+      const selection = view.state.selection;
+      return {
+        ranges: selection.ranges.map((range) => ({ anchor: range.anchor, head: range.head })),
+        mainIndex: selection.mainIndex,
+      };
+    },
     getSlashCommands() {
       return slashCommands;
     },
@@ -711,6 +727,19 @@ export function createEditor(config: EditorConfig): EditorAPI {
 
       view.dispatch({
         selection: { anchor, head },
+        scrollIntoView: true
+      });
+    },
+    setSelections(ranges, mainIndex) {
+      if (destroyed || ranges.length === 0) {
+        return;
+      }
+
+      view.dispatch({
+        selection: EditorSelection.create(
+          ranges.map((range) => EditorSelection.range(range.anchor, range.head ?? range.anchor)),
+          mainIndex ?? ranges.length - 1
+        ),
         scrollIntoView: true
       });
     },
