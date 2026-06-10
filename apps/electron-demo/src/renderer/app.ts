@@ -86,24 +86,36 @@ function createAppToolbar(): HTMLElement {
   aiSummaryBtn.title = "AI 摘要";
   aiSummaryBtn.style.fontSize = "14px";
   aiSummaryBtn.addEventListener('click', () => {
-    if (document.getElementById('ai-summary-root')) return;
-    const mount = document.createElement('div');
-    mount.id = 'ai-summary-root';
-    document.body.appendChild(mount);
-    const root = createRoot(mount);
-    root.render(React.createElement(AISummaryModal, { onCreated: (notePath?: string | null) => {
-      // When a note is created, refresh vault UI and link index if possible
-      try {
-        // vault variable is defined later but will be available when user interacts
-        // @ts-ignore
-        if (typeof vault !== 'undefined' && vault?.refresh) vault.refresh();
-        // seedLinkIndex is in scope; call it to rebuild index
-        // @ts-ignore
-        if (typeof seedLinkIndex === 'function') void seedLinkIndex();
-      } catch (e) {
-        // ignore
+    try {
+      console.log('[AI-SUMMARY] button clicked');
+      if (document.getElementById('ai-summary-root')) {
+        console.log('[AI-SUMMARY] already mounted');
+        return;
       }
-    } }));
+      const mount = document.createElement('div');
+      mount.id = 'ai-summary-root';
+      document.body.appendChild(mount);
+      const root = createRoot(mount);
+      root.render(
+        React.createElement(AISummaryModal, {
+          onCreated: (notePath?: string | null) => {
+            console.log('[AI-SUMMARY] note created', notePath);
+            try {
+              // @ts-ignore
+              if (typeof vault !== 'undefined' && vault?.refresh) vault.refresh();
+              // @ts-ignore
+              if (typeof seedLinkIndex === 'function') void seedLinkIndex();
+            } catch (e) {
+              console.warn('[AI-SUMMARY] post-create handlers failed', e);
+            }
+          },
+        })
+      );
+    } catch (err) {
+      // Surface errors to console so they are visible in devtools / terminal
+      console.error('[AI-SUMMARY] failed to mount', err);
+      alert('无法打开 AI 摘要弹窗，详情见控制台');
+    }
   });
 
   toolbar.append(
