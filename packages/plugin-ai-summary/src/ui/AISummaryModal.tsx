@@ -53,24 +53,64 @@ export function AISummaryModal({ onCreated, onClose, initialOpen = true }: Props
   return (
     <div>
       {open && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)' }}>
-          <div style={{ width: 720, margin: '6% auto', background: '#fff', padding: 20 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div style={{ width: 720, maxWidth: '100%', background: '#fff', padding: 20, borderRadius: 8, boxSizing: 'border-box', boxShadow: '0 10px 30px rgba(0,0,0,0.35)' }}>
             <h3>AI 摘要上传（最多 1 个文件）</h3>
             <div
               onDragOver={(e) => e.preventDefault()}
               onDrop={onDrop}
-              style={{ border: '2px dashed #ccc', padding: 20, minHeight: 120 }}
+              style={{
+                border: '2px dashed #ccc',
+                padding: 20,
+                minHeight: 120,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                textAlign: 'center',
+                gap: 8,
+              }}
             >
-              <p>拖拽文件到此处，或使用下面的选择按钮。</p>
+              <p style={{ margin: 0 }}>拖拽文件到此处，或使用下面的选择按钮。</p>
               <input accept={accept} type="file" onChange={onChoose} />
               <div style={{ marginTop: 8 }}>
                 {file && <div>已选择：{file.name}</div>}
               </div>
             </div>
 
-            <div style={{ marginTop: 12 }}>
-              <button disabled={!file || loading} onClick={doProcess}>解析并生成</button>
-              <button onClick={handleClose} style={{ marginLeft: 8 }}>关闭</button>
+            <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-start', alignItems: 'center' }}>
+              <button
+                disabled={!file || loading}
+                onClick={doProcess}
+                style={{
+                  height: 36,
+                  padding: '0 14px',
+                  fontSize: 14,
+                  borderRadius: 6,
+                  background: '#6b46c1',
+                  color: '#fff',
+                  border: 'none',
+                  cursor: (!file || loading) ? 'not-allowed' : 'pointer',
+                }}
+              >
+                解析并生成
+              </button>
+              <button
+                onClick={handleClose}
+                style={{
+                  marginLeft: 8,
+                  height: 36,
+                  padding: '0 14px',
+                  fontSize: 14,
+                  borderRadius: 6,
+                  background: '#e5e7eb',
+                  color: '#111827',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                关闭
+              </button>
             </div>
 
             {loading && <div>处理中…</div>}
