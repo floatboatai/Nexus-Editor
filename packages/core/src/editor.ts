@@ -14,7 +14,8 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 
-import { EventEmitter } from "./event-emitter";
+import { EventBus, setGlobalErrorHandler } from "./event-bus";
+import { PluginHost } from "./plugin-host";
 import { createLivePreviewExtension } from "./live-preview";
 import { createMarkdownLanguageSupport } from "./lezer-markdown";
 import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
@@ -250,7 +251,18 @@ export function createEditor(config: EditorConfig): EditorAPI {
     transformProcessor ? transformProcessor.runSync(ast) : ast;
   const locale = resolveLocale(config.locale);
   const parseDelayMs = config.parseDelayMs ?? 0;
-  const emitter = new EventEmitter<EditorEventMap>();
+  const emitter = new EventBus<EditorEventMap>();
+  const host = new PluginHost(plugins, (err, name, hook) => {
+    if (!destroyed) {
+      try { emitter.emit("error", err, `plugin:${name}:${hook}`); } catch { /* noop */ }
+    }
+  });
+  // Route EventBus errors to the "error" event so consumers can listen
+  setGlobalErrorHandler((_source, error) => {
+    if (!destroyed) {
+      try { emitter.emit("error", error, "eventBus"); } catch { /* noop */ }
+    }
+  });
   let destroyed = false;
   let focused = false;
   let parseTimer: ReturnType<typeof setTimeout> | undefined;
@@ -298,8 +310,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
     // mdast pipeline (e.g. with bespoke remark plugins).
     if (customParser) {
       currentAst = parseDocument(customParser, markdown);
-      config.onChange?.(markdown, currentAst);
-      emitter.emit("change", markdown, currentAst);
+      // Lifecycle: onBeforeChange — plugins can cancel the external change event
+      if (host.beforeChange(markdown, currentAst)) {
+        emitter.emit("beforeChange", { doc: markdown, ast: currentAst });
+        config.onChange?.(markdown, currentAst);
+        emitter.emit("change", markdown, currentAst);
+      }
+      host.afterChange(markdown, currentAst);
       return;
     }
 
@@ -308,8 +325,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
     // even on large docs). Falls back to a headless parse pre-view.
     // User remark transformer plugins (if any) run via transformAst.
     currentAst = transformAst(lezerAstFromAnywhere(viewRef, markdown));
-    config.onChange?.(markdown, currentAst);
-    emitter.emit("change", markdown, currentAst);
+    // Lifecycle: onBeforeChange — plugins can cancel the external change event
+    if (host.beforeChange(markdown, currentAst)) {
+      emitter.emit("beforeChange", { doc: markdown, ast: currentAst });
+      config.onChange?.(markdown, currentAst);
+      emitter.emit("change", markdown, currentAst);
+    }
+    host.afterChange(markdown, currentAst);
   }
 
   function scheduleChange(markdown: string) {
@@ -568,6 +590,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
 
             if (update.selectionSet) {
               emitter.emit("selectionChange", { anchor: sel.anchor, head: sel.head });
+              host.selectionChange(sel.anchor, sel.head);
             }
 
             if (slashCommands.length > 0) {
@@ -611,6 +634,8 @@ export function createEditor(config: EditorConfig): EditorAPI {
         dropCursor(),
         EditorView.domEventHandlers({
           paste(event) {
+            // Emit for external consumers (analytics, logging, etc.)
+            if (!destroyed) emitter.emit("paste", event);
             // 先派发插件 paste 钩子；任一消费则阻止默认行为。
             if (runEventHandlers(pasteHandlers, event)) {
               event.preventDefault();
@@ -626,6 +651,8 @@ export function createEditor(config: EditorConfig): EditorAPI {
             return true;
           },
           drop(event) {
+            // Emit for external consumers
+            if (!destroyed) emitter.emit("drop", event);
             if (runEventHandlers(dropHandlers, event)) {
               event.preventDefault();
               return true;
@@ -639,6 +666,8 @@ export function createEditor(config: EditorConfig): EditorAPI {
             return true;
           },
           keydown(event) {
+            // Emit for external consumers
+            if (!destroyed) emitter.emit("keydown", event);
             if (runEventHandlers(keydownHandlers, event)) {
               event.preventDefault();
               return true;
@@ -682,6 +711,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
     setTheme(theme: NexusTheme) {
       if (destroyed) return;
       view.dispatch(themeExt.reconfigure(theme));
+      emitter.emit("themeChange", theme);
     },
     getSelection() {
       const sel = view.state.selection.main;
@@ -720,6 +750,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
       }
 
       const silent = opts?.silent === true;
+
+      // Lifecycle: onBeforeSetDocument — plugins can cancel the replacement.
+      if (!host.beforeSetDocument(next, silent)) {
+        debugNexus("setDocument-cancelled", { nextLength: next.length, silent });
+        return;
+      }
+      emitter.emit("beforeSetDocument", { next, silent });
 
       // 组合输入（IME）进行中：整文档替换会打断输入法、丢失合成中文字并把视口重置到顶部。
       // 推迟到 compositionend 再应用，只保留最后一次请求。
@@ -792,6 +829,17 @@ export function createEditor(config: EditorConfig): EditorAPI {
     off(event, handler) {
       emitter.off(event, handler);
     },
+    addPlugin(plugin) {
+      if (destroyed) return false;
+      return host.addPlugin(plugin);
+    },
+    removePlugin(name) {
+      if (destroyed) return false;
+      return host.removePlugin(name);
+    },
+    hasPlugin(name) {
+      return host.hasPlugin(name);
+    },
     getCoordsAtPos(pos) {
       if (destroyed) return null;
       try {
@@ -823,6 +871,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
           head: view.state.selection.main.head,
         },
       });
+      // Emit destroy BEFORE setting the destroyed flag so listeners can
+      // still access the editor state during the event.
+      emitter.emit("destroy");
       destroyed = true;
       focused = false;
       if (parseTimer) {
@@ -837,9 +888,15 @@ export function createEditor(config: EditorConfig): EditorAPI {
       pendingDocumentLoad = null;
       composing = false;
       emitter.clear();
+      host.destroy();
       view.destroy();
     }
   };
+
+  // 将 EditorAPI 注入插件宿主，使生命周期钩子可安全调用编辑器方法。
+  host.setEditor(api);
+  host.editorReady();
+  emitter.emit("editorReady");
 
   return api;
 }

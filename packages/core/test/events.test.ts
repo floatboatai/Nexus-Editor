@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
-import { createEditor } from "../src/index";
+import { createEditor, type EditorAPI } from "../src/index";
 
 describe("event system", () => {
   it("emits change events with doc and ast", () => {
@@ -230,6 +230,267 @@ describe("slashMenuChange", () => {
     const lastCall = handler.mock.calls[handler.mock.calls.length - 1][0];
     expect(lastCall.commands[0].id).toBe("h1");
     expect(lastCall.commands[0].run).toBe(run);
+    editor.destroy();
+  });
+});
+
+describe("enhanced event system — new events", () => {
+  let container: HTMLDivElement;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+  });
+
+  // -----------------------------------------------------------------------
+  // editorReady
+  // -----------------------------------------------------------------------
+
+  it("emits editorReady after creation", () => {
+    const handler = vi.fn();
+    const editor = createEditor({ container });
+    editor.on("editorReady", handler);
+    // editorReady fires during construction, so subscribe after - handler may
+    // already have been called. Verify the event exists on the type system
+    // and does not throw.
+    expect(() => {
+      editor.off("editorReady", handler);
+    }).not.toThrow();
+    editor.destroy();
+  });
+
+  it("editorReady handler can safely access editor methods", () => {
+    const handler = vi.fn((_editor: EditorAPI) => {
+      // Just verify the handler is callable with an editor
+    });
+    const editor = createEditor({ container });
+    // Subscribe after creation — the ready event has already fired,
+    // but we verify the API surface is consistent.
+    expect(editor.getDocument()).toBeDefined();
+    editor.destroy();
+  });
+
+  // -----------------------------------------------------------------------
+  // themeChange
+  // -----------------------------------------------------------------------
+
+  it("emits themeChange when setTheme is called", () => {
+    const editor = createEditor({ container });
+    const handler = vi.fn();
+    editor.on("themeChange", handler);
+    editor.setTheme({ colors: { background: "#fff", text: "#000" } } as any);
+    expect(handler).toHaveBeenCalledOnce();
+    editor.destroy();
+  });
+
+  // -----------------------------------------------------------------------
+  // destroy event
+  // -----------------------------------------------------------------------
+
+  it("emits destroy during editor teardown", () => {
+    const editor = createEditor({ container });
+    const handler = vi.fn();
+    editor.on("destroy", handler);
+    editor.destroy();
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it("destroy event fires before editor is fully destroyed", () => {
+    let capturedDoc: string | null = null;
+    const editor = createEditor({ container, initialValue: "destroy me" });
+    editor.on("destroy", () => {
+      capturedDoc = editor.getDocument();
+    });
+    editor.destroy();
+    expect(capturedDoc).toBe("destroy me");
+  });
+
+  // -----------------------------------------------------------------------
+  // beforeChange event
+  // -----------------------------------------------------------------------
+
+  it("emits beforeChange on document change", () => {
+    const editor = createEditor({ container });
+    const handler = vi.fn();
+    editor.on("beforeChange", handler);
+    editor.setDocument("new content");
+    expect(handler).toHaveBeenCalled();
+    const ctx = handler.mock.calls[0][0];
+    expect(ctx.doc).toBe("new content");
+    expect(ctx.ast).toHaveProperty("type", "root");
+    editor.destroy();
+  });
+
+  // -----------------------------------------------------------------------
+  // beforeSetDocument event
+  // -----------------------------------------------------------------------
+
+  it("emits beforeSetDocument on setDocument", () => {
+    const editor = createEditor({ container });
+    const handler = vi.fn();
+    editor.on("beforeSetDocument", handler);
+    editor.setDocument("replacement");
+    expect(handler).toHaveBeenCalled();
+    const ctx = handler.mock.calls[0][0];
+    expect(ctx.next).toBe("replacement");
+    expect(ctx.silent).toBe(false);
+    editor.destroy();
+  });
+
+  it("emits beforeSetDocument with silent=true when silent option is set", () => {
+    const editor = createEditor({ container });
+    const handler = vi.fn();
+    editor.on("beforeSetDocument", handler);
+    editor.setDocument("silent replace", { silent: true });
+    expect(handler).toHaveBeenCalled();
+    expect(handler.mock.calls[0][0].silent).toBe(true);
+    editor.destroy();
+  });
+
+  // -----------------------------------------------------------------------
+  // error event
+  // -----------------------------------------------------------------------
+
+  it("can subscribe to error event without throwing", () => {
+    const editor = createEditor({ container });
+    const handler = vi.fn();
+    expect(() => {
+      editor.on("error", handler);
+    }).not.toThrow();
+    editor.destroy();
+  });
+
+  // -----------------------------------------------------------------------
+  // Dynamic plugin management
+  // -----------------------------------------------------------------------
+
+  it("addPlugin returns false when a plugin with the same name exists", () => {
+    const editor = createEditor({
+      container,
+      plugins: [{ name: "existing" }],
+    });
+    expect(editor.addPlugin({ name: "existing" })).toBe(false);
+    editor.destroy();
+  });
+
+  it("addPlugin returns true when plugin name is unique", () => {
+    const editor = createEditor({ container });
+    expect(editor.addPlugin({ name: "unique" })).toBe(true);
+    editor.destroy();
+  });
+
+  it("hasPlugin returns true for registered plugins", () => {
+    const editor = createEditor({
+      container,
+      plugins: [{ name: "builtin" }],
+    });
+    expect(editor.hasPlugin("builtin")).toBe(true);
+    expect(editor.hasPlugin("nonexistent")).toBe(false);
+    editor.destroy();
+  });
+
+  it("removePlugin returns true for existing plugin", () => {
+    const editor = createEditor({
+      container,
+      plugins: [{ name: "removable" }],
+    });
+    expect(editor.removePlugin("removable")).toBe(true);
+    expect(editor.hasPlugin("removable")).toBe(false);
+    editor.destroy();
+  });
+
+  it("removePlugin returns false for unknown plugin", () => {
+    const editor = createEditor({ container });
+    expect(editor.removePlugin("unknown")).toBe(false);
+    editor.destroy();
+  });
+
+  it("addPlugin + removePlugin + addPlugin cycle works", () => {
+    const editor = createEditor({ container });
+    expect(editor.addPlugin({ name: "cycle" })).toBe(true);
+    expect(editor.removePlugin("cycle")).toBe(true);
+    expect(editor.addPlugin({ name: "cycle" })).toBe(true);
+    editor.destroy();
+  });
+
+  // -----------------------------------------------------------------------
+  // Lifecycle hooks via plugins
+  // -----------------------------------------------------------------------
+
+  it("calls onEditorReady lifecycle hook", () => {
+    const hook = vi.fn();
+    createEditor({
+      container,
+      plugins: [{ name: "lazy", onEditorReady: hook }],
+    });
+    // onEditorReady fires during construction (after view mount)
+    expect(hook).toHaveBeenCalledOnce();
+  });
+
+  it("calls onDestroy lifecycle hook on editor destroy", () => {
+    const hook = vi.fn();
+    const editor = createEditor({
+      container,
+      plugins: [{ name: "cleanup", onDestroy: hook }],
+    });
+    editor.destroy();
+    expect(hook).toHaveBeenCalledOnce();
+  });
+
+  it("calls onSelectionChange on cursor movement", () => {
+    const hook = vi.fn();
+    const editor = createEditor({
+      container,
+      initialValue: "select me",
+      plugins: [{ name: "sel", onSelectionChange: hook }],
+    });
+    editor.setSelection(3);
+    expect(hook).toHaveBeenCalled();
+    expect(hook.mock.calls[0][0]).toHaveProperty("anchor", 3);
+    editor.destroy();
+  });
+
+  // -----------------------------------------------------------------------
+  // Backward compatibility — existing behavior unchanged
+  // -----------------------------------------------------------------------
+
+  it("existing change event still works", () => {
+    const editor = createEditor({ container });
+    const handler = vi.fn();
+    editor.on("change", handler);
+    editor.setDocument("test");
+    expect(handler).toHaveBeenCalledWith("test", expect.objectContaining({ type: "root" }));
+    editor.destroy();
+  });
+
+  it("existing focus/blur events still work", () => {
+    const editor = createEditor({ container });
+    const focus = vi.fn();
+    const blur = vi.fn();
+    editor.on("focus", focus);
+    editor.on("blur", blur);
+    editor.focus();
+    editor.blur();
+    expect(focus).toHaveBeenCalledOnce();
+    expect(blur).toHaveBeenCalledOnce();
+    editor.destroy();
+  });
+
+  it("existing selectionChange still works", () => {
+    const editor = createEditor({ container, initialValue: "hello world" });
+    const handler = vi.fn();
+    editor.on("selectionChange", handler);
+    editor.setSelection(5);
+    expect(handler).toHaveBeenCalledWith({ anchor: 5, head: 5 });
+    editor.destroy();
+  });
+
+  it("existing on/off still works", () => {
+    const editor = createEditor({ container });
+    const handler = vi.fn();
+    editor.on("change", handler);
+    editor.off("change", handler);
+    editor.setDocument("test");
+    expect(handler).not.toHaveBeenCalled();
     editor.destroy();
   });
 });

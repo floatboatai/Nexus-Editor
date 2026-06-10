@@ -1,4 +1,7 @@
 export { createEditor } from "./editor";
+export { EventBus, setGlobalErrorHandler } from "./event-bus";
+export { PluginHost } from "./plugin-host";
+export type { BeforeChangeContext, AfterChangeContext, BeforeSetDocumentContext, SelectionChangeContext, PluginLifecycleHooks, PluginErrorHandler } from "./plugin-host";
 export { markdownAutoPair } from "./markdown-autopair";
 export { markdownFold, markdownFoldService } from "./markdown-fold";
 export { markdownKeymap, handleMarkdownEnter } from "./markdown-keymap";
