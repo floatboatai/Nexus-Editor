@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { parseFile } from '../parser';
 import { generateImageFromText } from '../AIImageGenerator';
 import { createNote } from '../createNote';
@@ -16,6 +16,7 @@ export function AISummaryModal({ onCreated, onClose, initialOpen = true }: Props
   const [imageUrl, setImageUrl] = useState<string | null>(null);
 
   const accept = '.pdf,.doc,.docx,.ppt,.pptx,.txt,.md';
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -92,8 +93,28 @@ export function AISummaryModal({ onCreated, onClose, initialOpen = true }: Props
                 gap: 8,
               }}
             >
-              <p style={{ margin: 0 }}>拖拽文件到此处，或使用下面的选择按钮。</p>
-              <input accept={accept} type="file" onChange={onChoose} />
+              {/* hidden input + icon button above the text */}
+              <input ref={fileInputRef} accept={accept} type="file" onChange={onChoose} style={{ display: 'none' }} />
+              <button
+                type="button"
+                aria-label="选择文件"
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 8,
+                  border: 'none',
+                  background: '#f3f4f6',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 20,
+                  cursor: 'pointer',
+                }}
+              >
+                📁
+              </button>
+              <p style={{ margin: 0, color: '#6b7280' }}>拖拽文件到此处，或使用上方的选择按钮。</p>
               <div style={{ marginTop: 8 }}>
                 {file && <div>已选择：{file.name}</div>}
               </div>
