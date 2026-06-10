@@ -260,6 +260,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // 推迟到 compositionend 再应用，避免整文档替换打断输入法、丢失合成中文字、视口跳顶。
   let composing = false;
   let pendingDocumentLoad: { next: string; silent: boolean } | null = null;
+  // History tracking for canUndo / canRedo. 计数器近似值 — 和 CM6 实际历史栈
+  // 在事件合入场景下可能有微小偏差，但对大多数用例足够准确。
+  let undoCount = 0;
+  let redoCount = 0;
   // Initial AST: when a custom parser is provided, honour it (tests rely on
   // this — they install plugins that mutate the tree). Otherwise use the
   // Lezer string parser, which is dramatically faster than remark and
@@ -733,18 +737,42 @@ export function createEditor(config: EditorConfig): EditorAPI {
       }
 
       performSetDocument(next, silent);
+      if (!silent && !composing && !view.composing && !view.compositionStarted) {
+        undoCount++;
+        redoCount = 0;
+      }
     },
     replaceSelection(text) {
       if (destroyed) return;
       view.dispatch(view.state.replaceSelection(text));
+      undoCount++;
+      redoCount = 0;
     },
     undo() {
       if (destroyed) return false;
-      return cmUndo(view);
+      const performed = cmUndo(view);
+      if (performed) {
+        if (undoCount > 0) undoCount--;
+        redoCount++;
+      }
+      return performed;
     },
     redo() {
       if (destroyed) return false;
-      return cmRedo(view);
+      const performed = cmRedo(view);
+      if (performed) {
+        undoCount++;
+        if (redoCount > 0) redoCount--;
+      }
+      return performed;
+    },
+    canUndo() {
+      if (destroyed) return false;
+      return undoCount > 0;
+    },
+    canRedo() {
+      if (destroyed) return false;
+      return redoCount > 0;
     },
     focus() {
       if (destroyed) {
