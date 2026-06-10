@@ -1,6 +1,52 @@
 export async function createNote(title: string, content: string): Promise<string | null> {
-  // 尝试在 Node 环境中写入示例 vault 路径（apps/electron-demo/sample-vault/personal）
+  // Prefer using the renderer bridge `window.nexusDemo.vault` when available
   try {
+    // @ts-ignore
+    if (typeof window !== 'undefined' && window.nexusDemo && window.nexusDemo.vault) {
+      try {
+        // Try to get last known vault (may be null)
+        // @ts-ignore
+        const last = await window.nexusDemo.vault.getLast();
+        const vaultPath = last?.lastVault || null;
+        const name = `${title.replace(/[^a-z0-9_-]/gi, '_') || 'ai-summary'}.md`;
+        if (vaultPath) {
+          const personalFolder = `${vaultPath}/personal`;
+          try {
+            // Ensure folder exists (createFolder may throw if exists)
+            // @ts-ignore
+            await window.nexusDemo.vault.createFolder(vaultPath, 'personal');
+          } catch (e) {
+            // ignore, folder may already exist
+          }
+          try {
+            // Create the file (some bridges auto-create parent folders)
+            // @ts-ignore
+            const created = await window.nexusDemo.vault.createFile(personalFolder, name);
+            const filePath = created?.path ?? `${personalFolder}/${name}`;
+            // Write content
+            // @ts-ignore
+            await window.nexusDemo.vault.write(filePath, `# ${title}\n\n${content}\n`);
+            return filePath;
+          } catch (e) {
+            // fallback to writing at vault root
+            try {
+              // @ts-ignore
+              const created = await window.nexusDemo.vault.createFile(vaultPath, name);
+              const filePath = created?.path ?? `${vaultPath}/${name}`;
+              // @ts-ignore
+              await window.nexusDemo.vault.write(filePath, `# ${title}\n\n${content}\n`);
+              return filePath;
+            } catch (e2) {
+              // ignore and fallback
+            }
+          }
+        }
+      } catch (e) {
+        // ignore and fallback to Node fs
+      }
+    }
+
+    // Fallback: try Node fs (for scripts/tests)
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const fs = require('fs');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -16,7 +62,7 @@ export async function createNote(title: string, content: string): Promise<string
     fs.writeFileSync(filepath, md, 'utf8');
     return filepath;
   } catch (e) {
-    // 无写权限或在浏览器环境中，返回 null
+    // Cannot write in this environment
     return null;
   }
 }
