@@ -21,8 +21,8 @@
 | 包名 (Package)        | 职责描述                                                                       | 依赖的核心库                 |
 | :-------------------- | :----------------------------------------------------------------------------- | :--------------------------- |
 | `@floatboat/nexus-core`         | **核心引擎层**。封装 CM6 实例、状态机、AST 解析管道以及核心的扩展/插件注册表。 | `codemirror`, `remark-parse` |
-| `@floatboat/nexus-react`        | **React 绑定层**。提供 `useEditor` Hook 和无头 `<Editor />` 组件。             | `@floatboat/nexus-core`, `react`       |
-| `@floatboat/nexus-vue`          | **Vue 3 绑定层**。提供 `useEditor` Composable。                                | `@floatboat/nexus-core`, `vue`         |
+| `@floatboat/nexus-react`        | **React 绑定层**。提供 `useEditor` Hook 和无头 `<Editor />` 组件（容器属性透传、`onReady`）。             | `@floatboat/nexus-core`, `react`       |
+| `@floatboat/nexus-vue`          | **Vue 3 绑定层**。提供 `useEditor` Composable 与 `<Editor />` 组件（容器属性透传、`onReady`）。 | `@floatboat/nexus-core`, `vue`         |
 | `@floatboat/nexus-preset-gfm`   | **官方预设插件**。提供 GitHub Flavored Markdown 支持（表格、任务列表等）。     | `remark-gfm`                 |
 | `@floatboat/nexus-plugin-slash` | **斜杠菜单逻辑**。提供输入 `/` 触发命令的底层位置计算和状态逻辑（不含 UI）。   | `@floatboat/nexus-core`                |
 

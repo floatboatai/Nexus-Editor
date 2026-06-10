@@ -19,7 +19,7 @@
 
 | 优先级 | 主题 | 关键项 |
 |---|---|---|
-| **P0 — 当前** | 核心 API 完善 | `getSelectedText()`、斜杠命令排序、`<Editor />` `onReady`、TS 严格类型覆盖 |
+| **P0 — 当前** | 核心 API 完善 | `getSelectedText()`、TS 严格类型覆盖 |
 | **P1 — 下一阶段** | 进阶功能 | 多光标、正则搜索、撤销/重做分组、Widget API 标准化、Electron 打包优化 |
 | **P2 — 中期** | 体验与生态 | 高级工具栏（emoji / 表格 / 颜色）、模糊搜索、滚动同步预览、Web Component 包装 |
 | **P3 — 长期** | 协作能力 | 实时 CRDT 协作、共享评论 / @提醒、插件热重载 |
@@ -78,16 +78,23 @@ npm install @floatboat/nexus-core @floatboat/nexus-preset-gfm
 <summary><b>React</b> —— 最快上手</summary>
 
 ```tsx
+import { useRef } from "react";
 import { Editor } from "@floatboat/nexus-react";
 import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 
 export default function App() {
+  const editorRef = useRef(null);
+
   return (
     <Editor
+      className="nexus-editor"
       initialValue="# 你好，Nexus 👋"
       plugins={[createGfmPreset()]}
       livePreview
       onChange={(doc, ast) => console.log(doc)}
+      onReady={(editor) => {
+        editorRef.current = editor;
+      }}
     />
   );
 }
@@ -101,16 +108,21 @@ export default function App() {
 
 ```vue
 <script setup>
+import { ref } from "vue";
 import { Editor } from "@floatboat/nexus-vue";
 import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
+
+const editorRef = ref(null);
 </script>
 
 <template>
   <Editor
+    class="nexus-editor"
     initial-value="# 你好"
     :plugins="[createGfmPreset()]"
     :live-preview="true"
     @change="(doc) => console.log(doc)"
+    :on-ready="(editor) => { editorRef.value = editor; }"
   />
 </template>
 ```
@@ -170,8 +182,8 @@ pnpm dev:electron-demo
 | 包名 | 说明 |
 |---|---|
 | `@floatboat/nexus-core` | 编辑器引擎 —— CM6 状态机、AST 管道、实时预览、事件系统、Widget API |
-| `@floatboat/nexus-react` | React 绑定 —— `useEditor` Hook 与 `<Editor />` 组件 |
-| `@floatboat/nexus-vue` | Vue 3 绑定 —— `useEditor` 组合式函数 |
+| `@floatboat/nexus-react` | React 绑定 —— `useEditor` Hook、支持容器属性透传与 `onReady` 的 `<Editor />` |
+| `@floatboat/nexus-vue` | Vue 3 绑定 —— `useEditor` 组合式函数与语义一致的 `<Editor />` |
 | `@floatboat/nexus-preset-gfm` | GitHub Flavored Markdown 预设（表格、删除线、任务列表） |
 | `@floatboat/nexus-plugin-history` | 撤销/重做，支持 `Ctrl+Z` / `Ctrl+Shift+Z` |
 | `@floatboat/nexus-plugin-search` | 搜索替换辅助函数 |
@@ -220,6 +232,25 @@ editor.off("change", handler)
 // 坐标（用于浮动 UI 定位）
 editor.getCoordsAtPos(pos)     // { left, right, top, bottom } | null
 ```
+
+</details>
+
+<details>
+<summary><b>React / Vue 绑定</b> —— `useEditor` 与 `<Editor />`</summary>
+
+两端语义一致：
+
+```ts
+type UseEditorConfig = Omit<EditorConfig, "container"> & {
+  onReady?: (editor: EditorAPI) => void;
+};
+```
+
+- **`useEditor(config)`** —— 返回容器 ref 与 `EditorAPI`（React 为 `editor` state，Vue 为 `shallowRef`）。
+- **`<Editor />`** —— 在内部 wrapper `div` 上挂载编辑器。容器属性（`className` / `class`、`style`、`id`、`data-*`、`aria-*`）写在组件上即可透传；除 `container` 外的全部 `EditorConfig` 字段均可作为 props 传入。
+- **`onReady`** —— `createEditor()` 成功后调用一次，用于在不手写 `useEditor` 的情况下拿到实例。
+
+React 另导出 `EditorProps`、`EditorContainerProps` 类型。
 
 </details>
 

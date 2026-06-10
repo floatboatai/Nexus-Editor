@@ -7,7 +7,7 @@
 Powered by [CodeMirror 6](https://codemirror.net/) + the [unified](https://unifiedjs.com/) ecosystem.
 Framework-agnostic core · Official React & Vue bindings · MIT licensed.
 
-[中文文档](./README.zh.md) · [Quick Start](#-quick-start) · [Why Nexus?](#-why-nexus-editor) · [Roadmap](#-roadmap) · [Contributing](#-contributing)
+[中文文档](./README.zh.md) · [Quick Start](#-quick-start) · [Why Nexus?](#-why-nexus-editor) · [Architecture](./docs/ARCHITECTURE.md) · [Roadmap](#-roadmap) · [Contributing](#-contributing)
 
 </div>
 
@@ -19,12 +19,14 @@ We ship in priority tiers — **P0 is what we're working on right now**.
 
 | Tier | Theme | Highlights |
 |---|---|---|
-| **P0 — Now** | Core API completeness | `getSelectedText()`, slash command sorting, `<Editor />` `onReady`, TS strict coverage |
+| **P0 — Now** | Core API completeness | `getSelectedText()`, TS strict coverage |
 | **P1 — Next** | Power-user features | Multi-cursor, regex search, undo/redo grouping, widget API standardization, Electron packaging |
 | **P2 — Mid-term** | UX & ecosystem | Advanced toolbar (emoji / table / color), fuzzy search, sync-scroll preview, web-component wrapper |
 | **P3 — Long-term** | Collaboration | Realtime CRDT collab, shared comments / @mention, plugin hot-reload |
 
 👉 **Full roadmap with package ownership, status, and OpenSpec linkage:** [`docs/ROADMAP.md`](./docs/ROADMAP.md)
+
+👉 **Repository architecture and module guide:** [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
 
 ---
 
@@ -78,16 +80,23 @@ npm install @floatboat/nexus-core @floatboat/nexus-preset-gfm
 <summary><b>React</b> — the fast path</summary>
 
 ```tsx
+import { useRef } from "react";
 import { Editor } from "@floatboat/nexus-react";
 import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 
 export default function App() {
+  const editorRef = useRef(null);
+
   return (
     <Editor
+      className="nexus-editor"
       initialValue="# Hello, Nexus 👋"
       plugins={[createGfmPreset()]}
       livePreview
       onChange={(doc, ast) => console.log(doc)}
+      onReady={(editor) => {
+        editorRef.current = editor;
+      }}
     />
   );
 }
@@ -101,16 +110,21 @@ export default function App() {
 
 ```vue
 <script setup>
+import { ref } from "vue";
 import { Editor } from "@floatboat/nexus-vue";
 import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
+
+const editorRef = ref(null);
 </script>
 
 <template>
   <Editor
+    class="nexus-editor"
     initial-value="# Hello"
     :plugins="[createGfmPreset()]"
     :live-preview="true"
     @change="(doc) => console.log(doc)"
+    :on-ready="(editor) => { editorRef.value = editor; }"
   />
 </template>
 ```
@@ -170,8 +184,8 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 | Package | Description |
 |---|---|
 | `@floatboat/nexus-core` | Editor engine — CM6 state, AST pipeline, live preview, events, widget API |
-| `@floatboat/nexus-react` | React binding — `useEditor` hook and `<Editor />` component |
-| `@floatboat/nexus-vue` | Vue 3 binding — `useEditor` composable |
+| `@floatboat/nexus-react` | React binding — `useEditor` hook, `<Editor />` with container pass-through and `onReady` |
+| `@floatboat/nexus-vue` | Vue 3 binding — `useEditor` composable and `<Editor />` with the same semantics |
 | `@floatboat/nexus-preset-gfm` | GitHub Flavored Markdown preset (tables, strikethrough, task lists) |
 | `@floatboat/nexus-plugin-history` | Undo/redo with `Ctrl+Z` / `Ctrl+Shift+Z` |
 | `@floatboat/nexus-plugin-search` | Search and replace helpers |
@@ -220,6 +234,25 @@ editor.off("change", handler)
 // Coordinates (for floating UI)
 editor.getCoordsAtPos(pos)     // { left, right, top, bottom } | null
 ```
+
+</details>
+
+<details>
+<summary><b>React / Vue bindings</b> — `useEditor` and `<Editor />`</summary>
+
+Both packages expose the same binding semantics:
+
+```ts
+type UseEditorConfig = Omit<EditorConfig, "container"> & {
+  onReady?: (editor: EditorAPI) => void;
+};
+```
+
+- **`useEditor(config)`** — returns a container ref and the `EditorAPI` (React: `editor` state; Vue: `shallowRef`).
+- **`<Editor />`** — mounts the editor into an internal wrapper `div`. Pass standard container attributes (`className` / `class`, `style`, `id`, `data-*`, `aria-*`) on the component; they are forwarded to that wrapper. All `EditorConfig` fields except `container` are accepted as props.
+- **`onReady`** — called once after `createEditor()` succeeds. Use it to capture the instance without wiring `useEditor` yourself.
+
+React also exports `EditorProps` and `EditorContainerProps` for typed wrappers.
 
 </details>
 

@@ -1,6 +1,7 @@
 import { createEditor } from "@floatboat/nexus-core";
 import { onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 
+import { toCreateEditorConfig } from "./editor-config";
 import type { UseEditorConfig, UseEditorResult } from "./types";
 
 export function useEditor(config: UseEditorConfig): UseEditorResult {
@@ -12,10 +13,13 @@ export function useEditor(config: UseEditorConfig): UseEditorResult {
       return;
     }
 
-    editor.value = createEditor({
+    const instance = createEditor({
       container: containerRef.value,
-      ...config
+      ...toCreateEditorConfig(config)
     });
+
+    editor.value = instance;
+    config.onReady?.(instance);
   });
 
   onBeforeUnmount(() => {

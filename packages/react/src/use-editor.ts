@@ -1,6 +1,7 @@
 import { createEditor } from "@floatboat/nexus-core";
 import { useEffect, useRef, useState } from "react";
 
+import { toCreateEditorConfig } from "./editor-config";
 import type { UseEditorConfig, UseEditorResult } from "./types";
 
 export function useEditor(config: UseEditorConfig): UseEditorResult {
@@ -18,17 +19,20 @@ export function useEditor(config: UseEditorConfig): UseEditorResult {
       return;
     }
 
+    const { onReady } = configRef.current;
     const instance = createEditor({
       container,
-      ...configRef.current
+      ...toCreateEditorConfig(configRef.current)
     });
 
     editorRef.current = instance;
     setEditor(instance);
+    onReady?.(instance);
 
     return () => {
       instance.destroy();
       editorRef.current = null;
+      setEditor(null);
     };
   }, []);
 
