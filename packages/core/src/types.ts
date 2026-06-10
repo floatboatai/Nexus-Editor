@@ -158,6 +158,10 @@ export interface EditorAPI {
   replaceSelection(text: string): void;
   undo(): boolean;
   redo(): boolean;
+  /** Check whether undo is currently available in the history stack. */
+  canUndo(): boolean;
+  /** Check whether redo is currently available in the history stack. */
+  canRedo(): boolean;
   focus(): void;
   blur(): void;
   runShortcut(key: string): boolean;
