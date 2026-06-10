@@ -133,11 +133,13 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
   root.style.cssText = PANEL_STYLES;
 
   const header = document.createElement("div");
+  header.className = "nexus-panel-header";
   header.style.cssText = HEADER_STYLES;
   header.textContent = "Backlinks";
   root.appendChild(header);
 
   const list = document.createElement("div");
+  list.className = "nexus-backlinks-list";
   list.style.cssText = LIST_STYLES;
   root.appendChild(list);
 
