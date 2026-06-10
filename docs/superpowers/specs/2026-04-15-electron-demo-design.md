@@ -1,179 +1,375 @@
-# Electron Demo Design
+# Live Preview Phase 1 Implementation Plan
 
-**Date:** 2026-04-15
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Scope:** `apps/electron-demo`
+**Goal:** Stabilize the first phase of `@nexus/core` live preview rendering so the current inline and block preview behavior is reliable, testable, and safe to build on.
 
-## Context
+**Architecture:** Keep live preview entirely inside `@nexus/core` and split the behavior into three clear parts: range detection, DOM rendering, and CodeMirror decoration wiring. Avoid adding new node types in this phase; instead, make the current node set predictable under document edits, cursor movement, renderer overrides, and coexistence with existing plugins.
 
-The repository now has a working headless editor engine in `@nexus/core`, framework bindings for React and Vue, and a small set of official plugins. What it does not yet have is a desktop-hosted runnable application that proves the core package works in an Electron environment with local file IO.
+**Tech Stack:** TypeScript, CodeMirror 6, Vitest, jsdom, mdast, unified
 
-This design covers a first Electron demo that intentionally uses the lowest-level integration path: `@nexus/core` with plain DOM rendering. The purpose is to validate the engine in a desktop shell before adding higher-level renderer abstractions or richer desktop workflows.
+---
 
-## Goals
+### Task 1: Extract and stabilize live preview range detection
 
-- Create a runnable Electron demo under `apps/electron-demo`
-- Render `@nexus/core` directly in the renderer process without React or Vue
-- Support opening a local Markdown file into the editor
-- Support saving to the current file and saving to a new file path
-- Show the current file path and whether the document is dirty
+**Files:**
+- Create: `packages/core/src/live-preview-ranges.ts`
+- Modify: `packages/core/src/live-preview.ts`
+- Modify: `packages/core/src/types.ts`
+- Modify: `packages/core/test/live-preview.test.ts`
 
-## Non-Goals
-
-- No React or Vue usage in the demo renderer
-- No multi-tab support
-- No menu-bar command wiring beyond minimal window bootstrapping
-- No image upload bridge or drag-and-drop file ingestion
-- No unsaved-changes close confirmation in this phase
-- No packaging/distribution workflow beyond local demo execution
-
-## Architecture
-
-The demo will live in `apps/electron-demo` and split into three clear layers:
-
-1. `electron/main.ts`
-Creates the BrowserWindow, manages lifecycle, and handles file open/save IPC requests.
-
-2. `electron/preload.ts`
-Exposes a narrow bridge into the renderer through `contextBridge`. The bridge only includes desktop-safe file APIs:
-- `openFile()`
-- `saveFile(path, content)`
-- `saveFileAs(content)`
-
-3. `src/renderer/*`
-Uses plain DOM and `@nexus/core`. The renderer owns transient UI state such as:
-- current file path
-- current Markdown content
-- dirty flag
-- last error message
-
-This keeps Node and filesystem access out of renderer code and avoids coupling the demo to the React/Vue bindings. The editor remains a plain core-engine consumer, which is the main point of the demo.
-
-## Renderer Structure
-
-The renderer should stay small and explicit:
-
-- `src/renderer/app.ts`
-  Bootstraps the window UI, creates the toolbar/status DOM, and mounts the editor.
-
-- `src/renderer/editor-shell.ts`
-  Owns the `createEditor()` lifecycle and translates editor callbacks into renderer state updates.
-
-- `src/renderer/state.ts`
-  Holds small mutable state for file path, current content, dirty status, and error text.
-
-This separation keeps editor creation logic away from Electron bridge calls and makes it easier to later replace the plain DOM shell with a framework binding if needed.
-
-## Data Flow
-
-The demo data flow is intentionally one-way:
-
-1. Electron launches the window and the renderer creates a core editor instance.
-2. The renderer initializes the editor with in-memory content.
-3. When the user clicks `Open`, the renderer calls `window.nexusDemo.openFile()`.
-4. The main process shows a native open dialog, reads the selected file, and returns `{ path, content }`.
-5. The renderer writes `content` into the editor, stores `path`, and resets dirty state to `false`.
-6. While the user edits, `onChange(doc)` updates in-memory content and flips dirty state to `true`.
-7. When the user clicks `Save`:
-   - if `path` exists, call `saveFile(path, content)`
-   - otherwise call `saveFileAs(content)`
-8. On successful save, update `path` if needed and reset dirty state to `false`.
-
-The editor remains the source of truth for document text, while the renderer state mirrors the latest document and file metadata.
-
-## IPC Contract
-
-The preload bridge should expose these signatures:
+- [x] **Step 1: Write the failing range-detection regression tests**
 
 ```ts
-interface DemoFileHandle {
-  path: string;
-  content: string;
+it("keeps image previews stable when the markdown appears after other block previews", () => {
+  const container = document.createElement("div");
+  const editor = createEditor({
+    container,
+    initialValue: "Intro\n\n# Heading\n\n> Quote\n\n![Alt](https://example.com/image.png)",
+    livePreview: true
+  });
+
+  expect(container.querySelector("[data-live-preview-image]")?.getAttribute("data-live-preview-image")).toBe(
+    "https://example.com/image.png"
+  );
+  editor.destroy();
+});
+
+it("re-renders live preview decorations after document updates", () => {
+  const container = document.createElement("div");
+  const editor = createEditor({
+    container,
+    initialValue: "Text **bold**",
+    livePreview: true
+  });
+
+  editor.setDocument("Text **changed**");
+
+  expect(container.querySelector("strong")?.textContent).toBe("changed");
+  editor.destroy();
+});
+```
+
+- [x] **Step 2: Run test to verify it fails**
+
+Run: `pnpm exec vitest run packages/core/test/live-preview.test.ts -t "keeps image previews stable|re-renders live preview decorations"`
+Expected: FAIL because the current range collection mixes AST- and regex-based logic directly in one file and image handling is brittle under block content
+
+- [x] **Step 3: Move range collection into a focused helper and use it from the view plugin**
+
+```ts
+export interface LivePreviewRange {
+  from: number;
+  to: number;
+  node: LivePreviewNode;
+  source: string;
 }
 
-interface DemoBridge {
-  openFile(): Promise<DemoFileHandle | null>;
-  saveFile(path: string, content: string): Promise<{ path: string }>;
-  saveFileAs(content: string): Promise<{ path: string } | null>;
+export function collectLivePreviewRanges(
+  ast: Root,
+  doc: string,
+  selection: readonly SelectionRange[]
+): LivePreviewRange[] {
+  const ranges: LivePreviewRange[] = [];
+
+  visit(ast, (node) => {
+    const from = node.position?.start.offset;
+    const to = node.position?.end.offset;
+
+    if (typeof from !== "number" || typeof to !== "number") {
+      return;
+    }
+
+    if (!isLivePreviewNode(node) || selectionIntersects(from, to, selection)) {
+      return;
+    }
+
+    ranges.push({
+      from,
+      to,
+      node,
+      source: doc.slice(from, to)
+    });
+  });
+
+  ranges.push(...collectImageRanges(doc, selection));
+
+  return ranges.sort((left, right) => left.from - right.from);
 }
 ```
 
-Behavior rules:
+```ts
+const ranges = collectLivePreviewRanges(ast, doc, view.state.selection.ranges);
 
-- `openFile()` returns `null` when the user cancels
-- `saveFileAs()` returns `null` when the user cancels
-- `saveFile()` throws on failure rather than swallowing the error
+for (const range of ranges) {
+  builder.add(
+    range.from,
+    range.to,
+    Decoration.replace({
+      widget: createWidget(renderNode(range.node, range.source, config.renderers))
+    })
+  );
+}
+```
 
-This keeps the renderer logic simple and explicit.
+- [x] **Step 4: Run test to verify it passes**
 
-## Error Handling
+Run: `pnpm exec vitest run packages/core/test/live-preview.test.ts`
+Expected: PASS with image preview and document-update live preview behavior stable
 
-Error handling in this phase should be visible but minimal:
+- [x] **Step 5: Commit**
 
-- Open failure: leave current editor content untouched and show an inline error
-- Save failure: preserve dirty state and show an inline error
-- Save As cancellation: do nothing, keep dirty state unchanged
-- Open cancellation: do nothing, keep current state unchanged
+```bash
+git add packages/core/src/live-preview-ranges.ts packages/core/src/live-preview.ts packages/core/src/types.ts packages/core/test/live-preview.test.ts
+git commit -m "refactor: stabilize live preview range detection"
+```
 
-No retry loop, no global toast system, and no modal error stack are needed for this demo.
+### Task 2: Isolate default renderers and lock down renderer overrides
 
-## Security
+**Files:**
+- Create: `packages/core/src/live-preview-renderers.ts`
+- Modify: `packages/core/src/live-preview.ts`
+- Modify: `packages/core/src/types.ts`
+- Modify: `packages/core/test/live-preview.test.ts`
 
-The Electron window should use standard safe defaults:
+- [x] **Step 1: Write the failing renderer-contract tests**
 
-- `contextIsolation: true`
-- `nodeIntegration: false`
-- filesystem access only through preload IPC
+```ts
+it("passes the raw markdown source into custom renderers", () => {
+  const container = document.createElement("div");
+  const editor = createEditor({
+    container,
+    initialValue: "Text **bold**",
+    livePreview: {
+      renderers: {
+        strong({ source }) {
+          const element = document.createElement("span");
+          element.setAttribute("data-source", source);
+          return element;
+        }
+      }
+    }
+  });
 
-The renderer should never import `fs`, `path`, or Electron main-process APIs directly.
+  expect(container.querySelector("[data-source]")?.getAttribute("data-source")).toBe("**bold**");
+  editor.destroy();
+});
 
-## UI Behavior
+it("uses default renderers for node types that are not overridden", () => {
+  const container = document.createElement("div");
+  const editor = createEditor({
+    container,
+    initialValue: "Text **bold** *italic*",
+    livePreview: {
+      renderers: {
+        strong({ text }) {
+          const element = document.createElement("span");
+          element.textContent = text.toUpperCase();
+          return element;
+        }
+      }
+    }
+  });
 
-The UI should be intentionally minimal:
+  expect(container.querySelector("span")?.textContent).toBe("BOLD");
+  expect(container.querySelector("em")?.textContent).toBe("italic");
+  editor.destroy();
+});
+```
 
-- top toolbar with `Open`, `Save`, and `Save As`
-- small status line with current file path and dirty indicator
-- editor fills the remaining viewport
-- plain, functional styling only
+- [x] **Step 2: Run test to verify it fails**
 
-The demo is for validating integration, not for proving a final product visual design.
+Run: `pnpm exec vitest run packages/core/test/live-preview.test.ts -t "passes the raw markdown source|uses default renderers"`
+Expected: FAIL because renderer logic is still tightly coupled to the decoration builder and lacks a dedicated renderer module boundary
 
-## Testing Strategy
+- [x] **Step 3: Split default rendering into a dedicated module**
 
-This phase should add automated coverage at two levels:
+```ts
+export function createDefaultRenderer(context: LivePreviewRenderContext): HTMLElement {
+  switch (context.node.type) {
+    case "strong": {
+      const element = document.createElement("strong");
+      element.textContent = context.text;
+      return element;
+    }
+    case "heading": {
+      const element = document.createElement(`h${context.node.depth}`);
+      element.textContent = context.text;
+      element.style.display = "block";
+      return element;
+    }
+    case "image": {
+      const wrapper = document.createElement("span");
+      wrapper.setAttribute("data-live-preview-image", context.node.url);
+      wrapper.textContent = context.node.alt ?? context.node.url;
+      return wrapper;
+    }
+  }
+}
+```
 
-1. Renderer/unit tests
-- toolbar state transitions
-- dirty flag changes after edit
-- open/save result handling
+```ts
+export function renderLivePreviewNode(
+  node: LivePreviewNode,
+  source: string,
+  renderers: Partial<Record<LivePreviewNodeType, LivePreviewRenderer>>
+): HTMLElement {
+  const context: LivePreviewRenderContext = {
+    node,
+    nodeType: node.type,
+    source,
+    text: getText(node)
+  };
 
-2. Electron bridge tests or isolated main/preload tests
-- open returns file content
-- save writes the provided content
-- cancellation returns `null`
+  return renderers[node.type]?.(context) ?? createDefaultRenderer(context);
+}
+```
 
-The demo does not require full Electron end-to-end window automation in this first phase if isolated tests cover the file bridge and renderer state logic.
+- [x] **Step 4: Run test to verify it passes**
 
-## Acceptance Criteria
+Run: `pnpm exec vitest run packages/core/test/live-preview.test.ts`
+Expected: PASS with explicit renderer override behavior and default fallback behavior locked in
 
-The phase is complete when all of the following are true:
+- [x] **Step 5: Commit**
 
-1. `pnpm` can start an Electron window for `apps/electron-demo`
-2. The renderer displays a working `@nexus/core` editor
-3. Opening a local Markdown file loads it into the editor
-4. Editing changes the dirty indicator to dirty
-5. Saving writes back to the current file path
-6. Saving without a current path uses `Save As`
-7. Saving success resets dirty state
-8. The renderer does not directly access Node APIs
+```bash
+git add packages/core/src/live-preview-renderers.ts packages/core/src/live-preview.ts packages/core/src/types.ts packages/core/test/live-preview.test.ts
+git commit -m "refactor: isolate live preview renderers"
+```
 
-## Risks and Trade-offs
+### Task 3: Add cursor and plugin coexistence regressions
 
-- Using plain DOM means some UI code will later be replaced if the demo migrates to React/Vue.
-  This is acceptable because the point of the demo is low-level engine validation, not reusable app UI.
+**Files:**
+- Modify: `packages/core/src/editor.ts`
+- Modify: `packages/core/src/live-preview.ts`
+- Create: `packages/core/test/live-preview-regressions.test.ts`
 
-- Skipping unsaved-close protection means the demo can lose edits on window close.
-  This is acceptable in phase 1 because the current goal is filesystem integration, not full desktop ergonomics.
+- [x] **Step 1: Write the failing coexistence tests**
 
-- Not using Electron Forge or Builder keeps setup lighter but delays packaging concerns.
-  This is acceptable because local execution speed is more important than distribution in this phase.
+```ts
+it("keeps live preview working when history plugin is registered", () => {
+  const container = document.createElement("div");
+  const editor = createEditor({
+    container,
+    initialValue: "Text **bold**",
+    livePreview: true,
+    plugins: [createHistoryPlugin()]
+  });
+
+  editor.setDocument("Text **changed**");
+
+  const content = container.querySelector("[contenteditable='true']");
+  content?.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "z",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true
+    })
+  );
+
+  expect(container.querySelector("strong")?.textContent).toBe("bold");
+  editor.destroy();
+});
+
+it("restores preview after the cursor leaves a markdown range", () => {
+  const container = document.createElement("div");
+  const editor = createEditor({
+    container,
+    initialValue: "Text **bold** end",
+    livePreview: true
+  });
+
+  editor.setSelection(8);
+  expect(container.querySelector("strong")).toBeNull();
+
+  editor.setSelection(0);
+  expect(container.querySelector("strong")?.textContent).toBe("bold");
+  editor.destroy();
+});
+```
+
+- [x] **Step 2: Run test to verify it fails**
+
+Run: `pnpm exec vitest run packages/core/test/live-preview-regressions.test.ts`
+Expected: FAIL because live preview regressions are not isolated in their own test file and cursor/plugin coexistence is not explicitly protected
+
+- [x] **Step 3: Add regression coverage and tighten update handling**
+
+```ts
+EditorView.updateListener.of((update) => {
+  if (update.docChanged || update.selectionSet) {
+    scheduleLivePreviewRefresh(update.view);
+  }
+
+  if (update.docChanged) {
+    scheduleChange(update.state.doc.toString());
+  }
+});
+```
+
+```ts
+it("restores preview after the cursor leaves a markdown range", () => {
+  const container = document.createElement("div");
+  const editor = createEditor({
+    container,
+    initialValue: "Text **bold** end",
+    livePreview: true
+  });
+
+  editor.setSelection(8);
+  editor.setSelection(0);
+
+  expect(container.querySelector("strong")?.textContent).toBe("bold");
+  editor.destroy();
+});
+```
+
+- [x] **Step 4: Run test to verify it passes**
+
+Run: `pnpm exec vitest run packages/core/test/live-preview.test.ts packages/core/test/live-preview-regressions.test.ts`
+Expected: PASS with stable cursor-exit behavior and plugin coexistence regressions covered
+
+- [x] **Step 5: Commit**
+
+```bash
+git add packages/core/src/editor.ts packages/core/src/live-preview.ts packages/core/test/live-preview-regressions.test.ts
+git commit -m "test: add live preview regression coverage"
+```
+
+### Task 4: Final package verification and plan close-out
+
+**Files:**
+- Modify: `docs/superpowers/plans/2026-04-15-live-preview-phase-1.md`
+
+- [x] **Step 1: Mark this plan complete**
+
+```md
+- [x] **Step 1: Write the failing range-detection regression tests**
+- [x] **Step 2: Run test to verify it fails**
+- [x] **Step 3: Move range collection into a focused helper and use it from the view plugin**
+- [x] **Step 4: Run test to verify it passes**
+- [x] **Step 5: Commit**
+```
+
+- [x] **Step 2: Run build verification**
+
+Run: `pnpm build`
+Expected: PASS for `@nexus/core`, `@nexus/react`, `@nexus/vue`, `@nexus/preset-gfm`, `@nexus/plugin-slash`, `@nexus/plugin-history`, and `@nexus/plugin-search`
+
+- [x] **Step 3: Run test verification**
+
+Run: `pnpm test`
+Expected: PASS with all existing package tests green and new live preview regressions included
+
+- [x] **Step 4: Run type verification**
+
+Run: `pnpm exec tsc --noEmit -p packages/core/tsconfig.json`
+Expected: PASS with zero type errors
+
+- [x] **Step 5: Commit**
+
+```bash
+git add docs/superpowers/plans/2026-04-15-live-preview-phase-1.md
+git commit -m "docs: mark live preview phase 1 plan complete"
+```
