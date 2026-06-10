@@ -3,7 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "types": "src/index.ts",
+  "module": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./ui/AISummaryModal": "./src/ui/AISummaryModal.tsx"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json"
   },

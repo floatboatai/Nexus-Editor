@@ -10,7 +10,7 @@ import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
 
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import AISummaryModal from '../../../../packages/plugin-ai-summary/src/ui/AISummaryModal';
+import AISummaryModal from '@nexus/plugin-ai-summary';
 
 installLongTaskWatch(50);
 
