@@ -7,12 +7,12 @@ export async function generateImageFromText(text: string): Promise<string> {
     const roots: Node[] = [];
     const stack: Node[] = [];
     let id = 1;
-      for (const raw of lines) {
-        const heading = raw.match(/^\s*(#{1,6})\s+(.*)$/);
-        const list = raw.match(/^\s*([-*+]|\d+\.)\s+(.*)$/);
-        if (heading) {
-        const level = m[1].length;
-        const title = m[2].trim();
+    for (const raw of lines) {
+      const heading = raw.match(/^\s*(#{1,6})\s+(.*)$/);
+      const list = raw.match(/^\s*([-*+]|\d+\.)\s+(.*)$/);
+      if (heading) {
+        const level = heading[1].length;
+        const title = heading[2].trim();
         const node: Node = { id: id++, title, level, children: [], parent: null };
         while (stack.length > 0 && stack[stack.length - 1].level >= level) stack.pop();
         if (stack.length === 0) {
@@ -23,24 +23,18 @@ export async function generateImageFromText(text: string): Promise<string> {
           node.parent = parent;
         }
         stack.push(node);
+      } else if (list) {
+        const title = list[2].trim();
+        const parent = stack.length > 0 ? stack[stack.length - 1] : null;
+        const level = parent ? parent.level + 1 : 2;
+        const node: Node = { id: id++, title, level, children: [], parent: parent };
+        if (parent) parent.children.push(node);
+        else roots.push(node);
+        stack.push(node);
       }
-        } else if (list) {
-          const title = list[2].trim();
-          // attach to nearest heading (stack top) or to roots
-          const parent = stack.length > 0 ? stack[stack.length - 1] : null;
-          const level = parent ? parent.level + 1 : 2;
-          const node: Node = { id: id++, title, level, children: [], parent: parent };
-          if (parent) parent.children.push(node);
-          else roots.push(node);
-          // push list items onto stack so nested lists work
-          stack.push(node);
-        }
-        // otherwise ignore non-heading/list lines here (fallback handles them)
     }
     return roots;
-    // Use Electron-like deep background color
-    const bgColor = '#0b0f14';
-    const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns='http://www.w3.org/2000/svg' width='${width}' height='${height}'>\n  <rect width='100%' height='100%' fill='${bgColor}'/>\n  ${lines.join('\n  ')}\n  ${boxes.join('\n  ')}\n</svg>`;
+  }
 
   function buildFallbackTree(input: string): Node[] {
     const lines = input
@@ -84,7 +78,7 @@ export async function generateImageFromText(text: string): Promise<string> {
   const width = Math.max(600, margin * 2 + maxLevel * colWidth);
   const height = Math.max(200, currentY + margin);
 
-  const lines: string[] = [];
+  const linesArr: string[] = [];
   const boxes: string[] = [];
   for (const item of nodes) {
     const { node, x, y } = item;
@@ -97,7 +91,7 @@ export async function generateImageFromText(text: string): Promise<string> {
       if (p) {
         const px = p.x + w / 2;
         const py = p.y + h / 2;
-        lines.push(`<line x1='${px}' y1='${py}' x2='${cx}' y2='${cy}' stroke='#9ca3af' stroke-width='2' />`);
+        linesArr.push(`<line x1='${px}' y1='${py}' x2='${cx}' y2='${cy}' stroke='#9ca3af' stroke-width='2' />`);
       }
     }
     const safeTitle = node.title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -105,7 +99,9 @@ export async function generateImageFromText(text: string): Promise<string> {
     boxes.push(`<text x='${x + 12}' y='${y + 24}' font-family='system-ui, -apple-system, Segoe UI, Roboto, sans-serif' font-size='13' fill='#fff'>${safeTitle}</text>`);
   }
 
-  const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns='http://www.w3.org/2000/svg' width='${width}' height='${height}'>\n  <rect width='100%' height='100%' fill='#0b1220'/>\n  ${lines.join('\n  ')}\n  ${boxes.join('\n  ')}\n</svg>`;
+  // Use Electron-like deep background color
+  const bgColor = '#0b0f14';
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns='http://www.w3.org/2000/svg' width='${width}' height='${height}'>\n  <rect width='100%' height='100%' fill='${bgColor}'/>\n  ${linesArr.join('\n  ')}\n  ${boxes.join('\n  ')}\n</svg>`;
 
   // Encode for Node/browser
   let b64: string;
