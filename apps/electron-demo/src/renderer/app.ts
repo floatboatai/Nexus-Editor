@@ -21,6 +21,8 @@ let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+// Keep a reference to the mounted AISummary React root so we can unmount it on toggle
+let aiSummaryRoot: any = null;
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
@@ -90,14 +92,24 @@ function createAppToolbar(): HTMLElement {
       console.log('[AI-SUMMARY] button clicked');
       console.log('[AI-SUMMARY] React.version', React?.version);
       console.log('[AI-SUMMARY] createRoot exists', typeof createRoot === 'function');
-      if (document.getElementById('ai-summary-root')) {
-        console.log('[AI-SUMMARY] already mounted');
+      const existing = document.getElementById('ai-summary-root');
+      if (existing) {
+        console.log('[AI-SUMMARY] already mounted - toggling to close');
+        try {
+          if (aiSummaryRoot && typeof aiSummaryRoot.unmount === 'function') aiSummaryRoot.unmount();
+        } catch (e) {
+          console.warn('[AI-SUMMARY] unmount failed', e);
+        }
+        existing.remove();
+        aiSummaryRoot = null;
         return;
       }
+
       const mount = document.createElement('div');
       mount.id = 'ai-summary-root';
       document.body.appendChild(mount);
       const root = createRoot(mount);
+      aiSummaryRoot = root;
       root.render(
         React.createElement(AISummaryModal, {
           onCreated: (notePath?: string | null) => {
