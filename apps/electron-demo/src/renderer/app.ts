@@ -88,6 +88,8 @@ function createAppToolbar(): HTMLElement {
   aiSummaryBtn.addEventListener('click', () => {
     try {
       console.log('[AI-SUMMARY] button clicked');
+      console.log('[AI-SUMMARY] React.version', React?.version);
+      console.log('[AI-SUMMARY] createRoot exists', typeof createRoot === 'function');
       if (document.getElementById('ai-summary-root')) {
         console.log('[AI-SUMMARY] already mounted');
         return;
