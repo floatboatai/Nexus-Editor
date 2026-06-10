@@ -55,28 +55,40 @@ export async function generateImageFromText(text: string): Promise<string> {
   const roots = buildTreeFromHeadings(text);
   const tree = roots.length > 0 ? roots : buildFallbackTree(text);
 
-  // Layout
-  const colWidth = 220;
-  const rowHeight = 56;
-  const margin = 20;
-  const nodes: { node: Node; x: number; y: number }[] = [];
-  let currentY = margin + 20;
+  // Layout: collect nodes by level (support up to 3 levels). Ensure same-level headings line up vertically.
+  const colWidth = 260;
+  const rowHeight = 84;
+  const margin = 28;
+  const maxDepth = 3;
 
-  function walk(nlist: Node[], level = 1) {
+  // Collect nodes per level in document order (pre-order traversal)
+  const levelsArr: Node[][] = [[], [], []];
+  function collect(nlist: Node[], depth = 1) {
     for (const n of nlist) {
-      const x = margin + (level - 1) * colWidth;
-      const y = currentY;
+      const d = Math.min(maxDepth, depth);
+      levelsArr[d - 1].push(n);
+      if (n.children && n.children.length > 0) collect(n.children, depth + 1);
+    }
+  }
+  collect(tree, 1);
+
+  // Compute positions: each level is a column; within a level nodes are stacked by order
+  const nodes: { node: Node; x: number; y: number }[] = [];
+  let maxCount = 0;
+  for (let li = 0; li < levelsArr.length; li++) {
+    const col = levelsArr[li];
+    maxCount = Math.max(maxCount, col.length);
+    for (let i = 0; i < col.length; i++) {
+      const n = col[i];
+      const x = margin + li * colWidth;
+      const y = margin + i * rowHeight;
       nodes.push({ node: n, x, y });
-      currentY += rowHeight;
-      if (n.children && n.children.length > 0) walk(n.children, level + 1);
     }
   }
 
-  walk(tree, 1);
-
-  const maxLevel = Math.max(...nodes.map((n) => n.node.level), 1);
-  const width = Math.max(600, margin * 2 + maxLevel * colWidth);
-  const height = Math.max(200, currentY + margin);
+  const maxLevel = Math.max(1, ...levelsArr.map((c) => (c.length ? levelsArr.indexOf(c) + 1 : 0)));
+  const width = Math.max(640, margin * 2 + maxDepth * colWidth);
+  const height = Math.max(220, margin * 2 + maxCount * rowHeight);
 
   // Build visual elements: vertical dashed column lines + connector branches + boxes with wrapped text
   const linesArr: string[] = [];
