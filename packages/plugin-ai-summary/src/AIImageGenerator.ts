@@ -78,25 +78,52 @@ export async function generateImageFromText(text: string): Promise<string> {
   const width = Math.max(600, margin * 2 + maxLevel * colWidth);
   const height = Math.max(200, currentY + margin);
 
+  // Build visual elements: vertical dashed column lines + connector branches + boxes with wrapped text
   const linesArr: string[] = [];
   const boxes: string[] = [];
+
+  // Precompute unique levels
+  const levels = Array.from(new Set(nodes.map((n) => n.node.level))).sort((a, b) => a - b);
+
+  // Vertical dashed guide lines per level (positioned slightly left of the boxes column)
+  for (const lvl of levels) {
+    const xLine = margin + (lvl - 1) * colWidth - 30;
+    linesArr.push(`<line x1='${xLine}' y1='${margin}' x2='${xLine}' y2='${height - margin}' stroke='#374151' stroke-width='2' stroke-dasharray='6,6' opacity='0.35'/>`);
+  }
+
+  const palette = ['#4338ca', '#7c3aed', '#1e40af', '#0ea5a3', '#2563eb'];
+
   for (const item of nodes) {
     const { node, x, y } = item;
-    const w = 180;
-    const h = 40;
-    const cx = x + w / 2;
-    const cy = y + h / 2;
-    if (node.parent) {
-      const p = nodes.find((it) => it.node === node.parent);
-      if (p) {
-        const px = p.x + w / 2;
-        const py = p.y + h / 2;
-        linesArr.push(`<line x1='${px}' y1='${py}' x2='${cx}' y2='${cy}' stroke='#9ca3af' stroke-width='2' />`);
-      }
+    const w = 220;
+    const h = 60;
+    const boxX = x;
+    const boxY = y;
+    const vertX = margin + (node.level - 1) * colWidth - 30;
+
+    // connector: horizontal line from vertical guide to box left
+    const startX = vertX + 8;
+    const endX = boxX - 8;
+    const midY = boxY + h / 2;
+    if (endX > startX) {
+      linesArr.push(`<path d='M ${startX} ${midY} L ${endX} ${midY}' stroke='#9ca3af' stroke-width='1.5' stroke-linecap='round' opacity='0.45'/>`);
     }
+
+    // box background color by level
+    const fill = palette[(node.level - 1) % palette.length];
     const safeTitle = node.title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    boxes.push(`<rect x='${x}' y='${y}' width='${w}' height='${h}' rx='6' fill='#0f172a' stroke='#374151' />`);
-    boxes.push(`<text x='${x + 12}' y='${y + 24}' font-family='system-ui, -apple-system, Segoe UI, Roboto, sans-serif' font-size='13' fill='#fff'>${safeTitle}</text>`);
+
+    // Use foreignObject so text can wrap and show emoji/icons
+    boxes.push(`
+      <g>
+        <rect x='${boxX}' y='${boxY}' width='${w}' height='${h}' rx='12' fill='${fill}' opacity='1' />
+        <foreignObject x='${boxX}' y='${boxY}' width='${w}' height='${h}'>
+          <div xmlns='http://www.w3.org/1999/xhtml' style='font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: rgba(255,255,255,0.95); font-size:14px; padding:10px; line-height:1.2; overflow:hidden; display:flex; align-items:center;'>
+            <div style="word-break:break-word;">${safeTitle}</div>
+          </div>
+        </foreignObject>
+      </g>
+    `);
   }
 
   // Use Electron-like deep background color
