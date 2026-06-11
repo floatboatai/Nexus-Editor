@@ -572,19 +572,6 @@ export function createEditor(config: EditorConfig): EditorAPI {
               emitter.emit("selectionChange", { anchor: sel.anchor, head: sel.head });
             }
 
-            // 仅在非 silent 变更时检查历史栈变化。silent 变更
-            //（setDocument({ silent: true })）用于文件加载，不应
-            // 触发任何面向用户的 UI 事件（包括 historyChange）。
-            if (update.docChanged && !silent) {
-              const canUndo = undoDepth(update.state) > 0;
-              const canRedo = redoDepth(update.state) > 0;
-              if (canUndo !== lastCanUndo || canRedo !== lastCanRedo) {
-                lastCanUndo = canUndo;
-                lastCanRedo = canRedo;
-                emitter.emit("historyChange", { canUndo, canRedo });
-              }
-            }
-
             if (slashCommands.length > 0) {
               const doc = update.state.doc.toString();
               const state = computeSlashState(doc, sel.head, slashCommands, {
@@ -602,6 +589,20 @@ export function createEditor(config: EditorConfig): EditorAPI {
               }
 
               emitter.emit("slashMenuChange", { ...state, coords });
+            }
+          }
+
+          // 在每次更新后检查历史栈状态——不限 docChanged，因为
+          // Compartment.reconfigure（如 clearHistory）不设置 docChanged
+          // 但会改变 history StateField 的值。字段查询开销极低（O(1)），
+          // 仅在值实际变化时才 emit。
+          if (!destroyed && !silent) {
+            const canUndo = undoDepth(update.state) > 0;
+            const canRedo = redoDepth(update.state) > 0;
+            if (canUndo !== lastCanUndo || canRedo !== lastCanRedo) {
+              lastCanUndo = canUndo;
+              lastCanRedo = canRedo;
+              emitter.emit("historyChange", { canUndo, canRedo });
             }
           }
         }),

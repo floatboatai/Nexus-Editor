@@ -200,4 +200,72 @@ describe("@floatboat/nexus-plugin-history", () => {
 
     editor.destroy();
   });
+
+  it("clearHistory via editor.runCommand resets canUndo/canRedo to false", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+
+    // 产生撤销历史
+    editor.setDocument("next");
+    expect(editor.canUndo()).toBe(true);
+
+    // 清空历史
+    const result = editor.runCommand("history.clear");
+    expect(result).toBe(true);
+    expect(editor.canUndo()).toBe(false);
+    expect(editor.canRedo()).toBe(false);
+
+    editor.destroy();
+  });
+
+  it("clearHistory emits historyChange with both false after clearing", () => {
+    const container = document.createElement("div");
+    const events: Array<{ canUndo: boolean; canRedo: boolean }> = [];
+
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+    editor.on("historyChange", (state) => events.push(state));
+
+    // 产生历史
+    editor.setDocument("next");
+    expect(events[events.length - 1]).toEqual({ canUndo: true, canRedo: false });
+
+    // 清空历史 → 应触发 historyChange({ canUndo: false, canRedo: false })
+    editor.runCommand("history.clear");
+    expect(events[events.length - 1]).toEqual({ canUndo: false, canRedo: false });
+
+    // 再次修改 → 再次可撤销
+    editor.setDocument("after clear");
+    expect(events[events.length - 1]).toEqual({ canUndo: true, canRedo: false });
+
+    editor.destroy();
+  });
+
+  it("clearHistory does nothing when there is no history to clear", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+
+    // 还没有任何操作
+    expect(editor.canUndo()).toBe(false);
+    expect(editor.canRedo()).toBe(false);
+
+    // clearHistory 应该安全执行（不抛异常）
+    const result = editor.runCommand("history.clear");
+    expect(result).toBe(true);
+    expect(editor.canUndo()).toBe(false);
+    expect(editor.canRedo()).toBe(false);
+
+    editor.destroy();
+  });
 });
