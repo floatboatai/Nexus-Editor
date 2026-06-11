@@ -572,7 +572,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
               emitter.emit("selectionChange", { anchor: sel.anchor, head: sel.head });
             }
 
-            if (update.docChanged) {
+            // 仅在非 silent 变更时检查历史栈变化。silent 变更
+            //（setDocument({ silent: true })）用于文件加载，不应
+            // 触发任何面向用户的 UI 事件（包括 historyChange）。
+            if (update.docChanged && !silent) {
               const canUndo = undoDepth(update.state) > 0;
               const canRedo = redoDepth(update.state) > 0;
               if (canUndo !== lastCanUndo || canRedo !== lastCanRedo) {

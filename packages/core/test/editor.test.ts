@@ -868,3 +868,155 @@ describe("historyChange event", () => {
     expect(events.length).toBe(0);
   });
 });
+
+describe("historyChange — edge cases", () => {
+  it("does not fire for silent document loads", () => {
+    const container = document.createElement("div");
+    const events: Array<{ canUndo: boolean; canRedo: boolean }> = [];
+
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+    editor.on("historyChange", (state) => events.push(state));
+
+    // silent: true 表示文件加载，不应触发任何 UI 事件
+    editor.setDocument("loaded from disk", { silent: true });
+
+    expect(events).toEqual([]);
+    expect(editor.getDocument()).toBe("loaded from disk");
+    editor.destroy();
+  });
+
+  it("undo() when nothing to undo returns false and does not emit", () => {
+    const container = document.createElement("div");
+    const events: Array<{ canUndo: boolean; canRedo: boolean }> = [];
+
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+    editor.on("historyChange", (state) => events.push(state));
+
+    // 刚创建，没有可撤销的内容
+    const beforeCount = events.length;
+    const result = editor.undo();
+
+    expect(result).toBe(false);
+    expect(events.length).toBe(beforeCount);
+    editor.destroy();
+  });
+
+  it("redo() when nothing to redo returns false and does not emit", () => {
+    const container = document.createElement("div");
+    const events: Array<{ canUndo: boolean; canRedo: boolean }> = [];
+
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+    editor.on("historyChange", (state) => events.push(state));
+
+    // 刚创建，没有可重做的内容
+    const beforeCount = events.length;
+    const result = editor.redo();
+
+    expect(result).toBe(false);
+    expect(events.length).toBe(beforeCount);
+    editor.destroy();
+  });
+
+  it("replaceSelection triggers historyChange like setDocument", () => {
+    const container = document.createElement("div");
+    const events: Array<{ canUndo: boolean; canRedo: boolean }> = [];
+
+    const editor = createEditor({
+      container,
+      initialValue: "",
+      plugins: [createHistoryPlugin()],
+    });
+    editor.on("historyChange", (state) => events.push(state));
+
+    // 用 replaceSelection 插入文本（模拟真实用户输入）
+    editor.replaceSelection("hello");
+    expect(events.length).toBeGreaterThanOrEqual(1);
+    expect(events[events.length - 1]).toEqual({ canUndo: true, canRedo: false });
+    expect(editor.canUndo()).toBe(true);
+
+    editor.undo();
+    expect(events[events.length - 1]).toEqual({ canUndo: false, canRedo: true });
+    expect(editor.getDocument()).toBe("");
+    editor.destroy();
+  });
+
+  it("no events fire when history plugin is not installed", () => {
+    const container = document.createElement("div");
+    const events: Array<{ canUndo: boolean; canRedo: boolean }> = [];
+
+    // 故意不安装 createHistoryPlugin()
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+    });
+    editor.on("historyChange", (state) => events.push(state));
+
+    editor.setDocument("next");
+
+    // 无 history 扩展：canUndo/canRedo 永远 false，historyChange 永远不触发
+    expect(editor.canUndo()).toBe(false);
+    expect(editor.canRedo()).toBe(false);
+    expect(events).toEqual([]);
+    editor.destroy();
+  });
+
+  it("tracks multiple independent undo steps correctly", () => {
+    // 用 fake timers 确保每次操作之间间隔足够，不被分组
+    vi.useFakeTimers();
+
+    const container = document.createElement("div");
+    const events: Array<{ canUndo: boolean; canRedo: boolean }> = [];
+
+    const editor = createEditor({
+      container,
+      initialValue: "",
+      plugins: [createHistoryPlugin({ newGroupDelay: 100 })],
+    });
+    editor.on("historyChange", (state) => events.push(state));
+
+    // 第一次编辑
+    editor.replaceSelection("A");
+    vi.advanceTimersByTime(200);
+
+    // 第二次编辑（距离上次 200ms > 100ms newGroupDelay，新建分组）
+    editor.replaceSelection("B");
+    vi.advanceTimersByTime(200);
+
+    // 第三次编辑
+    editor.replaceSelection("C");
+    vi.advanceTimersByTime(200);
+
+    expect(editor.getDocument()).toBe("ABC");
+
+    // 此时应有 3 个 undo 步骤
+    // undo 第 1 步: canUndo 仍然 true（还有 2 步）
+    editor.undo();
+    expect(editor.getDocument()).toBe("AB");
+    expect(events[events.length - 1].canUndo).toBe(true);
+
+    // undo 第 2 步: canUndo 仍然 true（还有 1 步）
+    editor.undo();
+    expect(editor.getDocument()).toBe("A");
+    expect(events[events.length - 1].canUndo).toBe(true);
+
+    // undo 第 3 步: canUndo 变 false（栈空了）
+    editor.undo();
+    expect(editor.getDocument()).toBe("");
+    expect(events[events.length - 1]).toEqual({ canUndo: false, canRedo: true });
+
+    editor.destroy();
+    vi.useRealTimers();
+  });
+});
