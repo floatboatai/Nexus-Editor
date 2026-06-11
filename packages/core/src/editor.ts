@@ -5,7 +5,7 @@ import { Annotation, EditorState } from "@codemirror/state";
 // no onChange emission, no AST reparse for the onChange pipeline.
 const silentDocChange = Annotation.define<boolean>();
 import { EditorView, keymap, dropCursor, lineNumbers, type Direction } from "@codemirror/view";
-import { indentWithTab, undo as cmUndo, redo as cmRedo } from "@codemirror/commands";
+import { indentWithTab, undo as cmUndo, redo as cmRedo, undoDepth, redoDepth } from "@codemirror/commands";
 import { closeBrackets } from "@codemirror/autocomplete";
 import type { Root } from "mdast";
 import type { Heading } from "mdast";
@@ -253,6 +253,8 @@ export function createEditor(config: EditorConfig): EditorAPI {
   const emitter = new EventEmitter<EditorEventMap>();
   let destroyed = false;
   let focused = false;
+  let lastCanUndo = false;
+  let lastCanRedo = false;
   let parseTimer: ReturnType<typeof setTimeout> | undefined;
   let compositionFlushTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingCompositionMarkdown: string | null = null;
@@ -570,6 +572,16 @@ export function createEditor(config: EditorConfig): EditorAPI {
               emitter.emit("selectionChange", { anchor: sel.anchor, head: sel.head });
             }
 
+            if (update.docChanged) {
+              const canUndo = undoDepth(update.state) > 0;
+              const canRedo = redoDepth(update.state) > 0;
+              if (canUndo !== lastCanUndo || canRedo !== lastCanRedo) {
+                lastCanUndo = canUndo;
+                lastCanRedo = canRedo;
+                emitter.emit("historyChange", { canUndo, canRedo });
+              }
+            }
+
             if (slashCommands.length > 0) {
               const doc = update.state.doc.toString();
               const state = computeSlashState(doc, sel.head, slashCommands, {
@@ -745,6 +757,14 @@ export function createEditor(config: EditorConfig): EditorAPI {
     redo() {
       if (destroyed) return false;
       return cmRedo(view);
+    },
+    canUndo() {
+      if (destroyed) return false;
+      return undoDepth(view.state) > 0;
+    },
+    canRedo() {
+      if (destroyed) return false;
+      return redoDepth(view.state) > 0;
     },
     focus() {
       if (destroyed) {

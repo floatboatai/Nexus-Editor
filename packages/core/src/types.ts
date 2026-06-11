@@ -124,6 +124,8 @@ export interface EditorEventMap {
   blur: () => void;
   selectionChange: (selection: { anchor: number; head: number }) => void;
   slashMenuChange: (state: SlashMenuState) => void;
+  /** history 栈状态变更时触发。宿主 UI 可订阅以更新工具栏按钮状态。 */
+  historyChange: (state: { canUndo: boolean; canRedo: boolean }) => void;
 }
 
 export interface TocEntry {
@@ -158,6 +160,10 @@ export interface EditorAPI {
   replaceSelection(text: string): void;
   undo(): boolean;
   redo(): boolean;
+  /** 是否有可撤销的操作（undo stack 非空）。 */
+  canUndo(): boolean;
+  /** 是否有可重做的操作（redo stack 非空）。 */
+  canRedo(): boolean;
   focus(): void;
   blur(): void;
   runShortcut(key: string): boolean;

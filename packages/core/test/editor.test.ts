@@ -3,6 +3,7 @@ import { EditorView, ViewPlugin } from "@codemirror/view";
 import type { Plugin } from "unified";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createEditor } from "../src/index";
+import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
 
 function requireEditorView(view: EditorView | null): EditorView {
   if (!view) throw new Error("Expected CodeMirror view to be captured");
@@ -694,5 +695,176 @@ describe("createEditor — DOM event hook layer", () => {
     content.dispatchEvent(passthrough);
     expect(passthrough.defaultPrevented).toBe(false);
     editor.destroy();
+  });
+});
+
+describe("canUndo / canRedo", () => {
+  it("returns false for both when no history plugin is installed", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "# Hello" });
+
+    // 无 history 扩展：始终返回 false，这是正确行为
+    expect(editor.canUndo()).toBe(false);
+    expect(editor.canRedo()).toBe(false);
+    editor.destroy();
+  });
+
+  it("returns false for both on a freshly created editor with history plugin", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "# Hello",
+      plugins: [createHistoryPlugin()],
+    });
+
+    expect(editor.canUndo()).toBe(false);
+    expect(editor.canRedo()).toBe(false);
+    editor.destroy();
+  });
+
+  it("returns true for canUndo after a document mutation", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+
+    editor.setDocument("next");
+    expect(editor.canUndo()).toBe(true);
+    expect(editor.canRedo()).toBe(false);
+    editor.destroy();
+  });
+
+  it("returns true for canRedo after undo, and false when redo stack is empty", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+
+    editor.setDocument("next");
+    editor.undo();
+
+    expect(editor.canRedo()).toBe(true);
+
+    editor.redo();
+    expect(editor.canRedo()).toBe(false);
+    expect(editor.canUndo()).toBe(true);
+    editor.destroy();
+  });
+
+  it("returns false for both after destroy", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+
+    editor.setDocument("next");
+    expect(editor.canUndo()).toBe(true);
+
+    editor.destroy();
+    expect(editor.canUndo()).toBe(false);
+    expect(editor.canRedo()).toBe(false);
+  });
+});
+
+describe("historyChange event", () => {
+  it("does not fire on initial creation", () => {
+    const container = document.createElement("div");
+    const events: Array<{ canUndo: boolean; canRedo: boolean }> = [];
+
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+    editor.on("historyChange", (state) => events.push(state));
+
+    // 注册监听后无任何操作，不应触发事件
+    expect(events).toEqual([]);
+    editor.destroy();
+  });
+
+  it("fires with correct state after first document mutation", () => {
+    const container = document.createElement("div");
+    const events: Array<{ canUndo: boolean; canRedo: boolean }> = [];
+
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+    editor.on("historyChange", (state) => events.push(state));
+
+    editor.setDocument("next");
+
+    expect(events.length).toBe(1);
+    expect(events[0]).toEqual({ canUndo: true, canRedo: false });
+    editor.destroy();
+  });
+
+  it("does not fire when the history state does not change", () => {
+    const container = document.createElement("div");
+    const events: Array<{ canUndo: boolean; canRedo: boolean }> = [];
+
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+    editor.on("historyChange", (state) => events.push(state));
+
+    editor.setDocument("next");
+    editor.setDocument("another");
+
+    // 连续两次 setDocument：首次触发（从无 undo → 有），第二次不触发（状态未变）
+    expect(events.length).toBe(1);
+    expect(events[0]).toEqual({ canUndo: true, canRedo: false });
+    editor.destroy();
+  });
+
+  it("fires the correct sequence through undo → redo", () => {
+    const container = document.createElement("div");
+    const events: Array<{ canUndo: boolean; canRedo: boolean }> = [];
+
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+    editor.on("historyChange", (state) => events.push(state));
+
+    editor.setDocument("next");
+    expect(events.length).toBeGreaterThanOrEqual(1);
+    expect(events[events.length - 1]).toEqual({ canUndo: true, canRedo: false });
+
+    editor.undo();
+    expect(events[events.length - 1]).toEqual({ canUndo: false, canRedo: true });
+
+    editor.redo();
+    expect(events[events.length - 1]).toEqual({ canUndo: true, canRedo: false });
+
+    editor.destroy();
+  });
+
+  it("does not fire after the editor is destroyed", () => {
+    const container = document.createElement("div");
+    const events: Array<{ canUndo: boolean; canRedo: boolean }> = [];
+
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+    editor.on("historyChange", (state) => events.push(state));
+    editor.destroy();
+
+    // destroy 后调用不应该触发事件（且 API 安全返回 false）
+    expect(() => editor.setDocument("boom")).not.toThrow();
+    expect(events.length).toBe(0);
   });
 });
