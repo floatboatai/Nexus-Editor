@@ -15,7 +15,7 @@ This document maps every planned feature to **package ownership / priority / sta
 
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
-| 1 | Multi-line list toggle (ordered / unordered) | `plugin-toolbar` + `core` commands | P1 | planned | No | Extend existing list command to multi-line selection |
+| 1 | Multi-line list toggle (ordered / unordered) | `plugin-toolbar` + `core` commands | P1 | in-progress | No | Extend existing list command to multi-line selection |
 | 12 | Advanced toolbar (emoji picker / table tools / color picker) | `plugin-toolbar` | P2 | planned | Yes | Introduces widgets — split into 3 sub-proposals |
 
 ## 2. Search / Commands

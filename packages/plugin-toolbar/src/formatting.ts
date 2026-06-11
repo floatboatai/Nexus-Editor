@@ -1,77 +1,169 @@
 import type { EditorAPI } from "@floatboat/nexus-core";
 
-/** Get the current line containing the anchor position. */
-function getCurrentLine(doc: string, anchor: number): { lineStart: number; lineEnd: number; line: string } {
-  const lineStart = doc.lastIndexOf("\n", anchor - 1) + 1;
-  const lineEndIdx = doc.indexOf("\n", anchor);
+// Patterns for detecting existing list/blockquote markers on a line.
+const OL_RE = /^(\s*)(\d+)[.)]\s/;
+const UL_RE = /^(\s*)[-*+]\s/;
+const BQ_RE = /^(\s*)>\s?/;
+
+/** Get the current line containing the given offset. */
+function getCurrentLine(doc: string, pos: number): { lineStart: number; lineEnd: number; line: string } {
+  const lineStart = doc.lastIndexOf("\n", pos - 1) + 1;
+  const lineEndIdx = doc.indexOf("\n", pos);
   const lineEnd = lineEndIdx === -1 ? doc.length : lineEndIdx;
   return { lineStart, lineEnd, line: doc.slice(lineStart, lineEnd) };
 }
 
-/** Toggle a line prefix (e.g., "> " for blockquote). */
-function toggleLinePrefix(editor: EditorAPI, prefix: string): boolean {
-  const doc = editor.getDocument();
-  const { anchor } = editor.getSelection();
-  const { lineStart, lineEnd, line } = getCurrentLine(doc, anchor);
-
-  let newLine: string;
-  if (line.startsWith(prefix)) {
-    newLine = line.slice(prefix.length);
-  } else {
-    newLine = prefix + line;
+/**
+ * Extract all lines that are fully or partially covered by [from, to].
+ * Returns an array of { lineStart, lineEnd, line } objects and the offset
+ * of the very first line start and the very last line end.
+ */
+function getLinesInRange(
+  doc: string,
+  from: number,
+  to: number
+): {
+  lines: Array<{ lineStart: number; lineEnd: number; line: string }>;
+  rangeStart: number;
+  rangeEnd: number;
+} {
+  const firstLine = getCurrentLine(doc, from);
+  // When from === to (no selection), operate only on the anchor line.
+  if (from === to) {
+    return {
+      lines: [firstLine],
+      rangeStart: firstLine.lineStart,
+      rangeEnd: firstLine.lineEnd,
+    };
   }
 
-  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
-  editor.setDocument(newDoc);
-  editor.setSelection(lineStart + newLine.length);
-  return true;
+  const lines: Array<{ lineStart: number; lineEnd: number; line: string }> = [];
+  let cursor = firstLine.lineStart;
+
+  while (cursor <= to && cursor <= doc.length) {
+    const lineEndIdx = doc.indexOf("\n", cursor);
+    const lineEnd = lineEndIdx === -1 ? doc.length : lineEndIdx;
+    lines.push({ lineStart: cursor, lineEnd, line: doc.slice(cursor, lineEnd) });
+    if (lineEnd === doc.length) break;
+    cursor = lineEnd + 1;
+  }
+
+  return {
+    lines,
+    rangeStart: lines[0].lineStart,
+    rangeEnd: lines[lines.length - 1].lineEnd,
+  };
 }
 
+/** Strip any list marker (ordered or unordered) from a line, preserving leading indent. */
+function stripListMarker(line: string): string {
+  const olM = OL_RE.exec(line);
+  if (olM) return olM[1] + line.slice(olM[0].length);
+  const ulM = UL_RE.exec(line);
+  if (ulM) return ulM[1] + line.slice(ulM[0].length);
+  return line;
+}
+
+/** Strip a blockquote marker from a line, preserving leading indent. */
+function stripBlockquoteMarker(line: string): string {
+  const m = BQ_RE.exec(line);
+  return m ? m[1] + line.slice(m[0].length) : line;
+}
+
+// ─── Public formatting commands ──────────────────────────────────────────────
+
 export function toggleBlockquote(editor: EditorAPI): boolean {
-  return toggleLinePrefix(editor, "> ");
+  const doc = editor.getDocument();
+  const { anchor, head } = editor.getSelection();
+  const from = Math.min(anchor, head);
+  const to = Math.max(anchor, head);
+  const { lines, rangeStart, rangeEnd } = getLinesInRange(doc, from, to);
+
+  const allQuoted = lines.every((l) => BQ_RE.test(l.line));
+
+  const newLines = lines.map((l) => {
+    if (allQuoted) return stripBlockquoteMarker(l.line);
+    // In mixed state, only add `> ` to lines that are not yet blockquotes.
+    return BQ_RE.test(l.line) ? l.line : "> " + l.line;
+  });
+
+  const newBlock = newLines.join("\n");
+  const newDoc = doc.slice(0, rangeStart) + newBlock + doc.slice(rangeEnd);
+  editor.setDocument(newDoc);
+
+  // Restore selection to cover the transformed block.
+  const newRangeEnd = rangeStart + newBlock.length;
+  if (from === to) {
+    editor.setSelection(newRangeEnd);
+  } else {
+    editor.setSelection(rangeStart, newRangeEnd);
+  }
+  return true;
 }
 
 export function toggleOrderedList(editor: EditorAPI): boolean {
   const doc = editor.getDocument();
-  const { anchor } = editor.getSelection();
-  const { lineStart, lineEnd, line } = getCurrentLine(doc, anchor);
+  const { anchor, head } = editor.getSelection();
+  const from = Math.min(anchor, head);
+  const to = Math.max(anchor, head);
+  const { lines, rangeStart, rangeEnd } = getLinesInRange(doc, from, to);
 
-  const olMatch = line.match(/^\d+\.\s/);
-  let newLine: string;
-  if (olMatch) {
-    newLine = line.slice(olMatch[0].length);
-  } else {
-    // Remove other list markers if present
-    const ulMatch = line.match(/^[-*+]\s/);
-    const content = ulMatch ? line.slice(ulMatch[0].length) : line;
-    newLine = "1. " + content;
-  }
+  const allOrdered = lines.every((l) => OL_RE.test(l.line));
 
-  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
+  let counter = 1;
+  const newLines = lines.map((l) => {
+    if (allOrdered) {
+      // Remove ordered marker, restore any leading indent.
+      return stripListMarker(l.line);
+    }
+    // Strip any existing marker (ul or ol) before applying a fresh numbered one.
+    const indent = (UL_RE.exec(l.line) ?? OL_RE.exec(l.line))?.[1] ?? "";
+    const content = stripListMarker(l.line);
+    return `${indent}${counter++}. ${content.slice(indent.length)}`;
+  });
+
+  const newBlock = newLines.join("\n");
+  const newDoc = doc.slice(0, rangeStart) + newBlock + doc.slice(rangeEnd);
   editor.setDocument(newDoc);
-  editor.setSelection(lineStart + newLine.length);
+
+  const newRangeEnd = rangeStart + newBlock.length;
+  if (from === to) {
+    editor.setSelection(newRangeEnd);
+  } else {
+    editor.setSelection(rangeStart, newRangeEnd);
+  }
   return true;
 }
 
 export function toggleUnorderedList(editor: EditorAPI): boolean {
   const doc = editor.getDocument();
-  const { anchor } = editor.getSelection();
-  const { lineStart, lineEnd, line } = getCurrentLine(doc, anchor);
+  const { anchor, head } = editor.getSelection();
+  const from = Math.min(anchor, head);
+  const to = Math.max(anchor, head);
+  const { lines, rangeStart, rangeEnd } = getLinesInRange(doc, from, to);
 
-  const ulMatch = line.match(/^[-*+]\s/);
-  let newLine: string;
-  if (ulMatch) {
-    newLine = line.slice(ulMatch[0].length);
-  } else {
-    // Remove ordered list marker if present
-    const olMatch = line.match(/^\d+\.\s/);
-    const content = olMatch ? line.slice(olMatch[0].length) : line;
-    newLine = "- " + content;
-  }
+  const allUnordered = lines.every((l) => UL_RE.test(l.line));
 
-  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
+  const newLines = lines.map((l) => {
+    if (allUnordered) {
+      return stripListMarker(l.line);
+    }
+    // Strip any existing marker before applying `- `.
+    const indent = (UL_RE.exec(l.line) ?? OL_RE.exec(l.line))?.[1] ?? "";
+    const content = stripListMarker(l.line);
+    return `${indent}- ${content.slice(indent.length)}`;
+  });
+
+  const newBlock = newLines.join("\n");
+  const newDoc = doc.slice(0, rangeStart) + newBlock + doc.slice(rangeEnd);
   editor.setDocument(newDoc);
-  editor.setSelection(lineStart + newLine.length);
+
+  const newRangeEnd = rangeStart + newBlock.length;
+  if (from === to) {
+    editor.setSelection(newRangeEnd);
+  } else {
+    editor.setSelection(rangeStart, newRangeEnd);
+  }
   return true;
 }
 

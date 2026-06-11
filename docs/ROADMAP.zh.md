@@ -15,7 +15,7 @@
 
 | # | 功能 | 归属包 | 优先级 | 状态 | 需要 OpenSpec | 备注 |
 |---|---|---|---|---|---|---|
-| 1 | 多行列表切换（ordered / unordered） | `plugin-toolbar` + `core` 命令 | P1 | planned | 否 | 复用 core 现有 list 命令，扩展到多行选区 |
+| 1 | 多行列表切换（ordered / unordered） | `plugin-toolbar` + `core` 命令 | P1 | in-progress | 否 | 复用 core 现有 list 命令，扩展到多行选区 |
 | 12 | 高级 toolbar（emoji picker / 表格工具 / 颜色选择） | `plugin-toolbar` | P2 | planned | 是 | 涉及新 widget，建议拆 3 个子提案 |
 
 ## 2. Search / 命令

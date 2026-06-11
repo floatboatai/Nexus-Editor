@@ -7,6 +7,9 @@ import {
   toggleInlineCode,
   insertLink,
   toggleHeading,
+  toggleOrderedList,
+  toggleUnorderedList,
+  toggleBlockquote,
   createToolbarPlugin,
   createToolbarUI,
 } from "../src/index";
@@ -113,6 +116,231 @@ describe("toggleHeading", () => {
     const editor = createEditor({ container, initialValue: "## Title" });
 
     editor.setSelection(5);
+    toggleHeading(editor, 1);
+
+    expect(editor.getDocument()).toBe("# Title");
+    editor.destroy();
+  });
+});
+
+// ─── Multi-line toggles ────────────────────────────────────────────────────
+
+describe("toggleUnorderedList — multi-line", () => {
+  it("applies `- ` to every selected line when none are lists", () => {
+    const container = document.createElement("div");
+    const doc = "alpha\nbeta\ngamma";
+    const editor = createEditor({ container, initialValue: doc });
+
+    // Select from start of "alpha" to end of "gamma"
+    editor.setSelection(0, doc.length);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("- alpha\n- beta\n- gamma");
+    editor.destroy();
+  });
+
+  it("removes `- ` from every line when all are unordered lists", () => {
+    const container = document.createElement("div");
+    const doc = "- alpha\n- beta\n- gamma";
+    const editor = createEditor({ container, initialValue: doc });
+
+    editor.setSelection(0, doc.length);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("alpha\nbeta\ngamma");
+    editor.destroy();
+  });
+
+  it("applies `- ` to all lines when selection is mixed (some listed, some not)", () => {
+    const container = document.createElement("div");
+    const doc = "- alpha\nbeta\n- gamma";
+    const editor = createEditor({ container, initialValue: doc });
+
+    editor.setSelection(0, doc.length);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("- alpha\n- beta\n- gamma");
+    editor.destroy();
+  });
+
+  it("converts ordered-list lines to unordered when toggling ul", () => {
+    const container = document.createElement("div");
+    const doc = "1. alpha\n2. beta";
+    const editor = createEditor({ container, initialValue: doc });
+
+    editor.setSelection(0, doc.length);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("- alpha\n- beta");
+    editor.destroy();
+  });
+
+  it("falls back to single-line behaviour when anchor === head", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello" });
+
+    editor.setSelection(2);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("- hello");
+    editor.destroy();
+  });
+
+  it("preserves leading indentation when toggling nested list lines", () => {
+    const container = document.createElement("div");
+    const doc = "  - nested\n  - item";
+    const editor = createEditor({ container, initialValue: doc });
+
+    editor.setSelection(0, doc.length);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("  nested\n  item");
+    editor.destroy();
+  });
+});
+
+describe("toggleOrderedList — multi-line", () => {
+  it("applies sequential numbers to every selected line", () => {
+    const container = document.createElement("div");
+    const doc = "alpha\nbeta\ngamma";
+    const editor = createEditor({ container, initialValue: doc });
+
+    editor.setSelection(0, doc.length);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. alpha\n2. beta\n3. gamma");
+    editor.destroy();
+  });
+
+  it("removes ordered markers from every line when all are ordered lists", () => {
+    const container = document.createElement("div");
+    const doc = "1. alpha\n2. beta\n3. gamma";
+    const editor = createEditor({ container, initialValue: doc });
+
+    editor.setSelection(0, doc.length);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("alpha\nbeta\ngamma");
+    editor.destroy();
+  });
+
+  it("applies ordered markers when selection is mixed (some ordered, some not)", () => {
+    const container = document.createElement("div");
+    const doc = "1. alpha\nbeta\n3. gamma";
+    const editor = createEditor({ container, initialValue: doc });
+
+    editor.setSelection(0, doc.length);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. alpha\n2. beta\n3. gamma");
+    editor.destroy();
+  });
+
+  it("converts unordered-list lines to ordered, re-numbering from 1", () => {
+    const container = document.createElement("div");
+    const doc = "- alpha\n- beta\n- gamma";
+    const editor = createEditor({ container, initialValue: doc });
+
+    editor.setSelection(0, doc.length);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. alpha\n2. beta\n3. gamma");
+    editor.destroy();
+  });
+});
+
+describe("toggleBlockquote — multi-line", () => {
+  it("prepends `> ` to every selected line", () => {
+    const container = document.createElement("div");
+    const doc = "alpha\nbeta\ngamma";
+    const editor = createEditor({ container, initialValue: doc });
+
+    editor.setSelection(0, doc.length);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("> alpha\n> beta\n> gamma");
+    editor.destroy();
+  });
+
+  it("removes `> ` from every line when all are blockquotes", () => {
+    const container = document.createElement("div");
+    const doc = "> alpha\n> beta\n> gamma";
+    const editor = createEditor({ container, initialValue: doc });
+
+    editor.setSelection(0, doc.length);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("alpha\nbeta\ngamma");
+    editor.destroy();
+  });
+
+  it("applies `> ` to all lines when selection is mixed", () => {
+    const container = document.createElement("div");
+    const doc = "> alpha\nbeta";
+    const editor = createEditor({ container, initialValue: doc });
+
+    editor.setSelection(0, doc.length);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("> alpha\n> beta");
+    editor.destroy();
+  });
+});
+
+describe("toggleHeading — multi-line", () => {
+  it("applies the heading prefix to every selected line", () => {
+    const container = document.createElement("div");
+    const doc = "alpha\nbeta\ngamma";
+    const editor = createEditor({ container, initialValue: doc });
+
+    editor.setSelection(0, doc.length);
+    toggleHeading(editor, 2);
+
+    expect(editor.getDocument()).toBe("## alpha\n## beta\n## gamma");
+    editor.destroy();
+  });
+
+  it("removes heading prefix when all selected lines are at the same level", () => {
+    const container = document.createElement("div");
+    const doc = "## alpha\n## beta\n## gamma";
+    const editor = createEditor({ container, initialValue: doc });
+
+    editor.setSelection(0, doc.length);
+    toggleHeading(editor, 2);
+
+    expect(editor.getDocument()).toBe("alpha\nbeta\ngamma");
+    editor.destroy();
+  });
+
+  it("upgrades all selected headings to a new level", () => {
+    const container = document.createElement("div");
+    const doc = "## alpha\n## beta";
+    const editor = createEditor({ container, initialValue: doc });
+
+    editor.setSelection(0, doc.length);
+    toggleHeading(editor, 1);
+
+    expect(editor.getDocument()).toBe("# alpha\n# beta");
+    editor.destroy();
+  });
+
+  it("applies heading when selection is mixed (some headed, some plain)", () => {
+    const container = document.createElement("div");
+    const doc = "## alpha\nbeta";
+    const editor = createEditor({ container, initialValue: doc });
+
+    editor.setSelection(0, doc.length);
+    toggleHeading(editor, 2);
+
+    expect(editor.getDocument()).toBe("## alpha\n## beta");
+    editor.destroy();
+  });
+
+  it("falls back to single-line behaviour when anchor === head", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "Title" });
+
+    editor.setSelection(2);
     toggleHeading(editor, 1);
 
     expect(editor.getDocument()).toBe("# Title");

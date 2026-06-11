@@ -79,30 +79,53 @@ export function insertLink(editor: EditorAPI): boolean {
 
 export function toggleHeading(editor: EditorAPI, level: number): boolean {
   const doc = editor.getDocument();
-  const { anchor } = editor.getSelection();
-  const lineStart = doc.lastIndexOf("\n", anchor - 1) + 1;
-  const lineEnd = doc.indexOf("\n", anchor);
-  const end = lineEnd === -1 ? doc.length : lineEnd;
-  const line = doc.slice(lineStart, end);
+  const { anchor, head } = editor.getSelection();
+  const from = Math.min(anchor, head);
+  const to = Math.max(anchor, head);
 
-  const prefix = "#".repeat(level) + " ";
-  const headingMatch = line.match(/^#{1,6}\s/);
-
-  let newLine: string;
-  if (headingMatch && headingMatch[0] === prefix) {
-    // Same level — remove heading
-    newLine = line.slice(headingMatch[0].length);
-  } else if (headingMatch) {
-    // Different level — replace
-    newLine = prefix + line.slice(headingMatch[0].length);
-  } else {
-    // No heading — add
-    newLine = prefix + line;
+  // Collect all lines in the selection range.
+  const firstLineStart = doc.lastIndexOf("\n", from - 1) + 1;
+  const lines: Array<{ lineStart: number; lineEnd: number; line: string }> = [];
+  let cursor = firstLineStart;
+  while (cursor <= to && cursor <= doc.length) {
+    const lineEndIdx = doc.indexOf("\n", cursor);
+    const lineEnd = lineEndIdx === -1 ? doc.length : lineEndIdx;
+    lines.push({ lineStart: cursor, lineEnd, line: doc.slice(cursor, lineEnd) });
+    if (lineEnd === doc.length) break;
+    cursor = lineEnd + 1;
   }
 
-  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(end);
+  const prefix = "#".repeat(level) + " ";
+  const HEADING_RE = /^#{1,6}\s/;
+
+  // Toggle off only when every line is already at exactly this heading level.
+  const allAtLevel = lines.every((l) => l.line.startsWith(prefix));
+
+  const newLines = lines.map(({ line }) => {
+    const headingMatch = HEADING_RE.exec(line);
+    if (allAtLevel) {
+      // Remove the heading prefix from every line.
+      return headingMatch ? line.slice(headingMatch[0].length) : line;
+    }
+    if (headingMatch) {
+      // Replace a different heading level with the target level.
+      return prefix + line.slice(headingMatch[0].length);
+    }
+    return prefix + line;
+  });
+
+  const rangeStart = lines[0].lineStart;
+  const rangeEnd = lines[lines.length - 1].lineEnd;
+  const newBlock = newLines.join("\n");
+  const newDoc = doc.slice(0, rangeStart) + newBlock + doc.slice(rangeEnd);
   editor.setDocument(newDoc);
-  editor.setSelection(lineStart + newLine.length);
+
+  const newRangeEnd = rangeStart + newBlock.length;
+  if (from === to) {
+    editor.setSelection(newRangeEnd);
+  } else {
+    editor.setSelection(rangeStart, newRangeEnd);
+  }
   return true;
 }
 
