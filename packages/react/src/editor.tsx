@@ -1,9 +1,9 @@
 import { useEditor } from "./use-editor";
 
-import type { UseEditorConfig } from "./types";
+import type { EditorComponentProps } from "./types";
 
-export function Editor(props: UseEditorConfig) {
-  const { containerRef } = useEditor(props);
+export function Editor({ className, style, ...editorConfig }: EditorComponentProps) {
+  const { containerRef } = useEditor(editorConfig);
 
-  return <div ref={containerRef} />;
+  return <div ref={containerRef} className={className} style={style} />;
 }

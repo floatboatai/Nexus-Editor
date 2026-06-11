@@ -3,6 +3,7 @@ import { EditorView, ViewPlugin } from "@codemirror/view";
 import type { Plugin } from "unified";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createEditor } from "../src/index";
+import type { EditorAPI } from "../src/types";
 
 function requireEditorView(view: EditorView | null): EditorView {
   if (!view) throw new Error("Expected CodeMirror view to be captured");
@@ -447,6 +448,86 @@ describe("createEditor", () => {
     expect(html).toContain("<strong>bold</strong>");
     expect(html).toContain("<code");
     expect(html).toContain("console.log(1)");
+    editor.destroy();
+  });
+
+  // ── getSelectedText ──
+
+  it("returns empty string when no text is selected", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.setSelection(5);
+    expect(editor.getSelectedText()).toBe("");
+    editor.destroy();
+  });
+
+  it("returns the selected text range", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.setSelection(0, 5);
+    expect(editor.getSelectedText()).toBe("hello");
+    editor.destroy();
+  });
+
+  it("returns selected text regardless of selection direction", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.setSelection(11, 6);
+    expect(editor.getSelectedText()).toBe("world");
+    editor.destroy();
+  });
+
+  it("returns full document text when everything is selected", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.setSelection(0, 11);
+    expect(editor.getSelectedText()).toBe("hello world");
+    editor.destroy();
+  });
+
+  // ── onReady callback ──
+
+  it("calls onReady after the editor is constructed", () => {
+    const container = document.createElement("div");
+    const readyCalls: string[] = [];
+    const editor = createEditor({
+      container,
+      initialValue: "ready test",
+      onReady(api) {
+        readyCalls.push(api.getDocument());
+      }
+    });
+
+    expect(readyCalls).toEqual(["ready test"]);
+    editor.destroy();
+  });
+
+  it("calls onReady with a fully functional EditorAPI", () => {
+    const container = document.createElement("div");
+    let readyApi: EditorAPI | null = null;
+    const editor = createEditor({
+      container,
+      initialValue: "api test",
+      onReady(api) {
+        readyApi = api;
+      }
+    });
+
+    expect(readyApi).not.toBeNull();
+    expect(readyApi!.getDocument()).toBe("api test");
+    expect(readyApi!.getAst().type).toBe("root");
+    expect(readyApi!.getSelection()).toEqual({ anchor: 0, head: 0 });
+    editor.destroy();
+  });
+
+  it("does not call onReady when no callback is provided", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "no callback" });
+    expect(editor.getDocument()).toBe("no callback");
     editor.destroy();
   });
 });

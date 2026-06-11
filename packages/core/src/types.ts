@@ -103,6 +103,15 @@ export interface EditorConfig {
   onFocus?: () => void;
   onBlur?: () => void;
   /**
+   * Called once after the editor's CodeMirror view is fully constructed and
+   * the initial document has been parsed. Use this to run setup logic that
+   * depends on the editor being ready (e.g. focusing, loading external state).
+   *
+   * The callback receives the {@link EditorAPI} so hosts don't need to capture
+   * the return value of {@link createEditor} separately.
+   */
+  onReady?: (editor: EditorAPI) => void;
+  /**
    * 资源上传钩子：粘贴 / 拖拽进来的图片或文件交给宿主落盘 / 上传，返回可供 markdown
    * 引用的 URL（相对路径或远程地址）。返回 null 表示放弃，编辑器不会插入坏链接。
    */
@@ -140,6 +149,11 @@ export interface EditorAPI {
   exportHTML(): string;
   setTheme(theme: import("./theme").NexusTheme): void;
   getSelection(): { anchor: number; head: number };
+  /**
+   * Return the text within the current selection. When the selection is
+   * empty (a cursor), returns an empty string.
+   */
+  getSelectedText(): string;
   getSlashCommands(): SlashCommandDef[];
   uploadAsset(file: File): Promise<string | null>;
   setSelection(anchor: number, head?: number): void;
