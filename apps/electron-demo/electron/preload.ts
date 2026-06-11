@@ -34,8 +34,11 @@ export interface VaultBridge {
 
 export interface DemoBridge {
   openFile(): Promise<DemoFileHandle | null>;
+  openFileAtPath(filePath: string): Promise<DemoFileHandle | null>;
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
+  onMenuAction(cb: (action: "open" | "save" | "saveAs") => void): () => void;
+  onOpenRecentFile(cb: (filePath: string) => void): () => void;
   vault: VaultBridge;
 }
 
@@ -86,11 +89,28 @@ const bridge: DemoBridge = {
   openFile() {
     return ipcRenderer.invoke("demo:open-file");
   },
+  openFileAtPath(filePath: string) {
+    return ipcRenderer.invoke("demo:open-file-path", filePath);
+  },
   saveFile(path: string, content: string) {
     return ipcRenderer.invoke("demo:save-file", path, content);
   },
   saveFileAs(content: string) {
     return ipcRenderer.invoke("demo:save-file-as", content);
+  },
+  onMenuAction(cb: (action: "open" | "save" | "saveAs") => void) {
+    const listener = (_event: Electron.IpcRendererEvent, action: "open" | "save" | "saveAs") => cb(action);
+    ipcRenderer.on("app:menu-action", listener);
+    return () => {
+      ipcRenderer.off("app:menu-action", listener);
+    };
+  },
+  onOpenRecentFile(cb: (filePath: string) => void) {
+    const listener = (_event: Electron.IpcRendererEvent, filePath: string) => cb(filePath);
+    ipcRenderer.on("app:open-recent-file", listener);
+    return () => {
+      ipcRenderer.off("app:open-recent-file", listener);
+    };
   },
   vault: vaultBridge,
 };

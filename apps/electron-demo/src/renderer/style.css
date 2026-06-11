@@ -4,10 +4,21 @@
   box-sizing: border-box;
 }
 
+:root {
+  background: var(--nexus-bg, #ffffff);
+  color: var(--nexus-text, #24292e);
+}
+
 html,
 body,
 #app {
   height: 100%;
+}
+
+html,
+body {
+  background: var(--nexus-bg, #ffffff);
+  color: var(--nexus-text, #24292e);
 }
 
 #app {
@@ -20,14 +31,22 @@ body,
   display: flex;
   gap: 8px;
   padding: 8px 12px;
-  background: #f0f0f0;
-  border-bottom: 1px solid #ddd;
+  background: var(--nexus-bg-muted, #f0f0f0);
+  border-bottom: 1px solid var(--nexus-border, #ddd);
   flex-shrink: 0;
 }
 
 .toolbar button {
   padding: 4px 12px;
   cursor: pointer;
+  background: var(--nexus-bg, #ffffff);
+  color: var(--nexus-text, #24292e);
+  border: 1px solid var(--nexus-border, #ddd);
+  border-radius: 6px;
+}
+
+.toolbar button:hover {
+  background: var(--nexus-bg-subtle, #fafafa);
 }
 
 .main-area {
@@ -66,9 +85,9 @@ body,
 .status-line {
   padding: 4px 12px;
   font-size: 13px;
-  color: #666;
-  background: #fafafa;
-  border-top: 1px solid #eee;
+  color: var(--nexus-text-muted, #666);
+  background: var(--nexus-bg-subtle, #fafafa);
+  border-top: 1px solid var(--nexus-border-subtle, #eee);
   flex-shrink: 0;
 }
 

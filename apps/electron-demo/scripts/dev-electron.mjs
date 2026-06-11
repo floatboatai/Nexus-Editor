@@ -1,8 +1,6 @@
 import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
 import { build } from "tsup";
-
-const require = createRequire(import.meta.url);
+import { resolve } from "node:path";
 
 await build({
   entry: ["electron/main.ts", "electron/preload.ts"],
@@ -14,11 +12,14 @@ await build({
   silent: true,
 });
 
-// Wait briefly for Vite dev server (started in parallel by npm-run-all)
 await new Promise((resolve) => setTimeout(resolve, 2000));
 
-const electronPath = require("electron");
-const child = spawn(String(electronPath), ["dist-electron/main.js"], {
+// 使用绝对路径，绕过 require('electron')
+const electronPath = resolve(process.cwd(), "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
+
+console.log(`Starting Electron: ${electronPath}`);
+
+const child = spawn(electronPath, ["dist-electron/main.js"], {
   stdio: "inherit",
   env: {
     ...process.env,
@@ -26,4 +27,4 @@ const child = spawn(String(electronPath), ["dist-electron/main.js"], {
   },
 });
 
-child.on("close", () => process.exit());
+child.on("close", (code) => process.exit(code));

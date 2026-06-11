@@ -38,10 +38,12 @@ import_electron.protocol.registerSchemesAsPrivileged([
   }
 ]);
 var mainWindow = null;
+var RECENT_FILES_MAX = 10;
 var SUPPORTED_EXT = /* @__PURE__ */ new Set([".md", ".markdown", ".txt"]);
 var SKIP_DIRS = /* @__PURE__ */ new Set(["node_modules", ".git", ".svn", ".hg", ".DS_Store"]);
 var activeVault = null;
 var activeWatcher = null;
+var recentFiles = [];
 function createWindow() {
   mainWindow = new import_electron.BrowserWindow({
     width: 1024,
@@ -77,6 +79,71 @@ function createWindow() {
     }
   });
 }
+async function createAppMenu() {
+  const recentMenuItems = recentFiles.length ? [
+    ...recentFiles.map((filePath) => ({
+      label: import_node_path.default.basename(filePath),
+      tooltip: filePath,
+      click: () => mainWindow?.webContents.send("app:open-recent-file", filePath)
+    })),
+    { type: "separator" },
+    {
+      label: "Clear Recent Files",
+      click: () => {
+        void clearRecentFiles();
+      }
+    }
+  ] : [{ label: "No Recent Files", enabled: false }];
+  const template = [
+    ...process.platform === "darwin" ? [
+      {
+        label: import_electron.app.name,
+        submenu: [
+          { role: "about" },
+          { type: "separator" },
+          { role: "services" },
+          { type: "separator" },
+          { role: "hide" },
+          { role: "hideothers" },
+          { role: "unhide" },
+          { type: "separator" },
+          { role: "quit" }
+        ]
+      }
+    ] : [],
+    {
+      label: "File",
+      submenu: [
+        {
+          label: "Open...",
+          accelerator: "CmdOrCtrl+O",
+          click: () => mainWindow?.webContents.send("app:menu-action", "open")
+        },
+        {
+          label: "Open Recent",
+          submenu: recentMenuItems
+        },
+        {
+          label: "Save",
+          accelerator: "CmdOrCtrl+S",
+          click: () => mainWindow?.webContents.send("app:menu-action", "save")
+        },
+        {
+          label: "Save As...",
+          accelerator: "CmdOrCtrl+Shift+S",
+          click: () => mainWindow?.webContents.send("app:menu-action", "saveAs")
+        },
+        { type: "separator" },
+        process.platform === "darwin" ? { role: "close" } : { role: "quit" }
+      ]
+    },
+    { role: "editMenu" },
+    { role: "viewMenu" },
+    { role: "windowMenu" }
+  ];
+  const menu = import_electron.Menu.buildFromTemplate(template);
+  import_electron.Menu.setApplicationMenu(menu);
+}
 import_electron.ipcMain.handle("demo:open-file", async () => {
   if (!mainWindow) return null;
   const result = await import_electron.dialog.showOpenDialog(mainWindow, {
@@ -89,6 +156,12 @@ import_electron.ipcMain.handle("demo:open-file", async () => {
   if (result.canceled || result.filePaths.length === 0) return null;
   const filePath = result.filePaths[0];
   const content = await (0, import_promises.readFile)(filePath, "utf-8");
+  await recordRecentFile(filePath);
+  return { path: filePath, content };
+});
+import_electron.ipcMain.handle("demo:open-file-path", async (_event, filePath) => {
+  const content = await (0, import_promises.readFile)(filePath, "utf-8");
+  await recordRecentFile(filePath);
   return { path: filePath, content };
 });
 import_electron.ipcMain.handle(
@@ -157,12 +230,34 @@ async function scanDirectory(dir) {
   });
   return nodes;
 }
+async function updateRecentFiles(newFiles) {
+  recentFiles = newFiles.slice(0, RECENT_FILES_MAX);
+  const current = await readVaultState();
+  await writeVaultState({
+    lastVault: current.lastVault,
+    recents: current.recents,
+    recentFiles
+  });
+  await createAppMenu();
+}
+async function recordRecentFile(filePath) {
+  const canonical = import_node_path.default.resolve(filePath);
+  const current = await readVaultState();
+  const nextRecentFiles = [canonical, ...current.recentFiles.filter((r) => r !== canonical)].slice(0, RECENT_FILES_MAX);
+  await updateRecentFiles(nextRecentFiles);
+}
+async function clearRecentFiles() {
+  await updateRecentFiles([]);
+}
 function debounce(fn, ms) {
   let timer = null;
   return ((...args) => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => fn(...args), ms);
   });
+}
+async function loadRecentFiles() {
+  recentFiles = (await readVaultState()).recentFiles;
 }
 function stopWatcher() {
   if (activeWatcher) {
@@ -194,16 +289,17 @@ function vaultStatePath() {
 }
 async function readVaultState() {
   const file = vaultStatePath();
-  if (!(0, import_node_fs.existsSync)(file)) return { lastVault: null, recents: [] };
+  if (!(0, import_node_fs.existsSync)(file)) return { lastVault: null, recents: [], recentFiles: [] };
   try {
     const raw = await (0, import_promises.readFile)(file, "utf-8");
     const parsed = JSON.parse(raw);
     return {
       lastVault: typeof parsed.lastVault === "string" ? parsed.lastVault : null,
-      recents: Array.isArray(parsed.recents) ? parsed.recents.filter((r) => typeof r === "string") : []
+      recents: Array.isArray(parsed.recents) ? parsed.recents.filter((r) => typeof r === "string") : [],
+      recentFiles: Array.isArray(parsed.recentFiles) ? parsed.recentFiles.filter((r) => typeof r === "string") : []
     };
   } catch {
-    return { lastVault: null, recents: [] };
+    return { lastVault: null, recents: [], recentFiles: [] };
   }
 }
 async function writeVaultState(state) {
@@ -228,6 +324,7 @@ import_electron.ipcMain.handle("vault:list", async (_event, vaultPath) => {
 import_electron.ipcMain.handle("vault:read", async (_event, filePath) => {
   const abs = assertInsideVault(filePath);
   const content = await (0, import_promises.readFile)(abs, "utf-8");
+  await recordRecentFile(abs);
   return { path: abs, content };
 });
 async function collectFiles(dir, acc) {
@@ -343,7 +440,8 @@ import_electron.ipcMain.handle("vault:get-last", async () => {
   if (state.lastVault && !(0, import_node_fs.existsSync)(state.lastVault)) {
     const cleaned = {
       lastVault: null,
-      recents: state.recents.filter((r) => (0, import_node_fs.existsSync)(r))
+      recents: state.recents.filter((r) => (0, import_node_fs.existsSync)(r)),
+      recentFiles: state.recentFiles
     };
     await writeVaultState(cleaned);
     return cleaned;
@@ -353,10 +451,10 @@ import_electron.ipcMain.handle("vault:get-last", async () => {
 import_electron.ipcMain.handle("vault:set-last", async (_event, vaultPath) => {
   const current = await readVaultState();
   const recents = [vaultPath, ...current.recents.filter((r) => r !== vaultPath)].slice(0, 10);
-  await writeVaultState({ lastVault: vaultPath, recents });
+  await writeVaultState({ lastVault: vaultPath, recents, recentFiles: current.recentFiles });
   return { ok: true };
 });
-import_electron.app.whenReady().then(() => {
+import_electron.app.whenReady().then(async () => {
   import_electron.protocol.handle("nexus-vault", async (request) => {
     try {
       if (!activeVault) return new Response("No active vault", { status: 404 });
@@ -374,7 +472,9 @@ import_electron.app.whenReady().then(() => {
       return new Response(String(err), { status: 500 });
     }
   });
+  await loadRecentFiles();
   createWindow();
+  await createAppMenu();
 });
 import_electron.app.on("window-all-closed", () => {
   stopWatcher();

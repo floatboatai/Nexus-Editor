@@ -63,11 +63,28 @@ var bridge = {
   openFile() {
     return import_electron.ipcRenderer.invoke("demo:open-file");
   },
+  openFileAtPath(filePath) {
+    return import_electron.ipcRenderer.invoke("demo:open-file-path", filePath);
+  },
   saveFile(path, content) {
     return import_electron.ipcRenderer.invoke("demo:save-file", path, content);
   },
   saveFileAs(content) {
     return import_electron.ipcRenderer.invoke("demo:save-file-as", content);
+  },
+  onMenuAction(cb) {
+    const listener = (_event, action) => cb(action);
+    import_electron.ipcRenderer.on("app:menu-action", listener);
+    return () => {
+      import_electron.ipcRenderer.off("app:menu-action", listener);
+    };
+  },
+  onOpenRecentFile(cb) {
+    const listener = (_event, filePath) => cb(filePath);
+    import_electron.ipcRenderer.on("app:open-recent-file", listener);
+    return () => {
+      import_electron.ipcRenderer.off("app:open-recent-file", listener);
+    };
   },
   vault: vaultBridge
 };

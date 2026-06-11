@@ -1,6 +1,6 @@
 import { createState, type AppState } from "./state";
 import { createEditorShell, type EditorShell } from "./editor-shell";
-import { loadSettings, createSettingsPanel, type EditorSettings } from "./settings";
+import { loadSettings, createSettingsPanel, settingsToTheme, applyThemeVars, type EditorSettings } from "./settings";
 import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
 import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
@@ -178,6 +178,7 @@ function handleSettings(): void {
   createSettingsPanel(settings, (next) => {
     settings = next;
     shell.applySettings(settings);
+    applyThemeVars(settingsToTheme(settings));
   });
 }
 
@@ -359,6 +360,8 @@ function boot(): void {
 
   root.append(appToolbar, mainArea, statusLine);
 
+  applyThemeVars(settingsToTheme(settings));
+
   shell = createEditorShell({
     container: editorContainer,
     state,
@@ -413,6 +416,35 @@ function boot(): void {
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {
     void seedLinkIndex();
+  });
+
+  window.nexusDemo.onMenuAction((action) => {
+    if (action === "save") {
+      void handleSave();
+    } else if (action === "saveAs") {
+      void handleSaveAs();
+    } else if (action === "open") {
+      void handleOpen();
+    }
+  });
+
+  window.nexusDemo.onOpenRecentFile(async (filePath) => {
+    try {
+      state.error = null;
+      const result = await window.nexusDemo.openFileAtPath(filePath);
+      if (!result) return;
+
+      state.filePath = result.path;
+      state.activeFile = result.path;
+      shell.loadDocument(result.content);
+      if (state.vaultPath && result.path.startsWith(state.vaultPath)) {
+        vault.setActiveFile(result.path);
+      }
+      backlinks.refresh();
+    } catch (err) {
+      state.error = err instanceof Error ? err.message : String(err);
+    }
+    renderStatus();
   });
 
   document.addEventListener("keydown", (e) => {
