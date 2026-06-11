@@ -115,6 +115,11 @@ async function createAppMenu() {
       label: "File",
       submenu: [
         {
+          label: "New Window",
+          accelerator: "CmdOrCtrl+N",
+          click: () => createWindow()
+        },
+        {
           label: "Open...",
           accelerator: "CmdOrCtrl+O",
           click: () => mainWindow?.webContents.send("app:menu-action", "open")
