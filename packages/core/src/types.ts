@@ -133,6 +133,32 @@ export interface TocEntry {
   to: number;
 }
 
+export interface EditorSelectionRange {
+  anchor: number;
+  head: number;
+}
+
+export interface SetDocumentOptions {
+  /**
+   * When true, skip the onChange pipeline. Use when loading a file from disk
+   * to avoid treating the load as a user edit.
+   */
+  silent?: boolean;
+  /**
+   * Keep the current main selection after replacing the document. Positions
+   * are clamped to the new document length.
+   */
+  preserveSelection?: boolean;
+  /**
+   * Apply an explicit selection after replacing the document. Takes precedence
+   * over preserveSelection. head defaults to anchor.
+   */
+  selection?: {
+    anchor: number;
+    head?: number;
+  };
+}
+
 export interface EditorAPI {
   getDocument(): string;
   getAst(): Root;
@@ -154,7 +180,7 @@ export interface EditorAPI {
    * 并把视口重置到顶部。此时本次替换会延迟到 compositionend 再应用，只保留
    * 最后一次请求。
    */
-  setDocument(next: string, opts?: { silent?: boolean }): void;
+  setDocument(next: string, opts?: SetDocumentOptions): void;
   replaceSelection(text: string): void;
   undo(): boolean;
   redo(): boolean;

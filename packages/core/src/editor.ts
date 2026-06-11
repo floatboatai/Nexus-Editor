@@ -32,8 +32,10 @@ import type {
   EditorEventContext,
   EditorEventHandler,
   EditorEventMap,
+  EditorSelectionRange,
   NexusPlugin,
   ParserLike,
+  SetDocumentOptions,
   TocEntry,
 } from "./types";
 import { createWidgetExtension } from "./widget-extension";
@@ -157,6 +159,32 @@ function extractToc(ast: Root): TocEntry[] {
   return entries;
 }
 
+function clampPosition(pos: number, docLength: number): number {
+  if (!Number.isFinite(pos)) return 0;
+  return Math.max(0, Math.min(docLength, Math.trunc(pos)));
+}
+
+function resolveDocumentSelection(
+  before: EditorSelectionRange,
+  docLength: number,
+  opts: SetDocumentOptions | undefined,
+): EditorSelectionRange | undefined {
+  if (opts?.selection) {
+    const anchor = clampPosition(opts.selection.anchor, docLength);
+    const head = clampPosition(opts.selection.head ?? opts.selection.anchor, docLength);
+    return { anchor, head };
+  }
+
+  if (opts?.preserveSelection) {
+    return {
+      anchor: clampPosition(before.anchor, docLength),
+      head: clampPosition(before.head, docLength),
+    };
+  }
+
+  return undefined;
+}
+
 function createParser(plugins: NexusPlugin[]): ParserLike {
   // Build the unified pipeline ONCE, not per-parse call. Each
   // `unified().use(...)` chain resolves plugin graphs, initializes extensions,
@@ -259,7 +287,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // 组合输入（IME）状态与被推迟的文档回灌。组合输入进行中调用 setDocument 会被
   // 推迟到 compositionend 再应用，避免整文档替换打断输入法、丢失合成中文字、视口跳顶。
   let composing = false;
-  let pendingDocumentLoad: { next: string; silent: boolean } | null = null;
+  let pendingDocumentLoad: { next: string; opts?: SetDocumentOptions } | null = null;
   // Initial AST: when a custom parser is provided, honour it (tests rely on
   // this — they install plugins that mutate the tree). Otherwise use the
   // Lezer string parser, which is dramatically faster than remark and
@@ -364,23 +392,33 @@ export function createEditor(config: EditorConfig): EditorAPI {
   }
 
   // 整文档替换的实际执行体。setDocument（公开 API）在组合输入中会推迟调用本函数。
-  function performSetDocument(next: string, silent: boolean) {
+  function performSetDocument(next: string, opts?: SetDocumentOptions) {
     const beforeSelection = view.state.selection.main;
+    const silent = opts?.silent === true;
+    const selection = resolveDocumentSelection(
+      { anchor: beforeSelection.anchor, head: beforeSelection.head },
+      next.length,
+      opts
+    );
     debugNexus("setDocument", {
       silent,
       oldLength: view.state.doc.length,
       nextLength: next.length,
       beforeSelection: { anchor: beforeSelection.anchor, head: beforeSelection.head },
+      selection,
     });
 
-    view.dispatch({
+    const dispatchSpec = {
       changes: {
         from: 0,
         to: view.state.doc.length,
         insert: next
       },
       annotations: silent ? silentDocChange.of(true) : undefined,
-    });
+      ...(selection ? { selection } : {}),
+    };
+
+    view.dispatch(dispatchSpec);
 
     // silent 模式下仍同步 currentAst，使 getAst() / getTableOfContents() 反映已载入文件。
     if (silent) {
@@ -395,10 +433,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // compositionend 时应用被推迟的文档回灌；整文档替换后排队中的组合输入变更已失效。
   function applyPendingDocumentLoad(): boolean {
     if (!pendingDocumentLoad) return false;
-    const { next, silent } = pendingDocumentLoad;
+    const { next, opts } = pendingDocumentLoad;
     pendingDocumentLoad = null;
     pendingCompositionMarkdown = null;
-    performSetDocument(next, silent);
+    performSetDocument(next, opts);
     return true;
   }
 
@@ -719,20 +757,18 @@ export function createEditor(config: EditorConfig): EditorAPI {
         return;
       }
 
-      const silent = opts?.silent === true;
-
       // 组合输入（IME）进行中：整文档替换会打断输入法、丢失合成中文字并把视口重置到顶部。
       // 推迟到 compositionend 再应用，只保留最后一次请求。
       if (composing || view.composing || view.compositionStarted) {
-        pendingDocumentLoad = { next, silent };
+        pendingDocumentLoad = { next, opts };
         debugNexus("setDocument-deferred-composing", {
-          silent,
+          silent: opts?.silent === true,
           nextLength: next.length,
         });
         return;
       }
 
-      performSetDocument(next, silent);
+      performSetDocument(next, opts);
     },
     replaceSelection(text) {
       if (destroyed) return;

@@ -207,6 +207,8 @@ pnpm dev:electron-demo
 editor.getDocument()          // 当前 Markdown 文本
 editor.getAst()               // 当前 mdast 语法树
 editor.setDocument(md)        // 替换整个文档
+editor.setDocument(md, { silent: true, preserveSelection: true })
+editor.setDocument(md, { selection: { anchor: 0 } })
 editor.setSelection(pos)      // 移动光标
 editor.focus() / editor.blur()
 editor.destroy()

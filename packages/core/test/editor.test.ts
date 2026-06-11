@@ -90,6 +90,88 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("preserves selection when setDocument is called with preserveSelection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.setSelection(6, 11);
+    editor.setDocument("hello nexus", { preserveSelection: true });
+
+    expect(editor.getDocument()).toBe("hello nexus");
+    expect(editor.getSelection()).toEqual({ anchor: 6, head: 11 });
+    editor.destroy();
+  });
+
+  it("clamps preserved selection to the new document length", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "0123456789" });
+
+    editor.setSelection(8, 10);
+    editor.setDocument("abc", { preserveSelection: true });
+
+    expect(editor.getSelection()).toEqual({ anchor: 3, head: 3 });
+    editor.destroy();
+  });
+
+  it("applies explicit selection after setDocument", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "old" });
+
+    editor.setDocument("new document", {
+      selection: { anchor: 4, head: 12 },
+    });
+
+    expect(editor.getSelection()).toEqual({ anchor: 4, head: 12 });
+    editor.destroy();
+  });
+
+  it("clamps explicit setDocument selection positions", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "old" });
+
+    editor.setDocument("abc", {
+      selection: { anchor: -10, head: 99 },
+    });
+
+    expect(editor.getSelection()).toEqual({ anchor: 0, head: 3 });
+    editor.destroy();
+  });
+
+  it("lets explicit selection override preserveSelection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "old document" });
+
+    editor.setSelection(0, 3);
+    editor.setDocument("new document", {
+      preserveSelection: true,
+      selection: { anchor: 4 },
+    });
+
+    expect(editor.getSelection()).toEqual({ anchor: 4, head: 4 });
+    editor.destroy();
+  });
+
+  it("preserves selection for silent document loads without emitting change", () => {
+    const container = document.createElement("div");
+    const docs: string[] = [];
+    const editor = createEditor({
+      container,
+      initialValue: "# Old",
+      onChange(doc) {
+        docs.push(doc);
+      },
+    });
+
+    editor.setSelection(2);
+    editor.setDocument("# New", { silent: true, preserveSelection: true });
+
+    expect(editor.getDocument()).toBe("# New");
+    expect(editor.getSelection()).toEqual({ anchor: 2, head: 2 });
+    expect(docs).toEqual([]);
+    expect(editor.getAst().children[0]?.type).toBe("heading");
+    editor.destroy();
+  });
+
   it("keeps the editor usable when the parser throws", () => {
     const container = document.createElement("div");
     const docs: string[] = [];
@@ -365,7 +447,7 @@ describe("createEditor", () => {
 
     editor.destroy();
 
-    expect(() => editor.setDocument("after-destroy")).not.toThrow();
+    expect(() => editor.setDocument("after-destroy", { preserveSelection: true })).not.toThrow();
     expect(() => editor.focus()).not.toThrow();
     expect(() => editor.blur()).not.toThrow();
 
@@ -508,6 +590,53 @@ describe("createEditor — composition-safe setDocument", () => {
     view.contentDOM.dispatchEvent(new Event("compositionend", { bubbles: true }));
     // 组合输入结束后才应用被推迟的回灌。
     expect(editor.getDocument()).toBe("external load");
+    editor.destroy();
+  });
+
+  it("keeps deferred setDocument selection options after IME composition ends", () => {
+    const container = document.createElement("div");
+    let capturedView: EditorView | null = null;
+    const editor = createEditor({
+      container,
+      initialValue: "hello world",
+      plugins: [{ name: "capture", cmExtensions: [captureViewPlugin((view) => (capturedView = view))] }],
+    });
+    const view = requireEditorView(capturedView);
+
+    editor.setSelection(6, 11);
+    view.contentDOM.dispatchEvent(new Event("compositionstart", { bubbles: true }));
+    editor.setDocument("hello nexus", { silent: true, preserveSelection: true });
+
+    expect(editor.getDocument()).toBe("hello world");
+
+    view.contentDOM.dispatchEvent(new Event("compositionend", { bubbles: true }));
+
+    expect(editor.getDocument()).toBe("hello nexus");
+    expect(editor.getSelection()).toEqual({ anchor: 6, head: 11 });
+    editor.destroy();
+  });
+
+  it("uses the latest deferred setDocument call while IME composition is active", () => {
+    const container = document.createElement("div");
+    let capturedView: EditorView | null = null;
+    const editor = createEditor({
+      container,
+      initialValue: "base text",
+      plugins: [{ name: "capture", cmExtensions: [captureViewPlugin((view) => (capturedView = view))] }],
+    });
+    const view = requireEditorView(capturedView);
+
+    editor.setSelection(5, 9);
+    view.contentDOM.dispatchEvent(new Event("compositionstart", { bubbles: true }));
+    editor.setDocument("first", { preserveSelection: true });
+    editor.setDocument("second", { selection: { anchor: 2, head: 99 } });
+
+    expect(editor.getDocument()).toBe("base text");
+
+    view.contentDOM.dispatchEvent(new Event("compositionend", { bubbles: true }));
+
+    expect(editor.getDocument()).toBe("second");
+    expect(editor.getSelection()).toEqual({ anchor: 2, head: 6 });
     editor.destroy();
   });
 

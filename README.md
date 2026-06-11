@@ -207,6 +207,8 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 editor.getDocument()          // current Markdown string
 editor.getAst()               // current mdast Root
 editor.setDocument(md)        // replace entire document
+editor.setDocument(md, { silent: true, preserveSelection: true })
+editor.setDocument(md, { selection: { anchor: 0 } })
 editor.setSelection(pos)      // move cursor
 editor.focus() / editor.blur()
 editor.destroy()
