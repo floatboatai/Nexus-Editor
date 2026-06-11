@@ -268,4 +268,93 @@ describe("@floatboat/nexus-plugin-history", () => {
 
     editor.destroy();
   });
+
+  it("undo() returns false after clearHistory even if history was non-empty", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+
+    editor.setDocument("next");
+    expect(editor.canUndo()).toBe(true);
+
+    editor.runCommand("history.clear");
+
+    // clearHistory 后栈为空，undo 应返回 false
+    expect(editor.canUndo()).toBe(false);
+    expect(editor.undo()).toBe(false);
+    expect(editor.getDocument()).toBe("next");  // 文档不变
+    editor.destroy();
+  });
+
+  it("fresh edits after clearHistory create new undo entries", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+
+    // 产生并清空历史
+    editor.setDocument("next");
+    editor.runCommand("history.clear");
+    expect(editor.canUndo()).toBe(false);
+
+    // 清空后的新编辑应产生全新 undo 条目
+    editor.setDocument("fresh");
+    expect(editor.canUndo()).toBe(true);
+    editor.undo();
+    expect(editor.getDocument()).toBe("next");
+    editor.destroy();
+  });
+
+  it("clearHistory is idempotent — calling twice has same effect as once", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+
+    editor.setDocument("next");
+    expect(editor.canUndo()).toBe(true);
+
+    editor.runCommand("history.clear");
+    expect(editor.canUndo()).toBe(false);
+
+    // 第二次调用应安全无副作用
+    editor.runCommand("history.clear");
+    expect(editor.canUndo()).toBe(false);
+    expect(editor.canRedo()).toBe(false);
+    expect(editor.getDocument()).toBe("next");  // 文档不变
+    editor.destroy();
+  });
+
+  it("Ctrl+Z after clearHistory has no effect on document", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+
+    editor.setDocument("next");
+    editor.runCommand("history.clear");
+
+    const content = container.querySelector("[contenteditable='true']");
+    content?.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "z",
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    // 历史已清空，Ctrl+Z 不应改变文档
+    expect(editor.getDocument()).toBe("next");
+    editor.destroy();
+  });
 });
