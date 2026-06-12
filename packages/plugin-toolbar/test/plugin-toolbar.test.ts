@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createEditor } from "@floatboat/nexus-core";
 import {
@@ -9,7 +9,27 @@ import {
   toggleHeading,
   createToolbarPlugin,
   createToolbarUI,
+  applyTextColor,
 } from "../src/index";
+
+beforeAll(() => {
+  if (!("getClientRects" in Range.prototype)) {
+    Object.defineProperty(Range.prototype, "getClientRects", {
+      configurable: true,
+      value: () => [] as unknown as DOMRectList,
+    });
+  }
+  if (!("getBoundingClientRect" in Range.prototype)) {
+    Object.defineProperty(Range.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value: () => new DOMRect(),
+    });
+  }
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("toggleBold", () => {
   it("wraps selected text with **", () => {
@@ -117,6 +137,125 @@ describe("toggleHeading", () => {
 
     expect(editor.getDocument()).toBe("# Title");
     editor.destroy();
+  });
+});
+
+describe("inline color decorations", () => {
+  it("renders colored spans as styled text instead of raw HTML markup", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: '<span style="color:#f1c232">you might have mixed feelings about rain</span>',
+      plugins: [createToolbarPlugin()],
+    });
+
+    expect(editor.getDocument()).toContain('<span style="color:#f1c232">you might have mixed feelings about rain</span>');
+
+    editor.destroy();
+  });
+
+  it("applies the chosen color to subsequent typing when no text is selected", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "",
+      plugins: [createToolbarPlugin()],
+    });
+
+    editor.setSelection(0);
+    expect(applyTextColor(editor, "#f1c232")).toBe(true);
+
+    expect(editor.getDocument()).toBe("[[nexus-color:#f1c232]][[/nexus-color]]");
+    expect(container.textContent).not.toContain("[[nexus-color");
+    expect(container.textContent).not.toContain("[[/nexus-color]]");
+
+    editor.replaceSelection("hello");
+
+    expect(editor.getDocument()).toBe("[[nexus-color:#f1c232]]hello[[/nexus-color]]");
+    expect(container.textContent).toContain("hello");
+
+    editor.destroy();
+  });
+
+  it("reselecting a different color updates the active default for subsequent typing", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "",
+      plugins: [createToolbarPlugin()],
+    });
+
+    editor.setSelection(0);
+    expect(applyTextColor(editor, "#f1c232")).toBe(true);
+    editor.replaceSelection("hello");
+
+    expect(applyTextColor(editor, "#ff0000")).toBe(true);
+    editor.replaceSelection(" world");
+
+    expect(editor.getDocument()).toBe("[[nexus-color:#ff0000]]hello world[[/nexus-color]]");
+
+    expect(editor.getDocument()).toContain("[[nexus-color:#ff0000]]hello world[[/nexus-color]]");
+    expect(editor.getDocument()).toContain("hello");
+
+    editor.destroy();
+  });
+
+  it("backspace at the start of colored text removes the prior visible character without exposing marker tags", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "A[[nexus-color:#4285f4]]hello[[/nexus-color]]",
+      plugins: [createToolbarPlugin()],
+    });
+
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+    const openTag = "[[nexus-color:#4285f4]]";
+    editor.setSelection(openTag.length);
+
+    const event = new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true });
+    content.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(editor.getDocument()).toBe("[[nexus-color:#4285f4]]hello[[/nexus-color]]");
+    expect(container.textContent).not.toContain("[[nexus-color");
+    expect(container.textContent).not.toContain("[[/nexus-color]]");
+
+    editor.destroy();
+  });
+
+  it("deleting a character inside colored text keeps the remaining sentence colored", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "[[nexus-color:#4285f4]]hello[[/nexus-color]]",
+      plugins: [createToolbarPlugin()],
+    });
+
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+    const openTag = "[[nexus-color:#4285f4]]";
+    editor.setSelection(openTag.length + 1);
+
+    const event = new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true });
+    content.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(editor.getDocument()).toBe("[[nexus-color:#4285f4]]ello[[/nexus-color]]");
+    expect(container.textContent).not.toContain("[[nexus-color");
+    expect(container.textContent).not.toContain("[[/nexus-color]]");
+
+    editor.destroy();
+  });
+
+  it("hides incomplete color markers in the rendered view", () => {
+    const container = document.createElement("div");
+    createEditor({
+      container,
+      initialValue: "[[nexus-color:#4285f4]]hello",
+      plugins: [createToolbarPlugin()],
+    });
+
+    expect(container.textContent).not.toContain("[[nexus-color");
+    expect(container.textContent).toContain("hello");
   });
 });
 

@@ -683,6 +683,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
       if (destroyed) return;
       view.dispatch(themeExt.reconfigure(theme));
     },
+    reconfigure(transaction) {
+      if (destroyed) return;
+      view.dispatch(transaction);
+    },
     getSelection() {
       const sel = view.state.selection.main;
       return { anchor: sel.anchor, head: sel.head };

@@ -371,6 +371,8 @@ function showColorPicker(
   palette: string[],
   apply: (editor: EditorAPI, color: string) => boolean,
   onClose: () => void,
+  selectedColor: string | null,
+  onSelectColor: (color: string) => void,
 ): { destroy: () => void } {
   const panel = document.createElement("div");
   panel.className = "nexus-toolbar-dropdown";
@@ -390,30 +392,37 @@ function showColorPicker(
     const swatch = document.createElement("button");
     swatch.type = "button";
     swatch.title = color;
+    const isSelected = selectedColor === color;
     swatch.style.cssText = `
       width: 22px; height: 22px;
-      border: 1px solid var(--nexus-border-subtle, #ddd);
+      border: 1px solid ${isSelected ? "var(--nexus-accent, #0969da)" : "var(--nexus-border-subtle, #ddd)"};
       border-radius: 3px;
       background: ${color};
       cursor: pointer;
       padding: 0;
       transition: transform 0.1s, box-shadow 0.1s;
+      box-shadow: ${isSelected ? "inset 0 0 0 1px #fff, 0 0 0 2px var(--nexus-accent, #0969da)" : "none"};
     `;
 
     const handleClick = (e: MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      onSelectColor(color);
       apply(editor, color);
       editor.focus();
       onClose();
     };
     const handleEnter = () => {
       swatch.style.transform = "scale(1.2)";
-      swatch.style.boxShadow = "0 0 0 2px var(--nexus-accent, #0969da)";
+      swatch.style.boxShadow = isSelected
+        ? "inset 0 0 0 1px #fff, 0 0 0 2px var(--nexus-accent, #0969da)"
+        : "0 0 0 2px var(--nexus-accent, #0969da)";
     };
     const handleLeave = () => {
       swatch.style.transform = "scale(1)";
-      swatch.style.boxShadow = "none";
+      swatch.style.boxShadow = isSelected
+        ? "inset 0 0 0 1px #fff, 0 0 0 2px var(--nexus-accent, #0969da)"
+        : "none";
     };
 
     swatch.addEventListener("click", handleClick);
@@ -453,6 +462,7 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
   const cleanupFns: Array<() => void> = [];
   let activeDropdown: { destroy: () => void } | null = null;
   let outsideHandler: ((e: MouseEvent) => void) | null = null;
+  let activeTextColor: string | null = null;
 
   function closeDropdown() {
     if (activeDropdown) {
@@ -507,9 +517,19 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
           if (btn.id === "heading-menu") {
             activeDropdown = showHeadingDropdown(editor, button, closeDropdown);
           } else if (btn.id === "text-color") {
-            activeDropdown = showColorPicker(editor, button, COLOR_PALETTE, applyTextColor, closeDropdown);
+            activeDropdown = showColorPicker(
+              editor,
+              button,
+              COLOR_PALETTE,
+              applyTextColor,
+              closeDropdown,
+              activeTextColor,
+              (color) => {
+                activeTextColor = color;
+              },
+            );
           } else if (btn.id === "highlight") {
-            activeDropdown = showColorPicker(editor, button, HIGHLIGHT_PALETTE, applyHighlight, closeDropdown);
+            activeDropdown = showColorPicker(editor, button, HIGHLIGHT_PALETTE, applyHighlight, closeDropdown, null, () => {});
           }
 
           outsideHandler = (ev: MouseEvent) => {

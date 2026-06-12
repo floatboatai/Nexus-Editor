@@ -139,6 +139,7 @@ export interface EditorAPI {
   getTableOfContents(): TocEntry[];
   exportHTML(): string;
   setTheme(theme: import("./theme").NexusTheme): void;
+  reconfigure(transaction: { effects: any }): void;
   getSelection(): { anchor: number; head: number };
   getSlashCommands(): SlashCommandDef[];
   uploadAsset(file: File): Promise<string | null>;

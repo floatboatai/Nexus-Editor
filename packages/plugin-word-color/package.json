@@ -1,0 +1,16 @@
+{
+  "name": "@floatboat/nexus-plugin-word-color",
+  "version": "0.0.1",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@floatboat/nexus-core": "workspace:*",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.41.0"
+  }
+}

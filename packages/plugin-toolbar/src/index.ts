@@ -216,6 +216,54 @@ export const toolbarSlashCommands: SlashCommandDef[] = [
   },
 ];
 
+function handleColorBackspace(editor: EditorAPI, event: KeyboardEvent): boolean {
+  if (event.key !== "Backspace") return false;
+
+  const doc = editor.getDocument();
+  const { anchor, head } = editor.getSelection();
+  if (anchor !== head) return false;
+
+  const pos = anchor;
+  if (pos <= 0) return false;
+
+  const colorMarkerRe = /\[\[nexus-color:([^\]]+)\]\]([\s\S]*?)(?:\[\[\/nexus-color\]\]|$)/g;
+  let match: RegExpExecArray | null;
+  while ((match = colorMarkerRe.exec(doc)) !== null) {
+    const openTag = `[[nexus-color:${match[1]}]]`;
+    const openTagStart = match.index;
+    const openTagEnd = openTagStart + openTag.length;
+    const closeTag = "[[/nexus-color]]";
+    const closeTagStart = match[0].endsWith(closeTag) ? match.index + match[0].length - closeTag.length : -1;
+    const closeTagEnd = closeTagStart >= 0 ? closeTagStart + closeTag.length : -1;
+    const contentStart = openTagEnd;
+    const contentEnd = closeTagStart >= 0 ? closeTagStart : doc.length;
+
+    const isInsideOpenTag = pos > openTagStart && pos <= openTagEnd;
+    const isInsideCloseTag = closeTagStart >= 0 && pos > closeTagStart && pos <= closeTagEnd;
+    const isBoundaryBeforeContent = pos === contentStart;
+    const isInsideContent = pos > contentStart && pos <= contentEnd;
+
+    if (isInsideOpenTag || isInsideCloseTag || isBoundaryBeforeContent || isInsideContent) {
+      const deleteIndex = isInsideContent
+        ? pos - 1
+        : isInsideCloseTag
+          ? closeTagStart - 1
+          : openTagStart - 1;
+      if (deleteIndex >= 0) {
+        const before = doc.slice(0, deleteIndex);
+        const after = doc.slice(deleteIndex + 1);
+        editor.setDocument(before + after);
+        editor.setSelection(deleteIndex, deleteIndex);
+        event.preventDefault();
+        event.stopPropagation();
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 export function createToolbarPlugin(): NexusPlugin {
   return {
     name: "plugin-toolbar",
@@ -231,5 +279,8 @@ export function createToolbarPlugin(): NexusPlugin {
     ],
     slashCommands: toolbarSlashCommands,
     cmExtensions: [colorDecorationExtension()],
+    handlers: {
+      keydown: (event, ctx) => handleColorBackspace(ctx.editor, event),
+    },
   };
 }

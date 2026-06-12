@@ -17,11 +17,11 @@ import {
   WidgetType,
 } from "@codemirror/view";
 
-// Matches <span style="color:...">...</span> and <mark style="background:...">...</mark>
-const COLOR_RE =
-  /<span\s+style="color:\s*([^"]+)">([\s\S]*?)<\/span>/g;
-const HIGHLIGHT_RE =
-  /<mark\s+style="background:\s*([^"]+)">([\s\S]*?)<\/mark>/g;
+// Matches internal markers produced by the toolbar, plus legacy raw HTML spans.
+const COLOR_RE = /<span\s+style="color:\s*([^"]+)">([\s\S]*?)<\/span>/g;
+const COLOR_MARKER_RE = /\[\[nexus-color:([^\]]+)\]\]([\s\S]*?)(?:\[\[\/nexus-color\]\]|$)/g;
+const HIGHLIGHT_RE = /<mark\s+style="background:\s*([^"]+)">([\s\S]*?)<\/mark>/g;
+const HIGHLIGHT_MARKER_RE = /\[\[nexus-highlight:([^\]]+)\]\]([\s\S]*?)(?:\[\[\/nexus-highlight\]\]|$)/g;
 
 /** Zero-width widget used to replace opening/closing tags (hides them). */
 class HiddenTagWidget extends WidgetType {
@@ -69,11 +69,44 @@ function findColorRanges(doc: string): ColorRange[] {
     });
   }
 
+  COLOR_MARKER_RE.lastIndex = 0;
+  while ((m = COLOR_MARKER_RE.exec(doc)) !== null) {
+    const from = m.index;
+    const openTag = `[[nexus-color:${m[1]}]]`;
+    const closeTag = "[[/nexus-color]]";
+    const isComplete = m[0].endsWith(closeTag);
+    const innerStart = from + openTag.length;
+    const innerEnd = isComplete ? from + m[0].length - closeTag.length : innerStart;
+    ranges.push({
+      from,
+      to: isComplete ? from + m[0].length : innerStart,
+      innerFrom: innerStart,
+      innerTo: innerEnd,
+      color: m[1].trim(),
+      kind: "color",
+    });
+  }
+
   HIGHLIGHT_RE.lastIndex = 0;
   while ((m = HIGHLIGHT_RE.exec(doc)) !== null) {
     const from = m.index;
     const openTag = `<mark style="background:${m[1]}">`;
     const closeTag = "</mark>";
+    ranges.push({
+      from,
+      to: from + m[0].length,
+      innerFrom: from + openTag.length,
+      innerTo: from + m[0].length - closeTag.length,
+      color: m[1].trim(),
+      kind: "background",
+    });
+  }
+
+  HIGHLIGHT_MARKER_RE.lastIndex = 0;
+  while ((m = HIGHLIGHT_MARKER_RE.exec(doc)) !== null) {
+    const from = m.index;
+    const openTag = `[[nexus-highlight:${m[1]}]]`;
+    const closeTag = "[[/nexus-highlight]]";
     ranges.push({
       from,
       to: from + m[0].length,
@@ -95,27 +128,28 @@ function buildDecorations(view: EditorView): DecorationSet {
 
   if (ranges.length === 0) return Decoration.none;
 
-  // Check if the cursor is inside any color range — if so, show raw text for that range
-  const cursorPos = view.state.selection.main.head;
-
   const decorations: Array<{ from: number; to: number; value: Decoration }> = [];
 
   for (const r of ranges) {
-    // If cursor is inside this range, skip decorations so user can edit the raw HTML
-    if (cursorPos >= r.from && cursorPos <= r.to) continue;
+    // Hide the surrounding marker/tag markup while preserving the content as
+    // styled text even when the cursor is inside the colored span.
+    if (r.from < r.innerFrom) {
+      decorations.push({ from: r.from, to: r.innerFrom, value: hiddenWidget });
+    }
 
-    // Hide opening tag
-    decorations.push({ from: r.from, to: r.innerFrom, value: hiddenWidget });
+    if (r.innerFrom < r.innerTo) {
+      // Style the inner text
+      const markDeco =
+        r.kind === "color"
+          ? Decoration.mark({ attributes: { style: `color:${r.color}` } })
+          : Decoration.mark({ attributes: { style: `background:${r.color};border-radius:2px;padding:0 1px` } });
+      decorations.push({ from: r.innerFrom, to: r.innerTo, value: markDeco });
+    }
 
-    // Style the inner text
-    const markDeco =
-      r.kind === "color"
-        ? Decoration.mark({ attributes: { style: `color:${r.color}` } })
-        : Decoration.mark({ attributes: { style: `background:${r.color};border-radius:2px;padding:0 1px` } });
-    decorations.push({ from: r.innerFrom, to: r.innerTo, value: markDeco });
-
-    // Hide closing tag
-    decorations.push({ from: r.innerTo, to: r.to, value: hiddenWidget });
+    // Hide closing tag when one exists.
+    if (r.innerTo < r.to) {
+      decorations.push({ from: r.innerTo, to: r.to, value: hiddenWidget });
+    }
   }
 
   // Must be sorted by from position, then by startSide
