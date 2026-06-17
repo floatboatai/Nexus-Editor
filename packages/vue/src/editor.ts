@@ -8,11 +8,24 @@ export const Editor = defineComponent({
     initialValue: {
       type: String,
       required: false
+    },
+    class: {
+      type: String,
+      required: false
+    },
+    style: {
+      type: [String, Object],
+      required: false
+    },
+    id: {
+      type: String,
+      required: false
     }
   },
-  setup(props) {
-    const { containerRef } = useEditor(props);
+  setup(props, { attrs }) {
+    const { class: className, style, id, ...editorProps } = props;
+    const { containerRef } = useEditor({ ...editorProps, ...attrs } as any);
 
-    return () => h("div", { ref: containerRef });
+    return () => h("div", { ref: containerRef, class: className, style, id });
   }
 });
