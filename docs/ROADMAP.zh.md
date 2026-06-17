@@ -82,6 +82,7 @@
 | 24 | TypeScript 类型覆盖 | 全仓库 | P0 | in-progress | 否 | 持续推进，新代码强制 strict |
 | 25 | End-to-End 测试 | 仓库基建 | P1 | planned | 否 | 候选：Playwright，跑 electron-demo |
 | 26 | CI/CD 流程完善 | `.github/workflows` | P1 | planned | 否 | 已有 publish workflow，缺 PR check / e2e gate |
+| 28 | Markdown 感知字数 / 阅读时长统计 | 新包 `plugin-wordcount` | P1 | done | 是 | 复用编辑器 AST（不重复解析）+ 中日韩优先 + ARIA 状态栏 —— 见 `openspec/changes/add-plugin-wordcount` |
 
 ---
 

@@ -45,7 +45,7 @@ Examples: `feat/toolbar-list-toggle`, `fix/search-regex-escape`, `docs/roadmap-u
   | `react` | `packages/react` |
   | `vue` | `packages/vue` |
   | `gfm` | `packages/preset-gfm` |
-  | `history` / `search` / `slash` / `toolbar` / `math` / `vim` | corresponding `plugin-*` |
+  | `history` / `search` / `slash` / `toolbar` / `math` / `vim` / `wordcount` | corresponding `plugin-*` |
   | `electron` | `apps/electron-demo` |
   | `live-preview` / `wikilinks` / `image` | core subsystems (historical usage) |
   | `openspec` | `openspec/` |

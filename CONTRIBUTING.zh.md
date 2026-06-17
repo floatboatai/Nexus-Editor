@@ -12,7 +12,7 @@
 |---|---|
 | `packages/core` | 核心编辑器（CodeMirror 6 内核、live-preview、AST） |
 | `packages/preset-gfm` | GFM 默认预设 |
-| `packages/plugin-*` | 各功能插件（history / search / slash / toolbar / math / vim） |
+| `packages/plugin-*` | 各功能插件（history / search / slash / toolbar / math / vim / wordcount） |
 | `packages/react`、`packages/vue` | 框架 SDK |
 | `apps/electron-demo` | 桌面端 demo / 集成测试场 |
 | `openspec/` | 规格驱动（proposal / specs / archive） |
@@ -45,7 +45,7 @@
   | `react` | `packages/react` |
   | `vue` | `packages/vue` |
   | `gfm` | `packages/preset-gfm` |
-  | `history` / `search` / `slash` / `toolbar` / `math` / `vim` | 对应 `plugin-*` |
+  | `history` / `search` / `slash` / `toolbar` / `math` / `vim` / `wordcount` | 对应 `plugin-*` |
   | `electron` | `apps/electron-demo` |
   | `live-preview` / `wikilinks` / `image` | core 内部子系统（沿用历史用法） |
   | `openspec` | `openspec/` |

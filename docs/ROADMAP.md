@@ -82,6 +82,7 @@ This document maps every planned feature to **package ownership / priority / sta
 | 24 | TypeScript type coverage | repo-wide | P0 | in-progress | No | Ongoing; new code enforces strict |
 | 25 | End-to-end testing | repo infra | P1 | planned | No | Candidate: Playwright against electron-demo |
 | 26 | CI/CD pipeline polish | `.github/workflows` | P1 | planned | No | Publish workflow exists; missing PR check / e2e gate |
+| 28 | Markdown-aware word / reading-time stats | new `plugin-wordcount` | P1 | done | Yes | Walks editor AST (no double parse) + CJK-first + ARIA status bar — see `openspec/changes/add-plugin-wordcount` |
 
 ---
 

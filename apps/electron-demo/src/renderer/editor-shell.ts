@@ -9,6 +9,11 @@ import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
 import { createToolbarPlugin, createToolbarUI, type ToolbarUI } from "@floatboat/nexus-plugin-toolbar";
 import { createSearchPlugin } from "@floatboat/nexus-plugin-search";
 import { createSlashMenuUI, type SlashMenuUI } from "@floatboat/nexus-plugin-slash";
+import {
+  attachWordCountPlugin,
+  createWordCountPlugin,
+  type WordCountPlugin
+} from "@floatboat/nexus-plugin-wordcount";
 import type { AppState } from "./state";
 import { type EditorSettings, settingsToTheme } from "./settings";
 
@@ -78,6 +83,8 @@ export interface EditorShell {
   toolbar: ToolbarUI;
   /** The floating slash-command menu mounted on document.body. */
   slashMenu: SlashMenuUI;
+  /** Markdown-aware word-count plugin (handle + status bar). */
+  wordcount: WordCountPlugin;
   applySettings(settings: EditorSettings): void;
   loadDocument(content: string): void;
   destroy(): void;
@@ -104,6 +111,14 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     suggest: suggestWikilinks ? (q) => suggestWikilinks(q) : undefined,
   });
 
+  // The wordcount plugin reads `editor.getAst()` on each (debounced)
+  // change — no double parsing — and mounts an ARIA-live status bar in
+  // the editor container's footer. Bound to the editor instance via
+  // `attachWordCountPlugin` once `createEditor` returns.
+  const wordcount = createWordCountPlugin({
+    statusBar: { container, classPrefix: "nexus-wordcount" },
+  });
+
   // No more parser worker. Live-preview drives off `syntaxTree(state)` from
   // @codemirror/lang-markdown (incremental, intrinsic to EditorState), and
   // editor.ts builds mdast for `getAst()` / `change` events synchronously
@@ -124,6 +139,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       createToolbarPlugin(),
       createSearchPlugin(),
       wikilinksPlugin,
+      wordcount,
     ],
     livePreview: settings.livePreview
       ? {
@@ -321,10 +337,17 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   // ancestors). Its lifecycle is tied to the shell — destroyed below.
   const slashMenu = createSlashMenuUI(editor);
 
+  // Bind the wordcount plugin now that the editor is fully constructed.
+  // The plugin's status-bar widget mounts on its first emission (next
+  // microtask), so it's already wired by the time the user sees the
+  // first paint.
+  attachWordCountPlugin(wordcount, editor);
+
   return {
     editor,
     toolbar,
     slashMenu,
+    wordcount,
     applySettings(next: EditorSettings) {
       editor.setTheme(settingsToTheme(next));
     },
@@ -347,6 +370,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
         `${(t1 - t0).toFixed(1)}ms`, { bytes: content.length });
     },
     destroy() {
+      wordcount.destroy();
       slashMenu.destroy();
       toolbar.destroy();
       editor.destroy();
