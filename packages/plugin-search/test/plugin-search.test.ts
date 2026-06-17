@@ -21,8 +21,64 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("supports whole-word matching", () => {
+    expect(findSearchMatches("cat cats catalog", "cat", { wholeWord: true })).toEqual([
+      { from: 0, to: 3, text: "cat" }
+    ]);
+  });
+
+  it("supports case-sensitive whole-word matching", () => {
+    expect(findSearchMatches("cat Cat CAT", "Cat", { wholeWord: true, caseSensitive: true })).toEqual([
+      { from: 4, to: 7, text: "Cat" }
+    ]);
+  });
+
   it("replaces all matches in a document", () => {
     expect(replaceAllMatches("cat scatter cat", "cat", "dog")).toBe("dog sdogter dog");
+  });
+
+  it("replaces only whole-word matches", () => {
+    expect(replaceAllMatches("cat catalog cat concatenate", "cat", "dog", { wholeWord: true })).toBe(
+      "dog catalog dog concatenate"
+    );
+  });
+
+  it("supports regex search", () => {
+    expect(findSearchMatches("foo123 bar456 baz", "\\d+", { regexp: true })).toEqual([
+      { from: 3, to: 6, text: "123" },
+      { from: 10, to: 13, text: "456" }
+    ]);
+  });
+
+  it("supports regex search with groups", () => {
+    expect(findSearchMatches("2024-01-15 and 2024-12-31", "\\d{4}-\\d{2}-\\d{2}", { regexp: true })).toEqual([
+      { from: 0, to: 10, text: "2024-01-15" },
+      { from: 15, to: 25, text: "2024-12-31" }
+    ]);
+  });
+
+  it("supports case-sensitive regex search", () => {
+    expect(findSearchMatches("Hello hello HELLO", "h.llo", { regexp: true, caseSensitive: true })).toEqual([
+      { from: 6, to: 11, text: "hello" }
+    ]);
+  });
+
+  it("returns empty results for invalid regex", () => {
+    expect(findSearchMatches("hello world", "[invalid(", { regexp: true })).toEqual([]);
+  });
+
+  it("replaces with regex capture groups", () => {
+    expect(replaceAllMatches("foo bar baz", "(\\w+)", "[$1]", { regexp: true })).toBe("[foo] [bar] [baz]");
+  });
+
+  it("returns original doc for invalid regex in replace", () => {
+    expect(replaceAllMatches("hello world", "[bad(", "x", { regexp: true })).toBe("hello world");
+  });
+
+  it("supports regex with whole-word combined", () => {
+    expect(findSearchMatches("cat cats concatenate", "cat|dog", { regexp: true, wholeWord: true })).toEqual([
+      { from: 0, to: 3, text: "cat" }
+    ]);
   });
 
   it("creates a search plugin descriptor", () => {

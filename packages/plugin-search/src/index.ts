@@ -25,6 +25,8 @@ export interface SearchMatch {
 
 export interface SearchOptions {
   caseSensitive?: boolean;
+  wholeWord?: boolean;
+  regexp?: boolean;
 }
 
 export interface SearchPluginOptions {
@@ -79,6 +81,24 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp | null {
+  const flags = options.caseSensitive ? "g" : "gi";
+
+  let pattern: string;
+  if (options.regexp) {
+    pattern = options.wholeWord ? `\\b(?:${query})\\b` : query;
+  } else {
+    const escaped = escapeRegExp(query);
+    pattern = options.wholeWord ? `\\b${escaped}\\b` : escaped;
+  }
+
+  try {
+    return new RegExp(pattern, flags);
+  } catch {
+    return null;
+  }
+}
+
 export function findSearchMatches(
   doc: string,
   query: string,
@@ -88,8 +108,10 @@ export function findSearchMatches(
     return [];
   }
 
-  const flags = options.caseSensitive ? "g" : "gi";
-  const pattern = new RegExp(escapeRegExp(query), flags);
+  const pattern = buildSearchPattern(query, options);
+  if (!pattern) {
+    return [];
+  }
   const matches: SearchMatch[] = [];
 
   for (const match of doc.matchAll(pattern)) {
@@ -116,8 +138,11 @@ export function replaceAllMatches(
     return doc;
   }
 
-  const flags = options.caseSensitive ? "g" : "gi";
-  return doc.replace(new RegExp(escapeRegExp(query), flags), replacement);
+  const pattern = buildSearchPattern(query, options);
+  if (!pattern) {
+    return doc;
+  }
+  return doc.replace(pattern, replacement);
 }
 
 function resolveLabel(
