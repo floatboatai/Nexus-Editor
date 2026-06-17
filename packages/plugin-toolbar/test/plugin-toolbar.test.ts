@@ -7,6 +7,8 @@ import {
   toggleInlineCode,
   insertLink,
   toggleHeading,
+  toggleOrderedList,
+  toggleUnorderedList,
   createToolbarPlugin,
   createToolbarUI,
 } from "../src/index";
@@ -116,6 +118,145 @@ describe("toggleHeading", () => {
     toggleHeading(editor, 1);
 
     expect(editor.getDocument()).toBe("# Title");
+    editor.destroy();
+  });
+});
+
+describe("toggleUnorderedList", () => {
+  it("adds - to a single line", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "first" });
+
+    editor.setSelection(2);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("- first");
+    editor.destroy();
+  });
+
+  it("removes - from a single line", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- first" });
+
+    editor.setSelection(2);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("first");
+    editor.destroy();
+  });
+
+  it("adds - to every line in a multi-line selection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "first\nsecond\nthird" });
+
+    editor.setSelection(0, 18);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("- first\n- second\n- third");
+    editor.destroy();
+  });
+
+  it("removes - from every line when all lines are bulleted", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- first\n- second\n- third" });
+
+    editor.setSelection(0, 24);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("first\nsecond\nthird");
+    editor.destroy();
+  });
+
+  it("unifies a mixed selection by adding - to all lines", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- first\nsecond\n- third" });
+
+    editor.setSelection(0, 22);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("- first\n- second\n- third");
+    editor.destroy();
+  });
+
+  it("converts ordered markers into unordered ones", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "1. first\n2. second" });
+
+    editor.setSelection(0, 18);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("- first\n- second");
+    editor.destroy();
+  });
+
+  it("preserves empty lines without bulleting them", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "first\n\nthird" });
+
+    editor.setSelection(0, 12);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("- first\n\n- third");
+    editor.destroy();
+  });
+});
+
+describe("toggleOrderedList", () => {
+  it("adds 1. to a single line", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "first" });
+
+    editor.setSelection(2);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. first");
+    editor.destroy();
+  });
+
+  it("numbers consecutive lines starting from 1", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "first\nsecond\nthird" });
+
+    editor.setSelection(0, 18);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. first\n2. second\n3. third");
+    editor.destroy();
+  });
+
+  it("removes ordered markers when every line is numbered", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "1. first\n2. second\n3. third" });
+
+    editor.setSelection(0, 27);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("first\nsecond\nthird");
+    editor.destroy();
+  });
+
+  it("renumbers from 1 regardless of pre-existing numbers", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "5. first\n9. second" });
+
+    // Convert away then back to verify renumbering, not just deletion.
+    editor.setSelection(0, 18);
+    toggleOrderedList(editor); // removes
+    editor.setSelection(0, editor.getDocument().length);
+    toggleOrderedList(editor); // re-adds
+
+    expect(editor.getDocument()).toBe("1. first\n2. second");
+    editor.destroy();
+  });
+
+  it("skips blank lines when numbering", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "first\n\nthird" });
+
+    editor.setSelection(0, 12);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. first\n\n2. third");
     editor.destroy();
   });
 });
