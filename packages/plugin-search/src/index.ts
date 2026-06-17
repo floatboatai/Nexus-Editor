@@ -13,7 +13,7 @@ import {
   selectMatches,
   setSearchQuery
 } from "@codemirror/search";
-import { keymap, runScopeHandlers, type EditorView, type Panel, type ViewUpdate } from "@codemirror/view";
+import { EditorView, keymap, runScopeHandlers, type Panel, type ViewUpdate } from "@codemirror/view";
 
 import type { NexusPlugin } from "@floatboat/nexus-core";
 
@@ -25,6 +25,7 @@ export interface SearchMatch {
 
 export interface SearchOptions {
   caseSensitive?: boolean;
+  wholeWord?: boolean;
 }
 
 export interface SearchPluginOptions {
@@ -79,6 +80,13 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp {
+  const flags = options.caseSensitive ? "g" : "gi";
+  const escaped = escapeRegExp(query);
+  const source = options.wholeWord ? `\\b${escaped}\\b` : escaped;
+  return new RegExp(source, flags);
+}
+
 export function findSearchMatches(
   doc: string,
   query: string,
@@ -88,8 +96,7 @@ export function findSearchMatches(
     return [];
   }
 
-  const flags = options.caseSensitive ? "g" : "gi";
-  const pattern = new RegExp(escapeRegExp(query), flags);
+  const pattern = buildSearchPattern(query, options);
   const matches: SearchMatch[] = [];
 
   for (const match of doc.matchAll(pattern)) {
@@ -116,8 +123,7 @@ export function replaceAllMatches(
     return doc;
   }
 
-  const flags = options.caseSensitive ? "g" : "gi";
-  return doc.replace(new RegExp(escapeRegExp(query), flags), replacement);
+  return doc.replace(buildSearchPattern(query, options), replacement);
 }
 
 function resolveLabel(
@@ -169,7 +175,7 @@ function createButton(
   return button;
 }
 
-type SearchIconName = "toggleReplace" | "previous" | "next" | "all" | "replace" | "replaceAll";
+type SearchIconName = "previous" | "next" | "all" | "close";
 
 function createIcon(name: SearchIconName): SVGSVGElement {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -196,23 +202,8 @@ function createIcon(name: SearchIconName): SVGSVGElement {
     line.setAttribute("y2", String(y2));
     svg.appendChild(line);
   };
-  const appendText = (text: string, x: number, y: number, size: number) => {
-    const node = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    node.setAttribute("x", String(x));
-    node.setAttribute("y", String(y));
-    node.setAttribute("font-size", String(size));
-    node.setAttribute("font-family", "system-ui, sans-serif");
-    node.setAttribute("font-weight", "700");
-    node.setAttribute("fill", "currentColor");
-    node.setAttribute("stroke", "none");
-    node.textContent = text;
-    svg.appendChild(node);
-  };
 
   switch (name) {
-    case "toggleReplace":
-      appendPath("m9 18 6-6-6-6");
-      break;
     case "previous":
       appendPath("m15 18-6-6 6-6");
       break;
@@ -224,72 +215,27 @@ function createIcon(name: SearchIconName): SVGSVGElement {
       appendLine(5, 12, 19, 12);
       appendLine(5, 17, 19, 17);
       break;
-    case "replace":
-      appendText("R", 4, 17, 13);
-      appendPath("m15 8 3 3-3 3");
-      break;
-    case "replaceAll":
-      appendText("R", 3, 17, 12);
-      appendPath("m14 7 3 3-3 3");
-      appendPath("m17 7 3 3-3 3");
+    case "close":
+      appendPath("M6 6l12 12");
+      appendPath("m18 6-12 12");
       break;
   }
 
   return svg;
 }
 
-let tooltipId = 0;
-let rowId = 0;
-
-function createTooltip(testId: string, label: string): HTMLSpanElement {
-  const tooltip = document.createElement("span");
-  tooltip.className = "nexus-search-tooltip";
-  tooltip.dataset.testId = `${testId}-tooltip`;
-  tooltip.dataset.tooltip = label;
-  tooltip.id = `${testId}-tooltip-${++tooltipId}`;
-  tooltip.setAttribute("role", "tooltip");
-  tooltip.setAttribute("aria-label", label);
-  tooltip.textContent = label;
-  return tooltip;
-}
-
-interface IconButtonElements {
-  wrapper: HTMLSpanElement;
-  button: HTMLButtonElement;
-  tooltip: HTMLSpanElement;
-}
-
-function setIconButtonLabel(elements: IconButtonElements, label: string): void {
-  elements.button.setAttribute("aria-label", label);
-  elements.button.dataset.tooltipLabel = label;
-  elements.tooltip.dataset.tooltip = label;
-  elements.tooltip.setAttribute("aria-label", label);
-  elements.tooltip.textContent = label;
-}
-
-function createIconButtonElements(
+function createTextActionButton(
   testId: string,
   name: string,
   label: string,
-  icon: SearchIconName,
   onClick: () => void
-): IconButtonElements {
-  const wrapper = document.createElement("span");
-  wrapper.className = "nexus-search-tooltip-wrap";
-
+): HTMLButtonElement {
   const button = createButton(testId, name, label, onClick);
-  button.classList.add("nexus-search-icon-button");
-  button.dataset.iconOnly = "true";
-  button.removeAttribute("title");
-  button.textContent = "";
-  button.appendChild(createIcon(icon));
-
-  const tooltip = createTooltip(testId, label);
-  button.setAttribute("aria-describedby", tooltip.id);
-  wrapper.append(button, tooltip);
-  setIconButtonLabel({ wrapper, button, tooltip }, label);
-  return { wrapper, button, tooltip };
+  button.classList.add("nexus-search-text-button");
+  return button;
 }
+
+let rowId = 0;
 
 function createIconButton(
   testId: string,
@@ -297,15 +243,194 @@ function createIconButton(
   label: string,
   icon: SearchIconName,
   onClick: () => void
-): HTMLSpanElement {
-  const { wrapper } = createIconButtonElements(testId, name, label, icon, onClick);
-  return wrapper;
+): HTMLButtonElement {
+  const button = createButton(testId, name, label, onClick);
+  button.classList.add("nexus-search-icon-button");
+  button.title = label;
+  button.textContent = "";
+  button.appendChild(createIcon(icon));
+  return button;
 }
 
 function createLabel(input: HTMLInputElement, text: string): HTMLLabelElement {
   const label = document.createElement("label");
+  label.className = "nexus-search-option";
   label.append(input, text);
   return label;
+}
+
+function searchPanelTheme() {
+  return EditorView.theme({
+    ".nexus-search-panel": {
+      display: "flex",
+      flexDirection: "column",
+      gap: "8px",
+      padding: "10px 12px",
+      borderBottom: "1px solid var(--nexus-border, #e2e8f0)",
+      backgroundColor: "var(--nexus-bg-subtle, #f8fafc)",
+      fontSize: "13px",
+      zIndex: "10",
+      boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
+      overflow: "visible",
+      minWidth: "0"
+    },
+    "& .cm-panels": {
+      overflow: "visible"
+    },
+    ".nexus-search-find-row, .nexus-search-replace-row": {
+      flexWrap: "wrap"
+    },
+    ".nexus-search-row": {
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      minWidth: "0",
+      width: "100%"
+    },
+    ".nexus-search-find-row.nexus-search-row": {
+      display: "block",
+      width: "100%"
+    },
+    ".nexus-search-find-field": {
+      display: "grid",
+      gridTemplateColumns: "minmax(0, 1fr) 30px",
+      columnGap: "10px",
+      alignItems: "center",
+      width: "100%",
+      minWidth: "0"
+    },
+    ".nexus-search-find-field .cm-textfield": {
+      gridColumn: "1",
+      width: "100%",
+      maxWidth: "100%",
+      minWidth: "0",
+      boxSizing: "border-box",
+      height: "30px",
+      margin: "0",
+      padding: "0 10px",
+      lineHeight: "28px",
+      borderRadius: "6px",
+      border: "1px solid var(--nexus-border, #d0d7de)",
+      backgroundColor: "var(--nexus-bg, #fff)",
+      appearance: "none"
+    },
+    ".nexus-search-find-field .nexus-search-close": {
+      gridColumn: "2",
+      width: "30px",
+      height: "30px",
+      minWidth: "30px",
+      margin: "0",
+      padding: "0",
+      boxSizing: "border-box",
+      appearance: "none"
+    },
+    ".nexus-search-replace-row .cm-textfield": {
+      flex: "1 1 10rem",
+      minWidth: "0",
+      height: "30px",
+      padding: "4px 10px",
+      borderRadius: "6px",
+      border: "1px solid var(--nexus-border, #d0d7de)",
+      backgroundColor: "var(--nexus-bg, #fff)"
+    },
+    ".nexus-search-options": {
+      display: "flex",
+      flexWrap: "wrap",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: "8px 12px",
+      padding: "2px 2px 0"
+    },
+    ".nexus-search-options-checks": {
+      display: "inline-flex",
+      flexWrap: "wrap",
+      alignItems: "center",
+      gap: "8px 16px",
+      minWidth: "0"
+    },
+    ".nexus-search-options-toolbar": {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "6px",
+      flexShrink: "0",
+      marginLeft: "auto"
+    },
+    ".nexus-search-option": {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "5px",
+      whiteSpace: "nowrap",
+      cursor: "pointer",
+      userSelect: "none",
+      color: "var(--nexus-text-muted, #64748b)",
+      fontSize: "12px"
+    },
+    ".nexus-search-toolbar": {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "4px",
+      flexShrink: "0"
+    },
+    ".nexus-search-match-count": {
+      flexShrink: "0",
+      minWidth: "2.75rem",
+      textAlign: "center",
+      color: "var(--nexus-text-muted, #64748b)",
+      fontSize: "12px",
+      fontVariantNumeric: "tabular-nums",
+      padding: "0 2px"
+    },
+    ".nexus-search-button-group": {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "4px",
+      flexShrink: "0"
+    },
+    ".nexus-search-panel .cm-button": {
+      margin: "0",
+      minWidth: "0",
+      boxSizing: "border-box"
+    },
+    ".nexus-search-icon-button": {
+      width: "30px",
+      height: "30px",
+      minWidth: "30px",
+      padding: "0",
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: "6px",
+      flexShrink: "0"
+    },
+    ".nexus-search-text-button": {
+      height: "30px",
+      padding: "0 12px",
+      fontSize: "12px",
+      fontWeight: "500",
+      whiteSpace: "nowrap",
+      flexShrink: "0",
+      borderRadius: "6px"
+    },
+    ".nexus-search-replace-actions": {
+      gap: "6px",
+      marginLeft: "auto",
+      flexWrap: "wrap",
+      justifyContent: "flex-end"
+    },
+    ".nexus-search-close": {
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      lineHeight: "0",
+      fontSize: "16px",
+      flexShrink: "0",
+      borderRadius: "6px",
+      border: "1px solid var(--nexus-border, #d0d7de)",
+      backgroundColor: "var(--nexus-bg, #fff)",
+      color: "var(--nexus-text-muted, #64748b)",
+      transform: "translateY(4px)"
+    }
+  });
 }
 
 function createSearchRow(testId: string): HTMLDivElement {
@@ -324,10 +449,7 @@ class NexusSearchPanel implements Panel {
   private readonly caseField: HTMLInputElement;
   private readonly regexpField: HTMLInputElement;
   private readonly wholeWordField: HTMLInputElement;
-  private readonly labels: SearchPluginLabels;
-  private readonly replaceRow?: HTMLDivElement;
-  private readonly replaceToggle?: IconButtonElements;
-  private replaceExpanded = false;
+  private readonly matchCountEl: HTMLSpanElement;
 
   constructor(
     private readonly view: EditorView,
@@ -336,7 +458,11 @@ class NexusSearchPanel implements Panel {
   ) {
     this.query = getSearchQuery(view.state);
     const resolvedLabels = resolveLabels(view, labels);
-    this.labels = resolvedLabels;
+
+    this.matchCountEl = document.createElement("span");
+    this.matchCountEl.className = "nexus-search-match-count";
+    this.matchCountEl.dataset.testId = "markdown-search-match-count";
+    this.matchCountEl.setAttribute("aria-live", "polite");
 
     this.searchField = this.createTextField(
       "markdown-search-input",
@@ -362,19 +488,12 @@ class NexusSearchPanel implements Panel {
     this.dom.addEventListener("keydown", (event) => this.handleKeyDown(event));
 
     const searchRow = createSearchRow("markdown-search-find-row");
+    searchRow.classList.add("nexus-search-find-row");
     const canReplace = !view.state.readOnly;
-    if (canReplace) {
-      this.replaceToggle = createIconButtonElements(
-        "markdown-search-toggle-replace",
-        "toggleReplace",
-        resolvedLabels.showReplace,
-        "toggleReplace",
-        () => this.setReplaceExpanded(!this.replaceExpanded, true)
-      );
-    }
-    const navigationGroup = document.createElement("div");
-    navigationGroup.className = "nexus-search-button-group";
-    navigationGroup.append(
+
+    const toolbarGroup = document.createElement("div");
+    toolbarGroup.className = "nexus-search-button-group nexus-search-toolbar";
+    toolbarGroup.append(
       createIconButton("markdown-search-prev", "prev", resolvedLabels.previous, "previous", () =>
         findPrevious(view)
       ),
@@ -382,56 +501,83 @@ class NexusSearchPanel implements Panel {
       createIconButton("markdown-search-all", "select", resolvedLabels.all, "all", () => selectMatches(view))
     );
 
-    const searchRowChildren: HTMLElement[] = [
-      this.searchField,
+    const closeButton = createIconButton(
+      "markdown-search-close",
+      "close",
+      resolvedLabels.close,
+      "close",
+      () => closeSearchPanel(view)
+    );
+    closeButton.classList.add("nexus-search-close");
+
+    const findFieldWrap = document.createElement("div");
+    findFieldWrap.className = "nexus-search-find-field";
+    findFieldWrap.append(this.searchField, closeButton);
+
+    searchRow.append(findFieldWrap);
+
+    const optionsChecks = document.createElement("div");
+    optionsChecks.className = "nexus-search-options-checks";
+    optionsChecks.append(
       createLabel(this.caseField, resolvedLabels.matchCase),
       createLabel(this.regexpField, resolvedLabels.regexp),
-      createLabel(this.wholeWordField, resolvedLabels.byWord),
-      navigationGroup
-    ];
-    if (this.replaceToggle) {
-      searchRowChildren.unshift(this.replaceToggle.wrapper);
-    }
-    searchRow.append(...searchRowChildren);
+      createLabel(this.wholeWordField, resolvedLabels.byWord)
+    );
 
-    this.dom.append(searchRow);
+    const optionsToolbar = document.createElement("div");
+    optionsToolbar.className = "nexus-search-options-toolbar";
+    optionsToolbar.dataset.testId = "markdown-search-nav-row";
+    optionsToolbar.append(this.matchCountEl, toolbarGroup);
+
+    const optionsRow = document.createElement("div");
+    optionsRow.className = "nexus-search-options";
+    optionsRow.dataset.testId = "markdown-search-options-row";
+    optionsRow.append(optionsChecks, optionsToolbar);
+
+    this.dom.append(searchRow, optionsRow);
 
     if (canReplace) {
       const replaceRow = createSearchRow("markdown-search-replace-row");
+      replaceRow.classList.add("nexus-search-replace-row");
       replaceRow.id = `markdown-search-replace-row-${++rowId}`;
-      this.replaceRow = replaceRow;
-      this.replaceToggle?.button.setAttribute("aria-controls", replaceRow.id);
-      this.replaceToggle?.button.setAttribute("aria-expanded", "false");
-      replaceRow.append(
-        this.replaceField,
-        createIconButton("markdown-search-replace", "replace", resolvedLabels.replaceNext, "replace", () =>
-          replaceNext(view)
+
+      const replaceActions = document.createElement("div");
+      replaceActions.className = "nexus-search-button-group nexus-search-replace-actions";
+      replaceActions.append(
+        createTextActionButton(
+          "markdown-search-replace",
+          "replace",
+          resolvedLabels.replaceNext,
+          () => replaceNext(view)
         ),
-        createIconButton(
+        createTextActionButton(
           "markdown-search-replace-all",
           "replaceAll",
           resolvedLabels.replaceAll,
-          "replaceAll",
           () => replaceAll(view)
         )
       );
-      this.setReplaceExpanded(false);
+
+      replaceRow.append(this.replaceField, replaceActions);
       this.dom.append(replaceRow);
     }
 
-    const closeButton = createButton("markdown-search-close", "close", "×", () => closeSearchPanel(view));
-    closeButton.setAttribute("aria-label", resolvedLabels.close);
-    closeButton.title = resolvedLabels.close;
-    this.dom.append(closeButton);
+    this.updateMatchCount();
   }
 
   update(update: ViewUpdate): void {
+    let queryChanged = false;
     for (const transaction of update.transactions) {
       for (const effect of transaction.effects) {
         if (effect.is(setSearchQuery) && !effect.value.eq(this.query)) {
           this.setQuery(effect.value);
+          queryChanged = true;
         }
       }
+    }
+
+    if (queryChanged || update.selectionSet || update.docChanged) {
+      this.updateMatchCount();
     }
   }
 
@@ -480,28 +626,49 @@ class NexusSearchPanel implements Panel {
       caseSensitive: this.caseField.checked,
       regexp: this.regexpField.checked,
       wholeWord: this.wholeWordField.checked,
-      replace: this.replaceField.value
+      replace: this.replaceField.value,
+      literal: true
     });
 
     if (!query.eq(this.query)) {
       this.query = query;
       this.view.dispatch({ effects: setSearchQuery.of(query) });
     }
+    this.updateMatchCount();
   }
 
-  private setReplaceExpanded(expanded: boolean, focusReplace = false): void {
-    if (!this.replaceRow || !this.replaceToggle) return;
-
-    this.replaceExpanded = expanded;
-    this.replaceRow.hidden = !expanded;
-    this.replaceRow.setAttribute("aria-hidden", String(!expanded));
-    this.replaceToggle.button.setAttribute("aria-expanded", String(expanded));
-    setIconButtonLabel(this.replaceToggle, expanded ? this.labels.hideReplace : this.labels.showReplace);
-
-    if (expanded && focusReplace) {
-      this.replaceField.focus();
-      this.replaceField.select();
+  private updateMatchCount(): void {
+    const query = this.query;
+    if (!query.search || !query.valid) {
+      this.matchCountEl.textContent = "";
+      return;
     }
+
+    const ranges: Array<{ from: number; to: number }> = [];
+    const cursor = query.getCursor(this.view.state);
+    for (let i = 0; i < 1000; i++) {
+      const next = cursor.next();
+      if (next.done) {
+        break;
+      }
+      ranges.push(next.value);
+    }
+
+    if (ranges.length === 0) {
+      this.matchCountEl.textContent = "0";
+      return;
+    }
+
+    const pos = this.view.state.selection.main.head;
+    let currentIdx = ranges.findIndex((range) => pos >= range.from && pos <= range.to);
+    if (currentIdx < 0) {
+      currentIdx = ranges.findIndex((range) => range.from >= pos);
+      if (currentIdx < 0) {
+        currentIdx = ranges.length - 1;
+      }
+    }
+
+    this.matchCountEl.textContent = `${currentIdx + 1} / ${ranges.length}`;
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
@@ -514,6 +681,7 @@ class NexusSearchPanel implements Panel {
       event.preventDefault();
       this.commit();
       (event.shiftKey ? findPrevious : findNext)(this.view);
+      this.updateMatchCount();
       return;
     }
 
@@ -521,6 +689,7 @@ class NexusSearchPanel implements Panel {
       event.preventDefault();
       this.commit();
       replaceNext(this.view);
+      this.updateMatchCount();
     }
   }
 
@@ -534,6 +703,25 @@ class NexusSearchPanel implements Panel {
   }
 }
 
+/**
+ * Open the CodeMirror search panel for the editor mounted in `container`.
+ * Returns false when no `.cm-editor` view is found.
+ */
+export function openSearchPanelIn(container: HTMLElement): boolean {
+  const editorEl = container.querySelector(".cm-editor");
+  if (!editorEl) {
+    return false;
+  }
+
+  const view = EditorView.findFromDOM(editorEl as HTMLElement);
+  if (!view) {
+    return false;
+  }
+
+  openSearchPanel(view);
+  return true;
+}
+
 export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlugin {
   const cmExtensions = [
     search({
@@ -542,7 +730,8 @@ export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlug
       literal: true,
       createPanel: (view) => new NexusSearchPanel(view, options.top ?? true, options.labels)
     }),
-    keymap.of(searchKeymap)
+    keymap.of(searchKeymap),
+    searchPanelTheme()
   ];
 
   if (options.highlightSelectionMatches ?? true) {

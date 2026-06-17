@@ -29,6 +29,7 @@ export interface VaultBridge {
   delete(targetPath: string): Promise<{ ok: boolean }>;
   getLast(): Promise<VaultState>;
   setLast(vaultPath: string): Promise<{ ok: boolean }>;
+  close(): Promise<{ ok: boolean }>;
   onChanged(cb: (payload: { vault: string }) => void): () => void;
 }
 
@@ -72,6 +73,9 @@ const vaultBridge: VaultBridge = {
   },
   setLast(vaultPath) {
     return ipcRenderer.invoke("vault:set-last", vaultPath);
+  },
+  close() {
+    return ipcRenderer.invoke("vault:close");
   },
   onChanged(cb) {
     const listener = (_event: Electron.IpcRendererEvent, payload: { vault: string }) => cb(payload);

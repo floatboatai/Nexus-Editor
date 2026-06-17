@@ -27,6 +27,7 @@ interface VaultBridge {
   delete(targetPath: string): Promise<{ ok: boolean }>;
   getLast(): Promise<VaultState>;
   setLast(vaultPath: string): Promise<{ ok: boolean }>;
+  close(): Promise<{ ok: boolean }>;
   onChanged(cb: (payload: { vault: string }) => void): () => void;
 }
 

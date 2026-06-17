@@ -18,16 +18,108 @@ body,
 
 .toolbar {
   display: flex;
-  gap: 8px;
-  padding: 8px 12px;
-  background: #f0f0f0;
-  border-bottom: 1px solid #ddd;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: #fafbfc;
+  border-bottom: 1px solid #e8eaed;
   flex-shrink: 0;
 }
 
-.toolbar button {
-  padding: 4px 12px;
+.toolbar-spacer {
+  flex: 1;
+  min-width: 8px;
+}
+
+.toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: #f3f4f6;
+}
+
+.toolbar-actions--icons {
+  gap: 0;
+}
+
+.toolbar-text-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  line-height: 1.2;
   cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.toolbar-text-btn:hover {
+  background: #fff;
+  color: #111827;
+}
+
+.toolbar-text-btn:active {
+  background: #e5e7eb;
+}
+
+.toolbar-text-btn:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+}
+
+.toolbar-icon-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 15px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.toolbar-icon-btn--lg {
+  font-size: 17px;
+}
+
+.toolbar-icon-btn:hover {
+  background: #fff;
+  color: #111827;
+}
+
+.toolbar-icon-btn:active {
+  background: #e5e7eb;
+}
+
+.toolbar-icon-btn:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+}
+
+.app-toolbar-tooltip {
+  position: fixed;
+  z-index: 10000;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(32, 32, 32, 0.92);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
 }
 
 .main-area {

@@ -356,6 +356,13 @@ import_electron.ipcMain.handle("vault:set-last", async (_event, vaultPath) => {
   await writeVaultState({ lastVault: vaultPath, recents });
   return { ok: true };
 });
+import_electron.ipcMain.handle("vault:close", async () => {
+  stopWatcher();
+  activeVault = null;
+  const current = await readVaultState();
+  await writeVaultState({ lastVault: null, recents: current.recents });
+  return { ok: true };
+});
 import_electron.app.whenReady().then(() => {
   import_electron.protocol.handle("nexus-vault", async (request) => {
     try {

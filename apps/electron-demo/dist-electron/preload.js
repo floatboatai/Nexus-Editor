@@ -51,6 +51,9 @@ var vaultBridge = {
   setLast(vaultPath) {
     return import_electron.ipcRenderer.invoke("vault:set-last", vaultPath);
   },
+  close() {
+    return import_electron.ipcRenderer.invoke("vault:close");
+  },
   onChanged(cb) {
     const listener = (_event, payload) => cb(payload);
     import_electron.ipcRenderer.on("vault:changed", listener);

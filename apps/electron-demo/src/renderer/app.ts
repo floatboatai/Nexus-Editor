@@ -2,7 +2,7 @@ import { createState, type AppState } from "./state";
 import { createEditorShell, type EditorShell } from "./editor-shell";
 import { loadSettings, createSettingsPanel, type EditorSettings } from "./settings";
 import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
-import { createSearchBar, type SearchBar } from "./search-bar";
+import { openSearchPanelIn } from "@floatboat/nexus-plugin-search";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
@@ -14,81 +14,145 @@ const state: AppState = createState();
 let settings: EditorSettings = loadSettings();
 let shell: EditorShell;
 let outline: OutlinePanel;
-let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
 
-function createAppToolbar(): HTMLElement {
+let appTooltipId = 0;
+
+const TOOLTIP_VIEWPORT_MARGIN = 8;
+
+function positionAppToolbarTooltip(
+  tooltip: HTMLElement,
+  button: HTMLButtonElement
+): void {
+  const rect = button.getBoundingClientRect();
+  tooltip.style.top = `${rect.bottom + 6}px`;
+  tooltip.style.left = `${rect.left + rect.width / 2}px`;
+  tooltip.style.transform = "translateX(-50%)";
+
+  const tipRect = tooltip.getBoundingClientRect();
+  const maxRight = window.innerWidth - TOOLTIP_VIEWPORT_MARGIN;
+  if (tipRect.right > maxRight) {
+    const shift = tipRect.right - maxRight;
+    tooltip.style.left = `${rect.left + rect.width / 2 - shift}px`;
+  }
+
+  const adjusted = tooltip.getBoundingClientRect();
+  if (adjusted.left < TOOLTIP_VIEWPORT_MARGIN) {
+    const shift = TOOLTIP_VIEWPORT_MARGIN - adjusted.left;
+    const currentLeft = parseFloat(tooltip.style.left);
+    tooltip.style.left = `${currentLeft + shift}px`;
+  }
+}
+
+function installAppToolbarTooltip(button: HTMLButtonElement, label: string): void {
+  button.title = "";
+  button.setAttribute("aria-label", label);
+
+  const tooltip = document.createElement("div");
+  tooltip.className = "app-toolbar-tooltip";
+  tooltip.id = `app-toolbar-tooltip-${++appTooltipId}`;
+  tooltip.setAttribute("role", "tooltip");
+  button.setAttribute("aria-describedby", tooltip.id);
+
+  const show = () => {
+    tooltip.textContent = label;
+    if (!tooltip.isConnected) {
+      document.body.appendChild(tooltip);
+    }
+    positionAppToolbarTooltip(tooltip, button);
+  };
+  const hide = () => {
+    tooltip.remove();
+  };
+  const updatePosition = () => {
+    if (!tooltip.isConnected) {
+      return;
+    }
+    positionAppToolbarTooltip(tooltip, button);
+  };
+
+  button.addEventListener("mouseenter", show);
+  button.addEventListener("focus", show);
+  button.addEventListener("mouseleave", hide);
+  button.addEventListener("blur", hide);
+  button.addEventListener("click", hide);
+  window.addEventListener("scroll", updatePosition, true);
+  window.addEventListener("resize", updatePosition);
+}
+
+function createTextToolbarButton(
+  label: string,
+  onClick: () => void,
+  tooltip?: string
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "toolbar-text-btn";
+  button.textContent = label;
+  if (tooltip) {
+    button.title = tooltip;
+  }
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function createIconToolbarButton(
+  icon: string,
+  label: string,
+  onClick: () => void,
+  large = false
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = large ? "toolbar-icon-btn toolbar-icon-btn--lg" : "toolbar-icon-btn";
+  button.textContent = icon;
+  button.addEventListener("click", onClick);
+  installAppToolbarTooltip(button, label);
+  return button;
+}
+
+function createAppToolbar(onSearch: () => void): HTMLElement {
   const toolbar = document.createElement("div");
   toolbar.className = "toolbar";
 
-  const vaultBtn = document.createElement("button");
-  vaultBtn.textContent = "Vault";
-  vaultBtn.title = "Open a folder as a vault";
-  vaultBtn.addEventListener("click", () => {
-    void vault.promptPickVault();
-  });
-
-  const openBtn = document.createElement("button");
-  openBtn.textContent = "Open";
-  openBtn.addEventListener("click", handleOpen);
-
-  const saveBtn = document.createElement("button");
-  saveBtn.textContent = "Save";
-  saveBtn.addEventListener("click", handleSave);
-
-  const saveAsBtn = document.createElement("button");
-  saveAsBtn.textContent = "Save As";
-  saveAsBtn.addEventListener("click", handleSaveAs);
+  const fileActions = document.createElement("div");
+  fileActions.className = "toolbar-actions";
+  fileActions.append(
+    createTextToolbarButton("Vault", () => {
+      void vault.promptPickVault();
+    }, "Open a folder as a vault"),
+    createTextToolbarButton("New", () => {
+      void handleNew();
+    }, "New untitled document"),
+    createTextToolbarButton("Open", () => {
+      void handleOpen();
+    }, "Open file"),
+    createTextToolbarButton("Save", () => {
+      void handleSave();
+    }, "Save (Ctrl+S)"),
+    createTextToolbarButton("Save As", () => {
+      void handleSaveAs();
+    }, "Save as")
+  );
 
   const spacer = document.createElement("div");
-  spacer.style.flex = "1";
+  spacer.className = "toolbar-spacer";
 
-  const vaultToggleBtn = document.createElement("button");
-  vaultToggleBtn.textContent = "\uD83D\uDCD1"; // 📑
-  vaultToggleBtn.title = "Toggle vault panel";
-  vaultToggleBtn.style.fontSize = "14px";
-  vaultToggleBtn.addEventListener("click", toggleVault);
-
-  const outlineBtn = document.createElement("button");
-  outlineBtn.textContent = "\u2630"; // ☰
-  outlineBtn.title = "Toggle outline";
-  outlineBtn.style.fontSize = "14px";
-  outlineBtn.addEventListener("click", toggleOutline);
-
-  const backlinksBtn = document.createElement("button");
-  backlinksBtn.textContent = "\uD83D\uDD17"; // 🔗
-  backlinksBtn.title = "Toggle backlinks panel";
-  backlinksBtn.style.fontSize = "14px";
-  backlinksBtn.addEventListener("click", toggleBacklinks);
-
-  const searchBtn = document.createElement("button");
-  searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
-  searchBtn.title = "Search (Ctrl+F)";
-  searchBtn.style.fontSize = "14px";
-  searchBtn.addEventListener("click", () => searchBar.open());
-
-  const settingsBtn = document.createElement("button");
-  settingsBtn.textContent = "\u2699"; // ⚙
-  settingsBtn.title = "Settings";
-  settingsBtn.style.fontSize = "16px";
-  settingsBtn.addEventListener("click", handleSettings);
-
-  toolbar.append(
-    vaultBtn,
-    openBtn,
-    saveBtn,
-    saveAsBtn,
-    spacer,
-    vaultToggleBtn,
-    outlineBtn,
-    backlinksBtn,
-    searchBtn,
-    settingsBtn
+  const panelActions = document.createElement("div");
+  panelActions.className = "toolbar-actions toolbar-actions--icons";
+  panelActions.append(
+    createIconToolbarButton("\uD83D\uDCD1", "Toggle vault panel", toggleVault),
+    createIconToolbarButton("\u2630", "Toggle outline", toggleOutline),
+    createIconToolbarButton("\uD83D\uDD17", "Toggle backlinks", toggleBacklinks),
+    createIconToolbarButton("\uD83D\uDD0D", "Find in document (Ctrl+F)", onSearch),
+    createIconToolbarButton("\u2699", "Editor settings", handleSettings, true)
   );
+
+  toolbar.append(fileActions, spacer, panelActions);
   return toolbar;
 }
 
@@ -119,6 +183,18 @@ async function confirmDiscardIfDirty(): Promise<boolean> {
   return window.confirm("You have unsaved changes. Discard them and switch files?");
 }
 
+async function handleNew(): Promise<void> {
+  if (!(await confirmDiscardIfDirty())) return;
+  state.error = null;
+  state.activeFile = null;
+  state.filePath = null;
+  vault.setActiveFile(null);
+  shell.loadDocument("");
+  void backlinks?.refresh();
+  void outline?.update();
+  renderStatus();
+}
+
 async function handleOpen(): Promise<void> {
   try {
     state.error = null;
@@ -140,6 +216,7 @@ async function handleOpen(): Promise<void> {
 async function handleSave(): Promise<void> {
   try {
     state.error = null;
+    state.content = shell.editor.getDocument();
     const targetPath = state.activeFile ?? state.filePath;
     if (targetPath) {
       if (state.vaultPath && targetPath.startsWith(state.vaultPath)) {
@@ -161,6 +238,7 @@ async function handleSave(): Promise<void> {
 async function handleSaveAs(): Promise<void> {
   try {
     state.error = null;
+    state.content = shell.editor.getDocument();
     const result = await window.nexusDemo.saveFileAs(state.content);
     if (!result) return;
 
@@ -345,7 +423,6 @@ function boot(): void {
   const root = document.getElementById("app");
   if (!root) throw new Error("Missing #app element");
 
-  const appToolbar = createAppToolbar();
   const statusLine = createStatusLine();
 
   const mainArea = document.createElement("div");
@@ -357,6 +434,11 @@ function boot(): void {
   const editorContainer = document.createElement("div");
   editorContainer.className = "editor-container";
 
+  const openSearch = () => {
+    openSearchPanelIn(editorContainer);
+  };
+
+  const appToolbar = createAppToolbar(openSearch);
   root.append(appToolbar, mainArea, statusLine);
 
   shell = createEditorShell({
@@ -376,6 +458,19 @@ function boot(): void {
     },
   });
 
+  const clearActiveFile = (): void => {
+    // Close the document view without touching filesystem contents.
+    state.error = null;
+    state.activeFile = null;
+    state.filePath = null;
+    // Keep vault tree selection in sync and reset editor content.
+    vault.setActiveFile(null);
+    shell.loadDocument("");
+    void backlinks?.refresh();
+    void outline?.update();
+    renderStatus();
+  };
+
   vault = createVaultPanel({
     onOpenFile: (filePath) => {
       void handleVaultFileOpen(filePath);
@@ -387,27 +482,33 @@ function boot(): void {
     onStatus: (_message) => {
       renderStatus();
     },
+    onClearActiveFile: clearActiveFile,
+    onVaultOpened: (nextPath) => {
+      state.vaultPath = nextPath;
+      renderStatus();
+      void seedLinkIndex();
+    },
+    onVaultClosed: () => {
+      state.vaultPath = null;
+      linkIndex.rebuild([]);
+      if (state.activeFile) {
+        vault.setActiveFile(state.activeFile);
+      }
+      renderStatus();
+      void backlinks?.refresh();
+    },
   });
 
-  // Keep state in sync when the vault panel picks a new vault.
-  const originalOpenVault = vault.openVault;
-  vault.openVault = async (nextPath: string) => {
-    await originalOpenVault(nextPath);
-    state.vaultPath = nextPath;
-    renderStatus();
-    // Index in the background — don't block the editor on it.
-    void seedLinkIndex();
-  };
-
   outline = createOutlinePanel(shell.editor);
-  searchBar = createSearchBar(shell.editor);
   backlinks = createBacklinksPanel({
     index: linkIndex,
     onOpenFile: (filePath) => void handleVaultFileOpen(filePath),
     getActiveFile: () => state.activeFile,
   });
+  outline.element.style.display = "none";
+  backlinks.element.style.display = "none";
 
-  editorColumn.append(searchBar.element, editorContainer);
+  editorColumn.append(editorContainer);
   mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
 
   // External file changes → re-seed the index (cheap for typical vaults).
@@ -416,9 +517,21 @@ function boot(): void {
   });
 
   document.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) {
+      return;
+    }
+    if (e.key === "f" || e.key === "F") {
       e.preventDefault();
-      searchBar.open();
+      openSearch();
+      return;
+    }
+    if (e.key === "s" || e.key === "S") {
+      e.preventDefault();
+      if (e.shiftKey) {
+        void handleSaveAs();
+      } else {
+        void handleSave();
+      }
     }
   });
 

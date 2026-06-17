@@ -414,6 +414,14 @@ ipcMain.handle("vault:set-last", async (_event, vaultPath: string) => {
   return { ok: true };
 });
 
+ipcMain.handle("vault:close", async () => {
+  stopWatcher();
+  activeVault = null;
+  const current = await readVaultState();
+  await writeVaultState({ lastVault: null, recents: current.recents });
+  return { ok: true };
+});
+
 app.whenReady().then(() => {
   // nexus-vault://vault/<rel> → read from activeVault/<rel>. Path is validated
   // so requests cannot escape the vault (same rule as the IPC handlers).

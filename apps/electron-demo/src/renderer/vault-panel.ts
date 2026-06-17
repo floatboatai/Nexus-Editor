@@ -2,11 +2,22 @@ export interface VaultPanelCallbacks {
   onOpenFile(filePath: string): void;
   onError(message: string): void;
   onStatus(message: string): void;
+  /**
+   * Clears the currently opened document in the editor.
+   * Used by "Delete" / "Close" actions in the vault panel so we don't touch
+   * filesystem data.
+   */
+  onClearActiveFile?: () => void;
+  /** Called after the active vault workspace is detached from the editor. */
+  onVaultClosed?: () => void;
+  /** Called after a vault folder is attached to the editor. */
+  onVaultOpened?: (vaultPath: string) => void;
 }
 
 export interface VaultPanel {
   element: HTMLElement;
   openVault(vaultPath: string): Promise<void>;
+  closeVault(): Promise<void>;
   promptPickVault(): Promise<void>;
   refresh(): Promise<void>;
   setActiveFile(filePath: string | null): void;
@@ -108,6 +119,51 @@ const ACTIVE_STYLES = `
   color: var(--nexus-text, #0366d6);
 `;
 
+function normalizeFsPath(filePath: string): string {
+  return filePath.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function isPathInsideVault(filePath: string, vault: string): boolean {
+  const normalizedFile = normalizeFsPath(filePath);
+  const normalizedVault = normalizeFsPath(vault);
+  return (
+    normalizedFile === normalizedVault ||
+    normalizedFile.startsWith(`${normalizedVault}/`)
+  );
+}
+
+function pathsEqual(a: string, b: string): boolean {
+  return normalizeFsPath(a) === normalizeFsPath(b);
+}
+
+function expandParentsToFile(nodes: VaultNode[], filePath: string): boolean {
+  const target = normalizeFsPath(filePath);
+  for (const node of nodes) {
+    if (node.kind === "file") {
+      if (normalizeFsPath(node.path) === target) {
+        return true;
+      }
+      continue;
+    }
+    if (node.children && expandParentsToFile(node.children, filePath)) {
+      collapsed.delete(node.path);
+      return true;
+    }
+  }
+  return false;
+}
+
+function scrollActiveRowIntoView(tree: HTMLElement, filePath: string): void {
+  const target = normalizeFsPath(filePath);
+  for (const row of tree.querySelectorAll<HTMLElement>("[data-path]")) {
+    const path = row.dataset.path;
+    if (path && normalizeFsPath(path) === target) {
+      row.scrollIntoView({ block: "nearest" });
+      break;
+    }
+  }
+}
+
 interface ContextMenuItem {
   label: string;
   onClick: () => void;
@@ -204,29 +260,32 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
   newFileBtn.type = "button";
   newFileBtn.style.cssText = ICON_BTN_STYLES;
   newFileBtn.textContent = "\u002B"; // +
-  newFileBtn.title = "New file at root";
-  newFileBtn.disabled = true;
+  newFileBtn.title = "New file";
 
   const newFolderBtn = document.createElement("button");
   newFolderBtn.type = "button";
   newFolderBtn.style.cssText = ICON_BTN_STYLES;
   newFolderBtn.textContent = "\uD83D\uDCC2"; // 📂
   newFolderBtn.title = "New folder at root";
-  newFolderBtn.disabled = true;
 
-  header.append(title, newFileBtn, newFolderBtn, openBtn);
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.style.cssText = ICON_BTN_STYLES;
+  closeBtn.textContent = "\u00D7"; // ×
+  closeBtn.title = "Close vault";
+  closeBtn.disabled = true;
+
+  header.append(title, newFileBtn, newFolderBtn, closeBtn, openBtn);
   attachIconBtnFeedback(openBtn);
   attachIconBtnFeedback(newFileBtn);
   attachIconBtnFeedback(newFolderBtn);
+  attachIconBtnFeedback(closeBtn);
 
   function syncButtonEnabled(): void {
     const hasVault = vaultPath !== null;
-    newFileBtn.disabled = !hasVault;
-    newFolderBtn.disabled = !hasVault;
-    newFileBtn.style.opacity = hasVault ? "1" : "0.4";
-    newFolderBtn.style.opacity = hasVault ? "1" : "0.4";
-    newFileBtn.style.cursor = hasVault ? "pointer" : "not-allowed";
-    newFolderBtn.style.cursor = hasVault ? "pointer" : "not-allowed";
+    closeBtn.disabled = !hasVault;
+    closeBtn.style.opacity = hasVault ? "1" : "0.4";
+    closeBtn.style.cursor = hasVault ? "pointer" : "not-allowed";
   }
 
   const tree = document.createElement("div");
@@ -255,7 +314,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     row.dataset.path = node.path;
     row.dataset.kind = node.kind;
 
-    const isActive = node.kind === "file" && activeFile === node.path;
+    const isActive = node.kind === "file" && activeFile !== null && pathsEqual(activeFile, node.path);
     if (isActive) row.style.cssText = ITEM_BASE + ACTIVE_STYLES;
 
     const icon = document.createElement("span");
@@ -310,12 +369,67 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     }
   }
 
+  function renderExternalFile(filePath: string): void {
+    const heading = document.createElement("div");
+    heading.style.cssText =
+      "padding: 6px 10px 2px; font-size: 10px; font-weight: 600; letter-spacing: 0.4px;" +
+      "text-transform: uppercase; color: var(--nexus-text-muted, #888);";
+    heading.textContent = "Open file";
+
+    const row = document.createElement("div");
+    row.style.cssText = ITEM_BASE + ACTIVE_STYLES;
+    row.style.paddingLeft = "8px";
+    row.dataset.path = filePath;
+    row.dataset.kind = "file";
+    row.title = filePath;
+
+    const icon = document.createElement("span");
+    icon.style.cssText = "width: 12px; flex-shrink: 0; color: #888; font-size: 11px;";
+    icon.textContent = fileIcon();
+
+    const label = document.createElement("span");
+    label.textContent = filePath.split(/[\\/]/).pop() || filePath;
+    label.style.cssText = "flex: 1; overflow: hidden; text-overflow: ellipsis;";
+
+    row.append(icon, label);
+    row.addEventListener("click", () => callbacks.onOpenFile(filePath));
+
+    const clearBtn = document.createElement("button");
+    clearBtn.type = "button";
+    clearBtn.textContent = "×";
+    clearBtn.title = "Remove from editor";
+    clearBtn.style.cssText =
+      "border:none;background:transparent;cursor:pointer;padding:0 4px;color:var(--nexus-text-muted,#888);font-size:16px;line-height:1;flex-shrink:0;";
+    clearBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      callbacks.onClearActiveFile?.();
+      activeFile = null;
+      renderTree();
+    });
+    row.appendChild(clearBtn);
+
+    tree.append(heading, row);
+  }
+
   function renderTree(): void {
     tree.innerHTML = "";
     if (!vaultPath) {
-      renderEmpty("No vault opened. Click 📁 to choose a folder.");
+      if (activeFile) {
+        renderExternalFile(activeFile);
+        return;
+      }
+      renderEmpty("No vault opened. Click 📁 to choose a folder, or + to create a file.");
       return;
     }
+
+    if (activeFile && !isPathInsideVault(activeFile, vaultPath)) {
+      renderExternalFile(activeFile);
+      const sep = document.createElement("div");
+      sep.style.cssText = "height: 1px; margin: 4px 8px; background: var(--nexus-border, #eee);";
+      tree.appendChild(sep);
+    }
+
     if (currentTree.length === 0) {
       renderEmpty("Vault is empty. Click + to create a note.");
       return;
@@ -407,8 +521,8 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     });
 
     items.push({
-      label: "Delete",
-      destructive: true,
+      label: "Clear in editor",
+      destructive: false,
       onClick: () => deleteNode(node),
     });
 
@@ -504,15 +618,33 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
   }
 
   async function deleteNode(node: VaultNode): Promise<void> {
-    // In Electron window.confirm may be a no-op; the context menu entry is
-    // destructive-styled and requires an explicit click, so we proceed directly.
+    // "Delete" in the vault panel should not remove filesystem data.
+    // Instead, we only clear the currently opened document in the editor.
     try {
-      await window.nexusDemo.vault.delete(node.path);
-      callbacks.onStatus(`Moved ${node.name} to Trash`);
-      if (node.kind === "file" && activeFile === node.path) {
+      if (node.kind === "file") {
+        const isActive = activeFile && pathsEqual(activeFile, node.path);
+        if (!isActive) {
+          callbacks.onStatus("Open the file first to clear it from the editor.");
+          return;
+        }
+        callbacks.onClearActiveFile?.();
         activeFile = null;
+        renderTree();
+        return;
       }
-      await refresh();
+
+      // Directory delete: if the current active file is inside that directory, clear it.
+      if (activeFile) {
+        const dir = normalizeFsPath(node.path);
+        const file = normalizeFsPath(activeFile);
+        if (file === dir || file.startsWith(`${dir}/`)) {
+          callbacks.onClearActiveFile?.();
+          activeFile = null;
+          renderTree();
+          return;
+        }
+      }
+      callbacks.onStatus("This action only clears the editor for the currently opened file.");
     } catch (err) {
       callbacks.onError(err instanceof Error ? err.message : String(err));
     }
@@ -525,6 +657,39 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
       renderTree();
     } catch (err) {
       callbacks.onError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function closeVault(): Promise<void> {
+    if (!vaultPath) return;
+
+    if (unsubscribeChanged) {
+      unsubscribeChanged();
+      unsubscribeChanged = null;
+    }
+
+    await window.nexusDemo.vault.close();
+
+    vaultPath = null;
+    currentTree = [];
+    collapsed.clear();
+    title.textContent = "Vault";
+    title.title = "";
+    syncButtonEnabled();
+    renderTree();
+    callbacks.onVaultClosed?.();
+  }
+
+  async function ensureVault(): Promise<string | null> {
+    if (vaultPath) return vaultPath;
+    try {
+      const picked = await window.nexusDemo.vault.pick();
+      if (!picked) return null;
+      await openVault(picked.path);
+      return vaultPath;
+    } catch (err) {
+      callbacks.onError(err instanceof Error ? err.message : String(err));
+      return null;
     }
   }
 
@@ -542,6 +707,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
 
     await refresh();
     await window.nexusDemo.vault.setLast(nextPath);
+    callbacks.onVaultOpened?.(nextPath);
   }
 
   async function promptPickVault(): Promise<void> {
@@ -554,14 +720,23 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     }
   }
 
+  closeBtn.addEventListener("click", () => {
+    void closeVault();
+  });
   openBtn.addEventListener("click", () => {
     void promptPickVault();
   });
   newFileBtn.addEventListener("click", () => {
-    if (vaultPath) createFilePrompt(vaultPath);
+    void (async () => {
+      const root = await ensureVault();
+      if (root) createFilePrompt(root);
+    })();
   });
   newFolderBtn.addEventListener("click", () => {
-    if (vaultPath) createFolderPrompt(vaultPath);
+    void (async () => {
+      const root = await ensureVault();
+      if (root) createFolderPrompt(root);
+    })();
   });
 
   syncButtonEnabled();
@@ -569,11 +744,18 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
   return {
     element: panel,
     openVault,
+    closeVault,
     promptPickVault,
     refresh,
     setActiveFile(filePath) {
       activeFile = filePath;
+      if (filePath && vaultPath && isPathInsideVault(filePath, vaultPath)) {
+        expandParentsToFile(currentTree, filePath);
+      }
       renderTree();
+      if (filePath) {
+        requestAnimationFrame(() => scrollActiveRowIntoView(tree, filePath));
+      }
     },
     getVaultPath: () => vaultPath,
     destroy() {
