@@ -1,10 +1,170 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createEditor } from "@floatboat/nexus-core";
 import {
   createSearchPlugin,
   findSearchMatches,
   replaceAllMatches
 } from "../src/index";
+
+const HISTORY_KEY = "nexus:test-search-history";
+
+function createEmptyRect(): DOMRect {
+  return {
+    bottom: 0,
+    height: 0,
+    left: 0,
+    right: 0,
+    top: 0,
+    width: 0,
+    x: 0,
+    y: 0,
+    toJSON: () => ({})
+  };
+}
+
+function createRectList(): DOMRectList {
+  const rect = createEmptyRect();
+  return {
+    0: rect,
+    length: 1,
+    item: (index: number) => (index === 0 ? rect : null),
+    [Symbol.iterator]: function* () {
+      yield rect;
+    }
+  } as DOMRectList;
+}
+
+if (typeof Range !== "undefined" && !Range.prototype.getClientRects) {
+  Object.defineProperty(Range.prototype, "getClientRects", {
+    configurable: true,
+    value: () => createRectList()
+  });
+}
+
+if (typeof Range !== "undefined" && !Range.prototype.getBoundingClientRect) {
+  Object.defineProperty(Range.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value: () => createEmptyRect()
+  });
+}
+
+interface MemoryHistoryStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  readHistory(): string[];
+  readRaw(): string | null;
+}
+
+function createMemoryHistoryStorage(initialRaw?: string): MemoryHistoryStorage {
+  const values = new Map<string, string>();
+  if (initialRaw !== undefined) {
+    values.set(HISTORY_KEY, initialRaw);
+  }
+
+  return {
+    getItem: vi.fn((key: string) => values.get(key) ?? null),
+    setItem: vi.fn((key: string, value: string) => {
+      values.set(key, value);
+    }),
+    readHistory() {
+      const raw = values.get(HISTORY_KEY);
+      return raw ? JSON.parse(raw) : [];
+    },
+    readRaw() {
+      return values.get(HISTORY_KEY) ?? null;
+    }
+  };
+}
+
+function historyOptions(
+  options: {
+    storage?: Pick<MemoryHistoryStorage, "getItem" | "setItem">;
+    maxEntries?: number;
+  } = {}
+): Parameters<typeof createSearchPlugin>[0] {
+  return {
+    history: {
+      storage: options.storage,
+      storageKey: HISTORY_KEY,
+      maxEntries: options.maxEntries
+    }
+  } as Parameters<typeof createSearchPlugin>[0];
+}
+
+function openSearchPanel(container: HTMLElement): HTMLInputElement {
+  const content = container.querySelector<HTMLElement>(".cm-content");
+  expect(content).not.toBeNull();
+
+  content?.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "f",
+      code: "KeyF",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true
+    })
+  );
+  if (!container.querySelector('[data-test-id="markdown-search-bar"]')) {
+    content?.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "f",
+        code: "KeyF",
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true
+      })
+    );
+  }
+
+  const input = container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-input"]');
+  expect(input).not.toBeNull();
+  return input!;
+}
+
+function setupSearchPanel(options: Parameters<typeof createSearchPlugin>[0] = {}) {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const editor = createEditor({
+    container,
+    initialValue: "alpha beta gamma alpha",
+    plugins: [createSearchPlugin(options)]
+  });
+  const input = openSearchPanel(container);
+
+  return {
+    editor,
+    container,
+    input,
+    destroy() {
+      editor.destroy();
+      container.remove();
+    }
+  };
+}
+
+function submitSearch(input: HTMLInputElement, value: string): KeyboardEvent {
+  input.value = value;
+  input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+  const event = new KeyboardEvent("keydown", {
+    key: "Enter",
+    code: "Enter",
+    bubbles: true,
+    cancelable: true
+  });
+  input.dispatchEvent(event);
+  return event;
+}
+
+function pressInputArrow(input: HTMLInputElement, key: "ArrowUp" | "ArrowDown"): KeyboardEvent {
+  const event = new KeyboardEvent("keydown", {
+    key,
+    code: key,
+    bubbles: true,
+    cancelable: true
+  });
+  input.dispatchEvent(event);
+  return event;
+}
 
 describe("@floatboat/nexus-plugin-search", () => {
   it("finds all case-insensitive matches in a document", () => {
@@ -166,6 +326,188 @@ describe("@floatboat/nexus-plugin-search", () => {
 
     editor.destroy();
     container.remove();
+  });
+
+  it("keeps existing Enter navigation when search history is disabled", () => {
+    const harness = setupSearchPanel({ history: false } as Parameters<typeof createSearchPlugin>[0]);
+
+    submitSearch(harness.input, "beta");
+
+    const selection = harness.editor.getSelection();
+    expect(Math.min(selection.anchor, selection.head)).toBe(6);
+    expect(Math.max(selection.anchor, selection.head)).toBe(10);
+
+    harness.destroy();
+  });
+
+  it("records submitted queries after trimming whitespace", () => {
+    const storage = createMemoryHistoryStorage();
+    const harness = setupSearchPanel(historyOptions({ storage }));
+
+    submitSearch(harness.input, "  alpha  ");
+
+    expect(storage.readHistory()).toEqual(["alpha"]);
+
+    harness.destroy();
+  });
+
+  it("does not record blank submitted queries", () => {
+    const storage = createMemoryHistoryStorage(JSON.stringify(["alpha"]));
+    const harness = setupSearchPanel(historyOptions({ storage }));
+
+    submitSearch(harness.input, "   ");
+
+    expect(storage.readRaw()).toBe(JSON.stringify(["alpha"]));
+    expect(storage.setItem).not.toHaveBeenCalled();
+
+    harness.destroy();
+  });
+
+  it("deduplicates repeated queries and moves the newest submission to the front", () => {
+    const storage = createMemoryHistoryStorage(JSON.stringify(["beta", "alpha"]));
+    const harness = setupSearchPanel(historyOptions({ storage }));
+
+    submitSearch(harness.input, "alpha");
+
+    expect(storage.readHistory()).toEqual(["alpha", "beta"]);
+
+    harness.destroy();
+  });
+
+  it("drops the oldest query when maxEntries is exceeded", () => {
+    const storage = createMemoryHistoryStorage();
+    const harness = setupSearchPanel(historyOptions({ storage, maxEntries: 2 }));
+
+    submitSearch(harness.input, "alpha");
+    submitSearch(harness.input, "beta");
+    submitSearch(harness.input, "gamma");
+
+    expect(storage.readHistory()).toEqual(["gamma", "beta"]);
+
+    harness.destroy();
+  });
+
+  it("ignores invalid stored JSON and continues writing new history", () => {
+    const storage = createMemoryHistoryStorage("not json");
+    const harness = setupSearchPanel(historyOptions({ storage }));
+
+    expect(() => submitSearch(harness.input, "alpha")).not.toThrow();
+    expect(storage.readRaw()).toBe(JSON.stringify(["alpha"]));
+
+    harness.destroy();
+  });
+
+  it("does not crash when history storage getItem throws", () => {
+    const storage = {
+      getItem: vi.fn(() => {
+        throw new Error("read failed");
+      }),
+      setItem: vi.fn()
+    };
+    const harness = setupSearchPanel(historyOptions({ storage }));
+
+    expect(() => pressInputArrow(harness.input, "ArrowUp")).not.toThrow();
+    expect(storage.getItem).toHaveBeenCalledWith(HISTORY_KEY);
+    expect(() => submitSearch(harness.input, "beta")).not.toThrow();
+    const selection = harness.editor.getSelection();
+    expect(Math.min(selection.anchor, selection.head)).toBe(6);
+    expect(Math.max(selection.anchor, selection.head)).toBe(10);
+
+    harness.destroy();
+  });
+
+  it("does not crash when history storage setItem throws", () => {
+    const storage = {
+      getItem: vi.fn(() => "[]"),
+      setItem: vi.fn(() => {
+        throw new Error("write failed");
+      })
+    };
+    const harness = setupSearchPanel(historyOptions({ storage }));
+
+    expect(() => submitSearch(harness.input, "beta")).not.toThrow();
+    expect(storage.setItem).toHaveBeenCalled();
+    const selection = harness.editor.getSelection();
+    expect(Math.min(selection.anchor, selection.head)).toBe(6);
+    expect(Math.max(selection.anchor, selection.head)).toBe(10);
+
+    harness.destroy();
+  });
+
+  it("recalls search history with ArrowUp and ArrowDown in the search input", () => {
+    const storage = createMemoryHistoryStorage(JSON.stringify(["gamma", "beta", "alpha"]));
+    const harness = setupSearchPanel(historyOptions({ storage }));
+
+    pressInputArrow(harness.input, "ArrowUp");
+    expect(harness.input.value).toBe("gamma");
+
+    pressInputArrow(harness.input, "ArrowUp");
+    expect(harness.input.value).toBe("beta");
+
+    pressInputArrow(harness.input, "ArrowDown");
+    expect(harness.input.value).toBe("gamma");
+
+    harness.destroy();
+  });
+
+  it("does not swallow ArrowUp or ArrowDown when search history is empty", () => {
+    const storage = createMemoryHistoryStorage(JSON.stringify([]));
+    const harness = setupSearchPanel(historyOptions({ storage }));
+
+    const up = pressInputArrow(harness.input, "ArrowUp");
+    const down = pressInputArrow(harness.input, "ArrowDown");
+
+    expect(up.defaultPrevented).toBe(false);
+    expect(down.defaultPrevented).toBe(false);
+
+    harness.destroy();
+  });
+
+  it("does not swallow ArrowUp or ArrowDown when search history is disabled", () => {
+    const harness = setupSearchPanel({ history: false } as Parameters<typeof createSearchPlugin>[0]);
+
+    const up = pressInputArrow(harness.input, "ArrowUp");
+    const down = pressInputArrow(harness.input, "ArrowDown");
+
+    expect(up.defaultPrevented).toBe(false);
+    expect(down.defaultPrevented).toBe(false);
+
+    harness.destroy();
+  });
+
+  it("recalls history without changing case, regexp, or whole-word options", () => {
+    const storage = createMemoryHistoryStorage(JSON.stringify(["alpha"]));
+    const harness = setupSearchPanel(historyOptions({ storage }));
+    const caseField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-case-toggle"]'
+    );
+    const regexpField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-regexp-toggle"]'
+    );
+    const wholeWordField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-word-toggle"]'
+    );
+    expect(caseField).not.toBeNull();
+    expect(regexpField).not.toBeNull();
+    expect(wholeWordField).not.toBeNull();
+
+    caseField!.checked = true;
+    regexpField!.checked = true;
+    wholeWordField!.checked = true;
+    caseField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    regexpField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    wholeWordField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    harness.input.value = "draft";
+    harness.input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+
+    pressInputArrow(harness.input, "ArrowUp");
+
+    expect(harness.input.value).toBe("alpha");
+    expect(caseField!.checked).toBe(true);
+    expect(regexpField!.checked).toBe(true);
+    expect(wholeWordField!.checked).toBe(true);
+
+    harness.destroy();
   });
 
   it("falls back to default tooltip labels when localized labels are blank", () => {
