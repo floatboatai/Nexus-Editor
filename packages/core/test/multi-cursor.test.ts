@@ -9,6 +9,10 @@ import {
   handleMarkdownEnter,
   selectNextOccurrence,
 } from "../src/index";
+import {
+  handleMarkdownListBackspace,
+  handleMarkdownListIndent,
+} from "../src/markdown-keymap";
 
 function createTestEditor(initialValue: string, multiCursor = true) {
   const container = document.createElement("div");
@@ -335,6 +339,50 @@ describe("markdown Enter with multiple cursors", () => {
 
     expect(handleMarkdownEnter(view)).toBe(false);
     expect(editor.getDocument()).toBe("plain\ntext");
+    editor.destroy();
+  });
+
+  it("continues quoted list markers at every cursor", () => {
+    const { editor, view } = createTestEditor("> - a\n> 1. b");
+    editor.setSelections([{ anchor: 5 }, { anchor: 12 }]);
+
+    expect(handleMarkdownEnter(view)).toBe(true);
+
+    expect(editor.getDocument()).toBe("> - a\n> - \n> 1. b\n> 2. ");
+    expect(editor.getSelections().ranges).toEqual([
+      { anchor: 10, head: 10 },
+      { anchor: 23, head: 23 },
+    ]);
+    editor.destroy();
+  });
+});
+
+describe("markdown list editing with multiple cursors", () => {
+  it("indents plain and quoted list items in one transaction", () => {
+    const { editor, view } = createTestEditor("- a\n> - b");
+    editor.setSelections([{ anchor: 2 }, { anchor: 8 }]);
+
+    expect(handleMarkdownListIndent(view, "indent")).toBe(true);
+
+    expect(editor.getDocument()).toBe("  - a\n>   - b");
+    expect(editor.getSelections().ranges).toEqual([
+      { anchor: 4, head: 4 },
+      { anchor: 12, head: 12 },
+    ]);
+    editor.destroy();
+  });
+
+  it("applies list-boundary Backspace at every cursor", () => {
+    const { editor, view } = createTestEditor("  - a\n> - b");
+    editor.setSelections([{ anchor: 4 }, { anchor: 10 }]);
+
+    expect(handleMarkdownListBackspace(view)).toBe(true);
+
+    expect(editor.getDocument()).toBe("- a\n> b");
+    expect(editor.getSelections().ranges).toEqual([
+      { anchor: 2, head: 2 },
+      { anchor: 6, head: 6 },
+    ]);
     editor.destroy();
   });
 });
