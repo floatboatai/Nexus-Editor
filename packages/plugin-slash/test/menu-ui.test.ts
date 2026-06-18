@@ -51,6 +51,16 @@ function items(menu: SlashMenuUI): HTMLElement[] {
   );
 }
 
+function itemIds(menu: SlashMenuUI): string[] {
+  return items(menu).map((item) => item.dataset.slashCommandId ?? "");
+}
+
+function itemById(menu: SlashMenuUI, id: string): HTMLElement {
+  const item = items(menu).find((candidate) => candidate.dataset.slashCommandId === id);
+  if (!item) throw new Error(`Missing slash command item: ${id}`);
+  return item;
+}
+
 function activeItem(menu: SlashMenuUI): HTMLElement | null {
   return menu.element.querySelector<HTMLElement>(`.${PREFIX}-menu__item.is-active`);
 }
@@ -66,6 +76,43 @@ const baseCommands: SlashCommandDef[] = [
   { id: "h2", title: "Heading 2", keywords: ["h2"] },
   { id: "bold", title: "Bold", keywords: ["strong"] },
 ];
+
+interface SlashHistoryStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem?(key: string): void;
+}
+
+type SlashHistoryOptions =
+  | boolean
+  | {
+      storage?: SlashHistoryStorage;
+      storageKey?: string;
+      maxEntries?: number;
+    };
+
+function withHistory(history: SlashHistoryOptions): Parameters<typeof createSlashMenuUI>[1] {
+  return { history } as unknown as Parameters<typeof createSlashMenuUI>[1];
+}
+
+function createMemoryStorage(initial: string | null = null) {
+  let value = initial;
+  return {
+    getItem: vi.fn((_key: string) => value),
+    setItem: vi.fn((_key: string, next: string) => {
+      value = next;
+    }),
+    get value() {
+      return value;
+    },
+  };
+}
+
+function lastStoredIds(storage: ReturnType<typeof createMemoryStorage>): string[] {
+  const calls = storage.setItem.mock.calls;
+  const lastCall = calls[calls.length - 1];
+  return JSON.parse(lastCall?.[1] ?? "[]") as string[];
+}
 
 describe("createSlashMenuUI lifecycle", () => {
   let h: Harness;
@@ -301,6 +348,207 @@ describe("createSlashMenuUI command execution", () => {
     open(h.editor, "");
     items(h.menu)[2].dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
     expect(activeItem(h.menu)?.dataset.slashCommandId).toBe("bold");
+  });
+});
+
+describe("createSlashMenuUI recent command ordering", () => {
+  let h: Harness;
+  afterEach(() => h?.destroy());
+
+  it("keeps empty query order in registration order when history is disabled", () => {
+    h = setup(baseCommands);
+    open(h.editor, "");
+    expect(itemIds(h.menu)).toEqual(["h1", "h2", "bold"]);
+  });
+
+  it("moves a recently used command to the front for the current session when enabled without storage", () => {
+    h = setup(baseCommands, withHistory(true));
+
+    open(h.editor, "");
+    items(h.menu)[2].dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    open(h.editor, "");
+
+    expect(itemIds(h.menu)).toEqual(["bold", "h1", "h2"]);
+  });
+
+  it("reads host-injected storage and reorders the empty query menu", () => {
+    const storage = createMemoryStorage(JSON.stringify(["bold", "h1"]));
+    h = setup(
+      baseCommands,
+      withHistory({ storage, storageKey: "test-slash-history" })
+    );
+
+    open(h.editor, "");
+
+    expect(storage.getItem).toHaveBeenCalledWith("test-slash-history");
+    expect(itemIds(h.menu)).toEqual(["bold", "h1", "h2"]);
+  });
+
+  it("writes confirmed commands to storage with dedupe-to-front and maxEntries", () => {
+    const storage = createMemoryStorage(JSON.stringify(["h2", "bold", "h1"]));
+    h = setup(
+      baseCommands,
+      withHistory({
+        storage,
+        storageKey: "test-slash-history",
+        maxEntries: 2,
+      })
+    );
+
+    open(h.editor, "");
+    itemById(h.menu, "bold").dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true })
+    );
+
+    expect(storage.setItem).toHaveBeenCalled();
+    expect(lastStoredIds(storage)).toEqual(["bold", "h2"]);
+  });
+
+  it("ignores unknown stored command ids", () => {
+    const storage = createMemoryStorage(JSON.stringify(["missing", "bold"]));
+    h = setup(
+      baseCommands,
+      withHistory({ storage, storageKey: "test-slash-history" })
+    );
+
+    open(h.editor, "");
+
+    expect(itemIds(h.menu)).toEqual(["bold", "h1", "h2"]);
+    expect(items(h.menu).some((item) => item.dataset.slashCommandId === "missing")).toBe(false);
+  });
+
+  it("ignores invalid JSON and later writes valid command history", () => {
+    const storage = createMemoryStorage("{not-json");
+    h = setup(
+      baseCommands,
+      withHistory({ storage, storageKey: "test-slash-history" })
+    );
+
+    expect(() => open(h.editor, "")).not.toThrow();
+    items(h.menu)[2].dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    expect(storage.setItem).toHaveBeenCalled();
+    expect(lastStoredIds(storage)).toEqual(["bold"]);
+  });
+
+  it("does not crash when storage getItem throws", () => {
+    const storage: SlashHistoryStorage = {
+      getItem: vi.fn(() => {
+        throw new Error("storage unavailable");
+      }),
+      setItem: vi.fn(),
+    };
+    h = setup(
+      baseCommands,
+      withHistory({ storage, storageKey: "test-slash-history" })
+    );
+
+    expect(() => open(h.editor, "")).not.toThrow();
+    expect(storage.getItem).toHaveBeenCalledWith("test-slash-history");
+    expect(itemIds(h.menu)).toEqual(["h1", "h2", "bold"]);
+  });
+
+  it("does not crash when storage setItem throws", () => {
+    const run = vi.fn();
+    const storage: SlashHistoryStorage = {
+      getItem: vi.fn(() => JSON.stringify([])),
+      setItem: vi.fn(() => {
+        throw new Error("storage full");
+      }),
+    };
+    h = setup([{ id: "bold", title: "Bold", run }], withHistory({
+      storage,
+      storageKey: "test-slash-history",
+    }));
+
+    open(h.editor, "");
+
+    expect(() => pressKey("Enter")).not.toThrow();
+    expect(storage.setItem).toHaveBeenCalledWith("test-slash-history", JSON.stringify(["bold"]));
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves ArrowUp and ArrowDown highlight through the reordered list", () => {
+    const storage = createMemoryStorage(JSON.stringify(["bold"]));
+    h = setup(
+      baseCommands,
+      withHistory({ storage, storageKey: "test-slash-history" })
+    );
+
+    open(h.editor, "");
+
+    expect(activeItem(h.menu)?.dataset.slashCommandId).toBe("bold");
+    pressKey("ArrowDown");
+    expect(activeItem(h.menu)?.dataset.slashCommandId).toBe("h1");
+    pressKey("ArrowUp");
+    expect(activeItem(h.menu)?.dataset.slashCommandId).toBe("bold");
+  });
+
+  it("confirms the reordered active item with Enter", () => {
+    const h1Run = vi.fn();
+    const boldRun = vi.fn();
+    const storage = createMemoryStorage(JSON.stringify(["bold"]));
+    h = setup(
+      [
+        { id: "h1", title: "Heading 1", run: h1Run },
+        { id: "h2", title: "Heading 2" },
+        { id: "bold", title: "Bold", run: boldRun },
+      ],
+      withHistory({ storage, storageKey: "test-slash-history" })
+    );
+
+    open(h.editor, "");
+    pressKey("Enter");
+
+    expect(boldRun).toHaveBeenCalledTimes(1);
+    expect(h1Run).not.toHaveBeenCalled();
+  });
+
+  it("confirms the clicked reordered item", () => {
+    const h1Run = vi.fn();
+    const h2Run = vi.fn();
+    const boldRun = vi.fn();
+    const storage = createMemoryStorage(JSON.stringify(["bold"]));
+    h = setup(
+      [
+        { id: "h1", title: "Heading 1", run: h1Run },
+        { id: "h2", title: "Heading 2", run: h2Run },
+        { id: "bold", title: "Bold", run: boldRun },
+      ],
+      withHistory({ storage, storageKey: "test-slash-history" })
+    );
+
+    open(h.editor, "");
+    items(h.menu)[1].dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    expect(h1Run).toHaveBeenCalledTimes(1);
+    expect(h2Run).not.toHaveBeenCalled();
+    expect(boldRun).not.toHaveBeenCalled();
+  });
+
+  it("keeps keyboard and click behavior unchanged when history is disabled", () => {
+    const h1Run = vi.fn();
+    const h2Run = vi.fn();
+    const boldRun = vi.fn();
+    h = setup(
+      [
+        { id: "h1", title: "Heading 1", run: h1Run },
+        { id: "h2", title: "Heading 2", run: h2Run },
+        { id: "bold", title: "Bold", run: boldRun },
+      ],
+      withHistory(false)
+    );
+
+    open(h.editor, "");
+    pressKey("ArrowDown");
+    expect(activeItem(h.menu)?.dataset.slashCommandId).toBe("h2");
+    pressKey("Enter");
+    expect(h2Run).toHaveBeenCalledTimes(1);
+
+    open(h.editor, "");
+    items(h.menu)[2].dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(boldRun).toHaveBeenCalledTimes(1);
+    expect(h1Run).not.toHaveBeenCalled();
   });
 });
 

@@ -1,4 +1,16 @@
 import type { EditorAPI, SlashCommandDef, SlashMenuState } from "@floatboat/nexus-core";
+import {
+  createSlashCommandHistory,
+  type SlashCommandHistoryConfig,
+  type SlashCommandHistoryOptions,
+  type SlashCommandHistoryStorage,
+} from "./command-history";
+
+export type {
+  SlashCommandHistoryConfig,
+  SlashCommandHistoryOptions,
+  SlashCommandHistoryStorage,
+};
 
 export interface SlashMenuCommandContext {
   /**
@@ -43,6 +55,11 @@ export interface SlashMenuUIOptions {
    * the menu opens below the caret. Default: `4`.
    */
   offset?: number;
+  /**
+   * Opt-in recently-used command ordering. `true` enables session-only
+   * history; an options object may provide host-injected storage.
+   */
+  history?: SlashCommandHistoryConfig;
 }
 
 export interface SlashMenuUI {
@@ -73,6 +90,7 @@ export function createSlashMenuUI(
   const offset = options.offset ?? DEFAULT_OFFSET;
   const container = options.container ?? document.body;
   const menuId = generateId(prefix);
+  const commandHistory = createSlashCommandHistory(options.history);
 
   // ── DOM scaffolding ──────────────────────────────────────────────
   const root = document.createElement("div");
@@ -90,6 +108,7 @@ export function createSlashMenuUI(
 
   // ── Mutable state ────────────────────────────────────────────────
   let currentState: SlashMenuState | null = null;
+  let visibleCommands: SlashCommandDef[] = [];
   let highlight = 0;
   // Items reused across renders to keep CSS transitions / focus rings
   // stable (rebuilding the list every keystroke would flicker active
@@ -240,7 +259,10 @@ export function createSlashMenuUI(
 
   function show(): void {
     if (!currentState) return;
-    renderItems(currentState.commands);
+    visibleCommands = commandHistory
+      ? commandHistory.reorder(currentState.commands, currentState.query)
+      : currentState.commands;
+    renderItems(visibleCommands);
     applyHighlight();
     reposition();
   }
@@ -256,7 +278,7 @@ export function createSlashMenuUI(
 
   function confirm(): void {
     if (!isMenuOpen() || !currentState) return;
-    const cmds = currentState.commands;
+    const cmds = visibleCommands;
     if (cmds.length === 0 || highlight < 0 || highlight >= cmds.length) {
       // Nothing valid to run; treat as dismiss so a stray Enter doesn't
       // leave the menu visible.
@@ -286,7 +308,10 @@ export function createSlashMenuUI(
     // flash on slow paint paths.
     hide();
     currentState = null;
+    visibleCommands = [];
     prevIsOpen = false;
+
+    commandHistory?.record(cmd.id);
 
     if (options.onCommand) {
       options.onCommand(cmd, ctx);
@@ -310,6 +335,7 @@ export function createSlashMenuUI(
     currentState = state;
 
     if (!isMenuOpen()) {
+      visibleCommands = [];
       hide();
       return;
     }
@@ -335,7 +361,7 @@ export function createSlashMenuUI(
     if (!isMenuOpen()) return;
     if (isComposing) return;
 
-    const len = currentState?.commands.length ?? 0;
+    const len = visibleCommands.length;
 
     switch (e.key) {
       case "ArrowDown":
@@ -451,6 +477,7 @@ export function createSlashMenuUI(
       if (root.parentNode) root.parentNode.removeChild(root);
       itemEls = [];
       currentState = null;
+      visibleCommands = [];
     },
   };
 }
