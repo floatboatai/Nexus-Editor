@@ -39,6 +39,43 @@ describe("live preview regressions", () => {
     editor.destroy();
   });
 
+  it("isolates each structural table edit as its own undo group", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |\n",
+      livePreview: true,
+      plugins: [createHistoryPlugin()]
+    });
+
+    const columnCount = () => {
+      const header = editor.getDocument().split("\n")[0];
+      return header.split("|").filter((_, i, a) => i > 0 && i < a.length - 1).length;
+    };
+
+    expect(columnCount()).toBe(2);
+
+    // First structural edit: add a column (whole-table rewrite, isolated).
+    container.querySelector<HTMLButtonElement>('button[title="Add column"]')?.click();
+    expect(columnCount()).toBe(3);
+
+    // The widget DOM is rebuilt after the dispatch — re-query the new button.
+    container.querySelector<HTMLButtonElement>('button[title="Add column"]')?.click();
+    expect(columnCount()).toBe(4);
+
+    // Because each structural edit is isolated, a single undo reverts only the
+    // most recent one (back to 3 columns) rather than merging both adds.
+    expect(editor.undo()).toBe(true);
+    expect(columnCount()).toBe(3);
+
+    expect(editor.undo()).toBe(true);
+    expect(columnCount()).toBe(2);
+
+    editor.destroy();
+    container.remove();
+  });
+
   it("restores preview after the cursor leaves a markdown range", () => {
     const container = document.createElement("div");
     const editor = createEditor({

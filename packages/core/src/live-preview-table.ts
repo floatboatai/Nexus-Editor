@@ -1,3 +1,4 @@
+import { isolateHistory } from "@codemirror/commands";
 import { EditorView, WidgetType, runScopeHandlers } from "@codemirror/view";
 import type { Table } from "mdast";
 
@@ -333,7 +334,14 @@ export class EditableTableWidget extends WidgetType {
   private dispatch(newSource: string): void {
     const v = this.viewRef.current;
     if (!v) return;
-    v.dispatch({ changes: { from: this.tableFrom, to: this.tableFrom + this.source.length, insert: newSource } });
+    // Structural table edits (add/delete/move column or row, range clear) rewrite
+    // the whole table source in one shot. Isolate each as its own undo group so a
+    // single undo reverts the entire operation instead of merging with adjacent
+    // typing or a neighbouring structural edit.
+    v.dispatch({
+      changes: { from: this.tableFrom, to: this.tableFrom + this.source.length, insert: newSource },
+      annotations: isolateHistory.of("full"),
+    });
   }
 
   private deleteColumn(colIdx: number): void {
@@ -368,7 +376,10 @@ export class EditableTableWidget extends WidgetType {
     const nr = "\n| " + Array(cc).fill("  ").join(" | ") + " |";
     const v = this.viewRef.current;
     if (!v) return;
-    v.dispatch({ changes: { from: this.tableFrom + this.source.length, insert: nr } });
+    v.dispatch({
+      changes: { from: this.tableFrom + this.source.length, insert: nr },
+      annotations: isolateHistory.of("full"),
+    });
   }
 
   private moveColumn(from: number, to: number): void {
