@@ -174,3 +174,18 @@ export function iconHorizontalRule(): HTMLElement {
     `<line x1="2" y1="9" x2="16" y2="9"/>`
   );
 }
+
+export function iconEmoji(): HTMLElement {
+  return textLabel("😊", "font-size:14px;");
+}
+
+export function iconTable(): HTMLElement {
+  return svgIcon(
+    `<line x1="4" y1="4" x2="14" y2="4"/>` +
+    `<line x1="4" y1="9" x2="14" y2="9"/>` +
+    `<line x1="4" y1="14" x2="14" y2="14"/>` +
+    `<line x1="4" y1="4" x2="4" y2="14"/>` +
+    `<line x1="9" y1="4" x2="9" y2="14"/>` +
+    `<line x1="14" y1="4" x2="14" y2="14"/>`
+  );
+}

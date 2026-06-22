@@ -38,6 +38,8 @@ import {
   iconHighlight,
   iconImage,
   iconFullscreen,
+  iconEmoji,
+  iconTable,
 } from "./icons";
 
 export interface ToolbarButton {
@@ -90,17 +92,36 @@ function installToolbarTooltip(button: HTMLButtonElement): () => void {
   tooltip.id = `nexus-toolbar-tooltip-${++tooltipId}`;
   tooltip.setAttribute("role", "tooltip");
   button.setAttribute("aria-describedby", tooltip.id);
+  tooltip.style.cssText = `
+    position: fixed;
+    padding: 4px 10px;
+    background: var(--nexus-bg, #ffffff);
+    color: var(--nexus-text, #24292e);
+    border: 1px solid var(--nexus-border, #e4e7eb);
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: system-ui, -apple-system, sans-serif;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 10000;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    transform: translateX(-50%);
+  `;
 
   const show = () => {
     const label = button.dataset.toolbarTooltip ?? button.getAttribute("aria-label") ?? "";
     if (!label.trim()) return;
     tooltip.textContent = label;
     tooltip.dataset.state = "open";
+    // 禁用垂直滚动，防止 tooltip 导致页面出现滚动条
+    document.body.style.overflowY = "hidden";
     if (!tooltip.isConnected) pickOverlayMount(button).appendChild(tooltip);
     positionToolbarTooltip(button, tooltip);
   };
   const hide = () => {
     tooltip.dataset.state = "closed";
+    // 恢复垂直滚动
+    document.body.style.overflowY = "";
     tooltip.remove();
   };
   const updatePosition = () => {
@@ -181,6 +202,12 @@ function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
     },
     {
       buttons: [
+        { id: "table", title: "Insert table", icon: iconTable, action: () => {} },
+        { id: "emoji", title: "Insert emoji", icon: iconEmoji, action: () => {} },
+      ],
+    },
+    {
+      buttons: [
         { id: "image", title: "Insert image", icon: iconImage, action: insertImage },
         { id: "fullscreen", title: "Fullscreen", icon: iconFullscreen, action: () => options?.onFullscreen?.() },
       ],
@@ -198,6 +225,7 @@ const TOOLBAR_STYLES = `
   user-select: none;
   flex-shrink: 0;
   overflow-x: auto;
+  overflow-y: hidden;
   font-family: system-ui, -apple-system, sans-serif;
 `;
 
@@ -440,8 +468,225 @@ function showColorPicker(
   };
 }
 
+const EMOJI_PALETTE = [
+  // Smileys & People
+  "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂",
+  "🙂", "🙃", "😉", "😊", "😇", "🥰", "😍", "🤩",
+  // Animals & Nature
+  "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼",
+  "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🐔",
+  // Food & Drink
+  "🍎", "🍊", "🍋", "🍇", "🍓", "🍑", "🍒", "🥝",
+  "🍅", "🥑", "🍕", "🍔", "🍟", "🌭", "🍿", "🍦",
+  // Activities
+  "⚽", "🏀", "🎾", "🏈", "⚾", "🎱", "🏆", "🎮",
+  "🎲", "🎸", "🎹", "🎤", "🎧", "🎨", "📷", "🎭",
+];
+
+const EMOJI_PICKER_STYLES = `
+  position: fixed;
+  background: var(--nexus-bg, #fff);
+  border: 1px solid var(--nexus-border, #eee);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  padding: 8px;
+  z-index: 10000;
+  max-height: 300px;
+  overflow-y: auto;
+`;
+
+const TABLE_PICKER_STYLES = `
+  position: fixed;
+  background: var(--nexus-bg, #fff);
+  border: 1px solid var(--nexus-border, #eee);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  padding: 12px;
+  z-index: 10000;
+`;
+
+function showTablePicker(
+  editor: EditorAPI,
+  anchorBtn: HTMLElement,
+  onClose: () => void,
+): { destroy: () => void } {
+  const panel = document.createElement("div");
+  panel.className = "nexus-toolbar-dropdown";
+  panel.style.cssText = TABLE_PICKER_STYLES;
+
+  const rect = anchorBtn.getBoundingClientRect();
+  panel.style.top = rect.bottom + 4 + "px";
+  panel.style.left = rect.left + "px";
+
+  const label = document.createElement("div");
+  label.style.cssText = `
+    font-size: 12px;
+    color: var(--nexus-text-muted, #888);
+    margin-bottom: 8px;
+    padding: 0 4px;
+  `;
+  label.textContent = "Select rows × columns";
+  panel.appendChild(label);
+
+  const grid = document.createElement("div");
+  grid.style.cssText = `display:grid;grid-template-columns:repeat(6,1fr);gap:2px;`;
+
+  const maxRows = 6;
+  const maxCols = 6;
+  const itemCleanups: Array<() => void> = [];
+
+  for (let rows = 1; rows <= maxRows; rows++) {
+    for (let cols = 1; cols <= maxCols; cols++) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = `${rows}×${cols}`;
+      button.dataset.rows = String(rows);
+      button.dataset.cols = String(cols);
+      button.style.cssText = `
+        padding: 6px 10px;
+        border: 1px solid var(--nexus-border-subtle, #ddd);
+        border-radius: 4px;
+        background: transparent;
+        cursor: pointer;
+        font-size: 12px;
+        font-family: system-ui, -apple-system, sans-serif;
+        color: var(--nexus-text, #24292e);
+        transition: background 0.15s, border-color 0.15s;
+      `;
+
+      const handleClick = (e: MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const r = parseInt(button.dataset.rows || "3");
+        const c = parseInt(button.dataset.cols || "3");
+        
+        const headerRow = "| " + Array(c).fill("Header").join(" | ") + " |";
+        const separatorRow = "| " + Array(c).fill("---").join(" | ") + " |";
+        const bodyRows = Array(r - 1).fill("| " + Array(c).fill("").join(" | ") + " |").join("\n");
+        
+        const table = headerRow + "\n" + separatorRow + "\n" + bodyRows;
+        
+        const doc = editor.getDocument();
+        const { anchor, head } = editor.getSelection();
+        const before = doc.slice(0, anchor);
+        const after = doc.slice(head);
+        editor.setDocument(before + table + after);
+        editor.setSelection(anchor + table.length);
+        editor.focus();
+        onClose();
+      };
+      const handleEnter = () => { 
+        button.style.background = "var(--nexus-bg-muted, #f0f0f0)"; 
+        button.style.borderColor = "var(--nexus-accent, #0969da)";
+      };
+      const handleLeave = () => { 
+        button.style.background = "transparent"; 
+        button.style.borderColor = "var(--nexus-border-subtle, #ddd)";
+      };
+
+      button.addEventListener("click", handleClick);
+      button.addEventListener("mouseenter", handleEnter);
+      button.addEventListener("mouseleave", handleLeave);
+      itemCleanups.push(() => {
+        button.removeEventListener("click", handleClick);
+        button.removeEventListener("mouseenter", handleEnter);
+        button.removeEventListener("mouseleave", handleLeave);
+      });
+
+      grid.appendChild(button);
+    }
+  }
+
+  panel.appendChild(grid);
+  pickOverlayMount(anchorBtn).appendChild(panel);
+
+  return {
+    destroy() {
+      for (const fn of itemCleanups) fn();
+      itemCleanups.length = 0;
+      panel.remove();
+    },
+  };
+}
+
+function showEmojiPicker(
+  editor: EditorAPI,
+  anchorBtn: HTMLElement,
+  onClose: () => void,
+): { destroy: () => void } {
+  const panel = document.createElement("div");
+  panel.className = "nexus-toolbar-dropdown";
+  panel.style.cssText = EMOJI_PICKER_STYLES;
+
+  const rect = anchorBtn.getBoundingClientRect();
+  panel.style.top = rect.bottom + 4 + "px";
+  panel.style.left = rect.left + "px";
+
+  const grid = document.createElement("div");
+  grid.style.cssText = `display:grid;grid-template-columns:repeat(8,1fr);gap:2px;`;
+
+  const itemCleanups: Array<() => void> = [];
+
+  for (const emoji of EMOJI_PALETTE) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = emoji;
+    button.style.cssText = `
+      width: 32px;
+      height: 32px;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      cursor: pointer;
+      padding: 0;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+    `;
+
+    const handleClick = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const doc = editor.getDocument();
+      const { anchor, head } = editor.getSelection();
+      const before = doc.slice(0, anchor);
+      const after = doc.slice(head);
+      editor.setDocument(before + emoji + after);
+      editor.setSelection(anchor + emoji.length);
+      editor.focus();
+      onClose();
+    };
+    const handleEnter = () => { button.style.background = "var(--nexus-bg-muted, #f0f0f0)"; };
+    const handleLeave = () => { button.style.background = "transparent"; };
+
+    button.addEventListener("click", handleClick);
+    button.addEventListener("mouseenter", handleEnter);
+    button.addEventListener("mouseleave", handleLeave);
+    itemCleanups.push(() => {
+      button.removeEventListener("click", handleClick);
+      button.removeEventListener("mouseenter", handleEnter);
+      button.removeEventListener("mouseleave", handleLeave);
+    });
+
+    grid.appendChild(button);
+  }
+
+  panel.appendChild(grid);
+  pickOverlayMount(anchorBtn).appendChild(panel);
+
+  return {
+    destroy() {
+      for (const fn of itemCleanups) fn();
+      itemCleanups.length = 0;
+      panel.remove();
+    },
+  };
+}
+
 /** IDs that trigger dropdown behavior instead of a direct action. */
-const DROPDOWN_IDS = new Set(["heading-menu", "text-color", "highlight"]);
+const DROPDOWN_IDS = new Set(["heading-menu", "text-color", "highlight", "emoji", "table"]);
 
 export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): ToolbarUI {
   const groups = options?.groups ?? defaultGroups(options);
@@ -510,6 +755,10 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
             activeDropdown = showColorPicker(editor, button, COLOR_PALETTE, applyTextColor, closeDropdown);
           } else if (btn.id === "highlight") {
             activeDropdown = showColorPicker(editor, button, HIGHLIGHT_PALETTE, applyHighlight, closeDropdown);
+          } else if (btn.id === "emoji") {
+            activeDropdown = showEmojiPicker(editor, button, closeDropdown);
+          } else if (btn.id === "table") {
+            activeDropdown = showTablePicker(editor, button, closeDropdown);
           }
 
           outsideHandler = (ev: MouseEvent) => {

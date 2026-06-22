@@ -547,6 +547,8 @@ export class EditableTableWidget extends WidgetType {
       const initial = baseWidths[dataColIdx + 1];
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
+      // 禁用水平滚动，防止拖拽时出现滚动条
+      document.body.style.overflowX = "hidden";
 
       const onMove = (ev: MouseEvent): void => {
         const delta = ev.clientX - startX;
@@ -561,6 +563,8 @@ export class EditableTableWidget extends WidgetType {
         document.removeEventListener("mouseup", onUp);
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
+        // 恢复水平滚动
+        document.body.style.overflowX = "";
         tableColumnWidths.set(widthKey, baseWidths.slice());
         releaseEditingLock("drag");
       };
@@ -585,7 +589,7 @@ export class EditableTableWidget extends WidgetType {
         const isSelected = sel.from !== sel.to && sel.from <= self.tableFrom && sel.to >= tableEnd;
         selectionOverlay.style.display = isSelected ? "block" : "none";
         // If cursor moved outside table, no active interaction, no active range, clear range selection
-        if (rangeStart && !isRangeSelecting && !cellMouseDown && !rangeActive && (sel.head < self.tableFrom || sel.head > tableEnd)) {
+        if (rangeStart && !isRangeSelecting && !cellMouseDown && !rangeActive && draggingCol < 0 && draggingRow < 0 && (sel.head < self.tableFrom || sel.head > tableEnd)) {
           clearRangeSelection();
         }
       } else {
@@ -902,6 +906,8 @@ export class EditableTableWidget extends WidgetType {
       document.removeEventListener("mouseup", onDragEnd);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      // 恢复水平滚动
+      document.body.style.overflowX = "";
 
       // Release editing lock BEFORE dispatch so the resulting update rebuilds widget
       releaseEditingLock("drag");
@@ -930,6 +936,8 @@ export class EditableTableWidget extends WidgetType {
       document.addEventListener("mouseup", onDragEnd);
       document.body.style.cursor = "grabbing";
       document.body.style.userSelect = "none";
+      // 禁用水平滚动，防止拖拽时出现滚动条
+      document.body.style.overflowX = "hidden";
     }
 
     function startRowDrag(rowIdx: number, startY: number): void {
@@ -1357,6 +1365,11 @@ export class EditableTableWidget extends WidgetType {
             // CM 文档选区（常是第 0 行），让光标"飞到第一行"而非落在目标单元格。
             if (navigatingBetweenCells) {
               tableNavDebug("blur-dispatch:skipped (navigating)");
+              return;
+            }
+            // 在列/行拖拽期间也跳过，避免拖拽时触发不必要的视图更新
+            if (draggingCol >= 0 || draggingRow >= 0) {
+              tableNavDebug("blur-dispatch:skipped (dragging)");
               return;
             }
             const v = self.viewRef.current;
