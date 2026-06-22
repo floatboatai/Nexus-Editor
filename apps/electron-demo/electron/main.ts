@@ -3,6 +3,29 @@ import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promi
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  LLMWikiCompileQueue,
+  LLMWikiDocumentQueue,
+  LLMWikiStateStore,
+  getLLMWikiConfigStatus,
+  normalizeProjectIssues,
+  normalizeRawDocumentPath,
+  parsePositiveInteger,
+  resolveLLMWikiProjectRoot,
+  runSidecarCommand,
+  runSidecarCompile,
+  runSidecarIngestFile,
+  runSidecarQuery,
+  saveLLMWikiSource,
+  writeLLMWikiConfig,
+  type LLMWikiAskResult,
+  type LLMWikiConfigInput,
+  type LLMWikiConfigStatus,
+  type LLMWikiDocumentStatus,
+  type LLMWikiSaveSourceInput,
+  type LLMWikiSaveSourceResult,
+  type LLMWikiStatus,
+} from "./llm-wiki";
 
 // Must be called before app ready — declares our custom scheme as privileged
 // so images served via nexus-vault:// pass fetch/<img> with credentials / CORS.
@@ -32,6 +55,86 @@ const SKIP_DIRS = new Set(["node_modules", ".git", ".svn", ".hg", ".DS_Store"]);
 
 let activeVault: string | null = null;
 let activeWatcher: FSWatcher | null = null;
+let lastLLMWikiStatus: LLMWikiStatus | null = null;
+const documentQueues = new Map<string, LLMWikiDocumentQueue>();
+
+function resolveTrustedLLMWikiProjectRoot(): string {
+  // Renderer projectPath is advisory/untrusted; main resolves from activeVault/default.
+  return resolveLLMWikiProjectRoot(activeVault, app.getPath("documents"));
+}
+
+function llmWikiSidecarDir(): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, "llm-wiki");
+  }
+  return path.resolve(__dirname, "../llm-wiki");
+}
+
+function emitLLMWikiStatus(status: LLMWikiStatus): void {
+  lastLLMWikiStatus = status;
+  mainWindow?.webContents.send("llm-wiki:status", status);
+}
+
+function emitLLMWikiDocStatus(projectPath: string, rawPath: string, status: LLMWikiDocumentStatus): void {
+  mainWindow?.webContents.send("llm-wiki:doc-status", { projectPath, rawPath, status });
+}
+
+const llmWikiQueue = new LLMWikiCompileQueue({
+  debounceMs: parsePositiveInteger(process.env.LLM_WIKI_DEBOUNCE_MS, 800),
+  async runner(projectPath) {
+    const config = await getLLMWikiConfigStatus(llmWikiSidecarDir());
+    return runSidecarCompile(llmWikiSidecarDir(), projectPath, {
+      pythonCommand: process.env.LLM_WIKI_PYTHON ?? "python",
+      provider: config.provider,
+      timeoutMs: parsePositiveInteger(process.env.LLM_WIKI_TIMEOUT_MS, 120000),
+      maxStdoutBytes: parsePositiveInteger(process.env.LLM_WIKI_MAX_STDOUT_BYTES, 1024 * 1024),
+    });
+  },
+  emit: emitLLMWikiStatus,
+});
+
+function stateStoreFor(projectPath: string): LLMWikiStateStore {
+  return new LLMWikiStateStore(projectPath);
+}
+
+function queueFor(projectPath: string): LLMWikiDocumentQueue {
+  let queue = documentQueues.get(projectPath);
+  if (queue) return queue;
+  const store = stateStoreFor(projectPath);
+  queue = new LLMWikiDocumentQueue({
+    concurrency: 4,
+    loadTask: async (rawPath) => {
+      const state = await store.start(rawPath);
+      emitLLMWikiDocStatus(projectPath, rawPath, state);
+      return { rawPath, contentHash: state.contentHash };
+    },
+    runner: async (task) => {
+      const config = await getLLMWikiConfigStatus(llmWikiSidecarDir());
+      return runSidecarIngestFile(llmWikiSidecarDir(), projectPath, task.rawPath, {
+        pythonCommand: process.env.LLM_WIKI_PYTHON ?? "python",
+        timeoutMs: parsePositiveInteger(process.env.LLM_WIKI_TIMEOUT_MS, 120000),
+        maxStdoutBytes: parsePositiveInteger(process.env.LLM_WIKI_MAX_STDOUT_BYTES, 1024 * 1024),
+        provider: config.provider ?? "fixture",
+      });
+    },
+    complete: async (rawPath, hash, result) => {
+      const completed = await store.complete(rawPath, hash, result);
+      await store.setProjectIssues(normalizeProjectIssues(result.issues));
+      return completed;
+    },
+    fail: async (rawPath, hash, error) => {
+      try {
+        return await store.fail(rawPath, hash, error);
+      } catch (err) {
+        console.warn("[llm-wiki] failed to persist document failure status:", err);
+        throw err;
+      }
+    },
+    emit: (rawPath, status) => emitLLMWikiDocStatus(projectPath, rawPath, status),
+  });
+  documentQueues.set(projectPath, queue);
+  return queue;
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -215,6 +318,16 @@ function startWatcher(vaultPath: string): void {
   }
 }
 
+async function activateVault(vaultPath: string): Promise<string> {
+  const abs = path.resolve(vaultPath);
+  const info = await stat(abs);
+  if (!info.isDirectory()) throw new Error(`Not a directory: ${abs}`);
+
+  activeVault = abs;
+  startWatcher(abs);
+  return abs;
+}
+
 function vaultStatePath(): string {
   return path.join(app.getPath("userData"), "vault.json");
 }
@@ -250,13 +363,7 @@ ipcMain.handle("vault:pick", async () => {
 });
 
 ipcMain.handle("vault:list", async (_event, vaultPath: string) => {
-  const abs = path.resolve(vaultPath);
-  const info = await stat(abs);
-  if (!info.isDirectory()) throw new Error(`Not a directory: ${abs}`);
-
-  activeVault = abs;
-  startWatcher(abs);
-
+  const abs = await activateVault(vaultPath);
   return scanDirectory(abs);
 });
 
@@ -315,6 +422,158 @@ ipcMain.handle("vault:write", async (_event, filePath: string, content: string) 
   await writeFile(abs, content, "utf-8");
   return { path: abs };
 });
+
+ipcMain.handle("llm-wiki:get-status", async () => {
+  return lastLLMWikiStatus;
+});
+
+ipcMain.handle("llm-wiki:get-config-status", async (): Promise<LLMWikiConfigStatus> => {
+  return getLLMWikiConfigStatus(llmWikiSidecarDir());
+});
+
+ipcMain.handle(
+  "llm-wiki:save-config",
+  async (_event: Electron.IpcMainInvokeEvent, input: LLMWikiConfigInput): Promise<LLMWikiConfigStatus> => {
+    return writeLLMWikiConfig(llmWikiSidecarDir(), input);
+  }
+);
+
+ipcMain.handle(
+  "llm-wiki:ask",
+  async (
+    _event: Electron.IpcMainInvokeEvent,
+    input: { projectPath?: string | null; question: string }
+  ): Promise<LLMWikiAskResult> => {
+    const question = String(input.question ?? "").trim();
+    if (!question) throw new Error("Question cannot be empty");
+    const projectPath = resolveTrustedLLMWikiProjectRoot();
+    const config = await getLLMWikiConfigStatus(llmWikiSidecarDir());
+    if (config.provider !== "deepseek") {
+      throw new Error("LLM Wiki Ask requires DeepSeek provider.");
+    }
+    await runSidecarCommand(llmWikiSidecarDir(), "ensure", projectPath, {
+      pythonCommand: process.env.LLM_WIKI_PYTHON ?? "python",
+      timeoutMs: parsePositiveInteger(process.env.LLM_WIKI_TIMEOUT_MS, 120000),
+      maxStdoutBytes: parsePositiveInteger(process.env.LLM_WIKI_MAX_STDOUT_BYTES, 1024 * 1024),
+    });
+    return runSidecarQuery(llmWikiSidecarDir(), projectPath, question, {
+      pythonCommand: process.env.LLM_WIKI_PYTHON ?? "python",
+      timeoutMs: parsePositiveInteger(process.env.LLM_WIKI_TIMEOUT_MS, 120000),
+      maxStdoutBytes: parsePositiveInteger(process.env.LLM_WIKI_MAX_STDOUT_BYTES, 1024 * 1024),
+      provider: config.provider,
+    });
+  }
+);
+
+ipcMain.handle("llm-wiki:open-schema", async (_event, input?: { projectPath?: string | null }) => {
+  void input;
+  const projectPath = resolveTrustedLLMWikiProjectRoot();
+  await runSidecarCommand(llmWikiSidecarDir(), "ensure", projectPath, {
+    pythonCommand: process.env.LLM_WIKI_PYTHON ?? "python",
+    timeoutMs: parsePositiveInteger(process.env.LLM_WIKI_TIMEOUT_MS, 120000),
+    maxStdoutBytes: parsePositiveInteger(process.env.LLM_WIKI_MAX_STDOUT_BYTES, 1024 * 1024),
+  });
+  await activateVault(projectPath);
+  const schemaPath = path.join(projectPath, ".nexus", "llm-wiki-schema.md");
+  const content = await readFile(schemaPath, "utf-8");
+  return { projectPath, schemaPath, content };
+});
+
+ipcMain.handle("llm-wiki:get-doc-statuses", async () => {
+  const projectPath = resolveTrustedLLMWikiProjectRoot();
+  const state = await stateStoreFor(projectPath).read();
+  return { projectPath, state };
+});
+
+ipcMain.handle("llm-wiki:get-submit-mode", async () => {
+  const projectPath = resolveTrustedLLMWikiProjectRoot();
+  return { projectPath, mode: (await stateStoreFor(projectPath).read()).mode };
+});
+
+ipcMain.handle("llm-wiki:set-submit-mode", async (_event, mode: "manual" | "auto") => {
+  const projectPath = resolveTrustedLLMWikiProjectRoot();
+  const state = await stateStoreFor(projectPath).setMode(mode === "auto" ? "auto" : "manual");
+  return { projectPath, mode: state.mode };
+});
+
+ipcMain.handle("llm-wiki:submit-doc", async (_event, input?: { rawPath: string }) => {
+  const projectPath = resolveTrustedLLMWikiProjectRoot();
+  const rawPath = normalizeRawDocumentPath(String(input?.rawPath ?? ""));
+  const store = stateStoreFor(projectPath);
+  const status = await store.enqueue(rawPath);
+  emitLLMWikiDocStatus(projectPath, rawPath, status);
+  queueFor(projectPath).enqueue(rawPath);
+  return { projectPath, rawPath, status };
+});
+
+ipcMain.handle("llm-wiki:submit-all-dirty", async () => {
+  const projectPath = resolveTrustedLLMWikiProjectRoot();
+  const store = stateStoreFor(projectPath);
+  const state = await store.read();
+  const submitted: string[] = [];
+  for (const [rawPath, status] of Object.entries(state.documents)) {
+    if (status.status !== "dirty") continue;
+    const next = await store.enqueue(rawPath);
+    emitLLMWikiDocStatus(projectPath, rawPath, next);
+    queueFor(projectPath).enqueue(rawPath);
+    submitted.push(rawPath);
+  }
+  return { projectPath, submitted };
+});
+
+ipcMain.handle("llm-wiki:retry-failed", async () => {
+  const projectPath = resolveTrustedLLMWikiProjectRoot();
+  const store = stateStoreFor(projectPath);
+  const state = await store.read();
+  const submitted: string[] = [];
+  for (const [rawPath, status] of Object.entries(state.documents)) {
+    if (status.status !== "failed") continue;
+    const next = await store.enqueue(rawPath);
+    emitLLMWikiDocStatus(projectPath, rawPath, next);
+    queueFor(projectPath).enqueue(rawPath);
+    submitted.push(rawPath);
+  }
+  return { projectPath, submitted };
+});
+
+ipcMain.handle(
+  "llm-wiki:save-source",
+  async (
+    _event: Electron.IpcMainInvokeEvent,
+    input: LLMWikiSaveSourceInput
+  ): Promise<LLMWikiSaveSourceResult> => {
+    const projectPath = resolveTrustedLLMWikiProjectRoot();
+    return saveLLMWikiSource(
+      { projectPath, currentPath: input.currentPath, content: input.content ?? "" },
+      {
+        mkdir,
+        activateVault,
+        writeFile,
+        pathExists: existsSync,
+        enqueueCompile: (queuedProjectPath) => llmWikiQueue.enqueue(queuedProjectPath),
+        markDirty: async (dirtyProjectPath, rawPath, content) => {
+          const changed = await stateStoreFor(dirtyProjectPath).markDirty(rawPath, content);
+          const state = await stateStoreFor(dirtyProjectPath).read();
+          const status = state.documents[rawPath];
+          if (status) emitLLMWikiDocStatus(dirtyProjectPath, rawPath, status);
+          return changed;
+        },
+        shouldAutoSubmit: async (dirtyProjectPath) => (await stateStoreFor(dirtyProjectPath).read()).mode === "auto",
+        enqueueDocument: (dirtyProjectPath, rawPath) => {
+          void stateStoreFor(dirtyProjectPath)
+            .enqueue(rawPath)
+            .then((status) => {
+              emitLLMWikiDocStatus(dirtyProjectPath, rawPath, status);
+              queueFor(dirtyProjectPath).enqueue(rawPath);
+            })
+            .catch((err) => {
+              console.warn("[llm-wiki] failed to enqueue saved document:", err);
+            });
+        },
+      }
+    );
+  }
+);
 
 ipcMain.handle(
   "vault:create-file",

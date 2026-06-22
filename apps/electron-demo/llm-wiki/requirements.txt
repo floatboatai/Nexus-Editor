@@ -1,0 +1,2 @@
+# The fixture provider uses only the Python standard library.
+# Optional real-provider dependencies should not be required by CI.

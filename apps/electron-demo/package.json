@@ -12,7 +12,7 @@
     "dev:electron": "node scripts/dev-electron.mjs",
     "build": "tsup electron/main.ts electron/preload.ts --outDir dist-electron --format cjs --platform node --external electron --clean && vite build",
     "start": "electron dist-electron/main.js",
-    "test": "vitest run --config ../../vitest.config.ts",
+    "test": "pnpm --dir ../.. exec vitest run --config vitest.config.ts apps/electron-demo/test",
     "dist": "pnpm run build && electron-builder",
     "dist:mac": "pnpm run build && electron-builder --mac",
     "dist:mac-arm64": "pnpm run build && electron-builder --mac --arm64",
@@ -48,6 +48,19 @@
       "dist-electron/**/*",
       "dist/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "llm-wiki",
+        "to": "llm-wiki",
+        "filter": [
+          "llm_wiki.py",
+          "schema.md",
+          "requirements.txt",
+          "README.md",
+          ".env.example"
+        ]
+      }
     ],
     "extraMetadata": {
       "name": "nexus-editor",

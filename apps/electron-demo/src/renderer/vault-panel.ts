@@ -2,6 +2,7 @@ export interface VaultPanelCallbacks {
   onOpenFile(filePath: string): void;
   onError(message: string): void;
   onStatus(message: string): void;
+  getLLMWikiRawStatus?(filePath: string): LLMWikiDocumentStatus | null;
 }
 
 export interface VaultPanel {
@@ -268,10 +269,19 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     }
 
     const label = document.createElement("span");
+    label.className = "vault-panel__label";
+    label.dataset.role = "vault-label";
     label.textContent = node.name;
     label.style.cssText = "flex: 1; overflow: hidden; text-overflow: ellipsis;";
 
     row.append(icon, label);
+    const llmStatus = node.kind === "file" ? callbacks.getLLMWikiRawStatus?.(node.path) : null;
+    if (llmStatus) {
+      const badge = document.createElement("span");
+      badge.className = `vault-panel__llm-status vault-panel__llm-status--${llmStatus.status}`;
+      badge.textContent = llmStatus.status;
+      row.appendChild(badge);
+    }
     parent.appendChild(row);
 
     row.addEventListener("mouseenter", () => {
@@ -401,7 +411,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
       label: "Rename",
       onClick: () => {
         const row = tree.querySelector<HTMLElement>(`[data-path="${cssEscape(node.path)}"]`);
-        const label = row?.querySelector<HTMLElement>("span:last-child");
+        const label = row?.querySelector<HTMLElement>('[data-role="vault-label"]');
         if (row && label) beginInlineRename(row, label, node);
       },
     });

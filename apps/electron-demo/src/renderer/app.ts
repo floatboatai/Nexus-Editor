@@ -6,6 +6,8 @@ import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
+import { createAskWikiPanel, type AskWikiPanel } from "./ask-wiki-panel";
+import { createLLMWikiQueuePanel, type LLMWikiQueuePanel } from "./llm-wiki-queue-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
 
 installLongTaskWatch(50);
@@ -17,9 +19,100 @@ let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+let askWiki: AskWikiPanel;
+let llmWikiQueue: LLMWikiQueuePanel;
+let llmWikiState: LLMWikiStateFile | null = null;
+let llmWikiStatus: LLMWikiStatus | null = null;
+let llmWikiProjectPath: string | null = null;
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
+
+function unavailableInBrowser(): Error {
+  return new Error("This action requires the Electron desktop app.");
+}
+
+function ensureBrowserBridge(): void {
+  if (window.nexusDemo) return;
+
+  window.nexusDemo = {
+    openFile: async () => null,
+    saveFile: async () => {
+      throw unavailableInBrowser();
+    },
+    saveFileAs: async () => null,
+    vault: {
+      pick: async () => null,
+      list: async () => [],
+      read: async () => {
+        throw unavailableInBrowser();
+      },
+      readAll: async () => [],
+      write: async () => {
+        throw unavailableInBrowser();
+      },
+      createFile: async () => {
+        throw unavailableInBrowser();
+      },
+      createFolder: async () => {
+        throw unavailableInBrowser();
+      },
+      rename: async () => {
+        throw unavailableInBrowser();
+      },
+      delete: async () => {
+        throw unavailableInBrowser();
+      },
+      getLast: async () => ({ lastVault: null, recents: [] }),
+      setLast: async () => ({ ok: false }),
+      onChanged: () => () => {},
+    },
+    llmWiki: {
+      saveSource: async () => {
+        throw unavailableInBrowser();
+      },
+      getStatus: async () => null,
+      getDocStatuses: async () => ({
+        projectPath: "",
+        state: {
+          version: 1,
+          mode: "manual",
+          documents: {},
+          projectIssues: [],
+        },
+      }),
+      submitDoc: async () => {
+        throw unavailableInBrowser();
+      },
+      submitAllDirty: async () => {
+        throw unavailableInBrowser();
+      },
+      retryFailed: async () => {
+        throw unavailableInBrowser();
+      },
+      getSubmitMode: async () => ({ projectPath: "", mode: "manual" }),
+      setSubmitMode: async (mode) => ({ projectPath: "", mode }),
+      getConfigStatus: async () => ({
+        provider: "fixture",
+        model: "deepseek-v4-pro",
+        baseUrl: "https://api.deepseek.com",
+        apiKeyConfigured: false,
+        envPath: "Electron desktop app",
+      }),
+      saveConfig: async () => {
+        throw unavailableInBrowser();
+      },
+      ask: async () => {
+        throw unavailableInBrowser();
+      },
+      openSchema: async () => {
+        throw unavailableInBrowser();
+      },
+      onStatus: () => () => {},
+      onDocStatus: () => () => {},
+    },
+  };
+}
 
 function createAppToolbar(): HTMLElement {
   const toolbar = document.createElement("div");
@@ -71,8 +164,18 @@ function createAppToolbar(): HTMLElement {
   searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
 
+  const askWikiBtn = document.createElement("button");
+  askWikiBtn.textContent = "Ask";
+  askWikiBtn.title = "Ask the current LLM Wiki";
+  askWikiBtn.addEventListener("click", () => askWiki.toggle());
+
+  const queueBtn = document.createElement("button");
+  queueBtn.textContent = "Queue";
+  queueBtn.title = "LLM Wiki submission queue";
+  queueBtn.addEventListener("click", () => llmWikiQueue.toggle());
+
   const settingsBtn = document.createElement("button");
-  settingsBtn.textContent = "\u2699"; // ⚙
+  settingsBtn.textContent = "\u2699"; // gear
   settingsBtn.title = "Settings";
   settingsBtn.style.fontSize = "16px";
   settingsBtn.addEventListener("click", handleSettings);
@@ -87,6 +190,8 @@ function createAppToolbar(): HTMLElement {
     outlineBtn,
     backlinksBtn,
     searchBtn,
+    askWikiBtn,
+    queueBtn,
     settingsBtn
   );
   return toolbar;
@@ -111,7 +216,114 @@ function renderStatus(): void {
     ? ` | Vault: ${state.vaultPath.split(/[\\/]/).pop()}`
     : "";
   const errorText = state.error ? ` — Error: ${state.error}` : "";
-  el.textContent = `${pathLabel}${dirtyMark}${statsText}${vaultLabel}${errorText}`;
+  const llmWikiText = llmWikiStatus ? ` | ${formatLLMWikiStatus(llmWikiStatus)}` : "";
+  const docStatusText = formatLLMWikiDocumentSummary();
+  el.textContent = `${pathLabel}${dirtyMark}${statsText}${vaultLabel}${llmWikiText}${docStatusText}${errorText}`;
+}
+
+function formatLLMWikiStatus(status: LLMWikiStatus): string {
+  if (status.state === "running") return "LLM Wiki: compiling...";
+  if (status.state === "succeeded") return "LLM Wiki: ok";
+  if (status.state === "failed") {
+    return `LLM Wiki: failed: ${shortStatusMessage(status.message ?? status.result?.error ?? "unknown")}`;
+  }
+  return "LLM Wiki: queued";
+}
+
+function formatLLMWikiDocumentSummary(): string {
+  if (!llmWikiState) return "";
+  const docs = Object.values(llmWikiState.documents);
+  if (docs.length === 0) return "";
+  const count = (status: LLMWikiDocumentStatusState) => docs.filter((doc) => doc.status === status).length;
+  const parts = [
+    `${count("dirty")} dirty`,
+    `${count("queued")} queued`,
+    `${count("submitting")} submitting`,
+    `${count("failed")} failed`,
+    `${count("parsed")} parsed`,
+    `${docs.length} total`,
+  ];
+  return ` | LLM Wiki docs: ${parts.join(", ")}`;
+}
+
+function shortStatusMessage(message: string): string {
+  const compact = message.replace(/\s+/g, " ").trim();
+  return compact.length > 80 ? `${compact.slice(0, 77)}...` : compact;
+}
+
+function rawPathRelativeToVault(filePath: string): string | null {
+  const project = state.vaultPath;
+  if (!project) return null;
+  const normalizedFile = filePath.replace(/\\/g, "/").replace(/\/+$/, "");
+  const normalizedProject = project.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (normalizedFile !== normalizedProject && !normalizedFile.startsWith(`${normalizedProject}/`)) {
+    return null;
+  }
+  const rel = normalizedFile === normalizedProject
+    ? ""
+    : normalizedFile.slice(normalizedProject.length + 1);
+  return rel.startsWith("raw/") ? rel : null;
+}
+
+function rawStatusForFile(filePath: string): LLMWikiDocumentStatus | null {
+  if (!llmWikiState) return null;
+  const rel = rawPathRelativeToVault(filePath);
+  return rel ? llmWikiState.documents[rel] ?? null : null;
+}
+
+function normalizeProjectPath(projectPath: string): string {
+  return projectPath.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function sameProjectPath(left: string | null, right: string): boolean {
+  return left !== null && normalizeProjectPath(left) === normalizeProjectPath(right);
+}
+
+function isCurrentLLMWikiProject(projectPath: string): boolean {
+  if (llmWikiProjectPath && !sameProjectPath(llmWikiProjectPath, projectPath)) return false;
+  if (state.vaultPath && !sameProjectPath(state.vaultPath, projectPath)) return false;
+  return true;
+}
+
+function acceptsLLMWikiStatusProject(projectPath: string): boolean {
+  if (llmWikiProjectPath) return sameProjectPath(llmWikiProjectPath, projectPath);
+  if (state.vaultPath) return sameProjectPath(state.vaultPath, projectPath);
+  return true;
+}
+
+function updateLLMWikiDocumentState(projectPath: string, nextState: LLMWikiStateFile | null): void {
+  llmWikiProjectPath = projectPath;
+  if (llmWikiStatus && !sameProjectPath(projectPath, llmWikiStatus.projectPath)) {
+    llmWikiStatus = null;
+  }
+  llmWikiState = nextState;
+  llmWikiQueue.update(llmWikiState);
+  renderStatus();
+  void vault.refresh();
+}
+
+function clearLLMWikiDocumentState(projectPath: string | null): void {
+  llmWikiProjectPath = projectPath;
+  llmWikiStatus = null;
+  llmWikiState = null;
+  llmWikiQueue.update(null);
+  renderStatus();
+  void vault.refresh();
+}
+
+async function refreshLLMWikiDocumentStatuses(): Promise<void> {
+  try {
+    const payload = await window.nexusDemo.llmWiki.getDocStatuses();
+    if (!isCurrentLLMWikiProject(payload.projectPath)) return;
+    updateLLMWikiDocumentState(payload.projectPath, payload.state);
+  } catch (err) {
+    console.warn("Could not read LLM Wiki document statuses:", err);
+  }
+}
+
+function activeRawPath(): string | null {
+  const active = state.activeFile ?? state.filePath;
+  return active ? rawPathRelativeToVault(active) : null;
 }
 
 async function confirmDiscardIfDirty(): Promise<boolean> {
@@ -140,18 +352,24 @@ async function handleOpen(): Promise<void> {
 async function handleSave(): Promise<void> {
   try {
     state.error = null;
-    const targetPath = state.activeFile ?? state.filePath;
-    if (targetPath) {
-      if (state.vaultPath && targetPath.startsWith(state.vaultPath)) {
-        await window.nexusDemo.vault.write(targetPath, state.content);
-      } else {
-        await window.nexusDemo.saveFile(targetPath, state.content);
-      }
-      state.dirty = false;
+    const result = await window.nexusDemo.llmWiki.saveSource({
+      content: state.content,
+      currentPath: state.activeFile ?? state.filePath,
+    });
+
+    state.filePath = result.savedPath;
+    state.activeFile = result.savedPath;
+    state.vaultPath = result.projectPath;
+    state.dirty = false;
+
+    if (vault.getVaultPath() !== result.projectPath) {
+      await vault.openVault(result.projectPath);
     } else {
-      await handleSaveAs();
-      return;
+      await vault.refresh();
     }
+    vault.setActiveFile(result.savedPath);
+    linkIndex.updateFile(result.savedPath, state.content);
+    backlinks.refresh();
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
   }
@@ -175,10 +393,35 @@ async function handleSaveAs(): Promise<void> {
 }
 
 function handleSettings(): void {
-  createSettingsPanel(settings, (next) => {
-    settings = next;
-    shell.applySettings(settings);
-  });
+  createSettingsPanel(
+    settings,
+    (next) => {
+      settings = next;
+      shell.applySettings(settings);
+    },
+    {
+      getConfigStatus: () => window.nexusDemo.llmWiki.getConfigStatus(),
+      saveConfig: (input) => window.nexusDemo.llmWiki.saveConfig(input),
+      getSubmitMode: () => window.nexusDemo.llmWiki.getSubmitMode(),
+      setSubmitMode: (mode) => window.nexusDemo.llmWiki.setSubmitMode(mode),
+      openSchema: async () => {
+        if (!(await confirmDiscardIfDirty())) return;
+        const result = await window.nexusDemo.llmWiki.openSchema({ projectPath: state.vaultPath });
+        state.vaultPath = result.projectPath;
+        if (vault.getVaultPath() !== result.projectPath) {
+          await vault.openVault(result.projectPath);
+        } else {
+          await vault.refresh();
+        }
+        shell.loadDocument(result.content);
+        state.filePath = result.schemaPath;
+        state.activeFile = result.schemaPath;
+        state.dirty = false;
+        vault.setActiveFile(result.schemaPath);
+        renderStatus();
+      },
+    }
+  );
 }
 
 function togglePanel(panel: HTMLElement, onShow?: () => void): void {
@@ -340,7 +583,26 @@ async function tryRestoreLastVault(): Promise<void> {
   }
 }
 
+function handleLLMWikiStatus(status: LLMWikiStatus): void {
+  if (!acceptsLLMWikiStatusProject(status.projectPath)) return;
+  llmWikiStatus = status;
+  renderStatus();
+  if (status.state !== "succeeded") return;
+
+  void (async () => {
+    await vault.refresh();
+    await seedLinkIndex();
+    backlinks.refresh();
+    renderStatus();
+  })().catch((err) => {
+    state.error = err instanceof Error ? err.message : String(err);
+    renderStatus();
+  });
+}
+
 function boot(): void {
+  ensureBrowserBridge();
+
   const bootScope = perfStart("boot");
   const root = document.getElementById("app");
   if (!root) throw new Error("Missing #app element");
@@ -387,6 +649,7 @@ function boot(): void {
     onStatus: (_message) => {
       renderStatus();
     },
+    getLLMWikiRawStatus: rawStatusForFile,
   });
 
   // Keep state in sync when the vault panel picks a new vault.
@@ -394,9 +657,11 @@ function boot(): void {
   vault.openVault = async (nextPath: string) => {
     await originalOpenVault(nextPath);
     state.vaultPath = nextPath;
+    clearLLMWikiDocumentState(nextPath);
     renderStatus();
     // Index in the background — don't block the editor on it.
     void seedLinkIndex();
+    void refreshLLMWikiDocumentStatuses();
   };
 
   outline = createOutlinePanel(shell.editor);
@@ -406,12 +671,80 @@ function boot(): void {
     onOpenFile: (filePath) => void handleVaultFileOpen(filePath),
     getActiveFile: () => state.activeFile,
   });
+  askWiki = createAskWikiPanel({
+    getProjectPath: () => state.vaultPath,
+    ask: (input) => window.nexusDemo.llmWiki.ask(input),
+    onError: (message) => {
+      state.error = message;
+      renderStatus();
+    },
+  });
+  llmWikiQueue = createLLMWikiQueuePanel({
+    getActiveRawPath: activeRawPath,
+    getState: () => llmWikiState,
+    submitCurrent: async (rawPath) => {
+      await window.nexusDemo.llmWiki.submitDoc({ rawPath });
+      await refreshLLMWikiDocumentStatuses();
+    },
+    submitAllDirty: async () => {
+      await window.nexusDemo.llmWiki.submitAllDirty();
+      await refreshLLMWikiDocumentStatuses();
+    },
+    retryFailed: async () => {
+      await window.nexusDemo.llmWiki.retryFailed();
+      await refreshLLMWikiDocumentStatuses();
+    },
+    openSchema: async () => {
+      if (!(await confirmDiscardIfDirty())) return;
+      const result = await window.nexusDemo.llmWiki.openSchema({ projectPath: state.vaultPath });
+      state.vaultPath = result.projectPath;
+      if (vault.getVaultPath() !== result.projectPath) {
+        await vault.openVault(result.projectPath);
+      } else {
+        await vault.refresh();
+      }
+      shell.loadDocument(result.content);
+      state.filePath = result.schemaPath;
+      state.activeFile = result.schemaPath;
+      state.dirty = false;
+      vault.setActiveFile(result.schemaPath);
+      renderStatus();
+    },
+    onError: (message) => {
+      state.error = message;
+      renderStatus();
+    },
+  });
 
   editorColumn.append(searchBar.element, editorContainer);
-  mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
+  mainArea.append(vault.element, editorColumn, outline.element, backlinks.element, askWiki.element, llmWikiQueue.element);
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {
+    void seedLinkIndex();
+  });
+
+  window.nexusDemo.llmWiki.onStatus(handleLLMWikiStatus);
+  void window.nexusDemo.llmWiki
+    .getStatus()
+    .then((status) => {
+      if (status) handleLLMWikiStatus(status);
+    })
+    .catch((err) => {
+      console.warn("Could not read LLM Wiki status:", err);
+    });
+  void refreshLLMWikiDocumentStatuses();
+
+  window.nexusDemo.llmWiki.onDocStatus((payload) => {
+    if (!isCurrentLLMWikiProject(payload.projectPath)) return;
+    llmWikiProjectPath = payload.projectPath;
+    if (!llmWikiState) {
+      llmWikiState = { version: 1, mode: "manual", documents: {}, projectIssues: [] };
+    }
+    llmWikiState.documents[payload.rawPath] = payload.status;
+    llmWikiQueue.update(llmWikiState);
+    renderStatus();
+    void vault.refresh();
     void seedLinkIndex();
   });
 

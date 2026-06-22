@@ -71,13 +71,13 @@ const DIALOG_STYLES = `
   border: 1px solid var(--nexus-border, #eee);
   border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.2);
-  width: 520px; max-height: 80vh;
+  width: min(520px, calc(100vw - 32px)); max-height: min(80vh, calc(100vh - 32px));
   overflow-y: auto;
   padding: 0;
 `;
 
 const HEADER_STYLES = `
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
   padding: 16px 24px;
   border-bottom: 1px solid var(--nexus-border, #eee);
   font-size: 16px; font-weight: 600;
@@ -126,6 +126,14 @@ interface SettingsPanelResult {
 }
 
 type OnChange = (settings: EditorSettings) => void;
+
+export interface LLMWikiSettingsActions {
+  getConfigStatus(): Promise<LLMWikiConfigStatus>;
+  saveConfig(input: LLMWikiConfigInput): Promise<LLMWikiConfigStatus>;
+  getSubmitMode(): Promise<{ projectPath: string; mode: LLMWikiSubmitMode }>;
+  setSubmitMode(mode: LLMWikiSubmitMode): Promise<{ projectPath: string; mode: LLMWikiSubmitMode }>;
+  openSchema(): Promise<void>;
+}
 
 function createToggle(value: boolean, onChange: (v: boolean) => void): HTMLElement {
   const btn = document.createElement("button");
@@ -214,6 +222,37 @@ function createTextInput(value: string, placeholder: string, onChange: (v: strin
   return input;
 }
 
+function createPasswordInput(placeholder: string, onChange: (v: string) => void): HTMLInputElement {
+  const input = document.createElement("input");
+  input.type = "password";
+  input.autocomplete = "off";
+  input.placeholder = placeholder;
+  input.style.cssText = `
+    padding: 4px 8px; border-radius: 6px; font-size: 13px;
+    border: 1px solid var(--nexus-border, #ddd);
+    background: var(--nexus-bg, #fff);
+    color: var(--nexus-text, #24292e);
+    width: 180px; flex-shrink: 0;
+  `;
+  input.addEventListener("input", () => onChange(input.value));
+  return input;
+}
+
+function createInlineButton(label: string, onClick: () => void): HTMLButtonElement {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.textContent = label;
+  btn.style.cssText = `
+    padding: 4px 10px; border-radius: 6px; font-size: 13px;
+    border: 1px solid var(--nexus-border, #ddd);
+    background: var(--nexus-bg, #fff);
+    color: var(--nexus-text, #24292e);
+    cursor: pointer;
+  `;
+  btn.addEventListener("click", onClick);
+  return btn;
+}
+
 function row(title: string, desc: string, control: HTMLElement): HTMLElement {
   const el = document.createElement("div");
   el.style.cssText = ROW_STYLES;
@@ -241,7 +280,26 @@ function sectionTitle(text: string): HTMLElement {
   return el;
 }
 
-export function createSettingsPanel(settings: EditorSettings, onChange: OnChange): SettingsPanelResult {
+function formatLLMWikiConfigStatus(status: LLMWikiConfigStatus): string {
+  return status.provider === "deepseek" && status.apiKeyConfigured
+    ? "DeepSeek configured"
+    : "Fixture mode";
+}
+
+function sanitizeLLMWikiError(err: unknown, apiKey: string): string {
+  const message = err instanceof Error ? err.message : String(err);
+  const withoutInputKey = apiKey ? message.split(apiKey).join("[redacted]") : message;
+  return withoutInputKey
+    .replace(/\b([A-Z0-9_]*(?:KEY|TOKEN|SECRET)[A-Z0-9_]*)=([^\s]+)/gi, "$1=[redacted]")
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, "[redacted-key]")
+    .slice(0, 500);
+}
+
+export function createSettingsPanel(
+  settings: EditorSettings,
+  onChange: OnChange,
+  llmWiki?: LLMWikiSettingsActions
+): SettingsPanelResult {
   const backdrop = document.createElement("div");
   backdrop.style.cssText = PANEL_STYLES;
 
@@ -284,6 +342,116 @@ export function createSettingsPanel(settings: EditorSettings, onChange: OnChange
   // -- Behavior section --
   body.appendChild(sectionTitle("Behavior"));
   body.appendChild(row("Tab size", "Number of spaces per tab", createNumberInput(s.tabSize, 1, 8, 1, (v) => { s.tabSize = v; emit(); })));
+
+  if (llmWiki) {
+    const configState: LLMWikiConfigInput = {
+      provider: "fixture",
+      model: "deepseek-v4-pro",
+      baseUrl: "https://api.deepseek.com",
+      apiKey: "",
+    };
+    const statusText = document.createElement("span");
+    statusText.textContent = "Loading...";
+    statusText.style.cssText = "font-size:13px;color:var(--nexus-text-muted,#888);";
+
+    let submitModeTouched = false;
+    const submitModeSelect = createSelect(["manual", "auto"], "manual", (v) => {
+      submitModeTouched = true;
+      void llmWiki.setSubmitMode(v === "auto" ? "auto" : "manual")
+        .then((result) => {
+          submitModeSelect.value = result.mode;
+        })
+        .catch((err) => {
+          statusText.textContent = err instanceof Error ? err.message : String(err);
+        });
+    }) as HTMLSelectElement;
+    const providerSelect = createSelect(["fixture", "deepseek"], configState.provider, (v) => {
+      configState.provider = v === "deepseek" ? "deepseek" : "fixture";
+    }) as HTMLSelectElement;
+    const modelInput = createTextInput(configState.model ?? "", "deepseek-v4-pro", (v) => {
+      configState.model = v;
+    }) as HTMLInputElement;
+    const baseUrlInput = createTextInput(configState.baseUrl ?? "", "https://api.deepseek.com", (v) => {
+      configState.baseUrl = v;
+    }) as HTMLInputElement;
+    const apiKeyInput = createPasswordInput("Leave blank to keep existing key", (v) => {
+      configState.apiKey = v;
+    });
+
+    const saveBtn = createInlineButton("Save", () => {
+      void (async () => {
+        const submittedKey = configState.apiKey ?? "";
+        try {
+          statusText.textContent = "Saving...";
+          const next = await llmWiki.saveConfig(configState);
+          apiKeyInput.value = "";
+          configState.apiKey = "";
+          configState.provider = next.provider;
+          configState.model = next.model;
+          configState.baseUrl = next.baseUrl;
+          providerSelect.value = next.provider;
+          modelInput.value = next.model;
+          baseUrlInput.value = next.baseUrl;
+          statusText.textContent = formatLLMWikiConfigStatus(next);
+        } catch (err) {
+          statusText.textContent = sanitizeLLMWikiError(err, submittedKey);
+        }
+      })();
+    });
+    const openSchemaBtn = createInlineButton("Open schema", () => {
+      void (async () => {
+        try {
+          statusText.textContent = "Opening schema...";
+          await llmWiki.openSchema();
+        } catch (err) {
+          statusText.textContent = sanitizeLLMWikiError(err, configState.apiKey ?? "");
+        }
+      })();
+    });
+    const docsLink = document.createElement("a");
+    docsLink.href = "https://api-docs.deepseek.com/zh-cn/";
+    docsLink.target = "_blank";
+    docsLink.rel = "noreferrer";
+    docsLink.textContent = "DeepSeek docs";
+    docsLink.style.cssText = "font-size:13px;color:var(--nexus-accent,#0969da);text-decoration:none;";
+
+    const actions = document.createElement("div");
+    actions.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;";
+    actions.append(saveBtn, openSchemaBtn, docsLink);
+
+    body.appendChild(sectionTitle("LLM Wiki"));
+    body.appendChild(row("Submit mode", "Manual by default, or auto submit raw saves", submitModeSelect));
+    body.appendChild(row("Provider", "Use deterministic fixtures or DeepSeek", providerSelect));
+    body.appendChild(row("DeepSeek model", "Model used by the Python sidecar", modelInput));
+    body.appendChild(row("DeepSeek base URL", "API endpoint for DeepSeek-compatible requests", baseUrlInput));
+    body.appendChild(row("DeepSeek API key", "Stored only in the sidecar .env file", apiKeyInput));
+    body.appendChild(row("Configuration status", "Current sidecar provider configuration", statusText));
+    body.appendChild(row("Actions", "Save provider config or edit the schema", actions));
+
+    void llmWiki.getConfigStatus()
+      .then((status) => {
+        configState.provider = status.provider;
+        configState.model = status.model;
+        configState.baseUrl = status.baseUrl;
+        configState.apiKey = "";
+        providerSelect.value = status.provider;
+        modelInput.value = status.model;
+        baseUrlInput.value = status.baseUrl;
+        statusText.textContent = formatLLMWikiConfigStatus(status);
+      })
+      .catch((err) => {
+        statusText.textContent = sanitizeLLMWikiError(err, "");
+      });
+    void llmWiki.getSubmitMode()
+      .then((result) => {
+        if (!submitModeTouched) {
+          submitModeSelect.value = result.mode;
+        }
+      })
+      .catch((err) => {
+        statusText.textContent = err instanceof Error ? err.message : String(err);
+      });
+  }
 
   dialog.append(header, body);
   backdrop.appendChild(dialog);
