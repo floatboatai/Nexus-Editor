@@ -18,13 +18,15 @@ export function useEditor(config: UseEditorConfig): UseEditorResult {
       return;
     }
 
+    const { onReady, ...editorConfig } = configRef.current;
     const instance = createEditor({
       container,
-      ...configRef.current
+      ...editorConfig
     });
 
     editorRef.current = instance;
     setEditor(instance);
+    onReady?.(instance);
 
     return () => {
       instance.destroy();
