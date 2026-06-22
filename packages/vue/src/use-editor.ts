@@ -12,10 +12,12 @@ export function useEditor(config: UseEditorConfig): UseEditorResult {
       return;
     }
 
+    const { onReady, ...editorConfig } = config;
     editor.value = createEditor({
       container: containerRef.value,
-      ...config
+      ...editorConfig
     });
+    onReady?.(editor.value);
   });
 
   onBeforeUnmount(() => {
