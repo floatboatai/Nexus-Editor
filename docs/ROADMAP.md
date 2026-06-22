@@ -57,7 +57,7 @@ This document maps every planned feature to **package ownership / priority / sta
 
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
-| 4 | `<Editor />` container pass-through props + `onReady` callback | `react` (and `vue` in lockstep) | P0 | planned | No | Public API addition; semantics must match across bindings |
+| 4 | `<Editor />` container pass-through props + `onReady` callback | `react` (and `vue` in lockstep) | P0 | in-progress | No | Public API addition; semantics must match across bindings. `onReady(editor)` + `containerProps` landed in both bindings |
 
 ## 7. Collaboration
 

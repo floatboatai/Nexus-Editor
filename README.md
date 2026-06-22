@@ -87,6 +87,7 @@ export default function App() {
       initialValue="# Hello, Nexus 👋"
       plugins={[createGfmPreset()]}
       livePreview
+      onReady={(editor) => console.log("ready", editor.getDocument())}
       onChange={(doc, ast) => console.log(doc)}
     />
   );
@@ -110,6 +111,7 @@ import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
     initial-value="# Hello"
     :plugins="[createGfmPreset()]"
     :live-preview="true"
+    @ready="(editor) => console.log('ready', editor.getDocument())"
     @change="(doc) => console.log(doc)"
   />
 </template>
