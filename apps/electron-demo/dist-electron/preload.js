@@ -69,6 +69,58 @@ var bridge = {
   saveFileAs(content) {
     return import_electron.ipcRenderer.invoke("demo:save-file-as", content);
   },
-  vault: vaultBridge
+  vault: vaultBridge,
+  llmWiki: {
+    saveSource(input) {
+      return import_electron.ipcRenderer.invoke("llm-wiki:save-source", input);
+    },
+    getStatus() {
+      return import_electron.ipcRenderer.invoke("llm-wiki:get-status");
+    },
+    getDocStatuses() {
+      return import_electron.ipcRenderer.invoke("llm-wiki:get-doc-statuses");
+    },
+    submitDoc(input) {
+      return import_electron.ipcRenderer.invoke("llm-wiki:submit-doc", input);
+    },
+    submitAllDirty() {
+      return import_electron.ipcRenderer.invoke("llm-wiki:submit-all-dirty");
+    },
+    retryFailed() {
+      return import_electron.ipcRenderer.invoke("llm-wiki:retry-failed");
+    },
+    getSubmitMode() {
+      return import_electron.ipcRenderer.invoke("llm-wiki:get-submit-mode");
+    },
+    setSubmitMode(mode) {
+      return import_electron.ipcRenderer.invoke("llm-wiki:set-submit-mode", mode);
+    },
+    getConfigStatus() {
+      return import_electron.ipcRenderer.invoke("llm-wiki:get-config-status");
+    },
+    saveConfig(input) {
+      return import_electron.ipcRenderer.invoke("llm-wiki:save-config", input);
+    },
+    ask(input) {
+      return import_electron.ipcRenderer.invoke("llm-wiki:ask", input);
+    },
+    openSchema(input) {
+      return import_electron.ipcRenderer.invoke("llm-wiki:open-schema", input);
+    },
+    onStatus(cb) {
+      const listener = (_event, status) => cb(status);
+      import_electron.ipcRenderer.on("llm-wiki:status", listener);
+      return () => {
+        import_electron.ipcRenderer.off("llm-wiki:status", listener);
+      };
+    },
+    onDocStatus(cb) {
+      const listener = (_event, payload) => cb(payload);
+      import_electron.ipcRenderer.on("llm-wiki:doc-status", listener);
+      return () => {
+        import_electron.ipcRenderer.off("llm-wiki:doc-status", listener);
+      };
+    }
+  }
 };
 import_electron.contextBridge.exposeInMainWorld("nexusDemo", bridge);

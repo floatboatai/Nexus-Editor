@@ -6,6 +6,9 @@ dist/
 dist-electron/
 release/
 *.tsbuildinfo
+.codex-tmp/
+__pycache__/
+*.py[cod]
 
 # Logs
 *.log
