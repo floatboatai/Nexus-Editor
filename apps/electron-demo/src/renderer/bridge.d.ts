@@ -32,8 +32,11 @@ interface VaultBridge {
 
 interface DemoBridge {
   openFile(): Promise<DemoFileHandle | null>;
+  openFileAtPath(filePath: string): Promise<DemoFileHandle | null>;
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
+  onMenuAction(cb: (action: "open" | "save" | "saveAs") => void): () => void;
+  onOpenRecentFile(cb: (filePath: string) => void): () => void;
   vault: VaultBridge;
 }
 

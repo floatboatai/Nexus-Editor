@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, shell } from "electron";
 import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promises";
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
@@ -25,13 +25,16 @@ export interface VaultNode {
 interface VaultState {
   lastVault: string | null;
   recents: string[];
+  recentFiles: string[];
 }
 
+const RECENT_FILES_MAX = 10;
 const SUPPORTED_EXT = new Set([".md", ".markdown", ".txt"]);
 const SKIP_DIRS = new Set(["node_modules", ".git", ".svn", ".hg", ".DS_Store"]);
 
 let activeVault: string | null = null;
 let activeWatcher: FSWatcher | null = null;
+let recentFiles: string[] = []; 
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -75,6 +78,83 @@ function createWindow(): void {
   });
 }
 
+async function createAppMenu(): Promise<void> {
+  const recentMenuItems: Electron.MenuItemConstructorOptions[] = recentFiles.length
+    ? [
+        ...recentFiles.map((filePath) => ({
+          label: path.basename(filePath),
+          tooltip: filePath,
+          click: () => mainWindow?.webContents.send("app:open-recent-file", filePath),
+        })),
+        { type: "separator" },
+        {
+          label: "Clear Recent Files",
+          click: () => {
+            void clearRecentFiles();
+          },
+        },
+      ]
+    : [{ label: "No Recent Files", enabled: false }];
+
+  const template = [
+    ...(process.platform === "darwin"
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: "about" },
+              { type: "separator" },
+              { role: "services" },
+              { type: "separator" },
+              { role: "hide" },
+              { role: "hideothers" },
+              { role: "unhide" },
+              { type: "separator" },
+              { role: "quit" },
+            ],
+          },
+        ]
+      : []),
+    {
+      label: "File",
+      submenu: [
+        {
+          label: "New Window",
+          accelerator: "CmdOrCtrl+N",
+          click: () => createWindow(),
+        },
+        {
+          label: "Open...",
+          accelerator: "CmdOrCtrl+O",
+          click: () => mainWindow?.webContents.send("app:menu-action", "open"),
+        },
+        {
+          label: "Open Recent",
+          submenu: recentMenuItems,
+        },
+        {
+          label: "Save",
+          accelerator: "CmdOrCtrl+S",
+          click: () => mainWindow?.webContents.send("app:menu-action", "save"),
+        },
+        {
+          label: "Save As...",
+          accelerator: "CmdOrCtrl+Shift+S",
+          click: () => mainWindow?.webContents.send("app:menu-action", "saveAs"),
+        },
+        { type: "separator" },
+        process.platform === "darwin" ? { role: "close" } : { role: "quit" },
+      ],
+    },
+    { role: "editMenu" },
+    { role: "viewMenu" },
+    { role: "windowMenu" },
+  ] as Electron.MenuItemConstructorOptions[];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
 // -- single-file legacy handlers (kept for back-compat) -----------------------
 
 ipcMain.handle("demo:open-file", async () => {
@@ -92,6 +172,13 @@ ipcMain.handle("demo:open-file", async () => {
 
   const filePath = result.filePaths[0];
   const content = await readFile(filePath, "utf-8");
+  await recordRecentFile(filePath);
+  return { path: filePath, content };
+});
+
+ipcMain.handle("demo:open-file-path", async (_event, filePath: string) => {
+  const content = await readFile(filePath, "utf-8");
+  await recordRecentFile(filePath);
   return { path: filePath, content };
 });
 
@@ -176,12 +263,38 @@ async function scanDirectory(dir: string): Promise<VaultNode[]> {
   return nodes;
 }
 
+async function updateRecentFiles(newFiles: string[]): Promise<void> {
+  recentFiles = newFiles.slice(0, RECENT_FILES_MAX);
+  const current = await readVaultState();
+  await writeVaultState({
+    lastVault: current.lastVault,
+    recents: current.recents,
+    recentFiles,
+  });
+  await createAppMenu();
+}
+
+async function recordRecentFile(filePath: string): Promise<void> {
+  const canonical = path.resolve(filePath);
+  const current = await readVaultState();
+  const nextRecentFiles = [canonical, ...current.recentFiles.filter((r) => r !== canonical)].slice(0, RECENT_FILES_MAX);
+  await updateRecentFiles(nextRecentFiles);
+}
+
+async function clearRecentFiles(): Promise<void> {
+  await updateRecentFiles([]);
+}
+
 function debounce<T extends (...args: any[]) => void>(fn: T, ms: number): T {
   let timer: NodeJS.Timeout | null = null;
   return ((...args: unknown[]) => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => fn(...args), ms);
   }) as T;
+}
+
+async function loadRecentFiles(): Promise<void> {
+  recentFiles = (await readVaultState()).recentFiles;
 }
 
 function stopWatcher(): void {
@@ -221,16 +334,19 @@ function vaultStatePath(): string {
 
 async function readVaultState(): Promise<VaultState> {
   const file = vaultStatePath();
-  if (!existsSync(file)) return { lastVault: null, recents: [] };
+  if (!existsSync(file)) return { lastVault: null, recents: [], recentFiles: [] };
   try {
     const raw = await readFile(file, "utf-8");
     const parsed = JSON.parse(raw) as Partial<VaultState>;
     return {
       lastVault: typeof parsed.lastVault === "string" ? parsed.lastVault : null,
       recents: Array.isArray(parsed.recents) ? parsed.recents.filter((r) => typeof r === "string") : [],
+      recentFiles: Array.isArray(parsed.recentFiles)
+        ? parsed.recentFiles.filter((r) => typeof r === "string")
+        : [],
     };
   } catch {
-    return { lastVault: null, recents: [] };
+    return { lastVault: null, recents: [], recentFiles: [] };
   }
 }
 
@@ -263,6 +379,7 @@ ipcMain.handle("vault:list", async (_event, vaultPath: string) => {
 ipcMain.handle("vault:read", async (_event, filePath: string) => {
   const abs = assertInsideVault(filePath);
   const content = await readFile(abs, "utf-8");
+  await recordRecentFile(abs);
   return { path: abs, content };
 });
 
@@ -400,6 +517,7 @@ ipcMain.handle("vault:get-last", async () => {
     const cleaned: VaultState = {
       lastVault: null,
       recents: state.recents.filter((r) => existsSync(r)),
+      recentFiles: state.recentFiles,
     };
     await writeVaultState(cleaned);
     return cleaned;
@@ -410,11 +528,11 @@ ipcMain.handle("vault:get-last", async () => {
 ipcMain.handle("vault:set-last", async (_event, vaultPath: string) => {
   const current = await readVaultState();
   const recents = [vaultPath, ...current.recents.filter((r) => r !== vaultPath)].slice(0, 10);
-  await writeVaultState({ lastVault: vaultPath, recents });
+  await writeVaultState({ lastVault: vaultPath, recents, recentFiles: current.recentFiles });
   return { ok: true };
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // nexus-vault://vault/<rel> → read from activeVault/<rel>. Path is validated
   // so requests cannot escape the vault (same rule as the IPC handlers).
   protocol.handle("nexus-vault", async (request) => {
@@ -434,7 +552,9 @@ app.whenReady().then(() => {
       return new Response(String(err), { status: 500 });
     }
   });
+  await loadRecentFiles();
   createWindow();
+  await createAppMenu();
 });
 
 app.on("window-all-closed", () => {
