@@ -73,7 +73,7 @@ This document maps every planned feature to **package ownership / priority / sta
 |---|---|---|---|---|---|---|
 | 21 | Electron packaging optimization | `apps/electron-demo` | P1 | planned | No | Size, startup time, autoUpdater |
 | 22 | Web Component / iframe wrapper | new `wc` package | P2 | planned | Yes | Share core instance with React/Vue SDK |
-| 23 | Cloud storage interface | `core` storage adapter layer | P2 | planned | Yes | NoteVault interface with pluggable backends |
+| 23 | Cloud storage interface | `core` storage adapter layer | P2 | in-progress | Yes | See `openspec/changes/add-cloud-storage-interface` |
 
 ## 9. Developer Experience
 
