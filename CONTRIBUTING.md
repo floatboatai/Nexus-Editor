@@ -4,6 +4,8 @@ Thanks for contributing! This is a pnpm + TypeScript monorepo following **Conven
 
 [中文版](./CONTRIBUTING.zh.md)
 
+> **Before you start:** read [`GOVERNANCE.md`](./GOVERNANCE.md) to understand the project scope, contribution policy (CLA, AI-generated code, dependencies), and what we accept vs. reject. This file covers the *mechanics*; `GOVERNANCE.md` covers the *rules*.
+
 ---
 
 ## 1. Repository Layout
@@ -45,7 +47,7 @@ Examples: `feat/toolbar-list-toggle`, `fix/search-regex-escape`, `docs/roadmap-u
   | `react` | `packages/react` |
   | `vue` | `packages/vue` |
   | `gfm` | `packages/preset-gfm` |
-  | `history` / `search` / `slash` / `toolbar` / `math` / `vim` | corresponding `plugin-*` |
+  | `history` / `search` / `slash` / `toolbar` / `math` / `vim` / `wordcount` | corresponding `plugin-*` |
   | `electron` | `apps/electron-demo` |
   | `live-preview` / `wikilinks` / `image` | core subsystems (historical usage) |
   | `openspec` | `openspec/` |
@@ -84,6 +86,10 @@ See `openspec/AGENTS.md` for the full workflow.
 ### 3.2 PR checklist
 
 - [ ] Title follows Conventional Commits (same rules as commit messages)
+- [ ] CLA signed (the bot will prompt first-time contributors) — see [`GOVERNANCE.md` §6.1](./GOVERNANCE.md#61-contributor-license-agreement-cla)
+- [ ] AI-generated code disclosed if applicable ([`GOVERNANCE.md` §6.2](./GOVERNANCE.md#62-ai-generated-code))
+- [ ] New runtime dependencies listed with license & rationale ([`GOVERNANCE.md` §6.3](./GOVERNANCE.md#63-new-runtime-dependencies))
+- [ ] Change matches project scope ([`GOVERNANCE.md` §4](./GOVERNANCE.md#4-scope-policy))
 - [ ] Description explains **why**, not just **what**
 - [ ] Tests added (see test matrix below)
 - [ ] `pnpm test` passes
@@ -115,7 +121,9 @@ See `openspec/AGENTS.md` for the full workflow.
 ## 5. Security
 
 - Never commit `.env`, secrets, tokens, or personal vault data.
+- Never commit build artifacts (`dist/`, `dist-electron/`, compiled `.js` from `.ts` sources) — they're in `.gitignore` for a reason; don't `git add -f` them.
 - Do not `git push --force` to `main` without explicit authorization.
+- Vulnerabilities: report privately via GitHub's *"Report a vulnerability"* tab, not in a public issue. See [`GOVERNANCE.md` §7](./GOVERNANCE.md#7-security).
 
 ---
 

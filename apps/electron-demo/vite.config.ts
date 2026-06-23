@@ -56,6 +56,10 @@ export default defineConfig({
         __dirname,
         "../../packages/plugin-slash/src/index.ts"
       ),
+      "@floatboat/nexus-plugin-wordcount": path.resolve(
+        __dirname,
+        "../../packages/plugin-wordcount/src/index.ts"
+      ),
     },
   },
   server: {

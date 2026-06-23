@@ -4,6 +4,8 @@
 
 [English](./CONTRIBUTING.md)
 
+> **开始之前：** 请先读 [`GOVERNANCE.md`](./GOVERNANCE.md)，了解项目范围、贡献政策（CLA、AI 生成代码、依赖）以及我们接受 / 拒绝的标准。本文件讲*流程*，`GOVERNANCE.md` 讲*规则*。
+
 ---
 
 ## 1. 仓库结构速览
@@ -12,7 +14,7 @@
 |---|---|
 | `packages/core` | 核心编辑器（CodeMirror 6 内核、live-preview、AST） |
 | `packages/preset-gfm` | GFM 默认预设 |
-| `packages/plugin-*` | 各功能插件（history / search / slash / toolbar / math / vim） |
+| `packages/plugin-*` | 各功能插件（history / search / slash / toolbar / math / vim / wordcount） |
 | `packages/react`、`packages/vue` | 框架 SDK |
 | `apps/electron-demo` | 桌面端 demo / 集成测试场 |
 | `openspec/` | 规格驱动（proposal / specs / archive） |
@@ -45,7 +47,7 @@
   | `react` | `packages/react` |
   | `vue` | `packages/vue` |
   | `gfm` | `packages/preset-gfm` |
-  | `history` / `search` / `slash` / `toolbar` / `math` / `vim` | 对应 `plugin-*` |
+  | `history` / `search` / `slash` / `toolbar` / `math` / `vim` / `wordcount` | 对应 `plugin-*` |
   | `electron` | `apps/electron-demo` |
   | `live-preview` / `wikilinks` / `image` | core 内部子系统（沿用历史用法） |
   | `openspec` | `openspec/` |
@@ -115,7 +117,9 @@ test(live-preview): regression tests for click-drift invariants
 ## 5. 安全与权限
 
 - 不要提交 `.env`、密钥、token、个人 vault 数据。
+- 不要提交构建产物（`dist/`、`dist-electron/`、由 `.ts` 编译出的 `.js`）——它们在 `.gitignore` 里是有原因的，别用 `git add -f` 强加。
 - 不要在未授权下 `git push --force` 到 `main`。
+- 安全漏洞：请通过 GitHub 的 *"Report a vulnerability"* 私密上报，不要开公开 issue。见 [`GOVERNANCE.md` §7](./GOVERNANCE.md#7-security)。
 
 ---
 

@@ -15,17 +15,17 @@
 
 | # | 功能 | 归属包 | 优先级 | 状态 | 需要 OpenSpec | 备注 |
 |---|---|---|---|---|---|---|
-| 1 | 多行列表切换（ordered / unordered） | `plugin-toolbar` + `core` 命令 | P1 | planned | 否 | 复用 core 现有 list 命令，扩展到多行选区 |
+| 1 | 多行列表切换（ordered / unordered） | `plugin-toolbar` + `core` 命令 | P1 | done | 否 | 随 `getSelectedText()` / `replaceRange()` 一并落地 —— 见 `openspec/changes/add-selection-api` |
 | 12 | 高级 toolbar（emoji picker / 表格工具 / 颜色选择） | `plugin-toolbar` | P2 | planned | 是 | 涉及新 widget，建议拆 3 个子提案 |
 
 ## 2. Search / 命令
 
 | # | 功能 | 归属包 | 优先级 | 状态 | 需要 OpenSpec | 备注 |
 |---|---|---|---|---|---|---|
-| 2  | whole-word 匹配 | `plugin-search` | P1 | planned | 否 | 现有 search 选项扩展 |
-| 15 | 正则搜索 | `plugin-search` | P1 | in-progress | 否 | 注意转义边界用例 —— PR #9 review 中 |
-| 16 | 历史命令 / 搜索记忆 | `plugin-search` + `plugin-slash` | P2 | planned | 是 | 需要持久化层（localStorage 或宿主注入） |
-| 17 | 模糊搜索 | `plugin-search` | P2 | planned | 否 | 评估 fzf-like 算法 vs. 第三方 lib |
+| 2  | whole-word 匹配 | `plugin-search` | P1 | done | 否 | 经 `buildSearchPattern` 的 `wholeWord` 选项，使用 `\b` 边界 |
+| 15 | 正则搜索 | `plugin-search` | P1 | done | 否 | `regexp` 选项与 whole-word 一并落地；非法正则有保护 |
+| 16 | 历史命令 / 搜索记忆 | `plugin-search` + `plugin-slash` | P2 | done | 是 | 宿主注入式存储（不隐式写 localStorage）—— `add-search-query-history` + `add-slash-recent-command-history` |
+| 17 | 模糊搜索 | `plugin-search` | P2 | planned | 否 | 评估 fzf-like 算法 vs. 第三方 lib；需带回溯的匹配器 |
 | 3  | Slash 命令排序与 limit | `plugin-slash` | P0 | done | 是 | 与浮层菜单 UI 一并落地 —— 见 `openspec/changes/add-slash-menu-ui` |
 | 27 | Slash 命令浮层菜单 UI | `plugin-slash` + `electron-demo` | P0 | done | 是 | `createSlashMenuUI(editor, options)` —— 见 `openspec/changes/add-slash-menu-ui` |
 
@@ -33,10 +33,10 @@
 
 | # | 功能 | 归属包 | 优先级 | 状态 | 需要 OpenSpec | 备注 |
 |---|---|---|---|---|---|---|
-| 5 | `getSelectedText()` API | `core` | P0 | in-progress | 否 | 公共 API 增量，需补类型 + 测试 —— PR #8 review 中 |
-| 6 | 多光标 / 多选支持 | `core` | P1 | planned | 是 | CM6 已有底层，需在 live-preview 与表格交互中验证不破坏 |
+| 5 | `getSelectedText()` API | `core` | P0 | done | 否 | 另含原子 `replaceRange()`（单条 undo）—— 见 `openspec/changes/add-selection-api` |
+| 6 | 多光标 / 多选支持 | `core` | P1 | done | 是 | `openspec/changes/add-core-multi-cursor` — opt-in `multiCursor` 配置；live-preview 揭示与表格检查已有回归测试覆盖 |
 | 7 | AST 增强 / Markdown 扩展 | `core` + `preset-gfm` | P2 | planned | 是 | 影响序列化与所有依赖 AST 的插件 |
-| 8 | undo / redo 分组 | `plugin-history` | P1 | planned | 否 | 注意与表格交互的 `tableEditingCount` 协同 |
+| 8 | undo / redo 分组 | `plugin-history` | P1 | planned | 否 | 注意与表格交互的 `tableEditingCount` 协同；合并前需收敛多个竞品实现 |
 
 ## 4. 插件系统
 
@@ -57,7 +57,8 @@
 
 | # | 功能 | 归属包 | 优先级 | 状态 | 需要 OpenSpec | 备注 |
 |---|---|---|---|---|---|---|
-| 4 | `<Editor />` 容器属性透传 + `onReady` 回调 | `react`（同步补 `vue`） | P0 | planned | 否 | 公共 API 增量，两端语义需一致 |
+| 4 | `<Editor />` 容器属性透传 + `onReady` 回调 | `react`（同步补 `vue`） | P0 | done | 否 | 完整 `HTMLAttributes` 透传 + `onReady`；react/vue 两端对齐 |
+| 29 | 受控文档 `value` / `v-model` | `react` + `vue` | P0 | done | 否 | 父组件驱动 Markdown，`setDocument(..., { silent: true })` 防反馈环；helpers 在 `controlled-document.ts` |
 
 ## 7. 协作
 
@@ -82,6 +83,7 @@
 | 24 | TypeScript 类型覆盖 | 全仓库 | P0 | in-progress | 否 | 持续推进，新代码强制 strict |
 | 25 | End-to-End 测试 | 仓库基建 | P1 | planned | 否 | 候选：Playwright，跑 electron-demo |
 | 26 | CI/CD 流程完善 | `.github/workflows` | P1 | planned | 否 | 已有 publish workflow，缺 PR check / e2e gate |
+| 28 | Markdown 感知字数 / 阅读时长统计 | 新包 `plugin-wordcount` | P1 | done | 是 | 复用编辑器 AST（不重复解析）+ 中日韩优先 + ARIA 状态栏 —— 见 `openspec/changes/add-plugin-wordcount` |
 
 ---
 

@@ -165,7 +165,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 ## 📦 Packages
 
 <details>
-<summary><b>Full package list (10 packages)</b> — click to expand</summary>
+<summary><b>Full package list (11 packages)</b> — click to expand</summary>
 
 | Package | Description |
 |---|---|
@@ -179,6 +179,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 | `@floatboat/nexus-plugin-toolbar` | Toolbar primitives for formatting commands |
 | `@floatboat/nexus-plugin-math` | Inline / block math rendering (KaTeX) |
 | `@floatboat/nexus-plugin-vim` | Vim keybindings powered by `@replit/codemirror-vim` |
+| `@floatboat/nexus-plugin-wordcount` | Markdown-aware word / character / CJK / reading-time stats + ARIA-live status bar |
 
 </details>
 
@@ -207,6 +208,8 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 editor.getDocument()          // current Markdown string
 editor.getAst()               // current mdast Root
 editor.setDocument(md)        // replace entire document
+editor.setDocument(md, { silent: true, preserveSelection: true })
+editor.setDocument(md, { selection: { anchor: 0 } })
 editor.setSelection(pos)      // move cursor
 editor.focus() / editor.blur()
 editor.destroy()

@@ -1,4 +1,4 @@
-import { Annotation, EditorState } from "@codemirror/state";
+import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
 
 // Annotation attached to dispatches that load content programmatically (e.g.
 // setDocument from file open) so updateListener can skip the user-edit path —
@@ -22,6 +22,7 @@ import { markdownFoldService } from "./markdown-fold";
 import { resolveLocale } from "./locale";
 import { markdownAutoPair } from "./markdown-autopair";
 import { markdownKeymap } from "./markdown-keymap";
+import { multiCursorExtension } from "./multi-cursor";
 import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { createThemeExtension, lightTheme, type NexusTheme } from "./theme";
 import { computeSlashState } from "./slash-state";
@@ -32,8 +33,10 @@ import type {
   EditorEventContext,
   EditorEventHandler,
   EditorEventMap,
+  EditorSelectionRange,
   NexusPlugin,
   ParserLike,
+  SetDocumentOptions,
   TocEntry,
 } from "./types";
 import { createWidgetExtension } from "./widget-extension";
@@ -157,6 +160,32 @@ function extractToc(ast: Root): TocEntry[] {
   return entries;
 }
 
+function clampPosition(pos: number, docLength: number): number {
+  if (!Number.isFinite(pos)) return 0;
+  return Math.max(0, Math.min(docLength, Math.trunc(pos)));
+}
+
+function resolveDocumentSelection(
+  before: EditorSelectionRange,
+  docLength: number,
+  opts: SetDocumentOptions | undefined,
+): EditorSelectionRange | undefined {
+  if (opts?.selection) {
+    const anchor = clampPosition(opts.selection.anchor, docLength);
+    const head = clampPosition(opts.selection.head ?? opts.selection.anchor, docLength);
+    return { anchor, head };
+  }
+
+  if (opts?.preserveSelection) {
+    return {
+      anchor: clampPosition(before.anchor, docLength),
+      head: clampPosition(before.head, docLength),
+    };
+  }
+
+  return undefined;
+}
+
 function createParser(plugins: NexusPlugin[]): ParserLike {
   // Build the unified pipeline ONCE, not per-parse call. Each
   // `unified().use(...)` chain resolves plugin graphs, initializes extensions,
@@ -260,7 +289,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // 组合输入（IME）状态与被推迟的文档回灌。组合输入进行中调用 setDocument 会被
   // 推迟到 compositionend 再应用，避免整文档替换打断输入法、丢失合成中文字、视口跳顶。
   let composing = false;
-  let pendingDocumentLoad: { next: string; silent: boolean } | null = null;
+  let pendingDocumentLoad: { next: string; opts?: SetDocumentOptions } | null = null;
   // Initial AST: when a custom parser is provided, honour it (tests rely on
   // this — they install plugins that mutate the tree). Otherwise use the
   // Lezer string parser, which is dramatically faster than remark and
@@ -367,23 +396,33 @@ export function createEditor(config: EditorConfig): EditorAPI {
   }
 
   // 整文档替换的实际执行体。setDocument（公开 API）在组合输入中会推迟调用本函数。
-  function performSetDocument(next: string, silent: boolean) {
+  function performSetDocument(next: string, opts?: SetDocumentOptions) {
     const beforeSelection = view.state.selection.main;
+    const silent = opts?.silent === true;
+    const selection = resolveDocumentSelection(
+      { anchor: beforeSelection.anchor, head: beforeSelection.head },
+      next.length,
+      opts
+    );
     debugNexus("setDocument", {
       silent,
       oldLength: view.state.doc.length,
       nextLength: next.length,
       beforeSelection: { anchor: beforeSelection.anchor, head: beforeSelection.head },
+      selection,
     });
 
-    view.dispatch({
+    const dispatchSpec = {
       changes: {
         from: 0,
         to: view.state.doc.length,
         insert: next
       },
       annotations: silent ? silentDocChange.of(true) : undefined,
-    });
+      ...(selection ? { selection } : {}),
+    };
+
+    view.dispatch(dispatchSpec);
 
     // silent 模式下仍同步 currentAst，使 getAst() / getTableOfContents() 反映已载入文件。
     if (silent) {
@@ -398,10 +437,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // compositionend 时应用被推迟的文档回灌；整文档替换后排队中的组合输入变更已失效。
   function applyPendingDocumentLoad(): boolean {
     if (!pendingDocumentLoad) return false;
-    const { next, silent } = pendingDocumentLoad;
+    const { next, opts } = pendingDocumentLoad;
     pendingDocumentLoad = null;
     pendingCompositionMarkdown = null;
-    performSetDocument(next, silent);
+    performSetDocument(next, opts);
     return true;
   }
 
@@ -458,6 +497,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
     ? EditorView.contentAttributes.of({ dir: "rtl" })
     : [];
   const indentGuidesExt = config.indentGuides ? indentationMarkers() : [];
+  const multiCursorExt = config.multiCursor ? multiCursorExtension() : [];
 
   const shortcutExtensions =
     shortcuts.length > 0
@@ -570,7 +610,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
             const sel = update.state.selection.main;
 
             if (update.selectionSet) {
-              emitter.emit("selectionChange", { anchor: sel.anchor, head: sel.head });
+              const selection = update.state.selection;
+              emitter.emit("selectionChange", {
+                anchor: sel.anchor,
+                head: sel.head,
+                ranges: selection.ranges.map((range) => ({ anchor: range.anchor, head: range.head })),
+                mainIndex: selection.mainIndex,
+              });
             }
 
             if (slashCommands.length > 0) {
@@ -607,6 +653,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
         directionExt,
         indentGuidesExt,
         markdownKeymap(),
+        multiCursorExt,
         markdownFoldService(),
         keymap.of([indentWithTab]),
         closeBrackets(),
@@ -690,6 +737,19 @@ export function createEditor(config: EditorConfig): EditorAPI {
       const sel = view.state.selection.main;
       return { anchor: sel.anchor, head: sel.head };
     },
+    getSelections() {
+      const selection = view.state.selection;
+      return {
+        ranges: selection.ranges.map((range) => ({ anchor: range.anchor, head: range.head })),
+        mainIndex: selection.mainIndex,
+      };
+    },
+    getSelectedText() {
+      const sel = view.state.selection.main;
+      const from = Math.min(sel.anchor, sel.head);
+      const to = Math.max(sel.anchor, sel.head);
+      return view.state.doc.sliceString(from, to);
+    },
     getSlashCommands() {
       return slashCommands;
     },
@@ -723,26 +783,42 @@ export function createEditor(config: EditorConfig): EditorAPI {
         return;
       }
 
-      docVersion++;
-
-      const silent = opts?.silent === true;
-
       // 组合输入（IME）进行中：整文档替换会打断输入法、丢失合成中文字并把视口重置到顶部。
       // 推迟到 compositionend 再应用，只保留最后一次请求。
       if (composing || view.composing || view.compositionStarted) {
-        pendingDocumentLoad = { next, silent };
+        pendingDocumentLoad = { next, opts };
         debugNexus("setDocument-deferred-composing", {
-          silent,
+          silent: opts?.silent === true,
           nextLength: next.length,
         });
         return;
       }
 
-      performSetDocument(next, silent);
+      performSetDocument(next, opts);
     },
     replaceSelection(text) {
       if (destroyed) return;
       view.dispatch(view.state.replaceSelection(text));
+    },
+    replaceRange(from, to, insert, selection, opts) {
+      if (destroyed) return;
+      const silent = opts?.silent === true;
+      view.dispatch({
+        changes: { from, to, insert },
+        selection: selection
+          ? { anchor: selection.anchor, head: selection.head ?? selection.anchor }
+          : undefined,
+        scrollIntoView: true,
+        annotations: silent ? silentDocChange.of(true) : undefined,
+      });
+      if (silent) {
+        const next = view.state.doc.toString();
+        if (customParser) {
+          currentAst = parseDocument(customParser, next);
+        } else {
+          currentAst = transformAst(lezerAstFromAnywhere(viewRef, next));
+        }
+      }
     },
     undo() {
       if (destroyed) return false;

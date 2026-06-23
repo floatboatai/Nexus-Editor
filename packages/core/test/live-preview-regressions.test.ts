@@ -60,6 +60,33 @@ describe("live preview regressions", () => {
     editor.destroy();
   });
 
+  // Multi-cursor: every selection range is a reveal trigger. Guards the
+  // `.some()`-across-ranges reveal logic against a future "main range only"
+  // optimisation regression (openspec: add-core-multi-cursor).
+  it("reveals raw markers at every cursor with multi-cursor selections", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Text **bold** end\n\nother **also** line",
+      livePreview: true,
+      multiCursor: true
+    });
+
+    // One cursor inside each bold span (different lines): both reveal
+    editor.setSelections([{ anchor: 8 }, { anchor: 28 }]);
+    const revealed = container.textContent ?? "";
+    expect(revealed).toContain("**bold**");
+    expect(revealed).toContain("**also**");
+
+    // Collapse to a single cursor on the blank line between them: both hide
+    editor.setSelection(18);
+    const hidden = container.textContent ?? "";
+    expect(hidden).toContain("bold");
+    expect(hidden).toContain("also");
+    expect(hidden).not.toContain("**");
+    editor.destroy();
+  });
+
   // Code block lines must not set font-family or font-size on Decoration.line —
   // only on Decoration.mark. Otherwise CM6's heightmap sees different line heights
   // for code vs regular lines, causing cumulative click drift in long documents.

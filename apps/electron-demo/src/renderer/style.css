@@ -160,3 +160,33 @@ body,
   font-style: italic;
   text-align: center;
 }
+
+/* --- nexus-plugin-wordcount status bar -------------------------------- */
+.nexus-wordcount__bar {
+  position: absolute;
+  right: 12px;
+  bottom: 6px;
+  display: inline-flex;
+  gap: 12px;
+  align-items: center;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-family: var(--nexus-font, system-ui, -apple-system, "Segoe UI", sans-serif);
+  color: var(--nexus-text-muted, #6b7280);
+  background: var(--nexus-surface, rgba(255, 255, 255, 0.85));
+  border: 1px solid var(--nexus-border, rgba(0, 0, 0, 0.08));
+  border-radius: 6px;
+  pointer-events: none;
+  user-select: none;
+  z-index: 2;
+  backdrop-filter: blur(6px);
+}
+
+.nexus-wordcount__bar > span {
+  white-space: nowrap;
+}
+
+.nexus-wordcount__selection {
+  color: var(--nexus-accent, #2563eb);
+  font-weight: 500;
+}

@@ -94,6 +94,17 @@ export interface EditorConfig {
   /** Prevent user edits while preserving selection and scrolling. Default: false */
   readOnly?: boolean;
   /**
+   * Enable multi-cursor / multi-selection editing. Default: false.
+   *
+   * When true the editor allows multiple selection ranges, renders secondary
+   * cursors/selections (CodeMirror `drawSelection`), lets Alt-click add a
+   * cursor, and binds `Mod-d` (select next occurrence), `Mod-Alt-ArrowUp/Down`
+   * (add cursor above/below) and `Escape` (collapse to the main selection).
+   * Off by default because `drawSelection` visibly replaces the native caret
+   * and selection rendering for existing consumers.
+   */
+  multiCursor?: boolean;
+  /**
    * Maximum number of slash-menu entries emitted on `slashMenuChange`
    * after ranking. Default: 8. A limit of 0 keeps the menu state open
    * but emits an empty command list (useful for "no results" UIs).
@@ -118,11 +129,24 @@ export interface SlashMenuState {
   coords: { left: number; top: number; bottom: number } | null;
 }
 
+/** One selection range in plain-object form (`anchor` may be after `head`). */
+export interface SelectionRangeJSON {
+  anchor: number;
+  head: number;
+}
+
+/** Full selection snapshot: every range plus which one is the main range. */
+export interface SelectionState {
+  ranges: SelectionRangeJSON[];
+  mainIndex: number;
+}
+
 export interface EditorEventMap {
   change: (doc: string, ast: Root) => void;
   focus: () => void;
   blur: () => void;
-  selectionChange: (selection: { anchor: number; head: number }) => void;
+  /** `anchor` / `head` describe the main range; `ranges` carries all of them. */
+  selectionChange: (selection: { anchor: number; head: number } & SelectionState) => void;
   slashMenuChange: (state: SlashMenuState) => void;
 }
 
@@ -133,6 +157,32 @@ export interface TocEntry {
   to: number;
 }
 
+export interface EditorSelectionRange {
+  anchor: number;
+  head: number;
+}
+
+export interface SetDocumentOptions {
+  /**
+   * When true, skip the onChange pipeline. Use when loading a file from disk
+   * to avoid treating the load as a user edit.
+   */
+  silent?: boolean;
+  /**
+   * Keep the current main selection after replacing the document. Positions
+   * are clamped to the new document length.
+   */
+  preserveSelection?: boolean;
+  /**
+   * Apply an explicit selection after replacing the document. Takes precedence
+   * over preserveSelection. head defaults to anchor.
+   */
+  selection?: {
+    anchor: number;
+    head?: number;
+  };
+}
+
 export interface EditorAPI {
   getDocument(): string;
   getAst(): Root;
@@ -140,9 +190,20 @@ export interface EditorAPI {
   exportHTML(): string;
   setTheme(theme: import("./theme").NexusTheme): void;
   getSelection(): { anchor: number; head: number };
+  /** All selection ranges plus the main-range index. Single-range editors return one entry. */
+  getSelections(): SelectionState;
+  /** Returns the text currently selected in the editor. Returns an empty string when the selection is collapsed. */
+  getSelectedText(): string;
   getSlashCommands(): SlashCommandDef[];
   uploadAsset(file: File): Promise<string | null>;
   setSelection(anchor: number, head?: number): void;
+  /**
+   * Replace the selection with the given ranges. `mainIndex` defaults to the
+   * last range (CodeMirror's latest-added-is-main convention). Multiple
+   * ranges require `multiCursor: true` — without it CodeMirror collapses the
+   * selection to the main range.
+   */
+  setSelections(ranges: { anchor: number; head?: number }[], mainIndex?: number): void;
   /**
    * Replace the document content.
    *
@@ -154,8 +215,41 @@ export interface EditorAPI {
    * 并把视口重置到顶部。此时本次替换会延迟到 compositionend 再应用，只保留
    * 最后一次请求。
    */
-  setDocument(next: string, opts?: { silent?: boolean }): void;
+  setDocument(next: string, opts?: SetDocumentOptions): void;
   replaceSelection(text: string): void;
+  /**
+   * Replace the substring `[from, to)` with `insert` and — optionally —
+   * move the selection, all in a single CM6 transaction.
+   *
+   * **One transaction = one undo entry.** A single Ctrl+Z will revert both
+   * the edit and the cursor/selection move together. Do NOT emulate this
+   * with a separate `setDocument`/`setSelection` pair — that dispatches two
+   * transactions, produces two undo entries, and leaves the document mangled
+   * after the first Ctrl+Z.
+   *
+   * - `selection` is optional. When omitted CM6 maps the existing selection
+   *   through the change using its default position mapping — callers that
+   *   don't care where the cursor lands after the edit can skip this.
+   * - `silent` mirrors `setDocument`: skips `onChange` / the `change` event.
+   *   The AST is still resynced inline so `getAst()` stays consistent for
+   *   immediate callers. Intended for non-user edits only (file-open, seeding).
+   *   Plugin code should leave `silent` unset.
+   * - Positions (`from`, `to`, and `selection` offsets) are in pre-edit doc
+   *   coordinates — the same coordinate space as `getSelection()` returns.
+   * - Bounds: callers are responsible for valid offsets. CM6 throws
+   *   `RangeError` on out-of-bounds values — identical trust model to
+   *   `setSelection`. No double validation is performed in this layer.
+   *
+   * Use this instead of `setDocument` when you are editing a range, not
+   * replacing the whole document.
+   */
+  replaceRange(
+    from: number,
+    to: number,
+    insert: string,
+    selection?: { anchor: number; head?: number },
+    opts?: { silent?: boolean }
+  ): void;
   undo(): boolean;
   redo(): boolean;
   focus(): void;

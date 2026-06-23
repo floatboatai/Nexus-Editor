@@ -42,4 +42,7 @@ export {
   type SlashMenuUI,
   type SlashMenuUIOptions,
   type SlashMenuCommandContext,
+  type SlashCommandHistoryConfig,
+  type SlashCommandHistoryOptions,
+  type SlashCommandHistoryStorage,
 } from "./menu-ui";

@@ -15,17 +15,17 @@ This document maps every planned feature to **package ownership / priority / sta
 
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
-| 1 | Multi-line list toggle (ordered / unordered) | `plugin-toolbar` + `core` commands | P1 | planned | No | Extend existing list command to multi-line selection |
+| 1 | Multi-line list toggle (ordered / unordered) | `plugin-toolbar` + `core` commands | P1 | done | No | Landed with `getSelectedText()` / `replaceRange()` — see `openspec/changes/add-selection-api` |
 | 12 | Advanced toolbar (emoji picker / table tools / color picker) | `plugin-toolbar` | P2 | planned | Yes | Introduces widgets — split into 3 sub-proposals |
 
 ## 2. Search / Commands
 
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
-| 2  | Whole-word matching | `plugin-search` | P1 | planned | No | Extension of existing search options |
-| 15 | Regex search | `plugin-search` | P1 | in-progress | No | Watch escape edge cases — PR #9 in review |
-| 16 | Command / search history | `plugin-search` + `plugin-slash` | P2 | planned | Yes | Needs persistence (localStorage or host-injected) |
-| 17 | Fuzzy search | `plugin-search` | P2 | planned | No | Evaluate fzf-like algorithm vs. third-party lib |
+| 2  | Whole-word matching | `plugin-search` | P1 | done | No | `wholeWord` option via `buildSearchPattern` with `\b` boundaries |
+| 15 | Regex search | `plugin-search` | P1 | done | No | `regexp` option landed alongside whole-word; invalid-regex guarded |
+| 16 | Command / search history | `plugin-search` + `plugin-slash` | P2 | done | Yes | Host-injected storage (no implicit localStorage) — `add-search-query-history` + `add-slash-recent-command-history` |
+| 17 | Fuzzy search | `plugin-search` | P2 | planned | No | Evaluate fzf-like algorithm vs. third-party lib; needs backtracking matcher |
 | 3  | Slash command sorting + limit | `plugin-slash` | P0 | done | Yes | Landed alongside the floating menu UI — see `openspec/changes/add-slash-menu-ui` |
 | 27 | Slash command floating menu UI | `plugin-slash` + `electron-demo` | P0 | done | Yes | `createSlashMenuUI(editor, options)` — see `openspec/changes/add-slash-menu-ui` |
 
@@ -33,10 +33,10 @@ This document maps every planned feature to **package ownership / priority / sta
 
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
-| 5 | `getSelectedText()` API | `core` | P0 | in-progress | No | Public API addition; needs types + tests — PR #8 in review |
-| 6 | Multi-cursor / multi-selection | `core` | P1 | planned | Yes | CM6 supports it; must verify live-preview and table interactions |
+| 5 | `getSelectedText()` API | `core` | P0 | done | No | Plus atomic `replaceRange()` (single undo entry) — see `openspec/changes/add-selection-api` |
+| 6 | Multi-cursor / multi-selection | `core` | P1 | done | Yes | `openspec/changes/add-core-multi-cursor` — opt-in `multiCursor` config; live-preview reveal + table checks verified by regression tests |
 | 7 | AST enhancement / Markdown extensions | `core` + `preset-gfm` | P2 | planned | Yes | Affects serialization and every AST-dependent plugin |
-| 8 | Undo / redo grouping | `plugin-history` | P1 | planned | No | Coordinate with table's `tableEditingCount` |
+| 8 | Undo / redo grouping | `plugin-history` | P1 | planned | No | Coordinate with table's `tableEditingCount`; consolidate competing impls before merge |
 
 ## 4. Plugin System
 
@@ -57,7 +57,8 @@ This document maps every planned feature to **package ownership / priority / sta
 
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
-| 4 | `<Editor />` container pass-through props + `onReady` callback | `react` (and `vue` in lockstep) | P0 | planned | No | Public API addition; semantics must match across bindings |
+| 4 | `<Editor />` container pass-through props + `onReady` callback | `react` (and `vue` in lockstep) | P0 | done | No | Full `HTMLAttributes` pass-through + `onReady`; react/vue in lockstep |
+| 29 | Controlled document `value` / `v-model` | `react` + `vue` | P0 | done | No | Parent-owned markdown via silent `setDocument` sync; helpers in `controlled-document.ts` |
 
 ## 7. Collaboration
 
@@ -82,6 +83,7 @@ This document maps every planned feature to **package ownership / priority / sta
 | 24 | TypeScript type coverage | repo-wide | P0 | in-progress | No | Ongoing; new code enforces strict |
 | 25 | End-to-end testing | repo infra | P1 | planned | No | Candidate: Playwright against electron-demo |
 | 26 | CI/CD pipeline polish | `.github/workflows` | P1 | planned | No | Publish workflow exists; missing PR check / e2e gate |
+| 28 | Markdown-aware word / reading-time stats | new `plugin-wordcount` | P1 | done | Yes | Walks editor AST (no double parse) + CJK-first + ARIA status bar — see `openspec/changes/add-plugin-wordcount` |
 
 ---
 

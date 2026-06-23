@@ -25,6 +25,20 @@ export interface SearchMatch {
 
 export interface SearchOptions {
   caseSensitive?: boolean;
+  wholeWord?: boolean;
+  regexp?: boolean;
+}
+
+export interface SearchHistoryStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem?(key: string): void;
+}
+
+export interface SearchHistoryOptions {
+  storage?: SearchHistoryStorage;
+  storageKey?: string;
+  maxEntries?: number;
 }
 
 export interface SearchPluginOptions {
@@ -40,6 +54,10 @@ export interface SearchPluginOptions {
    * Highlight viewport matches for the current selection.
    */
   highlightSelectionMatches?: boolean;
+  /**
+   * Opt-in search query history. Pass storage explicitly to persist entries.
+   */
+  history?: boolean | SearchHistoryOptions;
   labels?: Partial<SearchPluginLabels>;
 }
 
@@ -75,8 +93,161 @@ const DEFAULT_LABELS: SearchPluginLabels = {
   close: "Close"
 };
 
+const DEFAULT_SEARCH_HISTORY_KEY = "nexus.search.history";
+const DEFAULT_SEARCH_HISTORY_MAX_ENTRIES = 20;
+
+type SearchHistoryDirection = "previous" | "next";
+
+function resolveMaxEntries(maxEntries: number | undefined): number {
+  if (maxEntries === undefined || !Number.isFinite(maxEntries)) {
+    return DEFAULT_SEARCH_HISTORY_MAX_ENTRIES;
+  }
+  return Math.max(0, Math.floor(maxEntries));
+}
+
+function normalizeHistoryEntries(value: unknown, maxEntries: number): string[] {
+  if (!Array.isArray(value) || maxEntries <= 0) {
+    return [];
+  }
+
+  const entries: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+
+    const query = item.trim();
+    if (!query || entries.includes(query)) continue;
+
+    entries.push(query);
+    if (entries.length >= maxEntries) break;
+  }
+
+  return entries;
+}
+
+class SearchHistoryController {
+  private readonly enabled: boolean;
+  private readonly storage?: SearchHistoryStorage;
+  private readonly storageKey: string;
+  private readonly maxEntries: number;
+  private entries: string[] = [];
+  private loaded = false;
+  private cursor: number | null = null;
+  private draft = "";
+
+  constructor(options: boolean | SearchHistoryOptions | undefined) {
+    this.enabled = options !== undefined && options !== false;
+    const config = typeof options === "object" ? options : undefined;
+    this.storage = config?.storage;
+    this.storageKey = config?.storageKey?.trim() || DEFAULT_SEARCH_HISTORY_KEY;
+    this.maxEntries = resolveMaxEntries(config?.maxEntries);
+  }
+
+  record(query: string): void {
+    if (!this.enabled) return;
+
+    const normalized = query.trim();
+    if (!normalized) return;
+
+    this.ensureLoaded();
+    this.entries = [normalized, ...this.entries.filter((entry) => entry !== normalized)].slice(
+      0,
+      this.maxEntries
+    );
+    this.resetCursor();
+    this.save();
+  }
+
+  recall(direction: SearchHistoryDirection, currentValue: string): string | null {
+    if (!this.enabled) return null;
+
+    this.ensureLoaded();
+    if (this.entries.length === 0) return null;
+
+    if (direction === "previous") {
+      if (this.cursor === null) {
+        this.draft = currentValue;
+        this.cursor = 0;
+      } else if (this.cursor < this.entries.length - 1) {
+        this.cursor += 1;
+      }
+
+      return this.entries[this.cursor];
+    }
+
+    if (this.cursor === null) return null;
+
+    if (this.cursor > 0) {
+      this.cursor -= 1;
+      return this.entries[this.cursor];
+    }
+
+    const draft = this.draft;
+    this.resetCursor();
+    return draft;
+  }
+
+  resetCursor(): void {
+    this.cursor = null;
+    this.draft = "";
+  }
+
+  private ensureLoaded(): void {
+    if (this.loaded) return;
+
+    this.loaded = true;
+    if (!this.storage) return;
+
+    let raw: string | null;
+    try {
+      raw = this.storage.getItem(this.storageKey);
+    } catch {
+      this.entries = [];
+      return;
+    }
+
+    if (!raw) {
+      this.entries = [];
+      return;
+    }
+
+    try {
+      this.entries = normalizeHistoryEntries(JSON.parse(raw), this.maxEntries);
+    } catch {
+      this.entries = [];
+    }
+  }
+
+  private save(): void {
+    if (!this.storage) return;
+
+    try {
+      this.storage.setItem(this.storageKey, JSON.stringify(this.entries));
+    } catch {
+      // Host storage is optional; search behavior should continue if it fails.
+    }
+  }
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp | null {
+  const flags = options.caseSensitive ? "g" : "gi";
+
+  let pattern: string;
+  if (options.regexp) {
+    pattern = options.wholeWord ? `\\b(?:${query})\\b` : query;
+  } else {
+    const escaped = escapeRegExp(query);
+    pattern = options.wholeWord ? `\\b${escaped}\\b` : escaped;
+  }
+
+  try {
+    return new RegExp(pattern, flags);
+  } catch {
+    return null;
+  }
 }
 
 export function findSearchMatches(
@@ -88,8 +259,10 @@ export function findSearchMatches(
     return [];
   }
 
-  const flags = options.caseSensitive ? "g" : "gi";
-  const pattern = new RegExp(escapeRegExp(query), flags);
+  const pattern = buildSearchPattern(query, options);
+  if (!pattern) {
+    return [];
+  }
   const matches: SearchMatch[] = [];
 
   for (const match of doc.matchAll(pattern)) {
@@ -116,8 +289,11 @@ export function replaceAllMatches(
     return doc;
   }
 
-  const flags = options.caseSensitive ? "g" : "gi";
-  return doc.replace(new RegExp(escapeRegExp(query), flags), replacement);
+  const pattern = buildSearchPattern(query, options);
+  if (!pattern) {
+    return doc;
+  }
+  return doc.replace(pattern, replacement);
 }
 
 function resolveLabel(
@@ -325,6 +501,7 @@ class NexusSearchPanel implements Panel {
   private readonly regexpField: HTMLInputElement;
   private readonly wholeWordField: HTMLInputElement;
   private readonly labels: SearchPluginLabels;
+  private readonly history: SearchHistoryController;
   private readonly replaceRow?: HTMLDivElement;
   private readonly replaceToggle?: IconButtonElements;
   private replaceExpanded = false;
@@ -332,11 +509,13 @@ class NexusSearchPanel implements Panel {
   constructor(
     private readonly view: EditorView,
     readonly top: boolean,
-    labels: Partial<SearchPluginLabels> | undefined
+    labels: Partial<SearchPluginLabels> | undefined,
+    history: SearchHistoryController
   ) {
     this.query = getSearchQuery(view.state);
     const resolvedLabels = resolveLabels(view, labels);
     this.labels = resolvedLabels;
+    this.history = history;
 
     this.searchField = this.createTextField(
       "markdown-search-input",
@@ -376,10 +555,14 @@ class NexusSearchPanel implements Panel {
     navigationGroup.className = "nexus-search-button-group";
     navigationGroup.append(
       createIconButton("markdown-search-prev", "prev", resolvedLabels.previous, "previous", () =>
-        findPrevious(view)
+        this.submitSearch(() => findPrevious(view))
       ),
-      createIconButton("markdown-search-next", "next", resolvedLabels.next, "next", () => findNext(view)),
-      createIconButton("markdown-search-all", "select", resolvedLabels.all, "all", () => selectMatches(view))
+      createIconButton("markdown-search-next", "next", resolvedLabels.next, "next", () =>
+        this.submitSearch(() => findNext(view))
+      ),
+      createIconButton("markdown-search-all", "select", resolvedLabels.all, "all", () =>
+        this.submitSearch(() => selectMatches(view))
+      )
     );
 
     const searchRowChildren: HTMLElement[] = [
@@ -457,8 +640,14 @@ class NexusSearchPanel implements Panel {
     if (mainField) {
       input.setAttribute("main-field", "true");
     }
-    input.addEventListener("input", () => this.commit());
-    input.addEventListener("change", () => this.commit());
+    input.addEventListener("input", () => {
+      if (mainField) this.history.resetCursor();
+      this.commit();
+    });
+    input.addEventListener("change", () => {
+      if (mainField) this.history.resetCursor();
+      this.commit();
+    });
     input.addEventListener("keyup", () => this.commit());
     return input;
   }
@@ -489,6 +678,12 @@ class NexusSearchPanel implements Panel {
     }
   }
 
+  private submitSearch(runSearchCommand: () => void): void {
+    this.commit();
+    this.history.record(this.searchField.value);
+    runSearchCommand();
+  }
+
   private setReplaceExpanded(expanded: boolean, focusReplace = false): void {
     if (!this.replaceRow || !this.replaceToggle) return;
 
@@ -505,6 +700,10 @@ class NexusSearchPanel implements Panel {
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
+    if (this.handleHistoryKeyDown(event)) {
+      return;
+    }
+
     if (runScopeHandlers(this.view, event, "search-panel")) {
       event.preventDefault();
       return;
@@ -512,8 +711,7 @@ class NexusSearchPanel implements Panel {
 
     if (event.key === "Enter" && event.target === this.searchField) {
       event.preventDefault();
-      this.commit();
-      (event.shiftKey ? findPrevious : findNext)(this.view);
+      this.submitSearch(() => (event.shiftKey ? findPrevious : findNext)(this.view));
       return;
     }
 
@@ -522,6 +720,23 @@ class NexusSearchPanel implements Panel {
       this.commit();
       replaceNext(this.view);
     }
+  }
+
+  private handleHistoryKeyDown(event: KeyboardEvent): boolean {
+    if (event.target !== this.searchField || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) {
+      return false;
+    }
+
+    const recalled = this.history.recall(
+      event.key === "ArrowUp" ? "previous" : "next",
+      this.searchField.value
+    );
+    if (recalled === null) return false;
+
+    event.preventDefault();
+    this.searchField.value = recalled;
+    this.commit();
+    return true;
   }
 
   private setQuery(query: SearchQuery): void {
@@ -535,12 +750,13 @@ class NexusSearchPanel implements Panel {
 }
 
 export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlugin {
+  const history = new SearchHistoryController(options.history);
   const cmExtensions = [
     search({
       top: options.top ?? true,
       caseSensitive: options.caseSensitive ?? false,
       literal: true,
-      createPanel: (view) => new NexusSearchPanel(view, options.top ?? true, options.labels)
+      createPanel: (view) => new NexusSearchPanel(view, options.top ?? true, options.labels, history)
     }),
     keymap.of(searchKeymap)
   ];

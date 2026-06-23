@@ -1,4 +1,5 @@
 import { scanWikiLinks, type WikiLinkMatch } from "@floatboat/nexus-core";
+import { normalizeSlashes, joinPath } from "./path-utils";
 
 /** Prefer requestIdleCallback for yielding; fall back to a macrotask otherwise. */
 function yieldToIdle(): Promise<void> {
@@ -51,15 +52,6 @@ function dirname(p: string): string {
   const norm = p.replace(/\\/g, "/");
   const slash = norm.lastIndexOf("/");
   return slash >= 0 ? norm.slice(0, slash) : "";
-}
-
-function joinPath(dir: string, rel: string): string {
-  if (!dir) return rel;
-  return `${dir}/${rel}`.replace(/\\/g, "/");
-}
-
-function normalizeSlashes(p: string): string {
-  return p.replace(/\\/g, "/");
 }
 
 /**
