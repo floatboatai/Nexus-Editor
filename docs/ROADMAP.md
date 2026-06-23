@@ -36,7 +36,7 @@ This document maps every planned feature to **package ownership / priority / sta
 | 5 | `getSelectedText()` API | `core` | P0 | in-progress | No | Public API addition; needs types + tests — PR #8 in review |
 | 6 | Multi-cursor / multi-selection | `core` | P1 | in-progress | Yes | `openspec/changes/add-core-multi-cursor` — opt-in `multiCursor` config; live-preview reveal + table checks verified by regression tests |
 | 7 | AST enhancement / Markdown extensions | `core` + `preset-gfm` | P2 | planned | Yes | Affects serialization and every AST-dependent plugin |
-| 8 | Undo / redo grouping | `plugin-history` | P1 | planned | No | Coordinate with table's `tableEditingCount` |
+| 8 | Undo / redo grouping | `plugin-history` | P1 | in-progress | No | `createHistoryPlugin({ newGroupDelay, minDepth })` + structural table edits isolated via `isolateHistory` so one undo reverts a whole table op |
 
 ## 4. Plugin System
 

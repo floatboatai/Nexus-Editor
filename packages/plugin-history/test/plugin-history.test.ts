@@ -61,4 +61,26 @@ describe("@floatboat/nexus-plugin-history", () => {
     expect(editor.getDocument()).toBe("next");
     editor.destroy();
   });
+
+  it("starts a new undo group per change when newGroupDelay is 0", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      // Without grouping (delay 0) each edit is its own undo step, so a single
+      // undo only rolls back the most recent change rather than both.
+      plugins: [createHistoryPlugin({ newGroupDelay: 0 })]
+    });
+
+    editor.setDocument("step one");
+    editor.setDocument("step two");
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("step one");
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("start");
+
+    editor.destroy();
+  });
 });
