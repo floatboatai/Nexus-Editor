@@ -1,3 +1,5 @@
+import { t, onLocaleChange } from "./i18n";
+
 export interface VaultPanelCallbacks {
   onOpenFile(filePath: string): void;
   onError(message: string): void;
@@ -15,9 +17,9 @@ export interface VaultPanel {
 }
 
 const PANEL_STYLES = `
-  width: 240px;
+  width: 250px;
   flex-shrink: 0;
-  border-right: 1px solid var(--nexus-border, #eee);
+  border-right: none;
   background: var(--nexus-bg, #fff);
   overflow: hidden;
   font-family: system-ui, -apple-system, sans-serif;
@@ -27,12 +29,14 @@ const PANEL_STYLES = `
 `;
 
 const HEADER_STYLES = `
-  padding: 8px 10px;
+  height: 43px;
+  padding: 0 10px;
   border-bottom: 1px solid var(--nexus-border, #eee);
   display: flex;
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+  box-sizing: border-box;
 `;
 
 const HEADER_TITLE_STYLES = `
@@ -104,7 +108,7 @@ const ITEM_BASE = `
 `;
 
 const ACTIVE_STYLES = `
-  background: var(--nexus-bg-active, #e7f0ff);
+  background: var(--nexus-bg-muted, #e7f0ff);
   color: var(--nexus-text, #0366d6);
 `;
 
@@ -192,26 +196,26 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
 
   const title = document.createElement("div");
   title.style.cssText = HEADER_TITLE_STYLES;
-  title.textContent = "Vault";
+  title.textContent = t("vault.title");
 
   const openBtn = document.createElement("button");
   openBtn.type = "button";
   openBtn.style.cssText = ICON_BTN_STYLES;
   openBtn.textContent = "\uD83D\uDCC1"; // 📁
-  openBtn.title = "Open vault…";
+  openBtn.title = t("vault.open.title");
 
   const newFileBtn = document.createElement("button");
   newFileBtn.type = "button";
   newFileBtn.style.cssText = ICON_BTN_STYLES;
   newFileBtn.textContent = "\u002B"; // +
-  newFileBtn.title = "New file at root";
+  newFileBtn.title = t("vault.newFile.title");
   newFileBtn.disabled = true;
 
   const newFolderBtn = document.createElement("button");
   newFolderBtn.type = "button";
   newFolderBtn.style.cssText = ICON_BTN_STYLES;
   newFolderBtn.textContent = "\uD83D\uDCC2"; // 📂
-  newFolderBtn.title = "New folder at root";
+  newFolderBtn.title = t("vault.newFolder.title");
   newFolderBtn.disabled = true;
 
   header.append(title, newFileBtn, newFolderBtn, openBtn);
@@ -259,7 +263,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     if (isActive) row.style.cssText = ITEM_BASE + ACTIVE_STYLES;
 
     const icon = document.createElement("span");
-    icon.style.cssText = "width: 12px; flex-shrink: 0; color: #888; font-size: 11px;";
+    icon.style.cssText = "width: 12px; flex-shrink: 0; color: var(--nexus-text-faint, #888); font-size: 11px;";
     if (node.kind === "directory") {
       const open = !collapsed.has(node.path);
       icon.textContent = folderIcon(open);
@@ -313,11 +317,11 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
   function renderTree(): void {
     tree.innerHTML = "";
     if (!vaultPath) {
-      renderEmpty("No vault opened. Click 📁 to choose a folder.");
+      renderEmpty(t("vault.noVaultOpened"));
       return;
     }
     if (currentTree.length === 0) {
-      renderEmpty("Vault is empty. Click + to create a note.");
+      renderEmpty(t("vault.vaultEmpty"));
       return;
     }
     for (const node of currentTree) renderNode(node, 0, tree);
@@ -426,7 +430,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     row.style.paddingLeft = "8px";
 
     const icon = document.createElement("span");
-    icon.style.cssText = "width: 12px; flex-shrink: 0; color: #888; font-size: 11px;";
+    icon.style.cssText = "width: 12px; flex-shrink: 0; color: var(--nexus-text-faint, #888); font-size: 11px;";
     icon.textContent = opts.iconChar;
 
     const input = document.createElement("input");
@@ -530,7 +534,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
 
   async function openVault(nextPath: string): Promise<void> {
     vaultPath = nextPath;
-    title.textContent = nextPath.split(/[\\/]/).pop() || "Vault";
+    title.textContent = nextPath.split(/[\\/]/).pop() || t("vault.title");
     title.title = nextPath;
     syncButtonEnabled();
     collapsed.clear();
@@ -565,6 +569,16 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
   });
 
   syncButtonEnabled();
+
+  // 语言切换时更新面板标题和按钮 title
+  onLocaleChange(() => {
+    if (!vaultPath) title.textContent = t("vault.title");
+    openBtn.title = t("vault.open.title");
+    newFileBtn.title = t("vault.newFile.title");
+    newFolderBtn.title = t("vault.newFolder.title");
+    // 刷新树内容中的空状态文字
+    renderTree();
+  });
 
   return {
     element: panel,

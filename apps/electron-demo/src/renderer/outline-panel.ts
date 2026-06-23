@@ -1,4 +1,5 @@
 import type { EditorAPI, TocEntry } from "@floatboat/nexus-core";
+import { t, onLocaleChange } from "./i18n";
 
 export interface OutlinePanel {
   element: HTMLElement;
@@ -7,9 +8,10 @@ export interface OutlinePanel {
 }
 
 const PANEL_STYLES = `
-  width: 220px;
+  width: 250px;
   flex-shrink: 0;
-  border-right: 1px solid var(--nexus-border, #eee);
+  border-left: none;
+  border-right: none;
   background: var(--nexus-bg, #fff);
   overflow-y: auto;
   font-family: system-ui, -apple-system, sans-serif;
@@ -19,7 +21,10 @@ const PANEL_STYLES = `
 `;
 
 const HEADER_STYLES = `
-  padding: 10px 14px;
+  height: 43px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -27,6 +32,7 @@ const HEADER_STYLES = `
   color: var(--nexus-text-muted, #888);
   border-bottom: 1px solid var(--nexus-border, #eee);
   flex-shrink: 0;
+  box-sizing: border-box;
 `;
 
 const LIST_STYLES = `
@@ -67,7 +73,7 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
 
   const header = document.createElement("div");
   header.style.cssText = HEADER_STYLES;
-  header.textContent = "Outline";
+  header.textContent = t("outline.title");
 
   const list = document.createElement("div");
   list.style.cssText = LIST_STYLES;
@@ -80,7 +86,7 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
     if (entries.length === 0) {
       const empty = document.createElement("div");
       empty.style.cssText = EMPTY_STYLES;
-      empty.textContent = "No headings";
+      empty.textContent = t("outline.empty");
       list.appendChild(empty);
       return;
     }
@@ -118,11 +124,18 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
   update();
   editor.on("change", update);
 
+  // 语言切换时更新标题和内容
+  const unsubLocale = onLocaleChange(() => {
+    header.textContent = t("outline.title");
+    update(); // 重渲染以刷新"没有标题"文字
+  });
+
   return {
     element: panel,
     update,
     destroy() {
       editor.off("change", update);
+      unsubLocale();
       panel.remove();
     },
   };

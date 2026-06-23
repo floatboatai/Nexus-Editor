@@ -356,6 +356,137 @@ import_electron.ipcMain.handle("vault:set-last", async (_event, vaultPath) => {
   await writeVaultState({ lastVault: vaultPath, recents });
   return { ok: true };
 });
+function sendMenuCommand(command) {
+  mainWindow?.webContents.send("menu:command", command);
+}
+function buildMenu() {
+  const isMac = process.platform === "darwin";
+  const template = [
+    // macOS 应用菜单
+    ...isMac ? [{
+      label: import_electron.app.name,
+      submenu: [
+        { role: "about" },
+        { type: "separator" },
+        { role: "services" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" }
+      ]
+    }] : [],
+    // File 菜单
+    {
+      label: "File",
+      submenu: [
+        {
+          label: "Open Vault\u2026",
+          accelerator: "CmdOrCtrl+Shift+O",
+          click: () => sendMenuCommand("openVault")
+        },
+        { type: "separator" },
+        {
+          label: "Open File\u2026",
+          accelerator: "CmdOrCtrl+O",
+          click: () => sendMenuCommand("openFile")
+        },
+        {
+          label: "Save",
+          accelerator: "CmdOrCtrl+S",
+          click: () => sendMenuCommand("saveFile")
+        },
+        {
+          label: "Save As\u2026",
+          accelerator: "CmdOrCtrl+Shift+S",
+          click: () => sendMenuCommand("saveFileAs")
+        },
+        { type: "separator" },
+        isMac ? { role: "close" } : { role: "quit" }
+      ]
+    },
+    // Edit 菜单（保留原生剪贴板功能）
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        ...isMac ? [
+          { role: "pasteAndMatchStyle" },
+          { role: "delete" },
+          { role: "selectAll" }
+        ] : [
+          { role: "delete" },
+          { type: "separator" },
+          { role: "selectAll" }
+        ]
+      ]
+    },
+    // View 菜单
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" },
+        { role: "forceReload" },
+        { role: "toggleDevTools" },
+        { type: "separator" },
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { type: "separator" },
+        { role: "togglefullscreen" }
+      ]
+    },
+    // Window 菜单
+    {
+      label: "Window",
+      submenu: [
+        { role: "minimize" },
+        { role: "zoom" },
+        ...isMac ? [
+          { type: "separator" },
+          { role: "front" }
+        ] : [
+          { role: "close" }
+        ],
+        { type: "separator" },
+        {
+          label: "Toggle Vault Panel",
+          accelerator: "CmdOrCtrl+\\",
+          click: () => sendMenuCommand("toggleVault")
+        },
+        {
+          label: "Toggle Outline",
+          accelerator: "CmdOrCtrl+Shift+\\",
+          click: () => sendMenuCommand("toggleOutline")
+        },
+        {
+          label: "Toggle Backlinks",
+          accelerator: "CmdOrCtrl+Alt+\\",
+          click: () => sendMenuCommand("toggleBacklinks")
+        },
+        { type: "separator" },
+        {
+          label: "Find\u2026",
+          accelerator: "CmdOrCtrl+F",
+          click: () => sendMenuCommand("openSearch")
+        },
+        {
+          label: "Settings\u2026",
+          accelerator: "CmdOrCtrl+,",
+          click: () => sendMenuCommand("openSettings")
+        }
+      ]
+    }
+  ];
+  const menu = import_electron.Menu.buildFromTemplate(template);
+  import_electron.Menu.setApplicationMenu(menu);
+}
 import_electron.app.whenReady().then(() => {
   import_electron.protocol.handle("nexus-vault", async (request) => {
     try {
@@ -375,6 +506,7 @@ import_electron.app.whenReady().then(() => {
     }
   });
   createWindow();
+  buildMenu();
 });
 import_electron.app.on("window-all-closed", () => {
   stopWatcher();

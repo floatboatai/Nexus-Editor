@@ -37,6 +37,8 @@ export interface DemoBridge {
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
   vault: VaultBridge;
+  /** 监听原生菜单命令，返回取消监听函数 */
+  onMenuCommand(cb: (command: string) => void): () => void;
 }
 
 const vaultBridge: VaultBridge = {
@@ -93,6 +95,11 @@ const bridge: DemoBridge = {
     return ipcRenderer.invoke("demo:save-file-as", content);
   },
   vault: vaultBridge,
+  onMenuCommand(cb) {
+    const listener = (_event: Electron.IpcRendererEvent, command: string) => cb(command);
+    ipcRenderer.on("menu:command", listener);
+    return () => ipcRenderer.off("menu:command", listener);
+  },
 };
 
 contextBridge.exposeInMainWorld("nexusDemo", bridge);

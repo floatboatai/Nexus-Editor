@@ -1,12 +1,13 @@
 import { createState, type AppState } from "./state";
 import { createEditorShell, type EditorShell } from "./editor-shell";
-import { loadSettings, createSettingsPanel, type EditorSettings } from "./settings";
+import { loadSettings, createSettingsPanel, applyThemeToDocument, type EditorSettings } from "./settings";
 import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
 import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
+import { t, setLocale, onLocaleChange } from "./i18n";
 
 installLongTaskWatch(50);
 
@@ -24,71 +25,7 @@ state.linkIndex = linkIndex;
 function createAppToolbar(): HTMLElement {
   const toolbar = document.createElement("div");
   toolbar.className = "toolbar";
-
-  const vaultBtn = document.createElement("button");
-  vaultBtn.textContent = "Vault";
-  vaultBtn.title = "Open a folder as a vault";
-  vaultBtn.addEventListener("click", () => {
-    void vault.promptPickVault();
-  });
-
-  const openBtn = document.createElement("button");
-  openBtn.textContent = "Open";
-  openBtn.addEventListener("click", handleOpen);
-
-  const saveBtn = document.createElement("button");
-  saveBtn.textContent = "Save";
-  saveBtn.addEventListener("click", handleSave);
-
-  const saveAsBtn = document.createElement("button");
-  saveAsBtn.textContent = "Save As";
-  saveAsBtn.addEventListener("click", handleSaveAs);
-
-  const spacer = document.createElement("div");
-  spacer.style.flex = "1";
-
-  const vaultToggleBtn = document.createElement("button");
-  vaultToggleBtn.textContent = "\uD83D\uDCD1"; // 📑
-  vaultToggleBtn.title = "Toggle vault panel";
-  vaultToggleBtn.style.fontSize = "14px";
-  vaultToggleBtn.addEventListener("click", toggleVault);
-
-  const outlineBtn = document.createElement("button");
-  outlineBtn.textContent = "\u2630"; // ☰
-  outlineBtn.title = "Toggle outline";
-  outlineBtn.style.fontSize = "14px";
-  outlineBtn.addEventListener("click", toggleOutline);
-
-  const backlinksBtn = document.createElement("button");
-  backlinksBtn.textContent = "\uD83D\uDD17"; // 🔗
-  backlinksBtn.title = "Toggle backlinks panel";
-  backlinksBtn.style.fontSize = "14px";
-  backlinksBtn.addEventListener("click", toggleBacklinks);
-
-  const searchBtn = document.createElement("button");
-  searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
-  searchBtn.title = "Search (Ctrl+F)";
-  searchBtn.style.fontSize = "14px";
-  searchBtn.addEventListener("click", () => searchBar.open());
-
-  const settingsBtn = document.createElement("button");
-  settingsBtn.textContent = "\u2699"; // ⚙
-  settingsBtn.title = "Settings";
-  settingsBtn.style.fontSize = "16px";
-  settingsBtn.addEventListener("click", handleSettings);
-
-  toolbar.append(
-    vaultBtn,
-    openBtn,
-    saveBtn,
-    saveAsBtn,
-    spacer,
-    vaultToggleBtn,
-    outlineBtn,
-    backlinksBtn,
-    searchBtn,
-    settingsBtn
-  );
+  toolbar.style.display = "none"; // 所有功能已移至原生菜单，隐藏空 toolbar
   return toolbar;
 }
 
@@ -103,14 +40,14 @@ function renderStatus(): void {
   const el = document.getElementById("status-line");
   if (!el) return;
 
-  const pathLabel = state.activeFile ?? state.filePath ?? "Untitled";
-  const dirtyMark = state.dirty ? " [modified]" : "";
+  const pathLabel = state.activeFile ?? state.filePath ?? t("status.untitled");
+  const dirtyMark = state.dirty ? t("status.modified") : "";
   const stats = shell?.editor.getDocumentStats();
-  const statsText = stats ? ` | ${stats.words} words, ${stats.lines} lines` : "";
+  const statsText = stats ? ` | ${stats.words} ${t("status.words")}, ${stats.lines} ${t("status.lines")}` : "";
   const vaultLabel = state.vaultPath
-    ? ` | Vault: ${state.vaultPath.split(/[\\/]/).pop()}`
+    ? ` | ${t("status.vault")}: ${state.vaultPath.split(/[\\/]/).pop()}`
     : "";
-  const errorText = state.error ? ` — Error: ${state.error}` : "";
+  const errorText = state.error ? ` — ${t("status.error")}: ${state.error}` : "";
   el.textContent = `${pathLabel}${dirtyMark}${statsText}${vaultLabel}${errorText}`;
 }
 
@@ -175,10 +112,12 @@ async function handleSaveAs(): Promise<void> {
 }
 
 function handleSettings(): void {
-  createSettingsPanel(settings, (next) => {
+  const panel = createSettingsPanel(settings, (next) => {
     settings = next;
     shell.applySettings(settings);
+    applyThemeToDocument(settings);
   });
+  void panel; // 面板挂载到 body，自行管理生命周期
 }
 
 function togglePanel(panel: HTMLElement, onShow?: () => void): void {
@@ -190,17 +129,9 @@ function togglePanel(panel: HTMLElement, onShow?: () => void): void {
   }
 }
 
-function toggleOutline(): void {
-  togglePanel(outline.element, () => outline.update());
-}
-
-function toggleVault(): void {
-  togglePanel(vault.element);
-}
-
-function toggleBacklinks(): void {
-  togglePanel(backlinks.element, () => backlinks.refresh());
-}
+let toggleOutline = (): void => {};
+let toggleVault = (): void => {};
+let toggleBacklinks = (): void => {};
 
 async function handleVaultFileOpen(filePath: string): Promise<void> {
   const total = perfStart("open-file", { filePath });
@@ -345,6 +276,10 @@ function boot(): void {
   const root = document.getElementById("app");
   if (!root) throw new Error("Missing #app element");
 
+  // 启动时初始化语言和主题
+  setLocale(settings.locale);
+  applyThemeToDocument(settings);
+
   const appToolbar = createAppToolbar();
   const statusLine = createStatusLine();
 
@@ -407,18 +342,97 @@ function boot(): void {
     getActiveFile: () => state.activeFile,
   });
 
+  // 搜索按钮激活状态联动：通过 onClose 回调同步 .active 类
   editorColumn.append(searchBar.element, editorContainer);
-  mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
+
+  // 创建可拖动分隔条（vault右 / outline左 / backlinks左）
+  function makeResizeHandle(
+    panel: HTMLElement,
+    direction: "right" | "left"
+  ): HTMLElement {
+    const handle = document.createElement("div");
+    handle.className = "resize-handle";
+
+    handle.addEventListener("mousedown", (e: MouseEvent) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = panel.getBoundingClientRect().width;
+      handle.classList.add("dragging");
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+
+      const onMove = (ev: MouseEvent) => {
+        const delta = ev.clientX - startX;
+        // 向右拖 handle 时：right 方向扩展面板，left 方向缩小面板
+        const newW = direction === "right"
+          ? Math.min(350, Math.max(100, startW + delta))
+          : Math.min(350, Math.max(100, startW - delta));
+        panel.style.width = newW + "px";
+      };
+
+      const onUp = () => {
+        handle.classList.remove("dragging");
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+
+    return handle;
+  }
+
+  const vaultHandle = makeResizeHandle(vault.element, "right");
+  const outlineHandle = makeResizeHandle(outline.element, "left");
+  const backlinkHandle = makeResizeHandle(backlinks.element, "left");
+
+  // 默认只显示左侧 vault 面板，outline 和 backlinks 默认隐藏
+  outline.element.style.display = "none";
+  outlineHandle.style.display = "none";
+  backlinks.element.style.display = "none";
+  backlinkHandle.style.display = "none";
+
+  // 将面板切换函数绑定到 handle，确保分隔条随面板一起显隐
+  toggleVault = () => {
+    const visible = vault.element.style.display === "none";
+    vault.element.style.display = visible ? "" : "none";
+    vaultHandle.style.display = visible ? "" : "none";
+  };
+  toggleOutline = () => {
+    const visible = outline.element.style.display === "none";
+    outline.element.style.display = visible ? "" : "none";
+    outlineHandle.style.display = visible ? "" : "none";
+    if (visible) outline.update();
+  };
+  toggleBacklinks = () => {
+    const visible = backlinks.element.style.display === "none";
+    backlinks.element.style.display = visible ? "" : "none";
+    backlinkHandle.style.display = visible ? "" : "none";
+    if (visible) backlinks.refresh();
+  };
+
+  mainArea.append(vault.element, vaultHandle, editorColumn, outlineHandle, outline.element, backlinkHandle, backlinks.element);
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {
     void seedLinkIndex();
   });
 
-  document.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "f") {
-      e.preventDefault();
-      searchBar.open();
+  // 监听原生菜单命令
+  window.nexusDemo.onMenuCommand((command) => {
+    switch (command) {
+      case "openVault": void vault.promptPickVault(); break;
+      case "openFile": void handleOpen(); break;
+      case "saveFile": void handleSave(); break;
+      case "saveFileAs": void handleSaveAs(); break;
+      case "toggleVault": toggleVault(); break;
+      case "toggleOutline": toggleOutline(); break;
+      case "toggleBacklinks": toggleBacklinks(); break;
+      case "openSearch": searchBar.open(); break;
+      case "openSettings": handleSettings(); break;
     }
   });
 

@@ -4,10 +4,52 @@
   box-sizing: border-box;
 }
 
+/* ── 全局滚动条美化 ─────────────────────────────────────────────
+   细条样式，鼠标悬停区域时显示，离开时淡出隐藏               */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+  transition: background 0.2s;
+}
+
+/* 鼠标进入可滚动容器时显示滚动条 */
+*:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.32);
+}
+
+/* 深色模式下滚动条适配 */
+[data-color-scheme="dark"] *:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+[data-color-scheme="dark"] *::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+/* 去掉滚动条轨道末端角块 */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 html,
 body,
 #app {
   height: 100%;
+  background: var(--nexus-bg, #fff);
+  color: var(--nexus-text, #24292e);
 }
 
 #app {
@@ -20,20 +62,58 @@ body,
   display: flex;
   gap: 8px;
   padding: 8px 12px;
-  background: #f0f0f0;
-  border-bottom: 1px solid #ddd;
+  background: var(--nexus-bg-subtle, #f0f0f0);
+  border-bottom: 1px solid var(--nexus-border, #ddd);
   flex-shrink: 0;
 }
 
 .toolbar button {
   padding: 4px 12px;
   cursor: pointer;
+  background: var(--nexus-bg, #fff);
+  color: var(--nexus-text, #24292e);
+  border: 1px solid var(--nexus-border-subtle, #ddd);
+  border-radius: 4px;
+}
+
+/* 右上角面板切换按钮激活状态 */
+.toolbar button.active {
+  background: #e0e7ff;
+  color: #4f46e5;
+  border-color: #c7d2fe;
+  box-shadow: inset 0 1px 3px rgba(79, 70, 229, 0.15);
+}
+
+/* 深色模式下激活按钮用不同配色 */
+[data-color-scheme="dark"] .toolbar button.active {
+  background: rgba(79, 70, 229, 0.25);
+  color: #a5b4fc;
+  border-color: rgba(79, 70, 229, 0.5);
 }
 
 .main-area {
   flex: 1;
   display: flex;
   overflow: hidden;
+}
+
+/* ── 面板拖动分隔条 ───────────────────────────────────────────── */
+.resize-handle {
+  width: 4px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  border-left: 1px solid var(--nexus-border, #eee);
+  position: relative;
+  z-index: 10;
+  transition: background 0.15s, border-color 0.15s;
+  user-select: none;
+}
+
+.resize-handle:hover,
+.resize-handle.dragging {
+  background: rgba(124, 108, 244, 0.35);
+  border-color: #7c6cf4;
 }
 
 .editor-column {
@@ -66,9 +146,9 @@ body,
 .status-line {
   padding: 4px 12px;
   font-size: 13px;
-  color: #666;
-  background: #fafafa;
-  border-top: 1px solid #eee;
+  color: var(--nexus-text-muted, #666);
+  background: var(--nexus-bg-subtle, #fafafa);
+  border-top: 1px solid var(--nexus-border, #eee);
   flex-shrink: 0;
 }
 

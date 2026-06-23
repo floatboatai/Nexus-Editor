@@ -125,7 +125,10 @@ function themeToEditorTheme(theme: NexusTheme): Extension {
       fontFamily,
       ...vars
     },
-    ".cm-content": contentStyles,
+    ".cm-content": {
+      ...contentStyles,
+      caretColor: theme.text,
+    },
     ".cm-line": { padding: "0 20px" },
     ".cm-gutters": {
       borderRight: "1px solid var(--nexus-border)",

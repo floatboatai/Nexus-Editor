@@ -35,6 +35,8 @@ interface DemoBridge {
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
   vault: VaultBridge;
+  /** 监听原生菜单命令，返回取消监听函数 */
+  onMenuCommand(cb: (command: string) => void): () => void;
 }
 
 interface Window {
