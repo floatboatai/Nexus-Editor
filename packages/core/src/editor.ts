@@ -254,6 +254,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
   let destroyed = false;
   let focused = false;
   let parseTimer: ReturnType<typeof setTimeout> | undefined;
+  let docVersion = 0;
   let compositionFlushTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingCompositionMarkdown: string | null = null;
   // 组合输入（IME）状态与被推迟的文档回灌。组合输入进行中调用 setDocument 会被
@@ -318,13 +319,15 @@ export function createEditor(config: EditorConfig): EditorAPI {
       parseTimer = undefined;
     }
 
+    const versionAtSchedule = docVersion; //
+
     if (parseDelayMs <= 0) {
       emitChange(markdown);
       return;
     }
 
     parseTimer = setTimeout(() => {
-      parseTimer = undefined;
+      if (versionAtSchedule !== docVersion) return; //
       emitChange(markdown);
     }, parseDelayMs);
   }
@@ -714,10 +717,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
         scrollIntoView: true
       });
     },
+
     setDocument(next, opts) {
       if (destroyed) {
         return;
       }
+
+      docVersion++;
 
       const silent = opts?.silent === true;
 
