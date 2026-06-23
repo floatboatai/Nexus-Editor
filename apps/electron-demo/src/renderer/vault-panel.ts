@@ -188,9 +188,11 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
   panel.style.cssText = PANEL_STYLES;
 
   const header = document.createElement("div");
+  header.className = "nexus-panel-header nexus-vault-header";
   header.style.cssText = HEADER_STYLES;
 
   const title = document.createElement("div");
+  title.className = "nexus-panel-title";
   title.style.cssText = HEADER_TITLE_STYLES;
   title.textContent = "Vault";
 
@@ -230,6 +232,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
   }
 
   const tree = document.createElement("div");
+  tree.className = "nexus-vault-tree";
   tree.style.cssText = TREE_STYLES;
 
   panel.append(header, tree);
