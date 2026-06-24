@@ -696,3 +696,24 @@ describe("createEditor — DOM event hook layer", () => {
     editor.destroy();
   });
 });
+
+it("silent setDocument should NOT trigger onChange", async () => {
+  const container = document.createElement("div");
+
+  const editor = createEditor({
+    container,
+    parseDelayMs: 10,
+  });
+
+  const calls: any[] = [];
+
+  editor.on("change", (doc: any) => {
+    calls.push(doc);
+  });
+
+  editor.setDocument("hello world", { silent: true });
+
+  await new Promise((r) => setTimeout(r, 50));
+
+  expect(calls.length).toBe(0);
+});
