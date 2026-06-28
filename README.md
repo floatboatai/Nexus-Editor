@@ -15,11 +15,11 @@ Framework-agnostic core · Official React & Vue bindings · MIT licensed.
 
 ## 🗺️ Roadmap (TL;DR)
 
-We ship in priority tiers — **P0 is what we're working on right now**.
+We ship in priority tiers — **P0 baseline is complete; P1 is next**.
 
 | Tier | Theme | Highlights |
 |---|---|---|
-| **P0 — Now** | Core API completeness | `getSelectedText()`, slash command sorting, `<Editor />` `onReady`, TS strict coverage |
+| **P0 — Baseline** | Core API completeness | `getSelectedText()`, slash command sorting, `<Editor />` `onReady`, TS strict typecheck baseline |
 | **P1 — Next** | Power-user features | Multi-cursor, regex search, undo/redo grouping, widget API standardization, Electron packaging |
 | **P2 — Mid-term** | UX & ecosystem | Advanced toolbar (emoji / table / color), fuzzy search, sync-scroll preview, web-component wrapper |
 | **P3 — Long-term** | Collaboration | Realtime CRDT collab, shared comments / @mention, plugin hot-reload |
