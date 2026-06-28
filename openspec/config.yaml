@@ -1,0 +1,46 @@
+schema: spec-driven
+
+context: |
+  Nexus-Editor is a headless, AST-driven Markdown editor engine built on
+  CodeMirror 6 and the unified/remark ecosystem. Markdown text is the source
+  of truth; live preview renders Obsidian-style inline widgets without turning
+  the document into a WYSIWYG JSON model.
+
+  Repository shape:
+  - pnpm workspace with packages/* and apps/*.
+  - Core package: @floatboat/nexus-core.
+  - Framework bindings: @floatboat/nexus-react and @floatboat/nexus-vue.
+  - Official packages include preset-gfm plus history, search, slash, toolbar,
+    math, vim, and wordcount plugins.
+  - apps/electron-demo is the reference desktop app for vault/file IO,
+    wikilinks, backlinks, search, outline, settings, and plugin integration.
+
+  Engineering conventions:
+  - Prefer existing package boundaries and local helper APIs over new patterns.
+  - Keep Markdown round-tripping stable and avoid lossy transformations.
+  - New capabilities and architecture changes should go through OpenSpec first.
+  - Bug fixes, tests for existing behavior, dependency/config changes, and
+    documentation corrections can be implemented directly.
+  - Use Conventional Commits scopes from CONTRIBUTING.md for commits/PRs.
+
+  Testing and validation:
+  - Root commands: pnpm typecheck, pnpm test, pnpm build, pnpm build:electron-demo.
+  - Vitest/jsdom tests cover core, plugins, React/Vue bindings, and the
+    Electron demo renderer helpers.
+  - Fixture assertions should validate behavior, not incidental sample-vault
+    file names or exact demo content.
+  - Changes touching packages/core/src/live-preview-table.ts must follow the
+    table widget rules in AGENTS.md / CLAUDE.md and exercise all interaction
+    paths listed there.
+
+rules:
+  proposal:
+    - Link the relevant docs/ROADMAP.md row when the change maps to roadmap work.
+    - State affected packages and whether the change is public API, behavior, or tooling only.
+  design:
+    - Include design.md when a change crosses package boundaries, changes plugin/core contracts, adds dependencies, or affects Electron/file IO.
+    - Call out Markdown round-trip, CM6 lifecycle, and live-preview/widget risks when relevant.
+  tasks:
+    - Group tasks by package or implementation phase.
+    - Include focused tests and the validation commands expected for completion.
+    - Add manual Electron demo smoke checks for visible UI or file/vault behavior.

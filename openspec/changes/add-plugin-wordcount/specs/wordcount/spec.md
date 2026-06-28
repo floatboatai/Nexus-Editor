@@ -62,9 +62,10 @@ Default node-type exclusions are `code`, `inlineCode`, `math`,
 
 ### Requirement: CJK Counting
 
-CJK ideographs and syllables (`\p{Script=Han}`,
-`\p{Script=Hiragana}`, `\p{Script=Katakana}`, `\p{Script=Hangul}`)
-SHALL be counted per character by default (`cjkUnit: "char"`).
+CJK ideographs and syllables SHALL be counted per character by
+default (`cjkUnit: "char"`), including `\p{Script=Han}`,
+`\p{Script=Hiragana}`, `\p{Script=Katakana}`, and
+`\p{Script=Hangul}`.
 Setting `cjkUnit: "word"` SHALL collapse consecutive same-script
 runs into a single word. The `cjkCharacters` field SHALL always
 report the total raw CJK character count regardless of `cjkUnit`.
@@ -206,11 +207,10 @@ omitted SHALL fall back to the English defaults.
 
 ### Requirement: No Re-Parsing of the Document
 
-While the plugin is mounted in an editor, full-document recomputes
-SHALL consume the AST returned by `editor.getAst()` and SHALL NOT
-construct a unified pipeline. The lazy pipeline SHALL only be
-constructed when `countMarkdown` is called without an `ast` option
-or on a selection slice.
+Mounted plugin full-document recomputes SHALL consume the AST returned
+by `editor.getAst()` and SHALL NOT construct a unified pipeline. The
+lazy pipeline SHALL only be constructed when `countMarkdown` is called
+without an `ast` option or on a selection slice.
 
 #### Scenario: AST is reused for full doc
 - **WHEN** the editor dispatches a `change` and the plugin's
