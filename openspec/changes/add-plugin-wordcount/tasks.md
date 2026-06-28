@@ -210,7 +210,7 @@
   cover the same status-bar interactions as a manual smoke would.
 - [ ] 9.6 `openspec validate add-plugin-wordcount --strict` — CLI
   not installed in the dev environment. Spec format hand-linted
-  against `openspec/AGENTS.md` §"Spec File Format" (each
+  against the OpenSpec 1.5 rules in `AGENTS.md` and `openspec/config.yaml` (each
   `### Requirement:` has at least one `#### Scenario:` with
   `**WHEN**`/`**THEN**` bullets; delta files use
   `## ADDED Requirements`).

@@ -4,23 +4,23 @@ This document describes how the Nexus-Editor project is governed and what contri
 
 If you only want to send a small fix, you can stop reading after §6. The rest exists so that the project's direction stays stable as we grow.
 
-[中文版 — TODO](./GOVERNANCE.zh.md)
+[中文版](./GOVERNANCE.zh.md)
 
 ---
 
 ## 1. Project Ownership
 
 - **Nexus-Editor** is an open-source project under the [`floatboatai`](https://github.com/floatboatai) GitHub organization.
-- Licensed under [MIT](./LICENSE). All accepted contributions are licensed under MIT (see §6.1).
+- Licensed under MIT. All accepted contributions are licensed under MIT (see §6.1).
 - The names *"Nexus-Editor"* and *"floatboat"* and their associated logos are reserved by the project owners. The MIT license grants rights to the code, **not** to the trademarks — please do not use these names for forks, derivatives, or commercial offerings without prior written permission.
 
 ## 2. Maintainers
 
-Maintainers are the people with write access to this repository. Their role:
+Maintainers are the people with **Maintain** (or higher) access to this repository. Their role:
 
 - Triage and review pull requests
 - Decide what enters `docs/ROADMAP.md`
-- Approve and archive OpenSpec proposals (see [`openspec/AGENTS.md`](./openspec/AGENTS.md))
+- Approve and archive OpenSpec proposals (see the `.claude/skills/openspec-*` / `.codex/skills/openspec-*` workflows and [`openspec/config.yaml`](./openspec/config.yaml))
 - Cut releases via `pnpm publish:packages`
 
 The current maintainer list is whoever has the **Maintain** or higher role in this repository's GitHub permissions. To propose adding or removing a maintainer, open an issue with the `governance` label.

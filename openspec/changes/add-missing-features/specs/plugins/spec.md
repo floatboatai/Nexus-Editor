@@ -27,7 +27,7 @@ The `@floatboat/nexus-plugin-search` package SHALL provide a functional CodeMirr
 
 ### Requirement: provide a Mermaid diagram plugin
 
-A `@nexus/plugin-mermaid` package SHALL render `mermaid` code blocks as SVG diagrams when the cursor is outside, and show raw mermaid source when the cursor is inside.
+A `@floatboat/nexus-plugin-mermaid` package SHALL render `mermaid` code blocks as SVG diagrams when the cursor is outside, and show raw mermaid source when the cursor is inside.
 
 #### Scenario: Render mermaid diagram
 - **WHEN** document contains a fenced code block with language `mermaid`

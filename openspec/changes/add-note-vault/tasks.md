@@ -30,7 +30,7 @@
 - [x] 4.9 Integrate into `app.ts` layout (Vault button + panel placement)
 
 ## 5. Verify
-- [x] 5.1 `pnpm --filter @nexus/electron-demo build` passes
+- [x] 5.1 `pnpm --filter @floatboat/nexus-electron-demo build` passes
 - [x] 5.2 `pnpm -w run test` passes (135/135, no regressions)
 - [x] 5.3 `openspec validate add-note-vault --strict` passes
 - [ ] 5.4 Manual end-to-end smoke test covering all scenarios in the spec (to be performed by user in electron UI)

@@ -13,14 +13,14 @@ The electron-demo app currently treats every editing session as a single untitle
 **Non-Goals:**
 - Multi-tab editing (only one file active at a time).
 - Drag-and-drop reordering, attachments, search indexing, sync, or collaboration.
-- Changes to `@nexus/core` or any other shared package.
+- Changes to `@floatboat/nexus-core` or any other shared package.
 - Multiple simultaneous vaults.
 
 ## Decisions
 
-**Decision: Keep vault logic entirely in `apps/electron-demo`, zero changes to `@nexus/core`.**
+**Decision: Keep vault logic entirely in `apps/electron-demo`, zero changes to `@floatboat/nexus-core`.**
 The core already exposes `setDocument(markdown)` which is all that's needed to swap document contents. Adding vault types to core would pollute its single-document semantics and couple it to an electron-specific concern.
-Alternatives considered: (a) a `Workspace` abstraction in core — rejected as it would leak host concerns into the reusable engine; (b) a new `@nexus/workspace` package — overkill for one host implementation, can be extracted later if other hosts (web, mobile) need it.
+Alternatives considered: (a) a `Workspace` abstraction in core — rejected as it would leak host concerns into the reusable engine; (b) a new `@floatboat/nexus-workspace` package — overkill for one host implementation, can be extracted later if other hosts (web, mobile) need it.
 
 **Decision: Use node `fs.watch` with `{ recursive: true }`, not chokidar.**
 Zero new dependencies; recursive mode is reliable on macOS and Windows. Linux recursive support is incomplete, so we accept that users may need manual refresh on Linux for deep changes. If that becomes a real complaint, we can introduce chokidar later behind the same IPC interface.

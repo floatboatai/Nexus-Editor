@@ -30,7 +30,7 @@ Use CM6's built-in `foldGutter()` and `foldService()`. Provide a custom fold ser
 
 ### Mermaid Plugin
 
-Follow the same pattern as `@nexus/plugin-math`: register a `WidgetDefinition` for `code` nodes where `lang === "mermaid"`. The widget renders SVG via `mermaid.render()`. Lazy-load mermaid.js to avoid bundle bloat.
+Follow the same pattern as `@floatboat/nexus-plugin-math`: register a `WidgetDefinition` for `code` nodes where `lang === "mermaid"`. The widget renders SVG via `mermaid.render()`. Lazy-load mermaid.js to avoid bundle bloat.
 
 **Rationale:** Consistent with existing plugin architecture. Widget API already supports this pattern.
 

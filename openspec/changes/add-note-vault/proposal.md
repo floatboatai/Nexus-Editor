@@ -14,7 +14,7 @@ The electron demo currently only supports opening one file at a time via a file-
 - Dirty-state guard when switching files in the tree.
 - File-type filter: only `.md`, `.markdown`, `.txt` are shown (and empty parent directories are pruned).
 - Path-escape guard: all file-system IPC validates that the target path resolves inside the active vault.
-- **No changes to `@nexus/core`** — the core editor remains path-agnostic; vault is host-side only.
+- **No changes to `@floatboat/nexus-core`** — the core editor remains path-agnostic; vault is host-side only.
 
 ## Impact
 

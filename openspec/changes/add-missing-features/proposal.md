@@ -12,5 +12,5 @@ Nexus-Editor has a solid core (inline formatting, headings, code blocks, tables,
 ## Impact
 - Affected specs: live-preview, editor-core, theming (new), plugins
 - Affected code: `packages/core/src/live-preview.ts`, `packages/core/src/live-preview-ranges.ts`, `packages/core/src/live-preview-table.ts`, `packages/core/src/editor.ts`, `packages/core/src/types.ts`, new plugin packages
-- New packages: `@nexus/plugin-mermaid`, theme system in core
+- New packages: `@floatboat/nexus-plugin-mermaid`, theme system in core
 - **No breaking changes** to existing API

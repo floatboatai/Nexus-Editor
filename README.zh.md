@@ -299,7 +299,7 @@ pnpm dev:electron-demo
 
 - [CONTRIBUTING.zh.md](./CONTRIBUTING.zh.md) —— 分支命名、Conventional Commits scope 白名单、何时需要走 OpenSpec、测试矩阵。
 - [.github/PULL_REQUEST_TEMPLATE.md](./.github/PULL_REQUEST_TEMPLATE.md) —— PR 描述模板（双语）。
-- [openspec/AGENTS.md](./openspec/AGENTS.md) —— 新 capability 或破坏性 API 变更必读。
+- [AGENTS.md](./AGENTS.md) + [openspec/config.yaml](./openspec/config.yaml) —— OpenSpec 1.5 agent 工作流与项目规则，新 capability 或破坏性 API 变更必读。
 
 > 🟢 **新手友好的 issue** 打了 [`good first issue`](https://github.com/floatboatai/Nexus-Editor/labels/good%20first%20issue) 标签 —— 不熟代码库的话，从这里开始。
 
@@ -307,7 +307,7 @@ pnpm dev:electron-demo
 
 ## 📄 许可证
 
-[MIT](./LICENSE) © floatboat
+MIT © floatboat
 
 ---
 

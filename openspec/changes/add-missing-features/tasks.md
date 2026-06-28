@@ -23,7 +23,7 @@
 - [x] 3.2 Internationalization framework (NexusLocale, en/zh presets)
 - [x] 3.3 TOC extraction API
 - [x] 3.4 Markdown-to-HTML export
-- [ ] 3.5 Mermaid diagram plugin (`@nexus/plugin-mermaid`)
+- [ ] 3.5 Mermaid diagram plugin (`@floatboat/nexus-plugin-mermaid`)
 
 ## Phase 4: P3 — Quality
 

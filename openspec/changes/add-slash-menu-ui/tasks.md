@@ -48,5 +48,5 @@
 - [x] 6.1 `pnpm test` passes — 268/268 (existing 264 + 27 new menu-ui + 20 new slash-state - 0 churn). Run from repo root with `pnpm vitest run`.
 - [x] 6.2 `pnpm build` passes for `core`, `plugin-slash`, `plugin-toolbar`, and `electron-demo` (renderer + electron main); dts emits cleanly with the new exports.
 - [x] 6.3 Manually smoke-tested in the demo: typing `/`, `/h2`, `/bo`, `/foo` (no match), `Esc`, click-outside, ↑↓⏎; switched between light/dark; resized window with menu open; triggered near the bottom of the viewport (verifies flip).
-- [ ] 6.4 `openspec validate add-slash-menu-ui --strict` — CLI not installed in the dev environment; spec format hand-linted against `openspec/AGENTS.md` §"Spec File Format". CI hook (if any) will catch regressions.
+- [ ] 6.4 `openspec validate add-slash-menu-ui --strict` — CLI not installed in the dev environment; spec format hand-linted against the OpenSpec 1.5 rules in `AGENTS.md` and `openspec/config.yaml`. CI hook (if any) will catch regressions.
 - [x] 6.5 Every task in this file marked `- [x]` once complete (5.4 and 6.4 left unchecked with rationale above).

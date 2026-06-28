@@ -49,7 +49,7 @@ Non-goals (explicit for this change):
 **Decision:** `createWikilinksExtension({ resolve, onNavigate, suggest })` where each option is an optional function. The core package contains zero filesystem logic.
 
 **Rationale:**
-- Keeps core package pure (matches `add-note-vault` proposal: "No changes to @nexus/core — the core editor remains path-agnostic; vault is host-side only").
+- Keeps core package pure (matches `add-note-vault` proposal: "No changes to @floatboat/nexus-core — the core editor remains path-agnostic; vault is host-side only").
 - Enables alternative hosts (browser-only, web, iOS) to inject their own resolution strategies.
 
 ### D4 — Resolution order matches Obsidian's "shortest path when possible"

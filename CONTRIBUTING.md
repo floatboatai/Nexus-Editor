@@ -81,7 +81,7 @@ You **must** open an OpenSpec proposal under `openspec/changes/<id>/` before the
 
 You do **not** need a proposal for: bug fixes, internal refactors, dependency bumps, test/doc additions.
 
-See `openspec/AGENTS.md` for the full workflow.
+See [`AGENTS.md`](./AGENTS.md) for the OpenSpec 1.5 agent workflow and [`openspec/config.yaml`](./openspec/config.yaml) for repo-specific proposal rules.
 
 ### 3.2 PR checklist
 
@@ -95,7 +95,7 @@ See `openspec/AGENTS.md` for the full workflow.
 - [ ] `pnpm test` passes
 - [ ] Affected packages build (`pnpm build`)
 - [ ] Public-API changes update the relevant `packages/*/README.md`
-- [ ] If touching `packages/core/src/live-preview-table.ts`, walk through the 12 Table Widget rules in `CLAUDE.md`
+- [ ] If touching `packages/core/src/live-preview-table.ts`, walk through the 12 Table Widget rules in [`CLAUDE.md`](./CLAUDE.md)
 - [ ] New / changed capability → linked OpenSpec change id
 
 ### 3.3 Test matrix
@@ -113,7 +113,7 @@ See `openspec/AGENTS.md` for the full workflow.
 ## 4. Code Style
 
 - TypeScript strict mode; public exports must have explicit types.
-- No "what" comments, no PR/issue back-references in comments. Only write a comment when the **why** is non-obvious (see CLAUDE.md "Doing tasks").
+- No "what" comments, no PR/issue back-references in comments. Only write a comment when the **why** is non-obvious (see [`CLAUDE.md`](./CLAUDE.md) "Doing tasks").
 - UI changes must be exercised in the electron-demo. Type checks alone don't validate UI behavior.
 
 ---

@@ -299,7 +299,7 @@ We'd love your help — whether it's a typo fix, a new plugin, or a deep core ch
 
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — branch naming, Conventional Commits scope whitelist, when to file an OpenSpec proposal, test matrix.
 - [.github/PULL_REQUEST_TEMPLATE.md](./.github/PULL_REQUEST_TEMPLATE.md) — the PR description template.
-- [openspec/AGENTS.md](./openspec/AGENTS.md) — required for new capabilities or breaking API changes.
+- [AGENTS.md](./AGENTS.md) + [openspec/config.yaml](./openspec/config.yaml) — OpenSpec 1.5 agent workflow and project rules for new capabilities or breaking API changes.
 
 > 🟢 **Good first issues** are labeled [`good first issue`](https://github.com/floatboatai/Nexus-Editor/labels/good%20first%20issue) — start there if you're new to the codebase.
 
@@ -307,7 +307,7 @@ We'd love your help — whether it's a typo fix, a new plugin, or a deep core ch
 
 ## 📄 License
 
-[MIT](./LICENSE) © floatboat
+MIT © floatboat
 
 ---
 

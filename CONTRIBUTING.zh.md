@@ -4,7 +4,7 @@
 
 [English](./CONTRIBUTING.md)
 
-> **开始之前：** 请先读 [`GOVERNANCE.md`](./GOVERNANCE.md)，了解项目范围、贡献政策（CLA、AI 生成代码、依赖）以及我们接受 / 拒绝的标准。本文件讲*流程*，`GOVERNANCE.md` 讲*规则*。
+> **开始之前：** 请先读 [`GOVERNANCE.zh.md`](./GOVERNANCE.zh.md)，了解项目范围、贡献政策（CLA、AI 生成代码、依赖）以及我们接受 / 拒绝的标准。本文件讲*流程*，`GOVERNANCE.zh.md` 讲*规则*。
 
 ---
 
@@ -81,7 +81,7 @@ test(live-preview): regression tests for click-drift invariants
 
 不需要 proposal 的情况：bug 修复、内部重构、依赖升级、测试/文档补充。
 
-具体流程见 `openspec/AGENTS.md`。
+具体流程见 [`AGENTS.md`](./AGENTS.md) 中的 OpenSpec 1.5 agent 工作流，以及 [`openspec/config.yaml`](./openspec/config.yaml) 中的仓库提案规则。
 
 ### 3.2 PR 必备项
 
@@ -91,7 +91,7 @@ test(live-preview): regression tests for click-drift invariants
 - [ ] `pnpm test` 全绿
 - [ ] 受影响包能 `pnpm build` 成功
 - [ ] 若改动公共 API，更新对应 `packages/*/README.md`
-- [ ] 若改动 `packages/core/src/live-preview-table.ts`，逐条核对 `CLAUDE.md` 中的 12 条 Table Widget 规则
+- [ ] 若改动 `packages/core/src/live-preview-table.ts`，逐条核对 [`CLAUDE.md`](./CLAUDE.md) 中的 12 条 Table Widget 规则
 - [ ] 若新增/修改 capability，附上 OpenSpec change id
 
 ### 3.3 测试矩阵
@@ -109,7 +109,7 @@ test(live-preview): regression tests for click-drift invariants
 ## 4. 代码风格
 
 - TypeScript strict；公共导出必须有类型签名。
-- 不写 what 注释、不写 PR/issue 引用注释。只在 **why 非显然**时写一行简注（参考 CLAUDE.md "Doing tasks"）。
+- 不写 what 注释、不写 PR/issue 引用注释。只在 **why 非显然**时写一行简注（参考 [`CLAUDE.md`](./CLAUDE.md) "Doing tasks"）。
 - UI 改动需要在 electron-demo 实际跑一遍，不能只看类型检查。
 
 ---
@@ -119,7 +119,7 @@ test(live-preview): regression tests for click-drift invariants
 - 不要提交 `.env`、密钥、token、个人 vault 数据。
 - 不要提交构建产物（`dist/`、`dist-electron/`、由 `.ts` 编译出的 `.js`）——它们在 `.gitignore` 里是有原因的，别用 `git add -f` 强加。
 - 不要在未授权下 `git push --force` 到 `main`。
-- 安全漏洞：请通过 GitHub 的 *"Report a vulnerability"* 私密上报，不要开公开 issue。见 [`GOVERNANCE.md` §7](./GOVERNANCE.md#7-security)。
+- 安全漏洞：请通过 GitHub 的 *"Report a vulnerability"* 私密上报，不要开公开 issue。见 [`GOVERNANCE.zh.md` §7](./GOVERNANCE.zh.md#7-安全)。
 
 ---
 

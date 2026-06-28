@@ -42,7 +42,7 @@
 
 | # | 功能 | 归属包 | 优先级 | 状态 | 需要 OpenSpec | 备注 |
 |---|---|---|---|---|---|---|
-| 9  | Widget API 标准化 | `core` | P1 | planned | 是 | 现有 widget 已多次踩坑（见 CLAUDE.md），需先定 spec |
+| 9  | Widget API 标准化 | `core` | P1 | planned | 是 | 现有 widget 已多次踩坑（见 [`CLAUDE.md`](../CLAUDE.md)），需先定 spec |
 | 10 | 插件事件总线 | `core` | P2 | planned | 是 | 影响所有现存 plugin-* |
 | 11 | 热加载插件 | `core` | P3 | planned | 是 | 仅 dev 模式，依赖 #9 完成 |
 
