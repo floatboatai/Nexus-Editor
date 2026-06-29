@@ -165,7 +165,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 ## 📦 Packages
 
 <details>
-<summary><b>Full package list (11 packages)</b> — click to expand</summary>
+<summary><b>Full package list (12 packages)</b> — click to expand</summary>
 
 | Package | Description |
 |---|---|
@@ -180,6 +180,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 | `@floatboat/nexus-plugin-math` | Inline / block math rendering (KaTeX) |
 | `@floatboat/nexus-plugin-vim` | Vim keybindings powered by `@replit/codemirror-vim` |
 | `@floatboat/nexus-plugin-wordcount` | Markdown-aware word / character / CJK / reading-time stats + ARIA-live status bar |
+| `@floatboat/nexus-plugin-paste` | HTML / rich-text paste → Markdown (sanitized, syntactically-safe destinations; `data:` images via `ctx.uploadAsset`) |
 
 </details>
 

@@ -21,6 +21,7 @@ interface VaultBridge {
   read(filePath: string): Promise<DemoFileHandle>;
   readAll(): Promise<Array<{ path: string; content: string }>>;
   write(filePath: string, content: string): Promise<{ path: string }>;
+  writeAsset(mimeType: string, bytes: Uint8Array): Promise<string | null>;
   createFile(parentDir: string, name: string): Promise<{ path: string }>;
   createFolder(parentDir: string, name: string): Promise<{ path: string }>;
   rename(oldPath: string, newName: string): Promise<{ path: string }>;

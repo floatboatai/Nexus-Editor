@@ -165,7 +165,7 @@ pnpm dev:electron-demo
 ## 📦 包列表
 
 <details>
-<summary><b>完整包列表（11 个包）</b> —— 点击展开</summary>
+<summary><b>完整包列表（12 个包）</b> —— 点击展开</summary>
 
 | 包名 | 说明 |
 |---|---|
@@ -180,6 +180,7 @@ pnpm dev:electron-demo
 | `@floatboat/nexus-plugin-math` | 行内 / 块级数学公式渲染（KaTeX） |
 | `@floatboat/nexus-plugin-vim` | Vim 键位（基于 `@replit/codemirror-vim`） |
 | `@floatboat/nexus-plugin-wordcount` | Markdown 感知的字数 / 字符数 / 中日韩字符 / 阅读时长统计 + ARIA 状态栏 |
+| `@floatboat/nexus-plugin-paste` | HTML / 富文本粘贴 → Markdown（净化、目标 URL 语法安全；`data:` 图片经 `ctx.uploadAsset` 处理）|
 
 </details>
 

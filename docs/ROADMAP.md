@@ -17,6 +17,9 @@ This document maps every planned feature to **package ownership / priority / sta
 |---|---|---|---|---|---|---|
 | 1 | Multi-line list toggle (ordered / unordered) | `plugin-toolbar` + `core` commands | P1 | done | No | Landed with `getSelectedText()` / `replaceRange()` — see `openspec/changes/add-selection-api` |
 | 12 | Advanced toolbar (emoji picker / table tools / color picker) | `plugin-toolbar` | P2 | planned | Yes | Introduces widgets — split into 3 sub-proposals |
+| 30 | HTML / rich-text paste → Markdown | new `plugin-paste` | P1 | in-progress | Yes | DOMPurify + turndown(+gfm); sanitized, syntactically-safe destinations; v1 routes `data:` images via `ctx.uploadAsset` (save-to-local default), remote images kept as links — see `openspec/changes/add-html-paste-markdown` |
+| 31 | electron-demo real asset storage | `apps/electron-demo` + `core` | P1 | planned | Yes | `add-electron-demo-asset-storage` — binary `onAssetUpload` (binary IPC + vault-path confinement + URL resolution) **plus** hardening core's `insertUploadedAssets` emitter; also fixes the demo's pre-existing broken image-file paste |
+| 32 | DEFERRED — configurable image-save strategy | `plugin-paste` | P2 | planned | Yes | Two axes: `data:` destination (inline / upload-{local,cloud,custom} / drop) × remote handling (keep-URL / fetch+store); unsaved buffers staged in tmp, relocated on first save |
 
 ## 2. Search / Commands
 

@@ -17,6 +17,9 @@
 |---|---|---|---|---|---|---|
 | 1 | 多行列表切换（ordered / unordered） | `plugin-toolbar` + `core` 命令 | P1 | done | 否 | 随 `getSelectedText()` / `replaceRange()` 一并落地 —— 见 `openspec/changes/add-selection-api` |
 | 12 | 高级 toolbar（emoji picker / 表格工具 / 颜色选择） | `plugin-toolbar` | P2 | planned | 是 | 涉及新 widget，建议拆 3 个子提案 |
+| 30 | HTML / 富文本粘贴 → Markdown | 新增 `plugin-paste` | P1 | in-progress | 是 | DOMPurify + turndown(+gfm)；净化、目标 URL 语法安全；v1 中 `data:` 图片经 `ctx.uploadAsset` 处理（save-to-local 默认），远程图片保留为链接 —— 见 `openspec/changes/add-html-paste-markdown` |
+| 31 | electron-demo 真实资源存储 | `apps/electron-demo` + `core` | P1 | planned | 是 | `add-electron-demo-asset-storage` —— 二进制 `onAssetUpload`（二进制 IPC + vault 路径约束 + URL 解析），并加固 core 的 `insertUploadedAssets` emitter；同时修复 demo 既有的图片文件粘贴问题 |
+| 32 | DEFERRED —— 可配置图片保存策略 | `plugin-paste` | P2 | planned | 是 | 两条轴：`data:` 去向（inline / upload-{local,cloud,custom} / drop）× 远程处理（keep-URL / fetch+store）；未保存缓冲暂存 tmp，首次保存时迁移 |
 
 ## 2. Search / 命令
 

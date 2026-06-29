@@ -3,6 +3,7 @@ import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promi
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { randomUUID } from "node:crypto";
 
 // Must be called before app ready — declares our custom scheme as privileged
 // so images served via nexus-vault:// pass fetch/<img> with credentials / CORS.
@@ -315,6 +316,36 @@ ipcMain.handle("vault:write", async (_event, filePath: string, content: string) 
   await writeFile(abs, content, "utf-8");
   return { path: abs };
 });
+
+// Binary asset write: the MAIN process is the trust boundary. It generates the
+// on-disk name from the validated MIME (never from a renderer-supplied
+// filename) and confines the path via assertInsideVault.
+const ASSET_EXT: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+};
+const MAX_ASSET_BYTES = 25 * 1024 * 1024; // ponytail: flat 25MB cap, raise if needed
+
+ipcMain.handle(
+  "vault:write-asset",
+  async (_event, mimeType: string, bytes: Uint8Array): Promise<string | null> => {
+    try {
+      const ext = ASSET_EXT[mimeType];
+      if (!ext) return null; // non-raster / non-allowlisted → reject
+      if (!activeVault) return null;
+      if (!bytes || bytes.byteLength === 0 || bytes.byteLength > MAX_ASSET_BYTES) return null;
+      const name = `${Date.now()}-${randomUUID()}.${ext}`; // host-generated; never from File.name
+      const abs = assertInsideVault(path.join(activeVault, "attachments", name)); // throws if escapes → caught
+      await mkdir(path.dirname(abs), { recursive: true });
+      await writeFile(abs, Buffer.from(bytes)); // binary write (no utf-8)
+      return name;
+    } catch {
+      return null;
+    }
+  }
+);
 
 ipcMain.handle(
   "vault:create-file",

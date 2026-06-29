@@ -40,6 +40,7 @@ import type {
   TocEntry,
 } from "./types";
 import { createWidgetExtension } from "./widget-extension";
+import { escapeMarkdownLabel, encodeMarkdownDestination } from "./markdown-safe";
 
 const FLOATBOAT_MARKDOWN_DEBUG_STORAGE_KEY = "floatboat:markdown-debug";
 const COMPOSITION_FLUSH_DELAY_MS = 60;
@@ -83,7 +84,7 @@ function createEmptyAst(): Root {
  * 因为截图、网页复制的图片往往以 `DataTransferItem`（kind === "file"）形式到达，
  * 而非 `files` 列表——这正是 cmd+v 粘贴图片在多数平台的真实形态。
  */
-function collectFilesFromDataTransfer(data: DataTransfer | null | undefined): File[] {
+export function collectFilesFromDataTransfer(data: DataTransfer | null | undefined): File[] {
   if (!data) return [];
 
   const files: File[] = [];
@@ -476,8 +477,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
         }
         if (!url || destroyed) continue;
         const isImage = file.type.startsWith("image/");
-        const label = file.name || (isImage ? "image" : "file");
-        const markdown = isImage ? `![${label}](${url})` : `[${label}](${url})`;
+        // label 来自不可信的 file.name，须 Markdown 转义；url 是宿主可信返回，仅结构性编码（不按 scheme 拦截）。
+        const label = escapeMarkdownLabel(file.name || (isImage ? "image" : "file"));
+        const dest = encodeMarkdownDestination(url);
+        const markdown = isImage ? `![${label}](${dest})` : `[${label}](${dest})`;
         view.dispatch(view.state.replaceSelection(markdown));
       }
     })();

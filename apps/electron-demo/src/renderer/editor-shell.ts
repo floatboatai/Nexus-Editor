@@ -17,6 +17,10 @@ import {
 import type { AppState } from "./state";
 import { type EditorSettings, settingsToTheme } from "./settings";
 
+// Raster MIME types the demo will persist into the vault (early-reject filter;
+// the main process owns the authoritative whitelist + size cap).
+const RASTER = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
 // Parse Obsidian-style size specifier from the alt text: `alt|width` or
 // `alt|widthxheight`. Returns { alt, width, height } with the size stripped
 // from the label. Numbers only; non-numeric after `|` stays in the alt.
@@ -136,6 +140,24 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     // Multi-cursor editing: Alt-click adds a cursor, Mod-d selects the next
     // occurrence, Mod-Alt-ArrowUp/Down stacks cursors (ROADMAP #6).
     multiCursor: true,
+    // Persist pasted/dropped image bytes into the vault. The MAIN process owns
+    // name generation + path confinement; this renderer-side type check is an
+    // early-reject optimization / defense-in-depth, not the authoritative gate.
+    onAssetUpload: async (file: File): Promise<string | null> => {
+      try {
+        if (!state.vaultPath) return null; // no vault → drop
+        if (!RASTER.has(file.type)) return null; // early reject non-raster
+        if (file.size > 25 * 1024 * 1024) return null; // pre-cap (matches main-process cap)
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const name = await window.nexusDemo.vault.writeAsset(file.type, bytes);
+        if (!name) return null;
+        // Absolute scheme URL → resolveImageSrc passes it through, the protocol
+        // handler resolves it against the vault root (renders in any subdir).
+        return `nexus-vault://vault/attachments/${encodeURIComponent(name)}`;
+      } catch {
+        return null; // documented contract: resolve to null, never reject
+      }
+    },
     plugins: [
       createGfmPreset(),
       createHistoryPlugin(),
