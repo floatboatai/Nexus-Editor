@@ -17,6 +17,15 @@ import { keymap, runScopeHandlers, type EditorView, type Panel, type ViewUpdate 
 
 import type { NexusPlugin } from "@floatboat/nexus-core";
 
+export {
+  fuzzyMatch,
+  fuzzyFilter,
+  type FuzzyMatch,
+  type FuzzyMatchOptions,
+  type FuzzyItemResult,
+  type FuzzyFilterOptions
+} from "./fuzzy";
+
 export interface SearchMatch {
   from: number;
   to: number;
