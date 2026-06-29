@@ -54,5 +54,8 @@ export type {
   SetDocumentOptions,
   TocEntry,
   WidgetDefinition,
-  WidgetRenderContext
+  WidgetDisplayMode,
+  WidgetEventPolicy,
+  WidgetRenderContext,
+  WidgetSourceRange
 } from "./types";

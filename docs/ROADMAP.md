@@ -42,7 +42,7 @@ This document maps every planned feature to **package ownership / priority / sta
 
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
-| 9  | Widget API standardization | `core` | P1 | planned | Yes | Existing widgets hit many pitfalls (see [`CLAUDE.md`](../CLAUDE.md)); spec first |
+| 9  | Widget API standardization | `core` | P1 | in-progress | Yes | Spec-driven via [`openspec/changes/standardize-widget-api`](../openspec/changes/standardize-widget-api/); existing widgets hit many pitfalls (see [`CLAUDE.md`](../CLAUDE.md)) |
 | 10 | Plugin event bus | `core` | P2 | planned | Yes | Affects every existing `plugin-*` |
 | 11 | Plugin hot-reload | `core` | P3 | planned | Yes | Dev mode only; depends on #9 |
 

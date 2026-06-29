@@ -9,9 +9,21 @@ import {
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import type { Content, Parent, Root } from "mdast";
 
-import type { ParserLike, WidgetDefinition, WidgetRenderContext } from "./types";
+import type { ParserLike, WidgetDefinition, WidgetDisplayMode, WidgetEventPolicy, WidgetRenderContext } from "./types";
 
 const COMPOSITION_REDECORATE_DELAY_MS = 60;
+
+// Exported for focused unit tests (NOT re-exported from index.ts → not public API).
+export function resolveDisplay(def: WidgetDefinition): WidgetDisplayMode {
+  if (def.display === "block" || def.display === "inline") return def.display;
+  return def.block === false ? "inline" : "block";
+}
+
+// Exported for focused unit tests (NOT re-exported from index.ts → not public API).
+export function resolveEventPolicy(def: WidgetDefinition): WidgetEventPolicy {
+  if (def.eventPolicy === "widget" || def.eventPolicy === "editor") return def.eventPolicy;
+  return def.ignoreEvents === true ? "widget" : "editor";
+}
 
 function createEmptyAst(): Root {
   return { type: "root", children: [] };
@@ -120,6 +132,7 @@ class NexusWidget extends WidgetType {
     const ctx: WidgetRenderContext = {
       from: this.from,
       to: this.to,
+      range: { from: this.from, to: this.to, source: this.source },
       setSelection: (anchor, head) => {
         const v = this.viewRef.current;
         if (!v) return;
@@ -132,6 +145,14 @@ class NexusWidget extends WidgetType {
       focus: () => {
         this.viewRef.current?.focus();
       },
+      enterEditMode: (position) => {
+        const v = this.viewRef.current;
+        if (!v) return;
+        const raw = position === "end" ? this.to : this.from;
+        const target = Math.max(0, Math.min(raw, v.state.doc.length));
+        v.dispatch({ selection: { anchor: target, head: target } });
+        v.focus();
+      },
     };
     const el = this.definition.render(this.node, this.source, ctx);
     el.setAttribute("data-nexus-widget", this.definition.nodeType);
@@ -143,7 +164,7 @@ class NexusWidget extends WidgetType {
   }
 
   ignoreEvent(): boolean {
-    return this.definition.ignoreEvents === true;
+    return resolveEventPolicy(this.definition) === "widget";
   }
 }
 
@@ -159,7 +180,7 @@ function buildWidgetDecorations(
   const decos: Range<Decoration>[] = [];
 
   for (const range of ranges) {
-    const isBlock = range.definition.block !== false;
+    const isBlock = resolveDisplay(range.definition) === "block";
     decos.push(
       Decoration.replace({
         widget: new NexusWidget(

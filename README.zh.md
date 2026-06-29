@@ -242,7 +242,14 @@ const myPlugin: NexusPlugin = {
   widgets: [{
     nodeType: "code",
     match: (node) => node.lang === "mermaid",
-    render: (node, source) => renderMermaidChart(source),
+    display: "block",        // "block" | "inline"（规范字段，取代旧的 `block`）
+    eventPolicy: "widget",   // "widget" | "editor"（规范字段，取代旧的 `ignoreEvents`）
+    render: (node, source, ctx) => {
+      const el = renderMermaidChart(source);
+      // 从自定义入口进入原始 Markdown 编辑：
+      el.querySelector(".edit")?.addEventListener("click", () => ctx?.enterEditMode());
+      return el;
+    },
     destroy: (el) => el.remove(),
   }],
 
@@ -250,6 +257,8 @@ const myPlugin: NexusPlugin = {
   cmExtensions: [myCodeMirrorExtension],
 };
 ```
+
+> `block` 与 `ignoreEvents` 仍作为旧版兼容别名保留（`block: false` ≡ `display: "inline"`，`ignoreEvents: true` ≡ `eventPolicy: "widget"`）；两者同时设置时以规范字段为准。完整 Widget API 见 [`packages/core/README.md`](./packages/core/README.md#widget-api)。
 
 </details>
 

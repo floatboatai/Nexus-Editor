@@ -48,15 +48,14 @@ function attachBlockEditButton(
   host.addEventListener("mouseleave", () => { btn.style.opacity = "0"; });
   btn.addEventListener("mouseenter", () => { btn.style.opacity = "1"; });
 
-  // Button events must escape the widget body's `ignoreEvents: true`
+  // Button events must escape the widget body's `eventPolicy: "widget"`
   // swallow. The button preventDefaults + stopPropagation so CM6 doesn't
   // see the click at all.
   btn.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); });
   btn.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    ctx.setSelection(ctx.from);
-    ctx.focus();
+    ctx.enterEditMode();
   });
 
   if (!host.style.position || host.style.position === "static") {
@@ -72,11 +71,11 @@ export function createMathPlugin(): NexusPlugin {
     widgets: [
       {
         nodeType: "math",
-        block: true,
+        display: "block",
         // Block formulas: swallow clicks so accidental clicks on the diagram
         // body don't move the cursor to unexpected places. The hover ✎
         // button is the only entry into edit mode.
-        ignoreEvents: true,
+        eventPolicy: "widget",
         render(node: any, source: string, ctx?: WidgetRenderContext) {
           const container = document.createElement("div");
           container.className = "nexus-math-display";
@@ -97,15 +96,15 @@ export function createMathPlugin(): NexusPlugin {
       },
       {
         nodeType: "inlineMath",
-        // Inline math: NOT a block widget — otherwise CM6 hoists the formula
+        // Inline math: inline display — otherwise CM6 hoists the formula
         // onto its own line and breaks surrounding paragraph flow.
-        block: false,
-        // Inline math does NOT swallow events. CM6 handles the click and
+        display: "inline",
+        // Inline math leaves events to the editor. CM6 handles the click and
         // places the cursor adjacent to the widget; combined with the
         // inclusive-end `selectionIntersects` check, that lands the caret
         // at the widget's `to` offset, which toggles the widget back to
         // raw source — natural text-cursor UX for inline formulas.
-        ignoreEvents: false,
+        eventPolicy: "editor",
         render(node: any, source: string) {
           // Render KaTeX directly into the host span without an extra
           // display:inline-block wrapper. KaTeX's own `.katex` span is

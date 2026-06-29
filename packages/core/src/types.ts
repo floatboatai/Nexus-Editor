@@ -300,23 +300,49 @@ export interface SlashCommandDef {
   run?: (editor: EditorAPI) => boolean | void;
 }
 
-/**
- * Context passed to a {@link WidgetDefinition}'s render function. Widgets that
- * want an "enter edit mode" affordance (a ✎ button overlay, etc.) can use
- * `from` + `setSelection` to dispatch the cursor into the source range,
- * which makes the host re-render the range as raw markdown.
- *
- * Existing render functions that ignore the third argument keep working.
- */
-export interface WidgetRenderContext {
+/** Canonical display mode for a widget. */
+export type WidgetDisplayMode = "block" | "inline";
+
+/** Canonical event-ownership policy for a widget. */
+export type WidgetEventPolicy = "editor" | "widget";
+
+/** A widget's source range plus the Markdown substring it renders over. */
+export interface WidgetSourceRange {
   /** Absolute offset of the widget's source range start. */
   from: number;
   /** Absolute offset of the widget's source range end (exclusive). */
   to: number;
+  /** The Markdown substring for `[from, to)`. */
+  source: string;
+}
+
+/**
+ * Context passed to a {@link WidgetDefinition}'s render function. Source-aware
+ * widgets can read {@link WidgetRenderContext.range} and call
+ * {@link WidgetRenderContext.enterEditMode} to reveal the underlying Markdown
+ * instead of hand-rolling `setSelection(ctx.from) + focus()`.
+ *
+ * Existing render functions that ignore the third argument keep working.
+ */
+export interface WidgetRenderContext {
+  /** Absolute offset of the widget's source range start. Equals `range.from`. */
+  from: number;
+  /** Absolute offset of the widget's source range end (exclusive). Equals `range.to`. */
+  to: number;
+  /** The widget's source range as `{ from, to, source }`. */
+  range: WidgetSourceRange;
   /** Move the editor's selection. Defaults `head` to `anchor` (empty selection). */
   setSelection: (anchor: number, head?: number) => void;
   /** Focus the editor (call after `setSelection` so keyboard input lands there). */
   focus: () => void;
+  /**
+   * Enter raw-Markdown editing for this widget: move the selection to the
+   * source-range start (default) or end, focus the editor, and let the host
+   * reveal the underlying Markdown (the selection intersects the source range).
+   * The offset is clamped to the document bounds, so a stale captured range
+   * never throws. Replaces the manual `setSelection(ctx.from) + focus()` pattern.
+   */
+  enterEditMode: (position?: "start" | "end") => void;
 }
 
 export interface WidgetDefinition {
@@ -325,18 +351,33 @@ export interface WidgetDefinition {
   render: (node: any, source: string, ctx?: WidgetRenderContext) => HTMLElement;
   destroy?: (element: HTMLElement) => void;
   /**
-   * Whether the widget replaces a block-level range (occupies its own line)
-   * or an inline range (sits inside surrounding text). Defaults to `true`
-   * for backwards compatibility, but inline node types like `inlineMath`
-   * must set this to `false` or they'll be hoisted onto their own line.
+   * Canonical display mode. `"block"` replaces a whole-line range; `"inline"`
+   * sits inside surrounding text. When set, it wins over the legacy `block`
+   * alias; when omitted, falls back to `block !== false` (block by default).
+   * `"block"` is only valid for node ranges that span whole lines — inline /
+   * partial-line node types (e.g. `inlineMath`) must use `"inline"`.
+   */
+  display?: WidgetDisplayMode;
+  /**
+   * Canonical event-ownership policy. `"widget"` swallows DOM events so CM6
+   * does not resolve a cursor inside the widget body (use for self-managed
+   * interactive widgets); `"editor"` lets CM6 handle events normally. When
+   * set, it wins over the legacy `ignoreEvents` alias; when omitted, falls
+   * back to `ignoreEvents === true`.
+   */
+  eventPolicy?: WidgetEventPolicy;
+  /**
+   * Legacy-compatible alias — prefer {@link WidgetDefinition.display}. Still
+   * fully supported, not removed: `block: false` ≡ `display: "inline"`;
+   * omitted / `true` ≡ `display: "block"`. `display` takes precedence when
+   * both are set.
    */
   block?: boolean;
   /**
-   * When `true`, the widget swallows mouse / keyboard events so CM6 doesn't
-   * try to resolve a cursor position inside the widget body. Use this when
-   * the widget renders its own interactive affordances (an edit button, a
-   * checkbox, etc.) and exposes its own entry into edit mode. Default
-   * `false` — events bubble through and CM6 places the cursor normally.
+   * Legacy-compatible alias — prefer {@link WidgetDefinition.eventPolicy}.
+   * Still fully supported, not removed: `ignoreEvents: true` ≡
+   * `eventPolicy: "widget"`; omitted / `false` ≡ `eventPolicy: "editor"`.
+   * `eventPolicy` takes precedence when both are set.
    */
   ignoreEvents?: boolean;
 }

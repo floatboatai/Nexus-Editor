@@ -242,7 +242,14 @@ const myPlugin: NexusPlugin = {
   widgets: [{
     nodeType: "code",
     match: (node) => node.lang === "mermaid",
-    render: (node, source) => renderMermaidChart(source),
+    display: "block",        // "block" | "inline"  (canonical; replaces legacy `block`)
+    eventPolicy: "widget",   // "widget" | "editor" (canonical; replaces legacy `ignoreEvents`)
+    render: (node, source, ctx) => {
+      const el = renderMermaidChart(source);
+      // enter raw-Markdown editing from a custom affordance:
+      el.querySelector(".edit")?.addEventListener("click", () => ctx?.enterEditMode());
+      return el;
+    },
     destroy: (el) => el.remove(),
   }],
 
@@ -250,6 +257,8 @@ const myPlugin: NexusPlugin = {
   cmExtensions: [myCodeMirrorExtension],
 };
 ```
+
+> `block` and `ignoreEvents` stay supported as legacy aliases (`block: false` ≡ `display: "inline"`, `ignoreEvents: true` ≡ `eventPolicy: "widget"`); the canonical field wins when both are set. Full Widget API: [`packages/core/README.md`](./packages/core/README.md#widget-api).
 
 </details>
 

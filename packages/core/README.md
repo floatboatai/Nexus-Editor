@@ -71,6 +71,58 @@ editor.on("selectionChange", ({ anchor, head, ranges, mainIndex }) => {
 
 Multiple ranges in `setSelections` require `multiCursor: true` — without the flag CodeMirror collapses the selection to its main range.
 
+## Widget API
+
+Plugins render custom DOM over mdast source ranges through `NexusPlugin.widgets`. Widgets stay views over the Markdown text: when the selection intersects a widget's source range it disappears and the raw Markdown becomes editable again.
+
+```ts
+import type { NexusPlugin } from "@floatboat/nexus-core";
+
+const myWidgetPlugin: NexusPlugin = {
+  name: "my-widget",
+  widgets: [
+    {
+      nodeType: "code",
+      match: (node) => node.lang === "mermaid",
+      display: "block",        // "block" | "inline"  (canonical; replaces legacy `block`)
+      eventPolicy: "widget",   // "widget" | "editor" (canonical; replaces legacy `ignoreEvents`)
+      render(node, source, ctx) {
+        const el = document.createElement("div");
+        el.textContent = source;
+        // enter raw-Markdown editing from a custom affordance:
+        el.querySelector(".edit")?.addEventListener("click", () => ctx?.enterEditMode());
+        return el;
+      },
+    },
+  ],
+};
+```
+
+### Widget definition fields
+
+| Field | Values | Effect |
+|---|---|---|
+| `display` | `"block"` \| `"inline"` | `"block"` replaces the range with a block decoration; `"inline"` keeps surrounding text on the same line. Defaults to block. |
+| `eventPolicy` | `"editor"` \| `"widget"` | `"widget"` lets the widget own DOM events inside its body (CodeMirror `ignoreEvent()`); `"editor"` lets CodeMirror handle them. Defaults to editor. |
+
+`display: "block"` is only valid for node ranges that span whole lines. Inline or partial-line node types **must** use `display: "inline"` — a block replacement decoration over a non-line-aligned range is invalid in CodeMirror.
+
+### Render context (`ctx`)
+
+| Member | Description |
+|---|---|
+| `ctx.range` | `{ from, to, source }` — the widget's source-range offsets and the Markdown substring for that range. |
+| `ctx.enterEditMode(position?)` | Move the selection into the source range (`"start"` default, or `"end"`), focus the editor, and reveal the raw Markdown for editing. Replaces the manual `ctx.setSelection(ctx.from)` + `ctx.focus()` pattern. |
+
+### Legacy-compatible aliases
+
+`block` and `ignoreEvents` are still supported as legacy aliases — existing widgets keep working without changes:
+
+- `block: false` ≡ `display: "inline"` (and the default `block: true` ≡ `display: "block"`)
+- `ignoreEvents: true` ≡ `eventPolicy: "widget"`
+
+When both a canonical field and its legacy alias are set, the canonical field wins. The legacy context members `ctx.from`, `ctx.to`, `ctx.setSelection`, and `ctx.focus` also remain available.
+
 ## Other config highlights
 
 See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.
