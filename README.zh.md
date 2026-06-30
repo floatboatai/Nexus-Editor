@@ -174,7 +174,7 @@ pnpm dev:electron-demo
 | `@floatboat/nexus-vue` | Vue 3 绑定 —— `useEditor` 组合式函数 |
 | `@floatboat/nexus-preset-gfm` | GitHub Flavored Markdown 预设（表格、删除线、任务列表） |
 | `@floatboat/nexus-plugin-history` | 撤销/重做，支持 `Ctrl+Z` / `Ctrl+Shift+Z` |
-| `@floatboat/nexus-plugin-search` | 搜索替换辅助函数 |
+| `@floatboat/nexus-plugin-search` | 搜索、替换、正则与模糊匹配辅助函数 |
 | `@floatboat/nexus-plugin-slash` | 斜杠命令检测、排序与 vanilla DOM 浮层菜单 UI |
 | `@floatboat/nexus-plugin-toolbar` | 工具栏基础组件与格式化命令 |
 | `@floatboat/nexus-plugin-math` | 行内 / 块级数学公式渲染（KaTeX） |

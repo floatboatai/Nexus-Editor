@@ -241,6 +241,99 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("supports fuzzy subsequence matching by line", () => {
+    expect(findSearchMatches("Ne\nnext\nplain note", "ne", { fuzzy: true })).toEqual([
+      {
+        from: 0,
+        to: 2,
+        text: "Ne",
+        score: expect.any(Number),
+        ranges: [{ from: 0, to: 2, text: "Ne" }]
+      },
+      {
+        from: 3,
+        to: 5,
+        text: "ne",
+        score: expect.any(Number),
+        ranges: [{ from: 3, to: 5, text: "ne" }]
+      },
+      {
+        from: 14,
+        to: 18,
+        text: "note",
+        score: expect.any(Number),
+        ranges: [
+          { from: 14, to: 15, text: "n" },
+          { from: 17, to: 18, text: "e" }
+        ]
+      }
+    ]);
+  });
+
+  it("can rank fuzzy matches by score", () => {
+    const matches = findSearchMatches("Nexus Editor\nnote extractor", "ne", {
+      fuzzy: true,
+      sortBy: "score"
+    });
+
+    expect(matches.map((match) => match.text)).toEqual(["Ne", "note e"]);
+    expect(matches[0].score).toBeGreaterThan(matches[1].score ?? 0);
+  });
+
+  it("honors case-sensitive fuzzy matching", () => {
+    expect(findSearchMatches("Nexus\nnext\nNEON", "Ne", { fuzzy: true, caseSensitive: true })).toEqual([
+      {
+        from: 0,
+        to: 2,
+        text: "Ne",
+        score: expect.any(Number),
+        ranges: [{ from: 0, to: 2, text: "Ne" }]
+      }
+    ]);
+  });
+
+  it("limits fuzzy matches after sorting", () => {
+    const matches = findSearchMatches("Nexus\nNeedle\nnote", "ne", {
+      fuzzy: true,
+      sortBy: "score",
+      maxMatches: 1
+    });
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0].text).toBe("Ne");
+  });
+
+  it("applies whole-word boundaries to fuzzy match spans", () => {
+    expect(findSearchMatches("a b\nalphaBeta", "ab", { fuzzy: true, wholeWord: true })).toEqual([
+      {
+        from: 0,
+        to: 3,
+        text: "a b",
+        score: expect.any(Number),
+        ranges: [
+          { from: 0, to: 1, text: "a" },
+          { from: 2, to: 3, text: "b" }
+        ]
+      }
+    ]);
+  });
+
+  it("replaces fuzzy match spans without regex captures", () => {
+    expect(replaceAllMatches("Nexus Editor\nplain note", "ne", "NE", { fuzzy: true })).toBe(
+      "NExus Editor\nplain NE"
+    );
+  });
+
+  it("applies fuzzy replacement limits after requested ordering", () => {
+    expect(
+      replaceAllMatches("n------e\nNe", "ne", "NE", {
+        fuzzy: true,
+        sortBy: "score",
+        maxMatches: 1
+      })
+    ).toBe("n------e\nNE");
+  });
+
   it("creates a search plugin descriptor", () => {
     const plugin = createSearchPlugin();
 

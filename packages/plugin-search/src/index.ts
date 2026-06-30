@@ -21,12 +21,23 @@ export interface SearchMatch {
   from: number;
   to: number;
   text: string;
+  score?: number;
+  ranges?: SearchMatchRange[];
+}
+
+export interface SearchMatchRange {
+  from: number;
+  to: number;
+  text: string;
 }
 
 export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  fuzzy?: boolean;
+  maxMatches?: number;
+  sortBy?: "position" | "score";
 }
 
 export interface SearchHistoryStorage {
@@ -250,6 +261,171 @@ function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp 
   }
 }
 
+function isWordChar(value: string): boolean {
+  return /[\p{L}\p{N}_]/u.test(value);
+}
+
+function isWordBoundary(value: string, from: number, to: number): boolean {
+  const before = from <= 0 ? "" : value[from - 1] ?? "";
+  const after = to >= value.length ? "" : value[to] ?? "";
+  return (!before || !isWordChar(before)) && (!after || !isWordChar(after));
+}
+
+function isFuzzyBoundary(value: string, index: number): boolean {
+  if (index <= 0) return true;
+
+  const previous = value[index - 1] ?? "";
+  const current = value[index] ?? "";
+  if (!isWordChar(previous)) return true;
+
+  return /[a-z]/.test(previous) && /[A-Z]/.test(current);
+}
+
+function normalizeChar(value: string, caseSensitive: boolean): string {
+  return caseSensitive ? value : value.toLocaleLowerCase();
+}
+
+interface FuzzyCandidate {
+  indexes: number[];
+  score: number;
+}
+
+function findBestFuzzyCandidate(
+  value: string,
+  query: string,
+  caseSensitive: boolean
+): FuzzyCandidate | null {
+  if (!value || !query) return null;
+
+  const queryChars = query.split("");
+  const states: Array<FuzzyCandidate | null> = Array(queryChars.length).fill(null);
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index] ?? "";
+
+    for (let queryIndex = queryChars.length - 1; queryIndex >= 0; queryIndex -= 1) {
+      if (normalizeChar(char, caseSensitive) !== normalizeChar(queryChars[queryIndex] ?? "", caseSensitive)) {
+        continue;
+      }
+
+      const previous = queryIndex === 0 ? null : states[queryIndex - 1];
+      if (queryIndex > 0 && !previous) continue;
+
+      const previousIndex = previous?.indexes[previous.indexes.length - 1] ?? -1;
+      const gap = previousIndex >= 0 ? index - previousIndex - 1 : 0;
+      const adjacentBonus = gap === 0 && previousIndex >= 0 ? 80 : 0;
+      const boundaryBonus = isFuzzyBoundary(value, index) ? 35 : 0;
+      const exactCaseBonus = char === (queryChars[queryIndex] ?? "") ? 10 : 0;
+      const gapPenalty = previousIndex >= 0 ? Math.min(40, gap * 4) : 0;
+      const score = (previous?.score ?? 0) + 20 + adjacentBonus + boundaryBonus + exactCaseBonus - gapPenalty;
+      const indexes = [...(previous?.indexes ?? []), index];
+      const current = states[queryIndex];
+
+      if (!current || score > current.score) {
+        states[queryIndex] = { indexes, score };
+      }
+    }
+  }
+
+  const candidate = states[queryChars.length - 1];
+  if (!candidate) return null;
+
+  const first = candidate.indexes[0] ?? 0;
+  const last = candidate.indexes[candidate.indexes.length - 1] ?? first;
+  const span = last - first + 1;
+
+  return {
+    indexes: candidate.indexes,
+    score: candidate.score + 1000 + queryChars.length * 15 - span * 3 - first
+  };
+}
+
+function toFuzzyRanges(line: string, lineStart: number, indexes: number[]): SearchMatchRange[] {
+  const ranges: SearchMatchRange[] = [];
+  let rangeStart = indexes[0] ?? 0;
+  let previous = rangeStart;
+
+  for (let i = 1; i < indexes.length; i += 1) {
+    const index = indexes[i] ?? previous;
+    if (index === previous + 1) {
+      previous = index;
+      continue;
+    }
+
+    ranges.push({
+      from: lineStart + rangeStart,
+      to: lineStart + previous + 1,
+      text: line.slice(rangeStart, previous + 1)
+    });
+    rangeStart = index;
+    previous = index;
+  }
+
+  ranges.push({
+    from: lineStart + rangeStart,
+    to: lineStart + previous + 1,
+    text: line.slice(rangeStart, previous + 1)
+  });
+
+  return ranges;
+}
+
+function compareSearchMatches(a: SearchMatch, b: SearchMatch, sortBy: SearchOptions["sortBy"]): number {
+  if (sortBy === "score") {
+    const scoreDiff = (b.score ?? 0) - (a.score ?? 0);
+    if (scoreDiff !== 0) return scoreDiff;
+  }
+
+  return a.from - b.from || a.to - b.to;
+}
+
+function applyMaxMatches(matches: SearchMatch[], maxMatches: number | undefined): SearchMatch[] {
+  if (maxMatches === undefined || !Number.isFinite(maxMatches)) {
+    return matches;
+  }
+
+  return matches.slice(0, Math.max(0, Math.floor(maxMatches)));
+}
+
+function findFuzzySearchMatches(
+  doc: string,
+  query: string,
+  options: SearchOptions = {}
+): SearchMatch[] {
+  const matches: SearchMatch[] = [];
+  let lineStart = 0;
+
+  while (lineStart <= doc.length) {
+    const newlineIndex = doc.indexOf("\n", lineStart);
+    const lineEnd = newlineIndex === -1 ? doc.length : newlineIndex;
+    const line = doc.slice(lineStart, lineEnd);
+    const candidate = findBestFuzzyCandidate(line, query, options.caseSensitive ?? false);
+
+    if (candidate) {
+      const first = candidate.indexes[0] ?? 0;
+      const last = candidate.indexes[candidate.indexes.length - 1] ?? first;
+      const from = lineStart + first;
+      const to = lineStart + last + 1;
+
+      if (!options.wholeWord || isWordBoundary(doc, from, to)) {
+        matches.push({
+          from,
+          to,
+          text: doc.slice(from, to),
+          score: candidate.score,
+          ranges: toFuzzyRanges(line, lineStart, candidate.indexes)
+        });
+      }
+    }
+
+    if (newlineIndex === -1) break;
+    lineStart = newlineIndex + 1;
+  }
+
+  matches.sort((a, b) => compareSearchMatches(a, b, options.sortBy ?? "position"));
+  return applyMaxMatches(matches, options.maxMatches);
+}
+
 export function findSearchMatches(
   doc: string,
   query: string,
@@ -257,6 +433,10 @@ export function findSearchMatches(
 ): SearchMatch[] {
   if (!query) {
     return [];
+  }
+
+  if (options.fuzzy) {
+    return findFuzzySearchMatches(doc, query, options);
   }
 
   const pattern = buildSearchPattern(query, options);
@@ -276,7 +456,8 @@ export function findSearchMatches(
     });
   }
 
-  return matches;
+  matches.sort((a, b) => compareSearchMatches(a, b, options.sortBy ?? "position"));
+  return applyMaxMatches(matches, options.maxMatches);
 }
 
 export function replaceAllMatches(
@@ -287,6 +468,15 @@ export function replaceAllMatches(
 ): string {
   if (!query) {
     return doc;
+  }
+
+  if (options.fuzzy) {
+    const matches = findFuzzySearchMatches(doc, query, options);
+    let replaced = doc;
+    for (const match of matches.slice().sort((a, b) => b.from - a.from)) {
+      replaced = replaced.slice(0, match.from) + replacement + replaced.slice(match.to);
+    }
+    return replaced;
   }
 
   const pattern = buildSearchPattern(query, options);

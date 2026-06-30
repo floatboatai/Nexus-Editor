@@ -174,7 +174,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 | `@floatboat/nexus-vue` | Vue 3 binding — `useEditor` composable |
 | `@floatboat/nexus-preset-gfm` | GitHub Flavored Markdown preset (tables, strikethrough, task lists) |
 | `@floatboat/nexus-plugin-history` | Undo/redo with `Ctrl+Z` / `Ctrl+Shift+Z` |
-| `@floatboat/nexus-plugin-search` | Search and replace helpers |
+| `@floatboat/nexus-plugin-search` | Search, replace, regex, and fuzzy-match helpers |
 | `@floatboat/nexus-plugin-slash` | Slash command detection, ranking, and a vanilla-DOM floating menu UI |
 | `@floatboat/nexus-plugin-toolbar` | Toolbar primitives for formatting commands |
 | `@floatboat/nexus-plugin-math` | Inline / block math rendering (KaTeX) |
