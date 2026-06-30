@@ -327,3 +327,27 @@ We'd love your help — whether it's a typo fix, a new plugin, or a deep core ch
 **Built with ❤️ for makers who still believe Markdown is the right format.**
 
 </div>
+## 🔧 Code Quality
+
+Nexus-Editor enforces high code quality standards through automated tooling:
+
+### Quality Tools
+- **ESLint**: Static code analysis with TypeScript support
+- **Prettier**: Consistent code formatting
+- **TypeScript**: Strict type checking
+- **Husky**: Git hooks for pre-commit checks
+- **lint-staged**: Run checks on staged files only
+
+### Commands
+```bash
+# Run all quality checks
+pnpm run check
+
+# Format code
+pnpm run format
+
+# Lint code
+pnpm run lint
+
+# Fix linting issues
+pnpm run lint:fix

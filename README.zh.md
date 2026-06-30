@@ -327,3 +327,36 @@ pnpm dev:electron-demo
 **Built with ❤️ —— 致仍然相信 Markdown 是对的那种格式的开发者们。**
 
 </div>
+
+**提交信息**：`docs: add code quality section to README`
+
+---
+
+### 文件13：`README.zh.md` 需要添加的内容
+在中文 README 末尾添加：
+
+```markdown
+## 🔧 代码质量
+
+Nexus-Editor 通过自动化工具链强制执行高质量的代码标准：
+
+### 质量工具
+- **ESLint**: 静态代码分析，支持 TypeScript
+- **Prettier**: 统一的代码格式化
+- **TypeScript**: 严格的类型检查
+- **Husky**: Git hooks 用于预提交检查
+- **lint-staged**: 仅对暂存文件运行检查
+
+### 命令
+```bash
+# 运行所有质量检查
+pnpm run check
+
+# 格式化代码
+pnpm run format
+
+# 代码检查
+pnpm run lint
+
+# 自动修复检查问题
+pnpm run lint:fix
