@@ -80,38 +80,57 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   const findInput = document.createElement("input");
   findInput.type = "text";
   findInput.placeholder = "Find...";
+  findInput.setAttribute("aria-label", "Find");
+  findInput.dataset.testId = "search-find-input";
   findInput.style.cssText = INPUT_STYLES;
 
   // Replace input
   const replaceInput = document.createElement("input");
   replaceInput.type = "text";
   replaceInput.placeholder = "Replace...";
+  replaceInput.setAttribute("aria-label", "Replace");
+  replaceInput.dataset.testId = "search-replace-input";
   replaceInput.style.cssText = INPUT_STYLES;
   replaceInput.style.width = "160px";
 
   // Buttons
   const prevBtn = document.createElement("button");
+  prevBtn.type = "button";
   prevBtn.textContent = "\u2191"; // ↑
   prevBtn.title = "Previous match";
+  prevBtn.setAttribute("aria-label", "Previous match");
+  prevBtn.dataset.testId = "search-previous-button";
   prevBtn.style.cssText = BTN_STYLES;
 
   const nextBtn = document.createElement("button");
+  nextBtn.type = "button";
   nextBtn.textContent = "\u2193"; // ↓
   nextBtn.title = "Next match";
+  nextBtn.setAttribute("aria-label", "Next match");
+  nextBtn.dataset.testId = "search-next-button";
   nextBtn.style.cssText = BTN_STYLES;
 
   const replaceBtn = document.createElement("button");
+  replaceBtn.type = "button";
   replaceBtn.textContent = "Replace";
+  replaceBtn.title = "Replace";
+  replaceBtn.setAttribute("aria-label", "Replace");
+  replaceBtn.dataset.testId = "search-replace-button";
   replaceBtn.style.cssText = BTN_STYLES;
 
   const replaceAllBtn = document.createElement("button");
+  replaceAllBtn.type = "button";
   replaceAllBtn.textContent = "All";
   replaceAllBtn.title = "Replace all";
+  replaceAllBtn.setAttribute("aria-label", "Replace all");
+  replaceAllBtn.dataset.testId = "search-replace-all-button";
   replaceAllBtn.style.cssText = BTN_STYLES;
 
   const fuzzyToggle = document.createElement("input");
   fuzzyToggle.type = "checkbox";
   fuzzyToggle.title = "Use fuzzy subsequence matching";
+  fuzzyToggle.setAttribute("aria-label", "Fuzzy search");
+  fuzzyToggle.dataset.testId = "search-fuzzy-toggle";
 
   const fuzzyLabel = document.createElement("label");
   fuzzyLabel.style.cssText = TOGGLE_STYLES;
@@ -123,8 +142,11 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
 
   // Close
   const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
   closeBtn.innerHTML = "&times;";
   closeBtn.title = "Close (Esc)";
+  closeBtn.setAttribute("aria-label", "Close");
+  closeBtn.dataset.testId = "search-close-button";
   closeBtn.style.cssText = CLOSE_BTN_STYLES;
 
   const spacer = document.createElement("div");

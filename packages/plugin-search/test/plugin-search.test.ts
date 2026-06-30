@@ -193,6 +193,24 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("limits exact matches in document order", () => {
+    expect(findSearchMatches("alpha alpha alpha", "alpha", { maxMatches: 2 })).toEqual([
+      { from: 0, to: 5, text: "alpha" },
+      { from: 6, to: 11, text: "alpha" }
+    ]);
+  });
+
+  it("treats score sorting as document order for exact matches", () => {
+    expect(findSearchMatches("alpha alpha alpha", "alpha", { maxMatches: 2, sortBy: "score" })).toEqual([
+      { from: 0, to: 5, text: "alpha" },
+      { from: 6, to: 11, text: "alpha" }
+    ]);
+  });
+
+  it("returns no exact matches when maxMatches is zero", () => {
+    expect(findSearchMatches("alpha alpha", "alpha", { maxMatches: 0 })).toEqual([]);
+  });
+
   it("replaces all matches in a document", () => {
     expect(replaceAllMatches("cat scatter cat", "cat", "dog")).toBe("dog sdogter dog");
   });
@@ -301,6 +319,20 @@ describe("@floatboat/nexus-plugin-search", () => {
 
     expect(matches).toHaveLength(1);
     expect(matches[0].text).toBe("Ne");
+  });
+
+  it("limits fuzzy matches in document order by default", () => {
+    const matches = findSearchMatches("Nexus\nNeedle\nnote", "ne", {
+      fuzzy: true,
+      maxMatches: 2
+    });
+
+    expect(matches.map((match) => match.from)).toEqual([0, 6]);
+    expect(matches.map((match) => match.text)).toEqual(["Ne", "Ne"]);
+  });
+
+  it("returns no fuzzy matches when maxMatches is zero", () => {
+    expect(findSearchMatches("Nexus\nNeedle\nnote", "ne", { fuzzy: true, maxMatches: 0 })).toEqual([]);
   });
 
   it("applies whole-word boundaries to fuzzy match spans", () => {

@@ -282,7 +282,7 @@ function isFuzzyBoundary(value: string, index: number): boolean {
 }
 
 function normalizeChar(value: string, caseSensitive: boolean): string {
-  return caseSensitive ? value : value.toLocaleLowerCase();
+  return caseSensitive ? value : value.toLowerCase();
 }
 
 interface FuzzyCandidate {
@@ -290,53 +290,87 @@ interface FuzzyCandidate {
   score: number;
 }
 
+interface FuzzyCandidateState {
+  index: number;
+  prev: FuzzyCandidateState | null;
+  score: number;
+}
+
+interface FuzzyQuery {
+  chars: string[];
+  normalizedChars: string[];
+  caseSensitive: boolean;
+}
+
+function createFuzzyQuery(query: string, caseSensitive: boolean): FuzzyQuery | null {
+  if (!query) return null;
+
+  const chars = query.split("");
+  return {
+    chars,
+    normalizedChars: chars.map((char) => normalizeChar(char, caseSensitive)),
+    caseSensitive
+  };
+}
+
+function fuzzyCandidateIndexes(candidate: FuzzyCandidateState): number[] {
+  const indexes: number[] = [];
+  let current: FuzzyCandidateState | null = candidate;
+
+  while (current) {
+    indexes.push(current.index);
+    current = current.prev;
+  }
+
+  return indexes.reverse();
+}
+
 function findBestFuzzyCandidate(
   value: string,
-  query: string,
-  caseSensitive: boolean
+  query: FuzzyQuery
 ): FuzzyCandidate | null {
-  if (!value || !query) return null;
+  if (!value || query.chars.length > value.length) return null;
 
-  const queryChars = query.split("");
-  const states: Array<FuzzyCandidate | null> = Array(queryChars.length).fill(null);
+  const states: Array<FuzzyCandidateState | null> = Array(query.chars.length).fill(null);
 
   for (let index = 0; index < value.length; index += 1) {
     const char = value[index] ?? "";
+    const normalizedChar = normalizeChar(char, query.caseSensitive);
 
-    for (let queryIndex = queryChars.length - 1; queryIndex >= 0; queryIndex -= 1) {
-      if (normalizeChar(char, caseSensitive) !== normalizeChar(queryChars[queryIndex] ?? "", caseSensitive)) {
+    for (let queryIndex = query.chars.length - 1; queryIndex >= 0; queryIndex -= 1) {
+      if (normalizedChar !== query.normalizedChars[queryIndex]) {
         continue;
       }
 
       const previous = queryIndex === 0 ? null : states[queryIndex - 1];
       if (queryIndex > 0 && !previous) continue;
 
-      const previousIndex = previous?.indexes[previous.indexes.length - 1] ?? -1;
+      const previousIndex = previous?.index ?? -1;
       const gap = previousIndex >= 0 ? index - previousIndex - 1 : 0;
       const adjacentBonus = gap === 0 && previousIndex >= 0 ? 80 : 0;
       const boundaryBonus = isFuzzyBoundary(value, index) ? 35 : 0;
-      const exactCaseBonus = char === (queryChars[queryIndex] ?? "") ? 10 : 0;
+      const exactCaseBonus = char === (query.chars[queryIndex] ?? "") ? 10 : 0;
       const gapPenalty = previousIndex >= 0 ? Math.min(40, gap * 4) : 0;
       const score = (previous?.score ?? 0) + 20 + adjacentBonus + boundaryBonus + exactCaseBonus - gapPenalty;
-      const indexes = [...(previous?.indexes ?? []), index];
       const current = states[queryIndex];
 
       if (!current || score > current.score) {
-        states[queryIndex] = { indexes, score };
+        states[queryIndex] = { index, prev: previous, score };
       }
     }
   }
 
-  const candidate = states[queryChars.length - 1];
+  const candidate = states[query.chars.length - 1];
   if (!candidate) return null;
 
-  const first = candidate.indexes[0] ?? 0;
-  const last = candidate.indexes[candidate.indexes.length - 1] ?? first;
+  const indexes = fuzzyCandidateIndexes(candidate);
+  const first = indexes[0] ?? 0;
+  const last = indexes[indexes.length - 1] ?? first;
   const span = last - first + 1;
 
   return {
-    indexes: candidate.indexes,
-    score: candidate.score + 1000 + queryChars.length * 15 - span * 3 - first
+    indexes,
+    score: candidate.score + 1000 + query.chars.length * 15 - span * 3 - first
   };
 }
 
@@ -379,12 +413,28 @@ function compareSearchMatches(a: SearchMatch, b: SearchMatch, sortBy: SearchOpti
   return a.from - b.from || a.to - b.to;
 }
 
-function applyMaxMatches(matches: SearchMatch[], maxMatches: number | undefined): SearchMatch[] {
+function resolveMatchLimit(maxMatches: number | undefined): number | null {
   if (maxMatches === undefined || !Number.isFinite(maxMatches)) {
+    return null;
+  }
+
+  return Math.max(0, Math.floor(maxMatches));
+}
+
+function applyMaxMatches(matches: SearchMatch[], limit: number | null): SearchMatch[] {
+  return limit === null ? matches : matches.slice(0, limit);
+}
+
+function hasReachedMatchLimit(matches: SearchMatch[], limit: number | null): boolean {
+  return limit !== null && matches.length >= limit;
+}
+
+function orderSearchMatches(matches: SearchMatch[], sortBy: SearchOptions["sortBy"]): SearchMatch[] {
+  if (sortBy !== "score") {
     return matches;
   }
 
-  return matches.slice(0, Math.max(0, Math.floor(maxMatches)));
+  return matches.sort((a, b) => compareSearchMatches(a, b, sortBy));
 }
 
 function findFuzzySearchMatches(
@@ -392,6 +442,13 @@ function findFuzzySearchMatches(
   query: string,
   options: SearchOptions = {}
 ): SearchMatch[] {
+  const sortBy = options.sortBy ?? "position";
+  const limit = resolveMatchLimit(options.maxMatches);
+  if (limit === 0) return [];
+
+  const queryState = createFuzzyQuery(query, options.caseSensitive ?? false);
+  if (!queryState) return [];
+
   const matches: SearchMatch[] = [];
   let lineStart = 0;
 
@@ -399,7 +456,7 @@ function findFuzzySearchMatches(
     const newlineIndex = doc.indexOf("\n", lineStart);
     const lineEnd = newlineIndex === -1 ? doc.length : newlineIndex;
     const line = doc.slice(lineStart, lineEnd);
-    const candidate = findBestFuzzyCandidate(line, query, options.caseSensitive ?? false);
+    const candidate = findBestFuzzyCandidate(line, queryState);
 
     if (candidate) {
       const first = candidate.indexes[0] ?? 0;
@@ -415,6 +472,9 @@ function findFuzzySearchMatches(
           score: candidate.score,
           ranges: toFuzzyRanges(line, lineStart, candidate.indexes)
         });
+        if (sortBy === "position" && hasReachedMatchLimit(matches, limit)) {
+          break;
+        }
       }
     }
 
@@ -422,8 +482,7 @@ function findFuzzySearchMatches(
     lineStart = newlineIndex + 1;
   }
 
-  matches.sort((a, b) => compareSearchMatches(a, b, options.sortBy ?? "position"));
-  return applyMaxMatches(matches, options.maxMatches);
+  return applyMaxMatches(orderSearchMatches(matches, sortBy), limit);
 }
 
 export function findSearchMatches(
@@ -443,6 +502,10 @@ export function findSearchMatches(
   if (!pattern) {
     return [];
   }
+  const sortBy = options.sortBy ?? "position";
+  const limit = resolveMatchLimit(options.maxMatches);
+  if (limit === 0) return [];
+
   const matches: SearchMatch[] = [];
 
   for (const match of doc.matchAll(pattern)) {
@@ -454,10 +517,12 @@ export function findSearchMatches(
       to: from + text.length,
       text
     });
+    if (hasReachedMatchLimit(matches, limit)) {
+      break;
+    }
   }
 
-  matches.sort((a, b) => compareSearchMatches(a, b, options.sortBy ?? "position"));
-  return applyMaxMatches(matches, options.maxMatches);
+  return applyMaxMatches(matches, limit);
 }
 
 export function replaceAllMatches(
