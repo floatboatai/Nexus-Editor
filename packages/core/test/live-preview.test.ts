@@ -784,6 +784,84 @@ describe("live preview", () => {
     expect(firstCell?.contentEditable).not.toBe("true");
     expect(firstCell?.style.background).toContain("124, 108, 250");
     expect(secondCell?.style.background).toContain("124, 108, 250");
+
+    const copied: Record<string, string> = {};
+    const copyEvent = new Event("copy", { bubbles: true, cancelable: true });
+    Object.defineProperty(copyEvent, "clipboardData", {
+      configurable: true,
+      value: {
+        setData: (type: string, value: string) => {
+          copied[type] = value;
+        },
+      },
+    });
+    container.querySelector<HTMLElement>(".nexus-table-wrapper")?.dispatchEvent(copyEvent);
+
+    expect(copyEvent.defaultPrevented).toBe(true);
+    expect(copied["text/plain"]).toBe("1\t2");
+    editor.destroy();
+    container.remove();
+  });
+
+  it("allows native text selection inside a table cell without entering edit mode", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| Alpha Beta | 2 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    expect(cell).not.toBeUndefined();
+    expect(cell?.style.userSelect).toBe("text");
+
+    cell!.getBoundingClientRect = () => ({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 160,
+      bottom: 30,
+      width: 160,
+      height: 30,
+      toJSON: () => ({})
+    });
+
+    cell?.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 12,
+      clientY: 15
+    }));
+    document.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 72,
+      clientY: 15
+    }));
+
+    const text = cell!.firstChild;
+    expect(text?.textContent).toBe("Alpha Beta");
+    const range = document.createRange();
+    range.setStart(text!, 0);
+    range.setEnd(text!, 5);
+    document.getSelection()?.removeAllRanges();
+    document.getSelection()?.addRange(range);
+
+    document.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 0,
+      clientX: 72,
+      clientY: 15
+    }));
+
+    expect(cell?.contentEditable).not.toBe("true");
+    expect(document.getSelection()?.toString()).toBe("Alpha");
+    document.getSelection()?.removeAllRanges();
     editor.destroy();
     container.remove();
   });

@@ -299,6 +299,7 @@ const GRIP_BG_HOVER = "var(--nexus-border)";
 const SELECT_BG = "rgba(124, 108, 250, 0.12)";
 const SELECT_BORDER = "var(--nexus-accent)";
 const DRAG_HIGHLIGHT_BG = "rgba(124, 108, 250, 0.08)";
+const TEXT_SELECTION_DRAG_THRESHOLD_PX = 3;
 
 export class EditableTableWidget extends WidgetType {
   private editing = false;
@@ -471,7 +472,8 @@ export class EditableTableWidget extends WidgetType {
     // CRITICAL: use padding, not margin. CM6 measures block widget height via
     // getBoundingClientRect which EXCLUDES margin. margin:8px caused 16px of
     // untracked height per table → cumulative click-drift below every table.
-    wrapper.style.cssText = "display:inline-block;position:relative;padding:8px 0;user-select:none;";
+    wrapper.style.cssText =
+      "display:inline-block;position:relative;padding:8px 0;user-select:text;-webkit-user-select:text;";
 
     // ── Table ──
     const table = document.createElement("table");
@@ -731,6 +733,37 @@ export class EditableTableWidget extends WidgetType {
       return (cells[col] as HTMLElement) ?? null;
     }
 
+    function hasNativeTextSelectionInCell(cell: HTMLElement): boolean {
+      const selection = cell.ownerDocument.getSelection();
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false;
+      const range = selection.getRangeAt(0);
+      return cell.contains(range.startContainer) || cell.contains(range.endContainer);
+    }
+
+    function clearNativeTextSelection(): void {
+      table.ownerDocument.getSelection()?.removeAllRanges();
+    }
+
+    function serializeRangeSelection(range: { r1: number; c1: number; r2: number; c2: number }): string {
+      const lines: string[] = [];
+      for (let row = range.r1; row <= range.r2; row++) {
+        const cells: string[] = [];
+        for (let col = range.c1; col <= range.c2; col++) {
+          cells.push(getCellElement(row, col)?.textContent ?? "");
+        }
+        lines.push(cells.join("\t"));
+      }
+      return lines.join("\n");
+    }
+
+    function selectedCopyRange(): { r1: number; c1: number; r2: number; c2: number } | null {
+      const range = getNormalizedRange();
+      if (rangeActive && range) return range;
+      if (selectedCol >= 0) return { r1: 0, c1: selectedCol, r2: rows.length - 1, c2: selectedCol };
+      if (selectedRow >= 0) return { r1: selectedRow, c1: 0, r2: selectedRow, c2: colCount - 1 };
+      return null;
+    }
+
     function renderRangeSelection(): void {
       const range = getNormalizedRange();
       if (!range) { rangeBorder.style.display = "none"; return; }
@@ -765,10 +798,7 @@ export class EditableTableWidget extends WidgetType {
     }
 
     function clearRangeSelection(): void {
-      // Release editing lock if range was active (we locked it in mouseup)
-      if (rangeActive) {
-        releaseEditingLock("range");
-      }
+      releaseEditingLock("range");
       rangeStart = null;
       rangeEnd = null;
       isRangeSelecting = false;
@@ -1187,7 +1217,7 @@ export class EditableTableWidget extends WidgetType {
         }
         td.style.cssText =
           "position:relative;border-bottom:1px solid var(--nexus-border);border-right:1px solid var(--nexus-border);padding:8px 12px;" +
-          "text-align:left;outline:none;min-width:60px;vertical-align:top;cursor:text;";
+          "text-align:left;outline:none;min-width:60px;vertical-align:top;cursor:text;user-select:text;-webkit-user-select:text;";
         if (isHeader) {
           td.style.fontWeight = "bold";
           td.style.background = "var(--nexus-bg-subtle)";
@@ -1232,6 +1262,7 @@ export class EditableTableWidget extends WidgetType {
         const cellRow = curRowIdx;
         const cellCol = colIdx;
         let cellMouseMoved = false;
+        let cellTextSelectionDrag = false;
 
         const enterRawEditingMode = (): void => {
           // Pin THIS cell to its currently rendered width before swapping
@@ -1268,24 +1299,34 @@ export class EditableTableWidget extends WidgetType {
 
         td.addEventListener("mousedown", (e) => {
           if (e.button !== 0) return; // only left button
-          e.preventDefault();
           e.stopPropagation();
           const rawCaretOffset = rawSourceOffsetFromPoint(td, e);
+          const startX = e.clientX;
+          const startY = e.clientY;
           cellMouseMoved = false;
+          cellTextSelectionDrag = false;
           clearSelection();
 
           // Prepare range selection but don't render until mouse moves to a different cell
           clearRangeSelection();
+          acquireEditingLock("range");
           cellMouseDown = true;
           rangeStart = { row: cellRow, col: cellCol };
           rangeEnd = { row: cellRow, col: cellCol };
           const onCellMouseMove = (me: MouseEvent): void => {
             const target = cellAtPoint(me.clientX, me.clientY);
             if (target && (target.row !== rangeStart!.row || target.col !== rangeStart!.col)) {
+              me.preventDefault();
+              clearNativeTextSelection();
+              cellTextSelectionDrag = false;
               cellMouseMoved = true;
               isRangeSelecting = true;
               rangeEnd = target;
               renderRangeSelection();
+              return;
+            }
+            if (target && Math.hypot(me.clientX - startX, me.clientY - startY) > TEXT_SELECTION_DRAG_THRESHOLD_PX) {
+              cellTextSelectionDrag = true;
             }
           };
           const onCellMouseUp = (): void => {
@@ -1295,6 +1336,10 @@ export class EditableTableWidget extends WidgetType {
             isRangeSelecting = false;
 
             const range = getNormalizedRange();
+            if (cellTextSelectionDrag || hasNativeTextSelectionInCell(td)) {
+              clearRangeSelection();
+              return;
+            }
             if (!cellMouseMoved || (range && range.r1 === range.r2 && range.c1 === range.c2)) {
               // Single cell click — activate editing
               clearRangeSelection();
@@ -1310,8 +1355,6 @@ export class EditableTableWidget extends WidgetType {
             } else {
               // Multi-cell range selected — keep range visible, focus wrapper for key events
               rangeActive = true;
-              // Lock editing to prevent CM6 from rebuilding the widget and losing range state
-              acquireEditingLock("range");
               wrapper.focus({ preventScroll: true });
             }
           };
@@ -1580,6 +1623,14 @@ export class EditableTableWidget extends WidgetType {
           self.deleteRow(selectedRow);
         }
       }
+    });
+    wrapper.addEventListener("copy", (e) => {
+      const range = selectedCopyRange();
+      if (!range) return;
+      const text = serializeRangeSelection(range);
+      if (!text) return;
+      e.clipboardData?.setData("text/plain", text);
+      e.preventDefault();
     });
     wrapper.tabIndex = -1;
     wrapper.style.outline = "none";
