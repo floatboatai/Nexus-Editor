@@ -26,20 +26,22 @@ export function toggleWrap(editor: EditorAPI, marker: string): boolean {
 
   if (before === marker && after === marker) {
     // Already wrapped — remove markers
-    const newDoc =
-      doc.slice(0, from - marker.length) +
-      selected +
-      doc.slice(to + marker.length);
-    editor.setDocument(newDoc);
-    editor.setSelection(from - marker.length, to - marker.length);
+    editor.replaceRange(
+      from - marker.length,
+      to + marker.length,
+      selected,
+      { anchor: from - marker.length, head: to - marker.length }
+    );
     return true;
   }
 
   // Wrap selection with markers
-  const newDoc =
-    doc.slice(0, from) + marker + selected + marker + doc.slice(to);
-  editor.setDocument(newDoc);
-  editor.setSelection(from + marker.length, to + marker.length);
+  editor.replaceRange(
+    from,
+    to,
+    marker + selected + marker,
+    { anchor: from + marker.length, head: to + marker.length }
+  );
   return true;
 }
 
@@ -68,12 +70,10 @@ export function insertLink(editor: EditorAPI): boolean {
 
   const linkText = selected || "link text";
   const md = `[${linkText}](url)`;
-  const newDoc = doc.slice(0, from) + md + doc.slice(to);
-  editor.setDocument(newDoc);
 
   // Select the "url" part for easy replacement
   const urlStart = from + linkText.length + 3;
-  editor.setSelection(urlStart, urlStart + 3);
+  editor.replaceRange(from, to, md, { anchor: urlStart, head: urlStart + 3 });
   return true;
 }
 
@@ -100,9 +100,7 @@ export function toggleHeading(editor: EditorAPI, level: number): boolean {
     newLine = prefix + line;
   }
 
-  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(end);
-  editor.setDocument(newDoc);
-  editor.setSelection(lineStart + newLine.length);
+  editor.replaceRange(lineStart, end, newLine, { anchor: lineStart + newLine.length });
   return true;
 }
 
