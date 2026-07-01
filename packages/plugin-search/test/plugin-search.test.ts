@@ -1,3 +1,5 @@
+import { SearchQuery, setSearchQuery } from "@codemirror/search";
+import { EditorView } from "@codemirror/view";
 import { describe, expect, it, vi } from "vitest";
 import { createEditor } from "@floatboat/nexus-core";
 import {
@@ -705,6 +707,8 @@ describe("@floatboat/nexus-plugin-search", () => {
     harness.container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-replace"]')?.click();
 
     expect(harness.editor.getDocument()).toBe("dogalog concatenate");
+    const selection = harness.editor.getSelection();
+    expect(Math.min(selection.anchor, selection.head)).toBe(11);
     harness.destroy();
   });
 
@@ -719,6 +723,38 @@ describe("@floatboat/nexus-plugin-search", () => {
     harness.container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-replace-all"]')?.click();
 
     expect(harness.editor.getDocument()).toBe("dogalog condogenate");
+    harness.destroy();
+  });
+
+  it("clears fuzzy state when the search query is updated externally", async () => {
+    const harness = setupSearchPanel();
+    enableFuzzySearch(harness.container);
+    harness.input.value = "cat";
+    harness.input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+
+    const fuzzyField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
+    );
+    expect(fuzzyField?.checked).toBe(true);
+
+    const view = EditorView.findFromDOM(harness.container.querySelector(".cm-editor")!);
+    expect(view).not.toBeNull();
+
+    view!.dispatch({
+      effects: setSearchQuery.of(
+        new SearchQuery({
+          search: "beta",
+          caseSensitive: false,
+          regexp: false,
+          wholeWord: false,
+          replace: ""
+        })
+      )
+    });
+
+    await Promise.resolve();
+
+    expect(fuzzyField?.checked).toBe(false);
     harness.destroy();
   });
 });

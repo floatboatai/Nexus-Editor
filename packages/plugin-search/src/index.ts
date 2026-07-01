@@ -3,7 +3,6 @@ import {
   findNext,
   findPrevious,
   getSearchQuery,
-  highlightSelectionMatches,
   openSearchPanel,
   replaceAll,
   replaceNext,
@@ -24,8 +23,11 @@ import {
   fuzzyReplaceAll,
   fuzzyReplaceNext,
   fuzzySearchExtension,
+  fuzzySearchStateEquals,
+  fuzzySearchStateField,
   fuzzySelectAll,
-  setFuzzySearchState
+  setFuzzySearchState,
+  syncSelectionHighlight
 } from "./fuzzy-search-extension";
 
 export { findBestFuzzyMatch, findFuzzyMatchesInDocument, replaceFuzzyMatchesInDocument } from "./fuzzy-match";
@@ -35,10 +37,19 @@ export {
   fuzzyReplaceAll,
   fuzzyReplaceNext,
   fuzzySearchExtension,
+  fuzzySearchStateEquals,
+  fuzzySearchStateField,
   fuzzySelectAll,
   setFuzzySearchState,
+  syncSelectionHighlight,
   type FuzzySearchState
 } from "./fuzzy-search-extension";
+export {
+  findFuzzyNextIndex,
+  findFuzzyPreviousIndex,
+  findFuzzyReplaceIndex,
+  type FuzzyMatchSpan
+} from "./fuzzy-navigation";
 
 export interface SearchMatch {
   from: number;
@@ -546,6 +557,7 @@ class NexusSearchPanel implements Panel {
   private readonly fuzzyField: HTMLInputElement;
   private readonly labels: SearchPluginLabels;
   private readonly history: SearchHistoryController;
+  private readonly highlightSelectionMatches: boolean;
   private readonly replaceRow?: HTMLDivElement;
   private readonly replaceToggle?: IconButtonElements;
   private replaceExpanded = false;
@@ -554,12 +566,14 @@ class NexusSearchPanel implements Panel {
     private readonly view: EditorView,
     readonly top: boolean,
     labels: Partial<SearchPluginLabels> | undefined,
-    history: SearchHistoryController
+    history: SearchHistoryController,
+    highlightSelectionMatches: boolean
   ) {
     this.query = getSearchQuery(view.state);
     const resolvedLabels = resolveLabels(view, labels);
     this.labels = resolvedLabels;
     this.history = history;
+    this.highlightSelectionMatches = highlightSelectionMatches;
 
     this.searchField = this.createTextField(
       "markdown-search-input",
@@ -662,7 +676,7 @@ class NexusSearchPanel implements Panel {
     for (const transaction of update.transactions) {
       for (const effect of transaction.effects) {
         if (effect.is(setSearchQuery) && !effect.value.eq(this.query)) {
-          this.setQuery(effect.value);
+          this.applyExternalQuery(effect.value);
         }
       }
     }
@@ -788,13 +802,18 @@ class NexusSearchPanel implements Panel {
       this.view.dispatch({ effects: setSearchQuery.of(query) });
     }
 
-    this.view.dispatch({
-      effects: setFuzzySearchState.of({
-        enabled: fuzzyEnabled,
-        query: this.searchField.value,
-        caseSensitive: this.caseField.checked
-      })
-    });
+    const nextFuzzyState = {
+      enabled: fuzzyEnabled,
+      query: this.searchField.value,
+      caseSensitive: this.caseField.checked
+    };
+    const currentFuzzyState = this.view.state.field(fuzzySearchStateField);
+    if (!fuzzySearchStateEquals(currentFuzzyState, nextFuzzyState)) {
+      this.view.dispatch({
+        effects: setFuzzySearchState.of(nextFuzzyState)
+      });
+    }
+    syncSelectionHighlight(this.view, this.highlightSelectionMatches);
   }
 
   private submitSearch(runSearchCommand: () => void): void {
@@ -864,7 +883,7 @@ class NexusSearchPanel implements Panel {
     return true;
   }
 
-  private setQuery(query: SearchQuery): void {
+  private applyExternalQuery(query: SearchQuery): void {
     this.query = query;
     this.searchField.value = query.search;
     this.replaceField.value = query.replace;
@@ -872,32 +891,49 @@ class NexusSearchPanel implements Panel {
     this.regexpField.checked = query.regexp;
     this.wholeWordField.checked = query.wholeWord;
     this.fuzzyField.checked = false;
-    this.view.dispatch({
-      effects: setFuzzySearchState.of({
+
+    // Panel.update runs inside EditorView.update — defer companion dispatches.
+    queueMicrotask(() => {
+      if (this.view.isDestroyed) {
+        return;
+      }
+
+      const currentFuzzyState = this.view.state.field(fuzzySearchStateField);
+      const nextFuzzyState = {
         enabled: false,
         query: "",
         caseSensitive: query.caseSensitive
-      })
+      };
+      if (!fuzzySearchStateEquals(currentFuzzyState, nextFuzzyState)) {
+        this.view.dispatch({
+          effects: setFuzzySearchState.of(nextFuzzyState)
+        });
+      }
+      syncSelectionHighlight(this.view, this.highlightSelectionMatches);
     });
   }
 }
 
 export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlugin {
   const history = new SearchHistoryController(options.history);
+  const highlightSelectionMatchesEnabled = options.highlightSelectionMatches ?? true;
   const cmExtensions = [
     search({
       top: options.top ?? true,
       caseSensitive: options.caseSensitive ?? false,
       literal: true,
-      createPanel: (view) => new NexusSearchPanel(view, options.top ?? true, options.labels, history)
+      createPanel: (view) =>
+        new NexusSearchPanel(
+          view,
+          options.top ?? true,
+          options.labels,
+          history,
+          highlightSelectionMatchesEnabled
+        )
     }),
-    ...fuzzySearchExtension(),
+    ...fuzzySearchExtension({ highlightSelectionMatches: highlightSelectionMatchesEnabled }),
     keymap.of(searchKeymap)
   ];
-
-  if (options.highlightSelectionMatches ?? true) {
-    cmExtensions.push(highlightSelectionMatches());
-  }
 
   return {
     name: "plugin-search",

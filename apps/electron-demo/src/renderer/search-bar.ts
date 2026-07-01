@@ -1,5 +1,11 @@
 import type { EditorAPI } from "@floatboat/nexus-core";
-import { findSearchMatches, replaceAllMatches } from "@floatboat/nexus-plugin-search";
+import {
+  findFuzzyNextIndex,
+  findFuzzyPreviousIndex,
+  findFuzzyReplaceIndex,
+  findSearchMatches,
+  replaceAllMatches
+} from "@floatboat/nexus-plugin-search";
 
 export interface SearchBar {
   element: HTMLElement;
@@ -129,6 +135,31 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   let currentIdx = -1;
   let visible = false;
 
+  function syncCurrentIndexFromSelection() {
+    if (matches.length === 0) {
+      currentIdx = -1;
+      return;
+    }
+
+    const { anchor, head } = editor.getSelection();
+    const selectionFrom = Math.min(anchor, head);
+    const selectionTo = Math.max(anchor, head);
+    const cursor = head;
+
+    if (fuzzyCheckbox.checked) {
+      currentIdx = findFuzzyReplaceIndex(matches, selectionFrom, selectionTo, cursor);
+      return;
+    }
+
+    currentIdx = 0;
+    for (let i = 0; i < matches.length; i++) {
+      if (matches[i].from >= anchor) {
+        currentIdx = i;
+        break;
+      }
+    }
+  }
+
   function updateMatches() {
     const query = findInput.value;
     if (!query) {
@@ -143,12 +174,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       currentIdx = -1;
       countLabel.textContent = "0 results";
     } else {
-      // Find nearest match to current cursor
-      const { anchor } = editor.getSelection();
-      currentIdx = 0;
-      for (let i = 0; i < matches.length; i++) {
-        if (matches[i].from >= anchor) { currentIdx = i; break; }
-      }
+      syncCurrentIndexFromSelection();
       highlightCurrent();
     }
   }
@@ -163,13 +189,27 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
 
   function goNext() {
     if (matches.length === 0) return;
-    currentIdx = (currentIdx + 1) % matches.length;
+    if (fuzzyCheckbox.checked) {
+      const { anchor, head } = editor.getSelection();
+      const selectionFrom = Math.min(anchor, head);
+      const selectionTo = Math.max(anchor, head);
+      currentIdx = findFuzzyNextIndex(matches, selectionFrom, selectionTo, head);
+    } else {
+      currentIdx = (currentIdx + 1) % matches.length;
+    }
     highlightCurrent();
   }
 
   function goPrev() {
     if (matches.length === 0) return;
-    currentIdx = (currentIdx - 1 + matches.length) % matches.length;
+    if (fuzzyCheckbox.checked) {
+      const { anchor, head } = editor.getSelection();
+      const selectionFrom = Math.min(anchor, head);
+      const selectionTo = Math.max(anchor, head);
+      currentIdx = findFuzzyPreviousIndex(matches, selectionFrom, selectionTo, head);
+    } else {
+      currentIdx = (currentIdx - 1 + matches.length) % matches.length;
+    }
     highlightCurrent();
   }
 
@@ -177,10 +217,18 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     if (currentIdx < 0 || currentIdx >= matches.length) return;
     const m = matches[currentIdx];
     const doc = editor.getDocument();
-    const newDoc = doc.slice(0, m.from) + replaceInput.value + doc.slice(m.to);
+    const replacement = replaceInput.value;
+    const newDoc = doc.slice(0, m.from) + replacement + doc.slice(m.to);
     editor.setDocument(newDoc);
-    editor.setSelection(m.from + replaceInput.value.length);
+    editor.setSelection(m.from + replacement.length);
     updateMatches();
+    if (fuzzyCheckbox.checked && matches.length > 0) {
+      const { anchor, head } = editor.getSelection();
+      const selectionFrom = Math.min(anchor, head);
+      const selectionTo = Math.max(anchor, head);
+      currentIdx = findFuzzyNextIndex(matches, selectionFrom, selectionTo, head);
+      highlightCurrent();
+    }
   }
 
   function doReplaceAll() {
