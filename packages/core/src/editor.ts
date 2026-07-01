@@ -15,7 +15,8 @@ import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 
 import { EventEmitter } from "./event-emitter";
-import { createLivePreviewExtension } from "./live-preview";
+import { createLivePreviewExtension, isLivePreviewEnabled } from "./live-preview";
+import { createSearchHighlightDecorationExtension } from "./search-highlight";
 import { createMarkdownLanguageSupport } from "./lezer-markdown";
 import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
 import { markdownFoldService } from "./markdown-fold";
@@ -701,6 +702,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
           insertColumnAfter: locale.insertColumnAfter,
           insertRowBelow: locale.insertRowBelow,
         }),
+        ...(isLivePreviewEnabled(config.livePreview)
+          ? []
+          : createSearchHighlightDecorationExtension()),
         ...(widgetParser ? createWidgetExtension(widgetParser, widgetDefs) : []),
         ...shortcutExtensions,
         ...commandKeymapExtensions,

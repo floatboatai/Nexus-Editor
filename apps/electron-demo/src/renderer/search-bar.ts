@@ -4,7 +4,8 @@ import {
   findFuzzyPreviousIndex,
   findFuzzyReplaceIndex,
   findSearchMatches,
-  replaceAllMatches
+  replaceAllMatches,
+  syncSearchHighlights
 } from "@floatboat/nexus-plugin-search";
 
 export interface SearchBar {
@@ -68,7 +69,7 @@ const CLOSE_BTN_STYLES = `
   line-height: 1;
 `;
 
-export function createSearchBar(editor: EditorAPI): SearchBar {
+export function createSearchBar(editor: EditorAPI, editorRoot: HTMLElement): SearchBar {
   const bar = document.createElement("div");
   bar.className = "nexus-search-bar";
   bar.style.cssText = BAR_STYLES;
@@ -160,12 +161,33 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     }
   }
 
-  function updateMatches() {
+  function syncEditorHighlights() {
+    const query = findInput.value;
+    if (!query) {
+      syncSearchHighlights(editorRoot, {
+        enabled: false,
+        query: "",
+        caseSensitive: false,
+        literal: false
+      });
+      return;
+    }
+
+    syncSearchHighlights(editorRoot, {
+      enabled: true,
+      query,
+      caseSensitive: false,
+      literal: !fuzzyCheckbox.checked
+    });
+  }
+
+  function updateMatches(focusEditor = false) {
     const query = findInput.value;
     if (!query) {
       matches = [];
       currentIdx = -1;
       countLabel.textContent = "";
+      syncEditorHighlights();
       return;
     }
     const doc = editor.getDocument();
@@ -174,17 +196,24 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       currentIdx = -1;
       countLabel.textContent = "0 results";
     } else {
-      syncCurrentIndexFromSelection();
-      highlightCurrent();
+      if (focusEditor) {
+        syncCurrentIndexFromSelection();
+      } else {
+        currentIdx = 0;
+      }
+      highlightCurrent(focusEditor);
     }
+    syncEditorHighlights();
   }
 
-  function highlightCurrent() {
+  function highlightCurrent(focusEditor = true) {
     if (currentIdx < 0 || currentIdx >= matches.length) return;
+    countLabel.textContent = `${currentIdx + 1} / ${matches.length}`;
     const m = matches[currentIdx];
     editor.setSelection(m.from, m.to);
-    editor.focus();
-    countLabel.textContent = `${currentIdx + 1} / ${matches.length}`;
+    if (focusEditor) {
+      editor.focus();
+    }
   }
 
   function goNext() {
@@ -237,12 +266,13 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     const doc = editor.getDocument();
     const newDoc = replaceAllMatches(doc, query, replaceInput.value, { fuzzy: fuzzyCheckbox.checked });
     editor.setDocument(newDoc);
-    updateMatches();
+    updateMatches(true);
   }
 
   // Event handlers
-  findInput.addEventListener("input", updateMatches);
-  fuzzyCheckbox.addEventListener("change", updateMatches);
+  // Keep focus in the find field while typing; only jump into the editor on explicit navigation.
+  findInput.addEventListener("input", () => updateMatches(false));
+  fuzzyCheckbox.addEventListener("change", () => updateMatches(false));
   findInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.shiftKey ? goPrev() : goNext(); e.preventDefault(); }
     if (e.key === "Escape") { close(); }
@@ -271,7 +301,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       const sel = doc.slice(from, to);
       if (sel.length < 100 && !sel.includes("\n")) {
         findInput.value = sel;
-        updateMatches();
+        updateMatches(false);
       }
     }
     findInput.select();
@@ -283,6 +313,12 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     matches = [];
     currentIdx = -1;
     countLabel.textContent = "";
+    syncSearchHighlights(editorRoot, {
+      enabled: false,
+      query: "",
+      caseSensitive: false,
+      literal: false
+    });
     editor.focus();
   }
 

@@ -1,30 +1,45 @@
 import { Compartment, StateEffect, StateField, type EditorState } from "@codemirror/state";
 import { highlightSelectionMatches } from "@codemirror/search";
-import { Decoration, DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
+import {
+  searchHighlightMatchesEqual,
+  searchHighlightMatchesField,
+  searchHighlightTheme,
+  setSearchHighlightMatches,
+  type SearchHighlightMatch
+} from "@floatboat/nexus-core";
+import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 
 import {
   findFuzzyNextIndex,
   findFuzzyPreviousIndex,
   findFuzzyReplaceIndex
 } from "./fuzzy-navigation";
-import { findFuzzyMatchesInDocument } from "./fuzzy-match";
+import { findFuzzyMatchesInDocument, findLiteralMatchesInDocument } from "./fuzzy-match";
 
 export interface FuzzySearchState {
   enabled: boolean;
   query: string;
   caseSensitive: boolean;
+  /** When true, highlight literal substring matches instead of fuzzy tokens. */
+  literal?: boolean;
 }
 
 const EMPTY_FUZZY_STATE: FuzzySearchState = {
   enabled: false,
   query: "",
-  caseSensitive: false
+  caseSensitive: false,
+  literal: false
 };
 
 export const setFuzzySearchState = StateEffect.define<FuzzySearchState>();
 
 export function fuzzySearchStateEquals(a: FuzzySearchState, b: FuzzySearchState): boolean {
-  return a.enabled === b.enabled && a.query === b.query && a.caseSensitive === b.caseSensitive;
+  return (
+    a.enabled === b.enabled &&
+    a.query === b.query &&
+    a.caseSensitive === b.caseSensitive &&
+    (a.literal ?? false) === (b.literal ?? false)
+  );
 }
 
 export const fuzzySearchStateField = StateField.define<FuzzySearchState>({
@@ -48,32 +63,93 @@ function getFuzzyMatches(state: EditorState): Array<{ from: number; to: number }
     return [];
   }
 
-  return findFuzzyMatchesInDocument(state.doc.toString(), fuzzyState.query, {
-    caseSensitive: fuzzyState.caseSensitive
-  });
+  const doc = state.doc.toString();
+  const options = { caseSensitive: fuzzyState.caseSensitive };
+  if (fuzzyState.literal) {
+    return findLiteralMatchesInDocument(doc, fuzzyState.query, options);
+  }
+
+  return findFuzzyMatchesInDocument(doc, fuzzyState.query, options);
 }
 
-function buildFuzzyDecorations(state: EditorState): DecorationSet {
-  const fuzzyState = state.field(fuzzySearchStateField);
+export function syncSearchHighlights(
+  editorRoot: Element | DocumentFragment | null,
+  state: FuzzySearchState
+): void {
+  if (!editorRoot) {
+    return;
+  }
+
+  const cmEditor =
+    editorRoot instanceof Element && editorRoot.classList.contains("cm-editor")
+      ? editorRoot
+      : editorRoot.querySelector?.(".cm-editor");
+  if (!cmEditor) {
+    return;
+  }
+
+  const view = EditorView.findFromDOM(cmEditor as HTMLElement);
+  if (!view || view.isDestroyed) {
+    return;
+  }
+
+  const current = view.state.field(fuzzySearchStateField);
+  if (!fuzzySearchStateEquals(current, state)) {
+    view.dispatch({
+      effects: setFuzzySearchState.of(state)
+    });
+  }
+  scheduleSearchHighlightMatches(view);
+}
+
+function buildSearchHighlightMatches(
+  state: EditorState,
+  fuzzyState = state.field(fuzzySearchStateField)
+): SearchHighlightMatch[] {
   if (!fuzzyState.enabled || !fuzzyState.query) {
-    return Decoration.none;
+    return [];
   }
 
-  const matches = getFuzzyMatches(state);
-  if (matches.length === 0) {
-    return Decoration.none;
-  }
-
+  const doc = state.doc.toString();
+  const options = { caseSensitive: fuzzyState.caseSensitive };
+  const matches = fuzzyState.literal
+    ? findLiteralMatchesInDocument(doc, fuzzyState.query, options)
+    : findFuzzyMatchesInDocument(doc, fuzzyState.query, options);
   const selectionFrom = Math.min(state.selection.main.anchor, state.selection.main.head);
   const selectionTo = Math.max(state.selection.main.anchor, state.selection.main.head);
-  const decorations = matches.map((match) => {
-    const isCurrent = match.from === selectionFrom && match.to === selectionTo;
-    return Decoration.mark({
-      class: isCurrent ? "cm-searchMatch cm-searchMatch-selected" : "cm-searchMatch"
-    }).range(match.from, match.to);
-  });
+  return matches.map((match) => ({
+    from: match.from,
+    to: match.to,
+    selected: match.from === selectionFrom && match.to === selectionTo
+  }));
+}
 
-  return Decoration.set(decorations, true);
+export function searchHighlightEffectForState(
+  state: EditorState,
+  fuzzyState: FuzzySearchState
+): ReturnType<typeof setSearchHighlightMatches.of> | null {
+  const next = buildSearchHighlightMatches(state, fuzzyState);
+  const current = state.field(searchHighlightMatchesField, false) ?? [];
+  if (!searchHighlightMatchesEqual(current, next)) {
+    return setSearchHighlightMatches.of(next);
+  }
+  return null;
+}
+
+export function dispatchSearchHighlightMatches(view: EditorView): void {
+  const effect = searchHighlightEffectForState(view.state, view.state.field(fuzzySearchStateField));
+  if (effect) {
+    view.dispatch({ effects: effect });
+  }
+}
+
+function scheduleSearchHighlightMatches(view: EditorView): void {
+  queueMicrotask(() => {
+    if (view.isDestroyed) {
+      return;
+    }
+    dispatchSearchHighlightMatches(view);
+  });
 }
 
 function selectFuzzyMatch(view: EditorView, index: number): boolean {
@@ -225,27 +301,27 @@ export function fuzzySearchExtension(options: FuzzySearchExtensionOptions = {}) 
   const highlightSelectionMatchesEnabled = options.highlightSelectionMatches ?? true;
 
   return [
+    searchHighlightMatchesField,
+    searchHighlightTheme,
     fuzzySearchStateField,
     selectionHighlightCompartment.of(
       highlightSelectionMatchesEnabled ? highlightSelectionMatches() : []
     ),
     ViewPlugin.fromClass(
       class {
-        decorations: DecorationSet;
-
-        constructor(view: EditorView) {
-          this.decorations = buildFuzzyDecorations(view.state);
+        constructor(private readonly view: EditorView) {
+          scheduleSearchHighlightMatches(this.view);
         }
 
         update(update: ViewUpdate): void {
           const fuzzyChanged =
-            update.state.field(fuzzySearchStateField) !== update.startState.field(fuzzySearchStateField);
+            update.state.field(fuzzySearchStateField) !==
+            update.startState.field(fuzzySearchStateField);
           if (update.docChanged || update.selectionSet || fuzzyChanged) {
-            this.decorations = buildFuzzyDecorations(update.state);
+            scheduleSearchHighlightMatches(update.view);
           }
         }
-      },
-      { decorations: (plugin) => plugin.decorations }
+      }
     )
   ];
 }

@@ -157,6 +157,10 @@ const TOKEN_PATTERN = /\S+/g;
 /**
  * Scan a document token-by-token (continuous non-whitespace runs) so fuzzy
  * search does not bridge unrelated words across whitespace.
+ *
+ * Each hit highlights the **entire token** that contains a valid subsequence
+ * match, not just the minimal matched character span (so searching `ext`
+ * highlights `next`, not `ext`).
  */
 export function findFuzzyMatchesInDocument(
   doc: string,
@@ -177,17 +181,46 @@ export function findFuzzyMatchesInDocument(
       continue;
     }
     const tokenStart = tokenMatch.index;
-    const tokenMatches = findAllFuzzyMatchesInText(token, pattern, options);
-
-    for (const span of tokenMatches) {
-      const from = tokenStart + span.from;
-      const to = tokenStart + span.to;
-      matches.push({
-        from,
-        to,
-        text: doc.slice(from, to)
-      });
+    if (!findBestFuzzyMatch(token, pattern, options)) {
+      continue;
     }
+
+    matches.push({
+      from: tokenStart,
+      to: tokenStart + token.length,
+      text: token
+    });
+  }
+
+  return matches;
+}
+
+/** Literal substring matches for external search-bar highlight sync. */
+export function findLiteralMatchesInDocument(
+  doc: string,
+  query: string,
+  options: FuzzyMatchOptions = {}
+): FuzzyMatchSpan[] {
+  if (!query) {
+    return [];
+  }
+
+  const haystack = options.caseSensitive ? doc : doc.toLowerCase();
+  const needle = options.caseSensitive ? query : query.toLowerCase();
+  const matches: FuzzyMatchSpan[] = [];
+  let start = 0;
+
+  while (start <= haystack.length - needle.length) {
+    const index = haystack.indexOf(needle, start);
+    if (index < 0) {
+      break;
+    }
+    matches.push({
+      from: index,
+      to: index + query.length,
+      text: doc.slice(index, index + query.length)
+    });
+    start = index + 1;
   }
 
   return matches;

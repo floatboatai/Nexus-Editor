@@ -59,14 +59,19 @@ describe("findFuzzyMatchesInDocument", () => {
     expect(matches).toHaveLength(1);
     expect(matches[0]).toMatchObject({
       from: 14,
-      to: 22,
-      text: "Nexus-Ed"
+      to: 26,
+      text: "Nexus-Editor"
     });
+  });
+
+  it("highlights the full token that contains the subsequence", () => {
+    const matches = findFuzzyMatchesInDocument("next Text", "ext");
+    expect(matches.map((match) => match.text)).toEqual(["next", "Text"]);
   });
 
   it("finds multiple tokens in one document", () => {
     const matches = findFuzzyMatchesInDocument("catalog concatenate", "cat");
-    expect(matches.map((match) => match.text)).toEqual(["cat", "cat"]);
+    expect(matches.map((match) => match.text)).toEqual(["catalog", "concatenate"]);
   });
 
   it("rejects patterns longer than the safety cap", () => {
@@ -80,8 +85,8 @@ describe("findFuzzyMatchesInDocument", () => {
     expect(findFuzzyMatchesInDocument(`${longToken} beta`, "b")).toEqual([
       {
         from: longToken.length + 1,
-        to: longToken.length + 2,
-        text: "b"
+        to: longToken.length + 5,
+        text: "beta"
       }
     ]);
   });

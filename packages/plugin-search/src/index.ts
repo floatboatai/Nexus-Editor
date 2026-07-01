@@ -26,7 +26,9 @@ import {
   fuzzySearchStateEquals,
   fuzzySearchStateField,
   fuzzySelectAll,
+  searchHighlightEffectForState,
   setFuzzySearchState,
+  syncSearchHighlights,
   syncSelectionHighlight
 } from "./fuzzy-search-extension";
 
@@ -41,6 +43,7 @@ export {
   fuzzySearchStateField,
   fuzzySelectAll,
   setFuzzySearchState,
+  syncSearchHighlights,
   syncSelectionHighlight,
   type FuzzySearchState
 } from "./fuzzy-search-extension";
@@ -808,10 +811,16 @@ class NexusSearchPanel implements Panel {
       caseSensitive: this.caseField.checked
     };
     const currentFuzzyState = this.view.state.field(fuzzySearchStateField);
+    const effects = [];
     if (!fuzzySearchStateEquals(currentFuzzyState, nextFuzzyState)) {
-      this.view.dispatch({
-        effects: setFuzzySearchState.of(nextFuzzyState)
-      });
+      effects.push(setFuzzySearchState.of(nextFuzzyState));
+    }
+    const highlightEffect = searchHighlightEffectForState(this.view.state, nextFuzzyState);
+    if (highlightEffect) {
+      effects.push(highlightEffect);
+    }
+    if (effects.length > 0) {
+      this.view.dispatch({ effects });
     }
     syncSelectionHighlight(this.view, this.highlightSelectionMatches);
   }

@@ -7,8 +7,8 @@ import {
 } from "../src/fuzzy-navigation";
 
 const MATCHES = [
-  { from: 0, to: 3 },
-  { from: 11, to: 14 }
+  { from: 0, to: 7 },
+  { from: 8, to: 19 }
 ];
 
 describe("fuzzy-navigation", () => {

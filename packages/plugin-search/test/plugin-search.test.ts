@@ -227,16 +227,14 @@ describe("@floatboat/nexus-plugin-search", () => {
     expect(findSearchMatches("Nexus-Editor roadmap", "nxed", { fuzzy: true })).toEqual([
       {
         from: 0,
-        to: 8,
-        text: "Nexus-Ed"
+        to: 12,
+        text: "Nexus-Editor"
       }
     ]);
   });
 
   it("replaces all fuzzy matches from end to start", () => {
-    expect(replaceAllMatches("catalog concatenate", "cat", "dog", { fuzzy: true })).toBe(
-      "dogalog condogenate"
-    );
+    expect(replaceAllMatches("catalog concatenate", "cat", "dog", { fuzzy: true })).toBe("dog dog");
   });
 
   it("ignores regexp and wholeWord when fuzzy is enabled", () => {
@@ -302,7 +300,7 @@ describe("@floatboat/nexus-plugin-search", () => {
     const plugin = createSearchPlugin();
 
     expect(plugin.name).toBe("plugin-search");
-    expect(plugin.cmExtensions).toHaveLength(5);
+    expect(plugin.cmExtensions).toHaveLength(7);
   });
 
   it("opens a data-test-id annotated search panel from the editor keymap", () => {
@@ -687,7 +685,7 @@ describe("@floatboat/nexus-plugin-search", () => {
 
     submitSearch(harness.input, "cat");
     selection = harness.editor.getSelection();
-    expect(Math.min(selection.anchor, selection.head)).toBe(11);
+    expect(Math.min(selection.anchor, selection.head)).toBe(8);
 
     submitSearchPrevious(harness.input);
     selection = harness.editor.getSelection();
@@ -706,9 +704,9 @@ describe("@floatboat/nexus-plugin-search", () => {
     replaceInput.value = "dog";
     harness.container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-replace"]')?.click();
 
-    expect(harness.editor.getDocument()).toBe("dogalog concatenate");
+    expect(harness.editor.getDocument()).toBe("dog concatenate");
     const selection = harness.editor.getSelection();
-    expect(Math.min(selection.anchor, selection.head)).toBe(11);
+    expect(Math.min(selection.anchor, selection.head)).toBe(4);
     harness.destroy();
   });
 
@@ -722,7 +720,7 @@ describe("@floatboat/nexus-plugin-search", () => {
     replaceInput.value = "dog";
     harness.container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-replace-all"]')?.click();
 
-    expect(harness.editor.getDocument()).toBe("dogalog condogenate");
+    expect(harness.editor.getDocument()).toBe("dog dog");
     harness.destroy();
   });
 
