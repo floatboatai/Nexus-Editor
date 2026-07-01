@@ -17,6 +17,25 @@ import { keymap, runScopeHandlers, type EditorView, type Panel, type ViewUpdate 
 
 import type { NexusPlugin } from "@floatboat/nexus-core";
 
+import { findFuzzyMatchesInDocument } from "./fuzzy-match";
+import {
+  fuzzyFindNext,
+  fuzzyFindPrevious,
+  fuzzySearchExtension,
+  fuzzySelectAll,
+  setFuzzySearchState
+} from "./fuzzy-search-extension";
+
+export { findBestFuzzyMatch, findFuzzyMatchesInDocument } from "./fuzzy-match";
+export {
+  fuzzyFindNext,
+  fuzzyFindPrevious,
+  fuzzySearchExtension,
+  fuzzySelectAll,
+  setFuzzySearchState,
+  type FuzzySearchState
+} from "./fuzzy-search-extension";
+
 export interface SearchMatch {
   from: number;
   to: number;
@@ -27,6 +46,10 @@ export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  /**
+   * Subsequence-style fuzzy matching. Mutually exclusive with `regexp`.
+   */
+  fuzzy?: boolean;
 }
 
 export interface SearchHistoryStorage {
@@ -72,6 +95,7 @@ export interface SearchPluginLabels {
   matchCase: string;
   regexp: string;
   byWord: string;
+  fuzzy: string;
   replaceNext: string;
   replaceAll: string;
   close: string;
@@ -88,6 +112,7 @@ const DEFAULT_LABELS: SearchPluginLabels = {
   matchCase: "Match case",
   regexp: "Regexp",
   byWord: "By word",
+  fuzzy: "Fuzzy",
   replaceNext: "Replace",
   replaceAll: "Replace all",
   close: "Close"
@@ -259,6 +284,12 @@ export function findSearchMatches(
     return [];
   }
 
+  if (options.fuzzy) {
+    return findFuzzyMatchesInDocument(doc, query, {
+      caseSensitive: options.caseSensitive
+    });
+  }
+
   const pattern = buildSearchPattern(query, options);
   if (!pattern) {
     return [];
@@ -287,6 +318,16 @@ export function replaceAllMatches(
 ): string {
   if (!query) {
     return doc;
+  }
+
+  if (options.fuzzy) {
+    const matches = findSearchMatches(doc, query, options);
+    let result = doc;
+    for (let index = matches.length - 1; index >= 0; index--) {
+      const match = matches[index];
+      result = result.slice(0, match.from) + replacement + result.slice(match.to);
+    }
+    return result;
   }
 
   const pattern = buildSearchPattern(query, options);
@@ -321,6 +362,7 @@ function resolveLabels(view: EditorView, labels: Partial<SearchPluginLabels> | u
     matchCase: resolveLabel(view, labels, "matchCase", DEFAULT_LABELS.matchCase),
     regexp: resolveLabel(view, labels, "regexp", DEFAULT_LABELS.regexp),
     byWord: resolveLabel(view, labels, "byWord", DEFAULT_LABELS.byWord),
+    fuzzy: resolveLabel(view, labels, "fuzzy", DEFAULT_LABELS.fuzzy),
     replaceNext: resolveLabel(view, labels, "replaceNext", DEFAULT_LABELS.replaceNext),
     replaceAll: resolveLabel(view, labels, "replaceAll", DEFAULT_LABELS.replaceAll),
     close: resolveLabel(view, labels, "close", DEFAULT_LABELS.close)
@@ -500,6 +542,7 @@ class NexusSearchPanel implements Panel {
   private readonly caseField: HTMLInputElement;
   private readonly regexpField: HTMLInputElement;
   private readonly wholeWordField: HTMLInputElement;
+  private readonly fuzzyField: HTMLInputElement;
   private readonly labels: SearchPluginLabels;
   private readonly history: SearchHistoryController;
   private readonly replaceRow?: HTMLDivElement;
@@ -532,8 +575,13 @@ class NexusSearchPanel implements Panel {
       false
     );
     this.caseField = this.createCheckbox("markdown-search-case-toggle", "case", this.query.caseSensitive);
-    this.regexpField = this.createCheckbox("markdown-search-regexp-toggle", "re", this.query.regexp);
+    this.regexpField = this.createCheckbox("markdown-search-regexp-toggle", "re", this.query.regexp, () =>
+      this.syncExclusiveSearchModes("regexp")
+    );
     this.wholeWordField = this.createCheckbox("markdown-search-word-toggle", "word", this.query.wholeWord);
+    this.fuzzyField = this.createCheckbox("markdown-search-fuzzy-toggle", "fuzzy", false, () =>
+      this.syncExclusiveSearchModes("fuzzy")
+    );
 
     this.dom = document.createElement("div");
     this.dom.className = "cm-search nexus-search-panel";
@@ -555,13 +603,13 @@ class NexusSearchPanel implements Panel {
     navigationGroup.className = "nexus-search-button-group";
     navigationGroup.append(
       createIconButton("markdown-search-prev", "prev", resolvedLabels.previous, "previous", () =>
-        this.submitSearch(() => findPrevious(view))
+        this.submitSearch(() => this.runFindPrevious())
       ),
       createIconButton("markdown-search-next", "next", resolvedLabels.next, "next", () =>
-        this.submitSearch(() => findNext(view))
+        this.submitSearch(() => this.runFindNext())
       ),
       createIconButton("markdown-search-all", "select", resolvedLabels.all, "all", () =>
-        this.submitSearch(() => selectMatches(view))
+        this.submitSearch(() => this.runSelectAll())
       )
     );
 
@@ -570,6 +618,7 @@ class NexusSearchPanel implements Panel {
       createLabel(this.caseField, resolvedLabels.matchCase),
       createLabel(this.regexpField, resolvedLabels.regexp),
       createLabel(this.wholeWordField, resolvedLabels.byWord),
+      createLabel(this.fuzzyField, resolvedLabels.fuzzy),
       navigationGroup
     ];
     if (this.replaceToggle) {
@@ -652,15 +701,56 @@ class NexusSearchPanel implements Panel {
     return input;
   }
 
-  private createCheckbox(testId: string, name: string, checked: boolean): HTMLInputElement {
+  private createCheckbox(
+    testId: string,
+    name: string,
+    checked: boolean,
+    onChange?: () => void
+  ): HTMLInputElement {
     const input = document.createElement("input");
     input.dataset.testId = testId;
     input.type = "checkbox";
     input.name = name;
     input.setAttribute("form", "");
     input.checked = checked;
-    input.addEventListener("change", () => this.commit());
+    input.addEventListener("change", () => {
+      onChange?.();
+      this.commit();
+    });
     return input;
+  }
+
+  private syncExclusiveSearchModes(changed: "regexp" | "fuzzy"): void {
+    if (changed === "fuzzy" && this.fuzzyField.checked) {
+      this.regexpField.checked = false;
+    }
+    if (changed === "regexp" && this.regexpField.checked) {
+      this.fuzzyField.checked = false;
+    }
+  }
+
+  private runFindNext(): void {
+    if (this.fuzzyField.checked) {
+      fuzzyFindNext(this.view);
+      return;
+    }
+    findNext(this.view);
+  }
+
+  private runFindPrevious(): void {
+    if (this.fuzzyField.checked) {
+      fuzzyFindPrevious(this.view);
+      return;
+    }
+    findPrevious(this.view);
+  }
+
+  private runSelectAll(): void {
+    if (this.fuzzyField.checked) {
+      fuzzySelectAll(this.view);
+      return;
+    }
+    selectMatches(this.view);
   }
 
   private commit(): void {
@@ -676,6 +766,14 @@ class NexusSearchPanel implements Panel {
       this.query = query;
       this.view.dispatch({ effects: setSearchQuery.of(query) });
     }
+
+    this.view.dispatch({
+      effects: setFuzzySearchState.of({
+        enabled: this.fuzzyField.checked,
+        query: this.searchField.value,
+        caseSensitive: this.caseField.checked
+      })
+    });
   }
 
   private submitSearch(runSearchCommand: () => void): void {
@@ -711,7 +809,13 @@ class NexusSearchPanel implements Panel {
 
     if (event.key === "Enter" && event.target === this.searchField) {
       event.preventDefault();
-      this.submitSearch(() => (event.shiftKey ? findPrevious : findNext)(this.view));
+      this.submitSearch(() => {
+        if (event.shiftKey) {
+          this.runFindPrevious();
+        } else {
+          this.runFindNext();
+        }
+      });
       return;
     }
 
@@ -746,6 +850,7 @@ class NexusSearchPanel implements Panel {
     this.caseField.checked = query.caseSensitive;
     this.regexpField.checked = query.regexp;
     this.wholeWordField.checked = query.wholeWord;
+    this.fuzzyField.checked = false;
   }
 }
 
@@ -758,6 +863,7 @@ export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlug
       literal: true,
       createPanel: (view) => new NexusSearchPanel(view, options.top ?? true, options.labels, history)
     }),
+    ...fuzzySearchExtension(),
     keymap.of(searchKeymap)
   ];
 

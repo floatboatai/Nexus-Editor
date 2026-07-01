@@ -100,6 +100,15 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   replaceAllBtn.title = "Replace all";
   replaceAllBtn.style.cssText = BTN_STYLES;
 
+  const fuzzyToggle = document.createElement("label");
+  fuzzyToggle.style.cssText = "display:flex;align-items:center;gap:4px;font-size:12px;color:var(--nexus-text-muted,#888);cursor:pointer;";
+  const fuzzyCheckbox = document.createElement("input");
+  fuzzyCheckbox.type = "checkbox";
+  fuzzyCheckbox.title = "Fuzzy match";
+  const fuzzyLabel = document.createElement("span");
+  fuzzyLabel.textContent = "Fuzzy";
+  fuzzyToggle.append(fuzzyCheckbox, fuzzyLabel);
+
   // Count label
   const countLabel = document.createElement("span");
   countLabel.style.cssText = COUNT_STYLES;
@@ -113,7 +122,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   const spacer = document.createElement("div");
   spacer.style.flex = "1";
 
-  bar.append(findInput, prevBtn, nextBtn, countLabel, replaceInput, replaceBtn, replaceAllBtn, spacer, closeBtn);
+  bar.append(findInput, fuzzyToggle, prevBtn, nextBtn, countLabel, replaceInput, replaceBtn, replaceAllBtn, spacer, closeBtn);
 
   // State
   let matches: Array<{ from: number; to: number }> = [];
@@ -129,7 +138,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       return;
     }
     const doc = editor.getDocument();
-    matches = findSearchMatches(doc, query);
+    matches = findSearchMatches(doc, query, { fuzzy: fuzzyCheckbox.checked });
     if (matches.length === 0) {
       currentIdx = -1;
       countLabel.textContent = "0 results";
@@ -178,13 +187,14 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     const query = findInput.value;
     if (!query) return;
     const doc = editor.getDocument();
-    const newDoc = replaceAllMatches(doc, query, replaceInput.value);
+    const newDoc = replaceAllMatches(doc, query, replaceInput.value, { fuzzy: fuzzyCheckbox.checked });
     editor.setDocument(newDoc);
     updateMatches();
   }
 
   // Event handlers
   findInput.addEventListener("input", updateMatches);
+  fuzzyCheckbox.addEventListener("change", updateMatches);
   findInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.shiftKey ? goPrev() : goNext(); e.preventDefault(); }
     if (e.key === "Escape") { close(); }

@@ -193,6 +193,22 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("supports fuzzy subsequence matching", () => {
+    expect(findSearchMatches("Nexus-Editor roadmap", "nxed", { fuzzy: true })).toEqual([
+      {
+        from: 0,
+        to: 8,
+        text: "Nexus-Ed"
+      }
+    ]);
+  });
+
+  it("replaces all fuzzy matches from end to start", () => {
+    expect(replaceAllMatches("catalog concatenate", "cat", "dog", { fuzzy: true })).toBe(
+      "dogalog condogenate"
+    );
+  });
+
   it("replaces all matches in a document", () => {
     expect(replaceAllMatches("cat scatter cat", "cat", "dog")).toBe("dog sdogter dog");
   });
@@ -245,7 +261,7 @@ describe("@floatboat/nexus-plugin-search", () => {
     const plugin = createSearchPlugin();
 
     expect(plugin.name).toBe("plugin-search");
-    expect(plugin.cmExtensions).toHaveLength(3);
+    expect(plugin.cmExtensions).toHaveLength(5);
   });
 
   it("opens a data-test-id annotated search panel from the editor keymap", () => {
