@@ -232,16 +232,24 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp | null {
-  const flags = options.caseSensitive ? "g" : "gi";
+// JavaScript's \b uses ASCII \w semantics and does not recognize boundaries
+// around CJK, Cyrillic, accented letters, or combining marks. This class
+// defines "word character" in Unicode-aware terms instead.
+const UNICODE_WORD_CHARACTER = String.raw`[\p{L}\p{M}\p{N}_]`;
 
-  let pattern: string;
-  if (options.regexp) {
-    pattern = options.wholeWord ? `\\b(?:${query})\\b` : query;
-  } else {
-    const escaped = escapeRegExp(query);
-    pattern = options.wholeWord ? `\\b${escaped}\\b` : escaped;
-  }
+function wrapWholeWordPattern(pattern: string): string {
+  return `(?<!${UNICODE_WORD_CHARACTER})(?:${pattern})(?!${UNICODE_WORD_CHARACTER})`;
+}
+
+function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp | null {
+  const body = options.regexp ? query : escapeRegExp(query);
+  const pattern = options.wholeWord ? wrapWholeWordPattern(body) : body;
+  // The `u` flag is added only for whole-word matching so the Unicode
+  // property escapes above are interpreted correctly. This puts the whole
+  // caller-supplied regexp in Unicode mode, which is an intentional
+  // compatibility constraint: legacy non-Unicode escape syntax may become
+  // invalid, and Unicode case folding applies when case-insensitive.
+  const flags = `g${options.caseSensitive ? "" : "i"}${options.wholeWord ? "u" : ""}`;
 
   try {
     return new RegExp(pattern, flags);

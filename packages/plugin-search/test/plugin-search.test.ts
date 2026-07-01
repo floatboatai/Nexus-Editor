@@ -193,6 +193,24 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("matches whole-word CJK text delimited by punctuation", () => {
+    expect(findSearchMatches("你好，世界！", "世界", { wholeWord: true })).toEqual([
+      { from: 3, to: 5, text: "世界" }
+    ]);
+  });
+
+  it("does not treat a query inside uninterrupted CJK text as a whole word", () => {
+    expect(findSearchMatches("你好世界和平", "世界", { wholeWord: true })).toEqual([]);
+  });
+
+  it("does not add the Unicode flag when whole-word is disabled", () => {
+    expect(findSearchMatches("banana", "\\a", { regexp: true })).toEqual([
+      { from: 1, to: 2, text: "a" },
+      { from: 3, to: 4, text: "a" },
+      { from: 5, to: 6, text: "a" }
+    ]);
+  });
+
   it("replaces all matches in a document", () => {
     expect(replaceAllMatches("cat scatter cat", "cat", "dog")).toBe("dog sdogter dog");
   });
