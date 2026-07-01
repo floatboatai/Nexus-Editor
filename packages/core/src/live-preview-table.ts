@@ -1,6 +1,8 @@
 import { EditorView, WidgetType, runScopeHandlers } from "@codemirror/view";
+import type { EditorState } from "@codemirror/state";
 import type { Table } from "mdast";
 
+import { appendTextWithSearchHighlights } from "./search-highlight";
 import type { LivePreviewLabels } from "./types";
 
 let tableEditingCount = 0;
@@ -177,11 +179,54 @@ function isCellMediaOnly(astCell: any): boolean {
   return false;
 }
 
-function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourceStart = 0): Node {
+function registerRenderedSourceOffset(
+  node: Text,
+  absFrom: number,
+  absTo: number,
+  tableFrom: number,
+  rawSourceStart: number
+): void {
+  renderedSourceOffsets.set(node, {
+    start: absFrom - tableFrom - rawSourceStart,
+    end: absTo - tableFrom - rawSourceStart
+  });
+}
+
+function renderInlineMdast(
+  node: any,
+  mediaOnly = false,
+  tableFrom = 0,
+  rawSourceStart = 0,
+  editorState: EditorState | null = null
+): Node {
   if (!node) return document.createTextNode("");
   switch (node.type) {
     case "text": {
-      const text = document.createTextNode(typeof node.value === "string" ? node.value : "");
+      const value = typeof node.value === "string" ? node.value : "";
+      const startOffset = node?.position?.start?.offset;
+      const endOffset = node?.position?.end?.offset;
+      if (
+        editorState &&
+        typeof startOffset === "number" &&
+        typeof endOffset === "number"
+      ) {
+        const container = document.createDocumentFragment();
+        appendTextWithSearchHighlights(
+          container,
+          editorState,
+          value,
+          startOffset,
+          endOffset,
+          (textNode, absFrom, absTo) => {
+            registerRenderedSourceOffset(textNode, absFrom, absTo, tableFrom, rawSourceStart);
+          }
+        );
+        if (container.childNodes.length === 1) {
+          return container.firstChild!;
+        }
+        return container;
+      }
+      const text = document.createTextNode(value);
       const sourceOffsets = getNodeSourceOffsets(node, tableFrom, rawSourceStart);
       if (sourceOffsets) renderedSourceOffsets.set(text, sourceOffsets);
       return text;
@@ -203,32 +248,55 @@ function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourc
         a.style.display = "block";
         a.style.lineHeight = "0";
       }
-      for (const child of node.children ?? []) a.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart));
+      for (const child of node.children ?? []) a.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart, editorState));
       return a;
     }
     case "strong": {
       const el = document.createElement("strong");
-      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart, editorState));
       return el;
     }
     case "emphasis": {
       const el = document.createElement("em");
-      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart, editorState));
       return el;
     }
     case "delete": {
       const el = document.createElement("del");
-      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart, editorState));
       return el;
     }
     case "inlineCode": {
+      const value = typeof node.value === "string" ? node.value : "";
+      const startOffset = node?.position?.start?.offset;
+      const endOffset = node?.position?.end?.offset;
       const el = document.createElement("code");
-      const text = document.createTextNode(typeof node.value === "string" ? node.value : "");
+      el.style.cssText =
+        "background:var(--nexus-bg-muted);padding:1px 4px;border-radius:3px;font-family:monospace;";
+      if (
+        editorState &&
+        typeof startOffset === "number" &&
+        typeof endOffset === "number" &&
+        value.length > 0
+      ) {
+        const contentFrom = startOffset + 1;
+        const contentTo = endOffset - 1;
+        appendTextWithSearchHighlights(
+          el,
+          editorState,
+          value,
+          contentFrom,
+          contentTo,
+          (textNode, absFrom, absTo) => {
+            registerRenderedSourceOffset(textNode, absFrom, absTo, tableFrom, rawSourceStart);
+          }
+        );
+        return el;
+      }
+      const text = document.createTextNode(value);
       const sourceOffsets = getNodeSourceOffsets(node, tableFrom, rawSourceStart, true);
       if (sourceOffsets) renderedSourceOffsets.set(text, sourceOffsets);
       el.appendChild(text);
-      el.style.cssText =
-        "background:var(--nexus-bg-muted);padding:1px 4px;border-radius:3px;font-family:monospace;";
       return el;
     }
     case "image": {
@@ -276,7 +344,7 @@ function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourc
     default: {
       if (Array.isArray(node.children)) {
         const frag = document.createDocumentFragment();
-        for (const child of node.children) frag.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+        for (const child of node.children) frag.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart, editorState));
         return frag;
       }
       const text = document.createTextNode(typeof node.value === "string" ? node.value : "");
@@ -287,11 +355,19 @@ function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourc
   }
 }
 
-function renderCellRich(td: HTMLElement, astCell: any, tableFrom = 0, rawSourceStart = 0): void {
+function renderCellRich(
+  td: HTMLElement,
+  astCell: any,
+  tableFrom = 0,
+  rawSourceStart = 0,
+  editorState: EditorState | null = null
+): void {
   td.textContent = "";
   if (!astCell || !Array.isArray(astCell.children)) return;
   const mediaOnly = isCellMediaOnly(astCell);
-  for (const child of astCell.children) td.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart));
+  for (const child of astCell.children) {
+    td.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart, editorState));
+  }
 }
 
 const GRIP_BG = "var(--nexus-bg-muted)";
@@ -310,12 +386,13 @@ export class EditableTableWidget extends WidgetType {
     private tableFrom: number,
     private source: string,
     private viewRef: { current: EditorView | null },
-    private labels: Required<LivePreviewLabels>
+    private labels: Required<LivePreviewLabels>,
+    private searchHighlightKey: string
   ) { super(); }
 
   eq(other: EditableTableWidget): boolean {
     if (this.editing) return true;
-    return this.source === other.source;
+    return this.source === other.source && this.searchHighlightKey === other.searchHighlightKey;
   }
 
   ignoreEvent(): boolean { return true; }
@@ -1211,7 +1288,7 @@ export class EditableTableWidget extends WidgetType {
         }
         td.dataset.source = rawSource;
         if (astCell && Array.isArray(astCell.children) && astCell.children.length > 0) {
-          renderCellRich(td, astCell, self.tableFrom, rawSourceStart);
+          renderCellRich(td, astCell, self.tableFrom, rawSourceStart, self.viewRef.current?.state ?? null);
         } else {
           td.textContent = rawSource;
         }
@@ -1394,7 +1471,7 @@ export class EditableTableWidget extends WidgetType {
           //    another swallowing widget, no transaction fires, and the
           //    cell stays in raw-source mode.
           if (astCell && Array.isArray(astCell.children) && astCell.children.length > 0) {
-            renderCellRich(td, astCell, self.tableFrom, rawSourceStart);
+            renderCellRich(td, astCell, self.tableFrom, rawSourceStart, self.viewRef.current?.state ?? null);
           } else {
             td.textContent = td.dataset.source ?? "";
           }

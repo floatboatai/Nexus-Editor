@@ -21,6 +21,19 @@ export {
 } from "./slash-state";
 export { lightTheme, darkTheme, type NexusTheme } from "./theme";
 export {
+  appendSearchHighlightDecorations,
+  appendTextWithSearchHighlights,
+  createSearchHighlightDecorationExtension,
+  searchHighlightMatchesEqual,
+  searchHighlightMatchesField,
+  searchHighlightStyleForRange,
+  searchHighlightTheme,
+  serializeSearchHighlightKey,
+  setSearchHighlightMatches,
+  type SearchHighlightMatch,
+} from "./search-highlight";
+export { isLivePreviewEnabled } from "./live-preview";
+export {
   scanWikiLinks,
   createWikilinksExtension,
   createWikilinksPlugin,

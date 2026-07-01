@@ -11,6 +11,7 @@ import { createLivePreviewDiagnostics } from "./live-preview-diag";
 import { collectLivePreviewRanges, selectionIntersects, selectionOnSameLine } from "./live-preview-ranges";
 import { renderLivePreviewNode } from "./live-preview-renderers";
 import { EditableTableWidget, isTableEditing } from "./live-preview-table";
+import { appendSearchHighlightDecorations, searchHighlightMatchesField, searchHighlightStyleForRange, serializeSearchHighlightKey } from "./search-highlight";
 import type {
   LivePreviewConfig,
   LivePreviewLabels,
@@ -94,6 +95,10 @@ function normalizeConfig(
     renderers: config.renderers ?? {},
     labels: { ...DEFAULT_LABELS, ...config.labels }
   };
+}
+
+export function isLivePreviewEnabled(config: boolean | LivePreviewConfig | undefined): boolean {
+  return normalizeConfig(config).enabled;
 }
 
 function createWidget(
@@ -1079,7 +1084,8 @@ function buildDecorations(
       decos.push(
         Decoration.replace({
           widget: new EditableTableWidget(
-            range.node as Table, range.from, range.source, viewRef, config.labels
+            range.node as Table, range.from, range.source, viewRef, config.labels,
+            serializeSearchHighlightKey(state)
           ),
           block: true
         }).range(range.from, range.to)
@@ -1153,15 +1159,18 @@ function buildDecorations(
         // compact link widget for preview / click navigation.
         if (cursorOnLink) continue;
         const linkText = range.source.slice(openLen, range.source.length - closeLen);
+        const linkFrom = range.from + openLen;
+        const linkTo = linkFrom + linkText.length;
         const span = document.createElement("span");
         span.textContent = linkText;
-        span.style.cssText = style + ";transition:opacity .15s;";
+        span.style.cssText =
+          style + searchHighlightStyleForRange(state, linkFrom, linkTo) + ";transition:opacity .15s;";
         span.addEventListener("mouseenter", () => { span.style.opacity = "0.7"; });
         span.addEventListener("mouseleave", () => { span.style.opacity = "1"; });
         if (attrs) {
           for (const [k, v] of Object.entries(attrs)) span.setAttribute(k, v);
         }
-        const linkKey = `link:${range.from}-${range.to}:${range.source}`;
+        const linkKey = `link:${range.from}-${range.to}:${range.source}:${serializeSearchHighlightKey(state)}`;
         decos.push(
           Decoration.replace({
             widget: createWidget(span, false, undefined, linkKey),
@@ -1238,7 +1247,11 @@ function buildDecorations(
         }
 
         if (textTo > textFrom) {
-          decos.push(Decoration.mark({ attributes: { style, ...attrs } }).range(textFrom, textTo));
+          const previewStyle =
+            style + searchHighlightStyleForRange(state, textFrom, textTo);
+          decos.push(
+            Decoration.mark({ attributes: { style: previewStyle, ...attrs } }).range(textFrom, textTo)
+          );
         }
       } else {
         // Block fallback for thematicBreak: always render as widget.
@@ -1267,6 +1280,8 @@ function buildDecorations(
       }
     }
   }
+
+  appendSearchHighlightDecorations(state, decos);
 
   const set = Decoration.set(decos, true);
   if (perfEnabled) {
@@ -1375,6 +1390,12 @@ export function createLivePreviewExtension(
       if (tr.selection) {
         // Selection-only update → reuse the previous ast + codeTokens; only
         // the cursor-aware decoration toggles need to rerun.
+        return build(tr.state, tr.state.selection.ranges, true);
+      }
+      if (
+        tr.state.field(searchHighlightMatchesField, false) !==
+        tr.startState.field(searchHighlightMatchesField, false)
+      ) {
         return build(tr.state, tr.state.selection.ranges, true);
       }
       return decos;

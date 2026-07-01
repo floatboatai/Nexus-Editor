@@ -400,7 +400,7 @@ function boot(): void {
   };
 
   outline = createOutlinePanel(shell.editor);
-  searchBar = createSearchBar(shell.editor);
+  searchBar = createSearchBar(shell.editor, editorContainer);
   backlinks = createBacklinksPanel({
     index: linkIndex,
     onOpenFile: (filePath) => void handleVaultFileOpen(filePath),

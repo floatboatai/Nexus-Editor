@@ -1,3 +1,5 @@
+import { SearchQuery, setSearchQuery } from "@codemirror/search";
+import { EditorView } from "@codemirror/view";
 import { describe, expect, it, vi } from "vitest";
 import { createEditor } from "@floatboat/nexus-core";
 import {
@@ -166,6 +168,34 @@ function pressInputArrow(input: HTMLInputElement, key: "ArrowUp" | "ArrowDown"):
   return event;
 }
 
+function enableFuzzySearch(container: HTMLElement): HTMLInputElement {
+  const fuzzyField = container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-fuzzy-toggle"]');
+  expect(fuzzyField).not.toBeNull();
+  fuzzyField!.checked = true;
+  fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+  return fuzzyField!;
+}
+
+function submitSearchPrevious(input: HTMLInputElement): void {
+  input.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "Enter",
+      code: "Enter",
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true
+    })
+  );
+}
+
+function openReplaceRow(container: HTMLElement): HTMLInputElement {
+  const toggle = container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-toggle-replace"]');
+  toggle?.click();
+  const replaceInput = container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-replace-input"]');
+  expect(replaceInput).not.toBeNull();
+  return replaceInput!;
+}
+
 describe("@floatboat/nexus-plugin-search", () => {
   it("finds all case-insensitive matches in a document", () => {
     expect(findSearchMatches("Hello hello HELLO", "hello")).toEqual([
@@ -191,6 +221,31 @@ describe("@floatboat/nexus-plugin-search", () => {
     expect(findSearchMatches("cat Cat CAT", "Cat", { wholeWord: true, caseSensitive: true })).toEqual([
       { from: 4, to: 7, text: "Cat" }
     ]);
+  });
+
+  it("supports fuzzy subsequence matching", () => {
+    expect(findSearchMatches("Nexus-Editor roadmap", "nxed", { fuzzy: true })).toEqual([
+      {
+        from: 0,
+        to: 12,
+        text: "Nexus-Editor"
+      }
+    ]);
+  });
+
+  it("replaces all fuzzy matches from end to start", () => {
+    expect(replaceAllMatches("catalog concatenate", "cat", "dog", { fuzzy: true })).toBe("dog dog");
+  });
+
+  it("ignores regexp and wholeWord when fuzzy is enabled", () => {
+    const fuzzyOnly = findSearchMatches("cat catalog", "cat", { fuzzy: true });
+    const fuzzyWithFlags = findSearchMatches("cat catalog", "cat", {
+      fuzzy: true,
+      regexp: true,
+      wholeWord: true
+    });
+    expect(fuzzyWithFlags).toEqual(fuzzyOnly);
+    expect(fuzzyOnly.length).toBeGreaterThan(1);
   });
 
   it("replaces all matches in a document", () => {
@@ -245,7 +300,7 @@ describe("@floatboat/nexus-plugin-search", () => {
     const plugin = createSearchPlugin();
 
     expect(plugin.name).toBe("plugin-search");
-    expect(plugin.cmExtensions).toHaveLength(3);
+    expect(plugin.cmExtensions).toHaveLength(7);
   });
 
   it("opens a data-test-id annotated search panel from the editor keymap", () => {
@@ -617,5 +672,87 @@ describe("@floatboat/nexus-plugin-search", () => {
 
     editor.destroy();
     container.remove();
+  });
+
+  it("navigates fuzzy matches from the search panel", () => {
+    const harness = setupSearchPanel();
+    harness.editor.setDocument("catalog concatenate");
+    enableFuzzySearch(harness.container);
+
+    submitSearch(harness.input, "cat");
+    let selection = harness.editor.getSelection();
+    expect(Math.min(selection.anchor, selection.head)).toBe(0);
+
+    submitSearch(harness.input, "cat");
+    selection = harness.editor.getSelection();
+    expect(Math.min(selection.anchor, selection.head)).toBe(8);
+
+    submitSearchPrevious(harness.input);
+    selection = harness.editor.getSelection();
+    expect(Math.min(selection.anchor, selection.head)).toBe(0);
+
+    harness.destroy();
+  });
+
+  it("replaces the current fuzzy match from the search panel", () => {
+    const harness = setupSearchPanel();
+    harness.editor.setDocument("catalog concatenate");
+    enableFuzzySearch(harness.container);
+    const replaceInput = openReplaceRow(harness.container);
+
+    submitSearch(harness.input, "cat");
+    replaceInput.value = "dog";
+    harness.container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-replace"]')?.click();
+
+    expect(harness.editor.getDocument()).toBe("dog concatenate");
+    const selection = harness.editor.getSelection();
+    expect(Math.min(selection.anchor, selection.head)).toBe(4);
+    harness.destroy();
+  });
+
+  it("replaces all fuzzy matches from the search panel", () => {
+    const harness = setupSearchPanel();
+    harness.editor.setDocument("catalog concatenate");
+    enableFuzzySearch(harness.container);
+    const replaceInput = openReplaceRow(harness.container);
+
+    submitSearch(harness.input, "cat");
+    replaceInput.value = "dog";
+    harness.container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-replace-all"]')?.click();
+
+    expect(harness.editor.getDocument()).toBe("dog dog");
+    harness.destroy();
+  });
+
+  it("clears fuzzy state when the search query is updated externally", async () => {
+    const harness = setupSearchPanel();
+    enableFuzzySearch(harness.container);
+    harness.input.value = "cat";
+    harness.input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+
+    const fuzzyField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
+    );
+    expect(fuzzyField?.checked).toBe(true);
+
+    const view = EditorView.findFromDOM(harness.container.querySelector(".cm-editor")!);
+    expect(view).not.toBeNull();
+
+    view!.dispatch({
+      effects: setSearchQuery.of(
+        new SearchQuery({
+          search: "beta",
+          caseSensitive: false,
+          regexp: false,
+          wholeWord: false,
+          replace: ""
+        })
+      )
+    });
+
+    await Promise.resolve();
+
+    expect(fuzzyField?.checked).toBe(false);
+    harness.destroy();
   });
 });

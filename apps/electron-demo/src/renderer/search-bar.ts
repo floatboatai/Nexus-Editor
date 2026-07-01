@@ -1,5 +1,12 @@
 import type { EditorAPI } from "@floatboat/nexus-core";
-import { findSearchMatches, replaceAllMatches } from "@floatboat/nexus-plugin-search";
+import {
+  findFuzzyNextIndex,
+  findFuzzyPreviousIndex,
+  findFuzzyReplaceIndex,
+  findSearchMatches,
+  replaceAllMatches,
+  syncSearchHighlights
+} from "@floatboat/nexus-plugin-search";
 
 export interface SearchBar {
   element: HTMLElement;
@@ -62,7 +69,7 @@ const CLOSE_BTN_STYLES = `
   line-height: 1;
 `;
 
-export function createSearchBar(editor: EditorAPI): SearchBar {
+export function createSearchBar(editor: EditorAPI, editorRoot: HTMLElement): SearchBar {
   const bar = document.createElement("div");
   bar.className = "nexus-search-bar";
   bar.style.cssText = BAR_STYLES;
@@ -100,6 +107,15 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   replaceAllBtn.title = "Replace all";
   replaceAllBtn.style.cssText = BTN_STYLES;
 
+  const fuzzyToggle = document.createElement("label");
+  fuzzyToggle.style.cssText = "display:flex;align-items:center;gap:4px;font-size:12px;color:var(--nexus-text-muted,#888);cursor:pointer;";
+  const fuzzyCheckbox = document.createElement("input");
+  fuzzyCheckbox.type = "checkbox";
+  fuzzyCheckbox.title = "Fuzzy match";
+  const fuzzyLabel = document.createElement("span");
+  fuzzyLabel.textContent = "Fuzzy";
+  fuzzyToggle.append(fuzzyCheckbox, fuzzyLabel);
+
   // Count label
   const countLabel = document.createElement("span");
   countLabel.style.cssText = COUNT_STYLES;
@@ -113,54 +129,116 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   const spacer = document.createElement("div");
   spacer.style.flex = "1";
 
-  bar.append(findInput, prevBtn, nextBtn, countLabel, replaceInput, replaceBtn, replaceAllBtn, spacer, closeBtn);
+  bar.append(findInput, fuzzyToggle, prevBtn, nextBtn, countLabel, replaceInput, replaceBtn, replaceAllBtn, spacer, closeBtn);
 
   // State
   let matches: Array<{ from: number; to: number }> = [];
   let currentIdx = -1;
   let visible = false;
 
-  function updateMatches() {
+  function syncCurrentIndexFromSelection() {
+    if (matches.length === 0) {
+      currentIdx = -1;
+      return;
+    }
+
+    const { anchor, head } = editor.getSelection();
+    const selectionFrom = Math.min(anchor, head);
+    const selectionTo = Math.max(anchor, head);
+    const cursor = head;
+
+    if (fuzzyCheckbox.checked) {
+      currentIdx = findFuzzyReplaceIndex(matches, selectionFrom, selectionTo, cursor);
+      return;
+    }
+
+    currentIdx = 0;
+    for (let i = 0; i < matches.length; i++) {
+      if (matches[i].from >= anchor) {
+        currentIdx = i;
+        break;
+      }
+    }
+  }
+
+  function syncEditorHighlights() {
+    const query = findInput.value;
+    if (!query) {
+      syncSearchHighlights(editorRoot, {
+        enabled: false,
+        query: "",
+        caseSensitive: false,
+        literal: false
+      });
+      return;
+    }
+
+    syncSearchHighlights(editorRoot, {
+      enabled: true,
+      query,
+      caseSensitive: false,
+      literal: !fuzzyCheckbox.checked
+    });
+  }
+
+  function updateMatches(focusEditor = false) {
     const query = findInput.value;
     if (!query) {
       matches = [];
       currentIdx = -1;
       countLabel.textContent = "";
+      syncEditorHighlights();
       return;
     }
     const doc = editor.getDocument();
-    matches = findSearchMatches(doc, query);
+    matches = findSearchMatches(doc, query, { fuzzy: fuzzyCheckbox.checked });
     if (matches.length === 0) {
       currentIdx = -1;
       countLabel.textContent = "0 results";
     } else {
-      // Find nearest match to current cursor
-      const { anchor } = editor.getSelection();
-      currentIdx = 0;
-      for (let i = 0; i < matches.length; i++) {
-        if (matches[i].from >= anchor) { currentIdx = i; break; }
+      if (focusEditor) {
+        syncCurrentIndexFromSelection();
+      } else {
+        currentIdx = 0;
       }
-      highlightCurrent();
+      highlightCurrent(focusEditor);
     }
+    syncEditorHighlights();
   }
 
-  function highlightCurrent() {
+  function highlightCurrent(focusEditor = true) {
     if (currentIdx < 0 || currentIdx >= matches.length) return;
+    countLabel.textContent = `${currentIdx + 1} / ${matches.length}`;
     const m = matches[currentIdx];
     editor.setSelection(m.from, m.to);
-    editor.focus();
-    countLabel.textContent = `${currentIdx + 1} / ${matches.length}`;
+    if (focusEditor) {
+      editor.focus();
+    }
   }
 
   function goNext() {
     if (matches.length === 0) return;
-    currentIdx = (currentIdx + 1) % matches.length;
+    if (fuzzyCheckbox.checked) {
+      const { anchor, head } = editor.getSelection();
+      const selectionFrom = Math.min(anchor, head);
+      const selectionTo = Math.max(anchor, head);
+      currentIdx = findFuzzyNextIndex(matches, selectionFrom, selectionTo, head);
+    } else {
+      currentIdx = (currentIdx + 1) % matches.length;
+    }
     highlightCurrent();
   }
 
   function goPrev() {
     if (matches.length === 0) return;
-    currentIdx = (currentIdx - 1 + matches.length) % matches.length;
+    if (fuzzyCheckbox.checked) {
+      const { anchor, head } = editor.getSelection();
+      const selectionFrom = Math.min(anchor, head);
+      const selectionTo = Math.max(anchor, head);
+      currentIdx = findFuzzyPreviousIndex(matches, selectionFrom, selectionTo, head);
+    } else {
+      currentIdx = (currentIdx - 1 + matches.length) % matches.length;
+    }
     highlightCurrent();
   }
 
@@ -168,23 +246,33 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     if (currentIdx < 0 || currentIdx >= matches.length) return;
     const m = matches[currentIdx];
     const doc = editor.getDocument();
-    const newDoc = doc.slice(0, m.from) + replaceInput.value + doc.slice(m.to);
+    const replacement = replaceInput.value;
+    const newDoc = doc.slice(0, m.from) + replacement + doc.slice(m.to);
     editor.setDocument(newDoc);
-    editor.setSelection(m.from + replaceInput.value.length);
+    editor.setSelection(m.from + replacement.length);
     updateMatches();
+    if (fuzzyCheckbox.checked && matches.length > 0) {
+      const { anchor, head } = editor.getSelection();
+      const selectionFrom = Math.min(anchor, head);
+      const selectionTo = Math.max(anchor, head);
+      currentIdx = findFuzzyNextIndex(matches, selectionFrom, selectionTo, head);
+      highlightCurrent();
+    }
   }
 
   function doReplaceAll() {
     const query = findInput.value;
     if (!query) return;
     const doc = editor.getDocument();
-    const newDoc = replaceAllMatches(doc, query, replaceInput.value);
+    const newDoc = replaceAllMatches(doc, query, replaceInput.value, { fuzzy: fuzzyCheckbox.checked });
     editor.setDocument(newDoc);
-    updateMatches();
+    updateMatches(true);
   }
 
   // Event handlers
-  findInput.addEventListener("input", updateMatches);
+  // Keep focus in the find field while typing; only jump into the editor on explicit navigation.
+  findInput.addEventListener("input", () => updateMatches(false));
+  fuzzyCheckbox.addEventListener("change", () => updateMatches(false));
   findInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.shiftKey ? goPrev() : goNext(); e.preventDefault(); }
     if (e.key === "Escape") { close(); }
@@ -213,7 +301,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       const sel = doc.slice(from, to);
       if (sel.length < 100 && !sel.includes("\n")) {
         findInput.value = sel;
-        updateMatches();
+        updateMatches(false);
       }
     }
     findInput.select();
@@ -225,6 +313,12 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     matches = [];
     currentIdx = -1;
     countLabel.textContent = "";
+    syncSearchHighlights(editorRoot, {
+      enabled: false,
+      query: "",
+      caseSensitive: false,
+      literal: false
+    });
     editor.focus();
   }
 

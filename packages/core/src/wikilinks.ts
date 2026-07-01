@@ -4,8 +4,10 @@ import {
   type CompletionResult,
   type Completion
 } from "@codemirror/autocomplete";
-import { StateEffect, StateField, type Extension, type Range, type Transaction } from "@codemirror/state";
+import { StateEffect, StateField, type EditorState, type Extension, type Range, type Transaction } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView } from "@codemirror/view";
+
+import { searchHighlightMatchesField, searchHighlightStyleForRange } from "./search-highlight";
 
 import type { NexusPlugin } from "./types";
 
@@ -137,11 +139,12 @@ const UNRESOLVED_STYLE =
   "color:var(--nexus-hl-deletion,#c0392b);cursor:pointer;text-decoration:underline dashed;text-decoration-thickness:1px;";
 
 function buildWikiLinkDecorations(
-  doc: string,
-  selectionHeads: readonly number[],
+  state: EditorState,
   resolve: WikilinksOptions["resolve"],
   ignore: WikilinksOptions["ignore"]
 ): DecorationSet {
+  const doc = state.doc.toString();
+  const selectionHeads = state.selection.ranges.map((range) => range.head);
   const matches = scanWikiLinks(doc);
   if (matches.length === 0) return Decoration.none;
 
@@ -176,7 +179,12 @@ function buildWikiLinkDecorations(
       decos.push(Decoration.replace({}).range(m.displayTo, m.to));
     }
     if (m.displayTo > m.displayFrom) {
-      decos.push(Decoration.mark({ attributes: attrs }).range(m.displayFrom, m.displayTo));
+      const displayHighlight = searchHighlightStyleForRange(state, m.displayFrom, m.displayTo);
+      decos.push(
+        Decoration.mark({
+          attributes: { ...attrs, style: style + displayHighlight }
+        }).range(m.displayFrom, m.displayTo)
+      );
     }
   }
 
@@ -263,20 +271,23 @@ export function createWikilinksExtension(options: WikilinksOptions = {}): Extens
   // dedicated effect type for v1.
   const field = StateField.define<DecorationSet>({
     create(state) {
-      const heads = state.selection.ranges.map((r) => r.head);
-      return buildWikiLinkDecorations(state.doc.toString(), heads, resolve, ignore);
+      return buildWikiLinkDecorations(state, resolve, ignore);
     },
     update(decos: DecorationSet, tr: Transaction) {
       if (tr.effects.some((effect) => effect.is(rebuildAfterComposition))) {
-        const heads = tr.state.selection.ranges.map((r) => r.head);
-        return buildWikiLinkDecorations(tr.state.doc.toString(), heads, resolve, ignore);
+        return buildWikiLinkDecorations(tr.state, resolve, ignore);
       }
       if (tr.isUserEvent("input.type.compose")) {
         return tr.docChanged ? decos.map(tr.changes) : decos;
       }
+      if (
+        tr.state.field(searchHighlightMatchesField, false) !==
+        tr.startState.field(searchHighlightMatchesField, false)
+      ) {
+        return buildWikiLinkDecorations(tr.state, resolve, ignore);
+      }
       if (tr.docChanged || tr.selection) {
-        const heads = tr.state.selection.ranges.map((r) => r.head);
-        return buildWikiLinkDecorations(tr.state.doc.toString(), heads, resolve, ignore);
+        return buildWikiLinkDecorations(tr.state, resolve, ignore);
       }
       return decos;
     },
