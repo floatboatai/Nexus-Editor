@@ -8,6 +8,10 @@ import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
 
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { AISummaryModal } from '@nexus/plugin-ai-summary';
+
 installLongTaskWatch(50);
 
 const state: AppState = createState();
@@ -17,6 +21,8 @@ let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+// Keep a reference to the mounted AISummary React root so we can unmount it on toggle
+let aiSummaryRoot: any = null;
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
@@ -77,6 +83,71 @@ function createAppToolbar(): HTMLElement {
   settingsBtn.style.fontSize = "16px";
   settingsBtn.addEventListener("click", handleSettings);
 
+  const aiSummaryBtn = document.createElement("button");
+  aiSummaryBtn.textContent = "AI 摘要";
+  aiSummaryBtn.title = "AI 摘要";
+  aiSummaryBtn.style.fontSize = "14px";
+  aiSummaryBtn.addEventListener('click', () => {
+    try {
+      console.log('[AI-SUMMARY] button clicked');
+      console.log('[AI-SUMMARY] React.version', React?.version);
+      console.log('[AI-SUMMARY] createRoot exists', typeof createRoot === 'function');
+      const existing = document.getElementById('ai-summary-root');
+      if (existing) {
+        console.log('[AI-SUMMARY] already mounted - requesting close (animated)');
+        // request the mounted modal to close itself (so it can animate)
+        try {
+          window.dispatchEvent(new CustomEvent('ai-summary-request-close'));
+        } catch (e) {
+          console.warn('[AI-SUMMARY] dispatch close request failed, falling back to immediate unmount', e);
+          try {
+            if (aiSummaryRoot && typeof aiSummaryRoot.unmount === 'function') aiSummaryRoot.unmount();
+          } catch (err) {
+            console.warn('[AI-SUMMARY] unmount failed', err);
+          }
+          existing.remove();
+          aiSummaryRoot = null;
+        }
+        return;
+      }
+
+      const mount = document.createElement('div');
+      mount.id = 'ai-summary-root';
+      document.body.appendChild(mount);
+      const root = createRoot(mount);
+      aiSummaryRoot = root;
+      root.render(
+        React.createElement(AISummaryModal, {
+          onCreated: (notePath?: string | null) => {
+            console.log('[AI-SUMMARY] note created', notePath);
+            try {
+              // @ts-ignore
+              if (typeof vault !== 'undefined' && vault?.refresh) vault.refresh();
+              // @ts-ignore
+              if (typeof seedLinkIndex === 'function') void seedLinkIndex();
+            } catch (e) {
+              console.warn('[AI-SUMMARY] post-create handlers failed', e);
+            }
+          },
+          onClose: () => {
+            try {
+              if (aiSummaryRoot && typeof aiSummaryRoot.unmount === 'function') aiSummaryRoot.unmount();
+            } catch (e) {
+              console.warn('[AI-SUMMARY] unmount failed (onClose)', e);
+            }
+            const el = document.getElementById('ai-summary-root');
+            if (el) el.remove();
+            aiSummaryRoot = null;
+          },
+        })
+      );
+    } catch (err) {
+      // Surface errors to console so they are visible in devtools / terminal
+      console.error('[AI-SUMMARY] failed to mount', err);
+      alert('无法打开 AI 摘要弹窗，详情见控制台');
+    }
+  });
+
   toolbar.append(
     vaultBtn,
     openBtn,
@@ -87,7 +158,8 @@ function createAppToolbar(): HTMLElement {
     outlineBtn,
     backlinksBtn,
     searchBtn,
-    settingsBtn
+    settingsBtn,
+    aiSummaryBtn
   );
   return toolbar;
 }
