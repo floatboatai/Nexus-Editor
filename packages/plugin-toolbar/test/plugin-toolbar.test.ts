@@ -8,6 +8,7 @@ import {
   toggleInlineCode,
   insertLink,
   toggleHeading,
+  toggleBlockquote,
   toggleOrderedList,
   toggleUnorderedList,
   createToolbarPlugin,
@@ -119,6 +120,67 @@ describe("toggleHeading", () => {
     toggleHeading(editor, 1);
 
     expect(editor.getDocument()).toBe("# Title");
+    editor.destroy();
+  });
+});
+
+describe("toggleBlockquote - multi-line selection", () => {
+  it("adds blockquote markers to every selected line", () => {
+    const container = document.createElement("div");
+    const input = "foo\nbar\nbaz";
+    const editor = createEditor({ container, initialValue: input });
+
+    editor.setSelection(0, input.length);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("> foo\n> bar\n> baz");
+    editor.destroy();
+  });
+
+  it("removes blockquote markers when all selected lines already have one", () => {
+    const container = document.createElement("div");
+    const input = "> foo\n> bar\n> baz";
+    const editor = createEditor({ container, initialValue: input });
+
+    editor.setSelection(0, input.length);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("foo\nbar\nbaz");
+    editor.destroy();
+  });
+
+  it("adds missing blockquote markers for mixed selections", () => {
+    const container = document.createElement("div");
+    const input = "> foo\nbar";
+    const editor = createEditor({ container, initialValue: input });
+
+    editor.setSelection(0, input.length);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("> foo\n> bar");
+    editor.destroy();
+  });
+
+  it("normalizes reversed selection", () => {
+    const container = document.createElement("div");
+    const input = "foo\nbar";
+    const editor = createEditor({ container, initialValue: input });
+
+    editor.setSelection(input.length, 0);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("> foo\n> bar");
+    editor.destroy();
+  });
+
+  it("does not include the next line when selection ends at its start", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "foo\nbar" });
+
+    editor.setSelection(0, "foo\n".length);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("> foo\nbar");
     editor.destroy();
   });
 });
