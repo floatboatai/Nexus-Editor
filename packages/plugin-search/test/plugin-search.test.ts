@@ -384,6 +384,101 @@ describe("@floatboat/nexus-plugin-search", () => {
     container.remove();
   });
 
+  it("renders a live match count for the current search query", () => {
+    const harness = setupSearchPanel();
+    const matchCount = harness.container.querySelector<HTMLElement>(
+      '[data-test-id="markdown-search-match-count"]'
+    );
+    expect(matchCount).not.toBeNull();
+    expect(matchCount?.textContent).toBe("");
+    expect(matchCount?.getAttribute("aria-hidden")).toBe("true");
+
+    harness.input.value = "alpha";
+    harness.input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    expect(matchCount?.textContent).toBe("2 matches");
+    expect(matchCount?.getAttribute("aria-hidden")).toBeNull();
+
+    harness.input.value = "beta";
+    harness.input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    expect(matchCount?.textContent).toBe("1 match");
+
+    harness.input.value = "missing";
+    harness.input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    expect(matchCount?.textContent).toBe("No matches");
+    expect(harness.input.getAttribute("aria-invalid")).toBe("true");
+
+    harness.input.value = "";
+    harness.input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    expect(matchCount?.textContent).toBe("");
+    expect(matchCount?.getAttribute("aria-hidden")).toBe("true");
+    expect(harness.input.getAttribute("aria-invalid")).toBeNull();
+
+    harness.destroy();
+  });
+
+  it("shows the active match position after search navigation", () => {
+    const harness = setupSearchPanel();
+    const matchCount = harness.container.querySelector<HTMLElement>(
+      '[data-test-id="markdown-search-match-count"]'
+    );
+    expect(matchCount).not.toBeNull();
+
+    submitSearch(harness.input, "alpha");
+    expect(matchCount?.textContent).toBe("1 / 2 matches");
+
+    submitSearch(harness.input, "alpha");
+    expect(matchCount?.textContent).toBe("2 / 2 matches");
+
+    const previous = new KeyboardEvent("keydown", {
+      key: "Enter",
+      code: "Enter",
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true
+    });
+    harness.input.dispatchEvent(previous);
+    expect(matchCount?.textContent).toBe("1 / 2 matches");
+
+    harness.destroy();
+  });
+
+  it("updates the match count when search options or the document change", () => {
+    const harness = setupSearchPanel();
+    const matchCount = harness.container.querySelector<HTMLElement>(
+      '[data-test-id="markdown-search-match-count"]'
+    );
+    const caseField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-case-toggle"]'
+    );
+    const wholeWordField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-word-toggle"]'
+    );
+    expect(matchCount).not.toBeNull();
+    expect(caseField).not.toBeNull();
+    expect(wholeWordField).not.toBeNull();
+
+    harness.input.value = "alpha";
+    harness.input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    expect(matchCount?.textContent).toBe("2 matches");
+
+    caseField!.checked = true;
+    caseField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    expect(matchCount?.textContent).toBe("2 matches");
+
+    harness.editor.setDocument("alpha Alpha alphabet");
+    expect(matchCount?.textContent).toBe("2 matches");
+
+    wholeWordField!.checked = true;
+    wholeWordField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    expect(matchCount?.textContent).toBe("1 match");
+
+    caseField!.checked = false;
+    caseField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    expect(matchCount?.textContent).toBe("2 matches");
+
+    harness.destroy();
+  });
+
   it("keeps existing Enter navigation when search history is disabled", () => {
     const harness = setupSearchPanel({ history: false } as Parameters<typeof createSearchPlugin>[0]);
 
