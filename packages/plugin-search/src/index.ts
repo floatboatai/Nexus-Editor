@@ -243,13 +243,27 @@ function wrapWholeWordPattern(pattern: string): string {
 
 function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp | null {
   const body = options.regexp ? query : escapeRegExp(query);
-  const pattern = options.wholeWord ? wrapWholeWordPattern(body) : body;
   // The `u` flag is added only for whole-word matching so the Unicode
-  // property escapes above are interpreted correctly. This puts the whole
+  // property escapes below are interpreted correctly. This puts the whole
   // caller-supplied regexp in Unicode mode, which is an intentional
   // compatibility constraint: legacy non-Unicode escape syntax may become
   // invalid, and Unicode case folding applies when case-insensitive.
   const flags = `g${options.caseSensitive ? "" : "i"}${options.wholeWord ? "u" : ""}`;
+
+  if (options.wholeWord && options.regexp) {
+    // Validate the caller-supplied body on its own before wrapping it. An
+    // unterminated construct in the query (e.g. an open character class)
+    // can otherwise be "closed" by characters from the boundary assertions
+    // once concatenated, silently turning an invalid pattern into a
+    // technically valid but nonsensical one instead of falling back.
+    try {
+      new RegExp(body, flags);
+    } catch {
+      return null;
+    }
+  }
+
+  const pattern = options.wholeWord ? wrapWholeWordPattern(body) : body;
 
   try {
     return new RegExp(pattern, flags);

@@ -259,6 +259,21 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  describe("Unicode whole-word boundaries", () => {
+    it("does not accept Unicode case folding as a substitute for legacy escape validity", () => {
+      // "\a" is a legacy no-op escape under non-Unicode flags but an invalid
+      // escape once whole-word adds the `u` flag — it must fall back cleanly
+      // rather than throwing or matching something unintended.
+      expect(findSearchMatches("banana", "\\a", { regexp: true, wholeWord: true })).toEqual([]);
+      expect(replaceAllMatches("banana", "\\a", "X", { regexp: true, wholeWord: true })).toBe("banana");
+    });
+
+    it("falls back to the original document for an invalid regexp combined with whole-word", () => {
+      expect(replaceAllMatches("hello", "[bad(", "x", { regexp: true, wholeWord: true })).toBe("hello");
+      expect(findSearchMatches("hello", "[bad(", { regexp: true, wholeWord: true })).toEqual([]);
+    });
+  });
+
   it("creates a search plugin descriptor", () => {
     const plugin = createSearchPlugin();
 
