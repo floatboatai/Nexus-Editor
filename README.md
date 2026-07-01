@@ -174,7 +174,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 | `@floatboat/nexus-vue` | Vue 3 binding — `useEditor` composable |
 | `@floatboat/nexus-preset-gfm` | GitHub Flavored Markdown preset (tables, strikethrough, task lists) |
 | `@floatboat/nexus-plugin-history` | Undo/redo with `Ctrl+Z` / `Ctrl+Shift+Z` |
-| `@floatboat/nexus-plugin-search` | Search and replace helpers |
+| `@floatboat/nexus-plugin-search` | Search / replace panel with live match counts and active-match feedback |
 | `@floatboat/nexus-plugin-slash` | Slash command detection, ranking, and a vanilla-DOM floating menu UI |
 | `@floatboat/nexus-plugin-toolbar` | Toolbar primitives for formatting commands |
 | `@floatboat/nexus-plugin-math` | Inline / block math rendering (KaTeX) |
@@ -191,6 +191,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 - **AST-Driven** — real-time Markdown → mdast parsing with every keystroke.
 - **Live Preview** — inline rendering that reveals raw syntax on cursor focus (Obsidian-style).
 - **Plugin System** — three tiers: shortcuts & slash commands, remark plugins & widgets, raw CM6 extensions.
+- **Search Feedback** — search / replace UI reports live match counts, the active match position, and no-result state.
 - **Event System** — subscribe to `change`, `focus`, `blur`, `selectionChange`, `slashMenuChange`.
 - **Widget API** — render custom components for any AST node type (code blocks, tables, diagrams).
 - **Local-First** — built for Electron/Tauri with file IO hooks and debounced parsing.

@@ -75,6 +75,9 @@ export interface SearchPluginLabels {
   replaceNext: string;
   replaceAll: string;
   close: string;
+  match: string;
+  matches: string;
+  noMatches: string;
 }
 
 const DEFAULT_LABELS: SearchPluginLabels = {
@@ -90,7 +93,10 @@ const DEFAULT_LABELS: SearchPluginLabels = {
   byWord: "By word",
   replaceNext: "Replace",
   replaceAll: "Replace all",
-  close: "Close"
+  close: "Close",
+  match: "match",
+  matches: "matches",
+  noMatches: "No matches"
 };
 
 const DEFAULT_SEARCH_HISTORY_KEY = "nexus.search.history";
@@ -323,7 +329,10 @@ function resolveLabels(view: EditorView, labels: Partial<SearchPluginLabels> | u
     byWord: resolveLabel(view, labels, "byWord", DEFAULT_LABELS.byWord),
     replaceNext: resolveLabel(view, labels, "replaceNext", DEFAULT_LABELS.replaceNext),
     replaceAll: resolveLabel(view, labels, "replaceAll", DEFAULT_LABELS.replaceAll),
-    close: resolveLabel(view, labels, "close", DEFAULT_LABELS.close)
+    close: resolveLabel(view, labels, "close", DEFAULT_LABELS.close),
+    match: resolveLabel(view, labels, "match", DEFAULT_LABELS.match),
+    matches: resolveLabel(view, labels, "matches", DEFAULT_LABELS.matches),
+    noMatches: resolveLabel(view, labels, "noMatches", DEFAULT_LABELS.noMatches)
   };
 }
 
@@ -500,6 +509,7 @@ class NexusSearchPanel implements Panel {
   private readonly caseField: HTMLInputElement;
   private readonly regexpField: HTMLInputElement;
   private readonly wholeWordField: HTMLInputElement;
+  private readonly matchCount: HTMLSpanElement;
   private readonly labels: SearchPluginLabels;
   private readonly history: SearchHistoryController;
   private readonly replaceRow?: HTMLDivElement;
@@ -534,6 +544,11 @@ class NexusSearchPanel implements Panel {
     this.caseField = this.createCheckbox("markdown-search-case-toggle", "case", this.query.caseSensitive);
     this.regexpField = this.createCheckbox("markdown-search-regexp-toggle", "re", this.query.regexp);
     this.wholeWordField = this.createCheckbox("markdown-search-word-toggle", "word", this.query.wholeWord);
+    this.matchCount = document.createElement("span");
+    this.matchCount.className = "nexus-search-match-count";
+    this.matchCount.dataset.testId = "markdown-search-match-count";
+    this.matchCount.setAttribute("aria-live", "polite");
+    this.matchCount.setAttribute("aria-hidden", "true");
 
     this.dom = document.createElement("div");
     this.dom.className = "cm-search nexus-search-panel";
@@ -570,6 +585,7 @@ class NexusSearchPanel implements Panel {
       createLabel(this.caseField, resolvedLabels.matchCase),
       createLabel(this.regexpField, resolvedLabels.regexp),
       createLabel(this.wholeWordField, resolvedLabels.byWord),
+      this.matchCount,
       navigationGroup
     ];
     if (this.replaceToggle) {
@@ -606,15 +622,21 @@ class NexusSearchPanel implements Panel {
     closeButton.setAttribute("aria-label", resolvedLabels.close);
     closeButton.title = resolvedLabels.close;
     this.dom.append(closeButton);
+    this.updateMatchCount();
   }
 
   update(update: ViewUpdate): void {
+    let shouldUpdateMatchCount = update.docChanged || update.selectionSet;
     for (const transaction of update.transactions) {
       for (const effect of transaction.effects) {
         if (effect.is(setSearchQuery) && !effect.value.eq(this.query)) {
           this.setQuery(effect.value);
+          shouldUpdateMatchCount = true;
         }
       }
+    }
+    if (shouldUpdateMatchCount) {
+      this.updateMatchCount();
     }
   }
 
@@ -675,6 +697,7 @@ class NexusSearchPanel implements Panel {
     if (!query.eq(this.query)) {
       this.query = query;
       this.view.dispatch({ effects: setSearchQuery.of(query) });
+      this.updateMatchCount();
     }
   }
 
@@ -682,6 +705,7 @@ class NexusSearchPanel implements Panel {
     this.commit();
     this.history.record(this.searchField.value);
     runSearchCommand();
+    this.updateMatchCount();
   }
 
   private setReplaceExpanded(expanded: boolean, focusReplace = false): void {
@@ -746,7 +770,51 @@ class NexusSearchPanel implements Panel {
     this.caseField.checked = query.caseSensitive;
     this.regexpField.checked = query.regexp;
     this.wholeWordField.checked = query.wholeWord;
+    this.updateMatchCount();
   }
+
+  private updateMatchCount(): void {
+    const query = this.query.search;
+    if (!query) {
+      this.matchCount.textContent = "";
+      this.matchCount.setAttribute("aria-hidden", "true");
+      this.searchField.removeAttribute("aria-invalid");
+      return;
+    }
+
+    const matches = findSearchMatches(this.view.state.doc.toString(), query, {
+      caseSensitive: this.query.caseSensitive,
+      regexp: this.query.regexp,
+      wholeWord: this.query.wholeWord
+    });
+    const currentIndex = findSelectedMatchIndex(matches, this.view.state.selection.main);
+
+    this.matchCount.removeAttribute("aria-hidden");
+    this.matchCount.textContent = formatMatchCount(matches.length, currentIndex, this.labels);
+    if (matches.length === 0) {
+      this.searchField.setAttribute("aria-invalid", "true");
+    } else {
+      this.searchField.removeAttribute("aria-invalid");
+    }
+  }
+}
+
+function findSelectedMatchIndex(
+  matches: SearchMatch[],
+  selection: { anchor: number; head: number }
+): number | null {
+  const from = Math.min(selection.anchor, selection.head);
+  const to = Math.max(selection.anchor, selection.head);
+  if (from === to) return null;
+
+  const index = matches.findIndex((match) => match.from === from && match.to === to);
+  return index >= 0 ? index : null;
+}
+
+function formatMatchCount(count: number, currentIndex: number | null, labels: SearchPluginLabels): string {
+  if (count === 0) return labels.noMatches;
+  const total = `${count} ${count === 1 ? labels.match : labels.matches}`;
+  return currentIndex === null ? total : `${currentIndex + 1} / ${total}`;
 }
 
 export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlugin {
