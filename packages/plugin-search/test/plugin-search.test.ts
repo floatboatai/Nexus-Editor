@@ -187,6 +187,24 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("supports Unicode whole-word matching", () => {
+    expect(findSearchMatches("café cafe decafé café", "café", { wholeWord: true })).toEqual([
+      { from: 0, to: 4, text: "café" },
+      { from: 17, to: 21, text: "café" }
+    ]);
+    expect(findSearchMatches("привет мир запривет привет", "привет", { wholeWord: true })).toEqual([
+      { from: 0, to: 6, text: "привет" },
+      { from: 20, to: 26, text: "привет" }
+    ]);
+  });
+
+  it("keeps whole-word search usable for CJK terms", () => {
+    expect(findSearchMatches("今天开会议，会议结束", "会议", { wholeWord: true })).toEqual([
+      { from: 3, to: 5, text: "会议" },
+      { from: 6, to: 8, text: "会议" }
+    ]);
+  });
+
   it("supports case-sensitive whole-word matching", () => {
     expect(findSearchMatches("cat Cat CAT", "Cat", { wholeWord: true, caseSensitive: true })).toEqual([
       { from: 4, to: 7, text: "Cat" }
@@ -200,6 +218,15 @@ describe("@floatboat/nexus-plugin-search", () => {
   it("replaces only whole-word matches", () => {
     expect(replaceAllMatches("cat catalog cat concatenate", "cat", "dog", { wholeWord: true })).toBe(
       "dog catalog dog concatenate"
+    );
+  });
+
+  it("replaces Unicode whole-word and CJK term matches", () => {
+    expect(replaceAllMatches("café cafe decafé café", "café", "coffee", { wholeWord: true })).toBe(
+      "coffee cafe decafé coffee"
+    );
+    expect(replaceAllMatches("今天开会议，会议结束", "会议", "讨论", { wholeWord: true })).toBe(
+      "今天开讨论，讨论结束"
     );
   });
 

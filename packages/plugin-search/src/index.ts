@@ -232,16 +232,26 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp | null {
-  const flags = options.caseSensitive ? "g" : "gi";
+const unicodeWordCharacterClass = "\\p{L}\\p{M}\\p{N}_";
+const cjkScriptPattern = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 
-  let pattern: string;
-  if (options.regexp) {
-    pattern = options.wholeWord ? `\\b(?:${query})\\b` : query;
-  } else {
-    const escaped = escapeRegExp(query);
-    pattern = options.wholeWord ? `\\b${escaped}\\b` : escaped;
+function shouldUseUnicodeWordBoundary(query: string): boolean {
+  return !cjkScriptPattern.test(query);
+}
+
+function wrapWholeWordPattern(pattern: string, useUnicodeBoundary: boolean): string {
+  if (!useUnicodeBoundary) {
+    return pattern;
   }
+
+  return `(?<![${unicodeWordCharacterClass}])(?:${pattern})(?![${unicodeWordCharacterClass}])`;
+}
+
+function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp | null {
+  const useUnicodeBoundary = Boolean(options.wholeWord && shouldUseUnicodeWordBoundary(query));
+  const flags = `${options.caseSensitive ? "g" : "gi"}${useUnicodeBoundary ? "u" : ""}`;
+  const source = options.regexp ? query : escapeRegExp(query);
+  const pattern = options.wholeWord ? wrapWholeWordPattern(source, useUnicodeBoundary) : source;
 
   try {
     return new RegExp(pattern, flags);
