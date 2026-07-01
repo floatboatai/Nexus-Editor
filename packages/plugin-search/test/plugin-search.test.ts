@@ -187,6 +187,18 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("supports whole-word literal queries with symbol edges", () => {
+    expect(findSearchMatches("C++ C+++ xC++ C++Builder", "C++", { wholeWord: true })).toEqual([
+      { from: 0, to: 3, text: "C++" }
+    ]);
+    expect(findSearchMatches("#tag x#tag ##tag #tagged", "#tag", { wholeWord: true })).toEqual([
+      { from: 0, to: 4, text: "#tag" }
+    ]);
+    expect(replaceAllMatches("C++ C+++ xC++", "C++", "TypeScript", { wholeWord: true })).toBe(
+      "TypeScript C+++ xC++"
+    );
+  });
+
   it("supports case-sensitive whole-word matching", () => {
     expect(findSearchMatches("cat Cat CAT", "Cat", { wholeWord: true, caseSensitive: true })).toEqual([
       { from: 4, to: 7, text: "Cat" }
