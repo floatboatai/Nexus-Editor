@@ -95,6 +95,8 @@ const DEFAULT_LABELS: SearchPluginLabels = {
 
 const DEFAULT_SEARCH_HISTORY_KEY = "nexus.search.history";
 const DEFAULT_SEARCH_HISTORY_MAX_ENTRIES = 20;
+const WORD_CHAR_CLASS = "A-Za-z0-9_";
+const WORD_CHAR_RE = /^[A-Za-z0-9_]$/;
 
 type SearchHistoryDirection = "previous" | "next";
 
@@ -232,6 +234,29 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function escapeCharacterClass(value: string): string {
+  return value.replace(/[\\\]\-\^\n\r\t]/g, (char) => {
+    if (char === "\n") return "\\n";
+    if (char === "\r") return "\\r";
+    if (char === "\t") return "\\t";
+    return `\\${char}`;
+  });
+}
+
+function wholeWordEdgeClass(char: string): string {
+  return WORD_CHAR_RE.test(char)
+    ? WORD_CHAR_CLASS
+    : `${WORD_CHAR_CLASS}${escapeCharacterClass(char)}`;
+}
+
+function wrapLiteralWholeWordPattern(pattern: string, query: string): string {
+  const chars = Array.from(query);
+  const first = chars[0] ?? "";
+  const last = chars[chars.length - 1] ?? "";
+
+  return `(?<![${wholeWordEdgeClass(first)}])${pattern}(?![${wholeWordEdgeClass(last)}])`;
+}
+
 function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp | null {
   const flags = options.caseSensitive ? "g" : "gi";
 
@@ -240,7 +265,7 @@ function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp 
     pattern = options.wholeWord ? `\\b(?:${query})\\b` : query;
   } else {
     const escaped = escapeRegExp(query);
-    pattern = options.wholeWord ? `\\b${escaped}\\b` : escaped;
+    pattern = options.wholeWord ? wrapLiteralWholeWordPattern(escaped, query) : escaped;
   }
 
   try {
