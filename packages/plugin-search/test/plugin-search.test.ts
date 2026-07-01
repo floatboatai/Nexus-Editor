@@ -166,6 +166,34 @@ function pressInputArrow(input: HTMLInputElement, key: "ArrowUp" | "ArrowDown"):
   return event;
 }
 
+function enableFuzzySearch(container: HTMLElement): HTMLInputElement {
+  const fuzzyField = container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-fuzzy-toggle"]');
+  expect(fuzzyField).not.toBeNull();
+  fuzzyField!.checked = true;
+  fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+  return fuzzyField!;
+}
+
+function submitSearchPrevious(input: HTMLInputElement): void {
+  input.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "Enter",
+      code: "Enter",
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true
+    })
+  );
+}
+
+function openReplaceRow(container: HTMLElement): HTMLInputElement {
+  const toggle = container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-toggle-replace"]');
+  toggle?.click();
+  const replaceInput = container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-replace-input"]');
+  expect(replaceInput).not.toBeNull();
+  return replaceInput!;
+}
+
 describe("@floatboat/nexus-plugin-search", () => {
   it("finds all case-insensitive matches in a document", () => {
     expect(findSearchMatches("Hello hello HELLO", "hello")).toEqual([
@@ -207,6 +235,17 @@ describe("@floatboat/nexus-plugin-search", () => {
     expect(replaceAllMatches("catalog concatenate", "cat", "dog", { fuzzy: true })).toBe(
       "dogalog condogenate"
     );
+  });
+
+  it("ignores regexp and wholeWord when fuzzy is enabled", () => {
+    const fuzzyOnly = findSearchMatches("cat catalog", "cat", { fuzzy: true });
+    const fuzzyWithFlags = findSearchMatches("cat catalog", "cat", {
+      fuzzy: true,
+      regexp: true,
+      wholeWord: true
+    });
+    expect(fuzzyWithFlags).toEqual(fuzzyOnly);
+    expect(fuzzyOnly.length).toBeGreaterThan(1);
   });
 
   it("replaces all matches in a document", () => {
@@ -633,5 +672,53 @@ describe("@floatboat/nexus-plugin-search", () => {
 
     editor.destroy();
     container.remove();
+  });
+
+  it("navigates fuzzy matches from the search panel", () => {
+    const harness = setupSearchPanel();
+    harness.editor.setDocument("catalog concatenate");
+    enableFuzzySearch(harness.container);
+
+    submitSearch(harness.input, "cat");
+    let selection = harness.editor.getSelection();
+    expect(Math.min(selection.anchor, selection.head)).toBe(0);
+
+    submitSearch(harness.input, "cat");
+    selection = harness.editor.getSelection();
+    expect(Math.min(selection.anchor, selection.head)).toBe(11);
+
+    submitSearchPrevious(harness.input);
+    selection = harness.editor.getSelection();
+    expect(Math.min(selection.anchor, selection.head)).toBe(0);
+
+    harness.destroy();
+  });
+
+  it("replaces the current fuzzy match from the search panel", () => {
+    const harness = setupSearchPanel();
+    harness.editor.setDocument("catalog concatenate");
+    enableFuzzySearch(harness.container);
+    const replaceInput = openReplaceRow(harness.container);
+
+    submitSearch(harness.input, "cat");
+    replaceInput.value = "dog";
+    harness.container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-replace"]')?.click();
+
+    expect(harness.editor.getDocument()).toBe("dogalog concatenate");
+    harness.destroy();
+  });
+
+  it("replaces all fuzzy matches from the search panel", () => {
+    const harness = setupSearchPanel();
+    harness.editor.setDocument("catalog concatenate");
+    enableFuzzySearch(harness.container);
+    const replaceInput = openReplaceRow(harness.container);
+
+    submitSearch(harness.input, "cat");
+    replaceInput.value = "dog";
+    harness.container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-replace-all"]')?.click();
+
+    expect(harness.editor.getDocument()).toBe("dogalog condogenate");
+    harness.destroy();
   });
 });

@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   findAllFuzzyMatchesInText,
   findBestFuzzyMatch,
-  findFuzzyMatchesInDocument
+  findFuzzyMatchesInDocument,
+  MAX_FUZZY_PATTERN_LENGTH,
+  MAX_FUZZY_TOKEN_LENGTH
 } from "../src/fuzzy-match";
 
 describe("findBestFuzzyMatch", () => {
@@ -65,5 +67,22 @@ describe("findFuzzyMatchesInDocument", () => {
   it("finds multiple tokens in one document", () => {
     const matches = findFuzzyMatchesInDocument("catalog concatenate", "cat");
     expect(matches.map((match) => match.text)).toEqual(["cat", "cat"]);
+  });
+
+  it("rejects patterns longer than the safety cap", () => {
+    const longPattern = "a".repeat(MAX_FUZZY_PATTERN_LENGTH + 1);
+    expect(findBestFuzzyMatch("alphabet", longPattern)).toBeNull();
+    expect(findFuzzyMatchesInDocument("alphabet", longPattern)).toEqual([]);
+  });
+
+  it("skips tokens longer than the safety cap", () => {
+    const longToken = "a".repeat(MAX_FUZZY_TOKEN_LENGTH + 1);
+    expect(findFuzzyMatchesInDocument(`${longToken} beta`, "b")).toEqual([
+      {
+        from: longToken.length + 1,
+        to: longToken.length + 2,
+        text: "b"
+      }
+    ]);
   });
 });

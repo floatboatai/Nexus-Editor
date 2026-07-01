@@ -17,19 +17,23 @@ import { keymap, runScopeHandlers, type EditorView, type Panel, type ViewUpdate 
 
 import type { NexusPlugin } from "@floatboat/nexus-core";
 
-import { findFuzzyMatchesInDocument } from "./fuzzy-match";
+import { findFuzzyMatchesInDocument, replaceFuzzyMatchesInDocument } from "./fuzzy-match";
 import {
   fuzzyFindNext,
   fuzzyFindPrevious,
+  fuzzyReplaceAll,
+  fuzzyReplaceNext,
   fuzzySearchExtension,
   fuzzySelectAll,
   setFuzzySearchState
 } from "./fuzzy-search-extension";
 
-export { findBestFuzzyMatch, findFuzzyMatchesInDocument } from "./fuzzy-match";
+export { findBestFuzzyMatch, findFuzzyMatchesInDocument, replaceFuzzyMatchesInDocument } from "./fuzzy-match";
 export {
   fuzzyFindNext,
   fuzzyFindPrevious,
+  fuzzyReplaceAll,
+  fuzzyReplaceNext,
   fuzzySearchExtension,
   fuzzySelectAll,
   setFuzzySearchState,
@@ -47,7 +51,8 @@ export interface SearchOptions {
   wholeWord?: boolean;
   regexp?: boolean;
   /**
-   * Subsequence-style fuzzy matching. Mutually exclusive with `regexp`.
+   * Subsequence-style fuzzy matching. When true, `regexp` and `wholeWord`
+   * are ignored and only `caseSensitive` is honored.
    */
   fuzzy?: boolean;
 }
@@ -321,13 +326,9 @@ export function replaceAllMatches(
   }
 
   if (options.fuzzy) {
-    const matches = findSearchMatches(doc, query, options);
-    let result = doc;
-    for (let index = matches.length - 1; index >= 0; index--) {
-      const match = matches[index];
-      result = result.slice(0, match.from) + replacement + result.slice(match.to);
-    }
-    return result;
+    return replaceFuzzyMatchesInDocument(doc, query, replacement, {
+      caseSensitive: options.caseSensitive
+    });
   }
 
   const pattern = buildSearchPattern(query, options);
@@ -637,14 +638,14 @@ class NexusSearchPanel implements Panel {
       replaceRow.append(
         this.replaceField,
         createIconButton("markdown-search-replace", "replace", resolvedLabels.replaceNext, "replace", () =>
-          replaceNext(view)
+          this.runReplaceNext()
         ),
         createIconButton(
           "markdown-search-replace-all",
           "replaceAll",
           resolvedLabels.replaceAll,
           "replaceAll",
-          () => replaceAll(view)
+          () => this.runReplaceAll()
         )
       );
       this.setReplaceExpanded(false);
@@ -753,11 +754,31 @@ class NexusSearchPanel implements Panel {
     selectMatches(this.view);
   }
 
+  private runReplaceNext(): void {
+    this.commit();
+    if (this.fuzzyField.checked) {
+      fuzzyReplaceNext(this.view, this.replaceField.value);
+      return;
+    }
+    replaceNext(this.view);
+  }
+
+  private runReplaceAll(): void {
+    this.commit();
+    if (this.fuzzyField.checked) {
+      fuzzyReplaceAll(this.view, this.replaceField.value);
+      return;
+    }
+    replaceAll(this.view);
+  }
+
   private commit(): void {
+    const fuzzyEnabled = this.fuzzyField.checked;
     const query = new SearchQuery({
-      search: this.searchField.value,
+      // CM literal highlighter is bypassed while fuzzy mode owns match rendering.
+      search: fuzzyEnabled ? "" : this.searchField.value,
       caseSensitive: this.caseField.checked,
-      regexp: this.regexpField.checked,
+      regexp: fuzzyEnabled ? false : this.regexpField.checked,
       wholeWord: this.wholeWordField.checked,
       replace: this.replaceField.value
     });
@@ -769,7 +790,7 @@ class NexusSearchPanel implements Panel {
 
     this.view.dispatch({
       effects: setFuzzySearchState.of({
-        enabled: this.fuzzyField.checked,
+        enabled: fuzzyEnabled,
         query: this.searchField.value,
         caseSensitive: this.caseField.checked
       })
@@ -821,8 +842,8 @@ class NexusSearchPanel implements Panel {
 
     if (event.key === "Enter" && event.target === this.replaceField) {
       event.preventDefault();
-      this.commit();
-      replaceNext(this.view);
+      this.runReplaceNext();
+      return;
     }
   }
 
@@ -851,6 +872,13 @@ class NexusSearchPanel implements Panel {
     this.regexpField.checked = query.regexp;
     this.wholeWordField.checked = query.wholeWord;
     this.fuzzyField.checked = false;
+    this.view.dispatch({
+      effects: setFuzzySearchState.of({
+        enabled: false,
+        query: "",
+        caseSensitive: query.caseSensitive
+      })
+    });
   }
 }
 

@@ -1,7 +1,7 @@
 import { StateEffect, StateField, type EditorState } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 
-import { findFuzzyMatchesInDocument } from "./fuzzy-match";
+import { findFuzzyMatchesInDocument, replaceFuzzyMatchesInDocument } from "./fuzzy-match";
 
 export interface FuzzySearchState {
   enabled: boolean;
@@ -63,6 +63,34 @@ function buildFuzzyDecorations(state: EditorState): DecorationSet {
   return Decoration.set(decorations, true);
 }
 
+/** When the caret sits inside a match, treat it as the match start for "previous". */
+function effectiveCursorForPrevious(
+  cursor: number,
+  matches: Array<{ from: number; to: number }>
+): number {
+  for (const match of matches) {
+    if (match.from < cursor && cursor <= match.to) {
+      return match.from;
+    }
+  }
+  return cursor;
+}
+
+function findCurrentFuzzyMatchIndex(
+  matches: Array<{ from: number; to: number }>,
+  selectionFrom: number,
+  selectionTo: number,
+  cursor: number
+): number {
+  const exact = matches.findIndex((match) => match.from === selectionFrom && match.to === selectionTo);
+  if (exact >= 0) {
+    return exact;
+  }
+
+  const atOrAfter = matches.findIndex((match) => match.from >= cursor);
+  return atOrAfter >= 0 ? atOrAfter : 0;
+}
+
 function selectFuzzyMatch(view: EditorView, index: number): boolean {
   const matches = getFuzzyMatches(view.state);
   if (matches.length === 0) {
@@ -89,8 +117,17 @@ export function fuzzyFindNext(view: EditorView): boolean {
     return false;
   }
 
+  const selectionFrom = Math.min(view.state.selection.main.anchor, view.state.selection.main.head);
+  const selectionTo = Math.max(view.state.selection.main.anchor, view.state.selection.main.head);
   const cursor = view.state.selection.main.head;
-  const nextIndex = matches.findIndex((match) => match.from > cursor);
+  const currentIndex = matches.findIndex(
+    (match) => match.from === selectionFrom && match.to === selectionTo
+  );
+  if (currentIndex >= 0) {
+    return selectFuzzyMatch(view, (currentIndex + 1) % matches.length);
+  }
+
+  const nextIndex = matches.findIndex((match) => match.from >= cursor);
   return selectFuzzyMatch(view, nextIndex >= 0 ? nextIndex : 0);
 }
 
@@ -105,10 +142,20 @@ export function fuzzyFindPrevious(view: EditorView): boolean {
     return false;
   }
 
+  const selectionFrom = Math.min(view.state.selection.main.anchor, view.state.selection.main.head);
+  const selectionTo = Math.max(view.state.selection.main.anchor, view.state.selection.main.head);
+  const currentIndex = matches.findIndex(
+    (match) => match.from === selectionFrom && match.to === selectionTo
+  );
+  if (currentIndex >= 0) {
+    return selectFuzzyMatch(view, (currentIndex - 1 + matches.length) % matches.length);
+  }
+
   const cursor = view.state.selection.main.head;
+  const effectiveCursor = effectiveCursorForPrevious(cursor, matches);
   let previousIndex = -1;
   for (let i = 0; i < matches.length; i++) {
-    if (matches[i].from < cursor) {
+    if (matches[i].from < effectiveCursor) {
       previousIndex = i;
     }
   }
@@ -132,6 +179,52 @@ export function fuzzySelectAll(view: EditorView): boolean {
       anchor: match.from,
       head: match.to
     })),
+    scrollIntoView: true
+  });
+  return true;
+}
+
+export function fuzzyReplaceNext(view: EditorView, replacement: string): boolean {
+  const fuzzyState = view.state.field(fuzzySearchStateField);
+  if (!fuzzyState.enabled || !fuzzyState.query) {
+    return false;
+  }
+
+  const matches = getFuzzyMatches(view.state);
+  if (matches.length === 0) {
+    return false;
+  }
+
+  const selectionFrom = Math.min(view.state.selection.main.anchor, view.state.selection.main.head);
+  const selectionTo = Math.max(view.state.selection.main.anchor, view.state.selection.main.head);
+  const cursor = view.state.selection.main.head;
+  const matchIndex = findCurrentFuzzyMatchIndex(matches, selectionFrom, selectionTo, cursor);
+  const match = matches[matchIndex];
+
+  view.dispatch({
+    changes: { from: match.from, to: match.to, insert: replacement },
+    selection: { anchor: match.from + replacement.length },
+    scrollIntoView: true
+  });
+  return true;
+}
+
+export function fuzzyReplaceAll(view: EditorView, replacement: string): boolean {
+  const fuzzyState = view.state.field(fuzzySearchStateField);
+  if (!fuzzyState.enabled || !fuzzyState.query) {
+    return false;
+  }
+
+  const doc = view.state.doc.toString();
+  const nextDoc = replaceFuzzyMatchesInDocument(doc, fuzzyState.query, replacement, {
+    caseSensitive: fuzzyState.caseSensitive
+  });
+  if (nextDoc === doc) {
+    return false;
+  }
+
+  view.dispatch({
+    changes: { from: 0, to: doc.length, insert: nextDoc },
     scrollIntoView: true
   });
   return true;

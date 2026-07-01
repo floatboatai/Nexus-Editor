@@ -17,6 +17,12 @@ const WORD_START_BONUS = 6;
 /** Penalty applied per extra character inside the matched span. */
 const SPAN_LENGTH_PENALTY = 2;
 
+/** Reject overly long queries before DFS to avoid exponential blow-ups. */
+export const MAX_FUZZY_PATTERN_LENGTH = 100;
+
+/** Skip fuzzy scanning inside very long tokens (URLs, base64 blobs, etc.). */
+export const MAX_FUZZY_TOKEN_LENGTH = 4096;
+
 export interface FuzzySpan {
   /** Inclusive start offset within the searched text. */
   from: number;
@@ -27,10 +33,6 @@ export interface FuzzySpan {
 
 export interface FuzzyMatchOptions {
   caseSensitive?: boolean;
-}
-
-function normalizeChar(char: string, caseSensitive: boolean): string {
-  return caseSensitive ? char : char.toLowerCase();
 }
 
 function isWordStart(text: string, index: number): boolean {
@@ -67,7 +69,7 @@ export function findBestFuzzyMatch(
   pattern: string,
   options: FuzzyMatchOptions = {}
 ): FuzzySpan | null {
-  if (!pattern) {
+  if (!pattern || pattern.length > MAX_FUZZY_PATTERN_LENGTH) {
     return null;
   }
 
@@ -125,7 +127,7 @@ export function findAllFuzzyMatchesInText(
   pattern: string,
   options: FuzzyMatchOptions = {}
 ): FuzzySpan[] {
-  if (!pattern) {
+  if (!pattern || pattern.length > MAX_FUZZY_PATTERN_LENGTH) {
     return [];
   }
 
@@ -161,7 +163,7 @@ export function findFuzzyMatchesInDocument(
   pattern: string,
   options: FuzzyMatchOptions = {}
 ): Array<{ from: number; to: number; text: string }> {
-  if (!pattern) {
+  if (!pattern || pattern.length > MAX_FUZZY_PATTERN_LENGTH) {
     return [];
   }
 
@@ -171,6 +173,9 @@ export function findFuzzyMatchesInDocument(
   let tokenMatch: RegExpExecArray | null;
   while ((tokenMatch = TOKEN_PATTERN.exec(doc)) !== null) {
     const token = tokenMatch[0];
+    if (token.length > MAX_FUZZY_TOKEN_LENGTH) {
+      continue;
+    }
     const tokenStart = tokenMatch.index;
     const tokenMatches = findAllFuzzyMatchesInText(token, pattern, options);
 
@@ -186,4 +191,23 @@ export function findFuzzyMatchesInDocument(
   }
 
   return matches;
+}
+
+/**
+ * Replace every fuzzy match in `doc`, applying edits from the end so offsets
+ * stay valid (shared by the public API and the CM fuzzy-replace commands).
+ */
+export function replaceFuzzyMatchesInDocument(
+  doc: string,
+  pattern: string,
+  replacement: string,
+  options: FuzzyMatchOptions = {}
+): string {
+  const matches = findFuzzyMatchesInDocument(doc, pattern, options);
+  let result = doc;
+  for (let index = matches.length - 1; index >= 0; index--) {
+    const match = matches[index];
+    result = result.slice(0, match.from) + replacement + result.slice(match.to);
+  }
+  return result;
 }
