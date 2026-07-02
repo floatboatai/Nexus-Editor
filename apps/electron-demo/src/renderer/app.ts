@@ -21,11 +21,56 @@ let backlinks: BacklinksPanel;
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
 
+type AppIcon = "vault" | "outline" | "backlinks" | "search" | "settings";
+
+const APP_ICONS: Record<AppIcon, string> = {
+  vault: '<path d="M4 5.5h6l1.5 2H20v11H4z"/><path d="M4 8h16"/>',
+  outline: '<path d="M8 6h12M8 12h12M8 18h12"/><path d="M4 6h.01M4 12h.01M4 18h.01"/>',
+  backlinks: '<path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.15 1.15"/><path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.15-1.15"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.1A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.1A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.1A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.17.36.38.7.6 1 .28.3.67.46 1.1.46h.1v4h-.1c-.43 0-.82.16-1.1.46-.22.3-.43.64-.6 1.08Z"/>',
+};
+
+function createIcon(name: AppIcon): SVGSVGElement {
+  const namespace = "http://www.w3.org/2000/svg";
+  const icon = document.createElementNS(namespace, "svg");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("stroke", "currentColor");
+  icon.setAttribute("stroke-width", "1.8");
+  icon.setAttribute("stroke-linecap", "round");
+  icon.setAttribute("stroke-linejoin", "round");
+  icon.innerHTML = APP_ICONS[name];
+  return icon;
+}
+
+function createUtilityButton(
+  name: AppIcon,
+  label: string,
+  onClick: () => void,
+  toggle = false
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "toolbar-icon-button";
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  if (toggle) button.setAttribute("aria-pressed", "true");
+  button.appendChild(createIcon(name));
+  button.addEventListener("click", onClick);
+  return button;
+}
+
 function createAppToolbar(): HTMLElement {
-  const toolbar = document.createElement("div");
+  const toolbar = document.createElement("header");
   toolbar.className = "toolbar";
 
+  const fileActions = document.createElement("div");
+  fileActions.className = "toolbar-file-actions";
+
   const vaultBtn = document.createElement("button");
+  vaultBtn.type = "button";
   vaultBtn.textContent = "Vault";
   vaultBtn.title = "Open a folder as a vault";
   vaultBtn.addEventListener("click", () => {
@@ -33,62 +78,47 @@ function createAppToolbar(): HTMLElement {
   });
 
   const openBtn = document.createElement("button");
+  openBtn.type = "button";
   openBtn.textContent = "Open";
   openBtn.addEventListener("click", handleOpen);
 
   const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
   saveBtn.textContent = "Save";
   saveBtn.addEventListener("click", handleSave);
 
   const saveAsBtn = document.createElement("button");
+  saveAsBtn.type = "button";
   saveAsBtn.textContent = "Save As";
   saveAsBtn.addEventListener("click", handleSaveAs);
 
-  const spacer = document.createElement("div");
-  spacer.style.flex = "1";
+  fileActions.append(vaultBtn, openBtn, saveBtn, saveAsBtn);
 
-  const vaultToggleBtn = document.createElement("button");
-  vaultToggleBtn.textContent = "\uD83D\uDCD1"; // 📑
-  vaultToggleBtn.title = "Toggle vault panel";
-  vaultToggleBtn.style.fontSize = "14px";
-  vaultToggleBtn.addEventListener("click", toggleVault);
+  const utilityActions = document.createElement("div");
+  utilityActions.className = "toolbar-utility-actions";
+  const vaultToggleBtn = createUtilityButton("vault", "Toggle vault panel", () => {
+    toggleVault();
+    syncToggleState(vaultToggleBtn, vault.element);
+  }, true);
+  const outlineBtn = createUtilityButton("outline", "Toggle outline", () => {
+    toggleOutline();
+    syncToggleState(outlineBtn, outline.element);
+  }, true);
+  const backlinksBtn = createUtilityButton("backlinks", "Toggle backlinks panel", () => {
+    toggleBacklinks();
+    syncToggleState(backlinksBtn, backlinks.element);
+  }, true);
+  const searchBtn = createUtilityButton("search", "Search (Ctrl+F)", () => searchBar.open());
+  const settingsBtn = createUtilityButton("settings", "Settings", handleSettings);
 
-  const outlineBtn = document.createElement("button");
-  outlineBtn.textContent = "\u2630"; // ☰
-  outlineBtn.title = "Toggle outline";
-  outlineBtn.style.fontSize = "14px";
-  outlineBtn.addEventListener("click", toggleOutline);
-
-  const backlinksBtn = document.createElement("button");
-  backlinksBtn.textContent = "\uD83D\uDD17"; // 🔗
-  backlinksBtn.title = "Toggle backlinks panel";
-  backlinksBtn.style.fontSize = "14px";
-  backlinksBtn.addEventListener("click", toggleBacklinks);
-
-  const searchBtn = document.createElement("button");
-  searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
-  searchBtn.title = "Search (Ctrl+F)";
-  searchBtn.style.fontSize = "14px";
-  searchBtn.addEventListener("click", () => searchBar.open());
-
-  const settingsBtn = document.createElement("button");
-  settingsBtn.textContent = "\u2699"; // ⚙
-  settingsBtn.title = "Settings";
-  settingsBtn.style.fontSize = "16px";
-  settingsBtn.addEventListener("click", handleSettings);
-
-  toolbar.append(
-    vaultBtn,
-    openBtn,
-    saveBtn,
-    saveAsBtn,
-    spacer,
+  utilityActions.append(
     vaultToggleBtn,
     outlineBtn,
     backlinksBtn,
     searchBtn,
     settingsBtn
   );
+  toolbar.append(fileActions, utilityActions);
   return toolbar;
 }
 
@@ -188,6 +218,10 @@ function togglePanel(panel: HTMLElement, onShow?: () => void): void {
   } else {
     panel.style.display = "none";
   }
+}
+
+function syncToggleState(button: HTMLButtonElement, panel: HTMLElement): void {
+  button.setAttribute("aria-pressed", String(panel.style.display !== "none"));
 }
 
 function toggleOutline(): void {

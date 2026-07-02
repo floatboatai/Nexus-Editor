@@ -66,10 +66,12 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
   panel.style.cssText = PANEL_STYLES;
 
   const header = document.createElement("div");
+  header.className = "nexus-panel-header";
   header.style.cssText = HEADER_STYLES;
   header.textContent = "Outline";
 
   const list = document.createElement("div");
+  list.className = "nexus-outline-list";
   list.style.cssText = LIST_STYLES;
 
   panel.append(header, list);
