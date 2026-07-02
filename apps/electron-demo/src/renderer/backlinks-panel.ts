@@ -1,8 +1,9 @@
-import type { LinkIndex, BacklinkHit } from "./link-index";
+import type { LinkIndex, BacklinkHit, BrokenLinkHit } from "./link-index";
 
 export interface BacklinksPanelOptions {
   index: LinkIndex;
   onOpenFile(filePath: string): void;
+  onSelectLink?(hit: BrokenLinkHit): void;
   getActiveFile(): string | null;
 }
 
@@ -113,6 +114,14 @@ const ITEM_SNIPPET_STYLES = `
   text-overflow: ellipsis;
 `;
 
+const ITEM_META_STYLES = `
+  font-size: 11px;
+  color: var(--nexus-text-faint, #999);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
 const BADGE_STYLES = `
   display: inline-block;
   padding: 1px 6px;
@@ -126,7 +135,7 @@ const BADGE_STYLES = `
 `;
 
 export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksPanel {
-  const { index, onOpenFile, getActiveFile } = options;
+  const { index, onOpenFile, onSelectLink, getActiveFile } = options;
 
   const root = document.createElement("aside");
   root.className = "backlinks-panel";
@@ -185,6 +194,43 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
     parent.appendChild(btn);
   }
 
+  function renderBrokenLinkItem(hit: BrokenLinkHit, parent: HTMLElement): void {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.style.cssText = ITEM_STYLES;
+    btn.addEventListener("mouseenter", () => {
+      btn.style.background = "var(--nexus-bg-muted, #f5f5f5)";
+    });
+    btn.addEventListener("mouseleave", () => {
+      btn.style.background = "transparent";
+    });
+    btn.addEventListener("click", () => {
+      if (onSelectLink) {
+        onSelectLink(hit);
+      } else {
+        onOpenFile(hit.sourcePath);
+      }
+    });
+
+    const title = document.createElement("div");
+    title.style.cssText = ITEM_TITLE_STYLES;
+    title.textContent = hit.target;
+    title.title = hit.target;
+    btn.appendChild(title);
+
+    const meta = document.createElement("div");
+    meta.style.cssText = ITEM_META_STYLES;
+    meta.textContent = hit.kind === "wikilink" ? "Wiki link" : "Markdown link";
+    btn.appendChild(meta);
+
+    const snippet = document.createElement("div");
+    snippet.style.cssText = ITEM_SNIPPET_STYLES;
+    snippet.textContent = hit.snippet || "(empty)";
+    btn.appendChild(snippet);
+
+    parent.appendChild(btn);
+  }
+
   function renderEmpty(reason: string, parent: HTMLElement): void {
     const empty = document.createElement("div");
     empty.style.cssText = EMPTY_STYLES;
@@ -218,6 +264,14 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
       renderEmpty("No linked mentions", list);
     } else {
       for (const hit of linked) renderItem(hit, list);
+    }
+
+    const broken = index.getBrokenLinks(active);
+    renderSectionHeader("Broken links", broken.length, list);
+    if (broken.length === 0) {
+      renderEmpty("No broken links", list);
+    } else {
+      for (const hit of broken) renderBrokenLinkItem(hit, list);
     }
 
     // Placeholder for unlinked section — filled asynchronously so we don't

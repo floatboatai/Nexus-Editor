@@ -23,7 +23,24 @@ export interface BacklinkHit {
   snippet: string;
 }
 
+export type BrokenLinkKind = "wikilink" | "markdown";
+
+export interface BrokenLinkHit {
+  sourcePath: string;
+  kind: BrokenLinkKind;
+  target: string;
+  from: number;
+  to: number;
+  snippet: string;
+}
+
 export type LinkIndexListener = () => void;
+
+interface MarkdownLinkMatch {
+  target: string;
+  from: number;
+  to: number;
+}
 
 interface IndexSnapshot {
   forward: Map<string, WikiLinkMatch[]>;
@@ -52,6 +69,138 @@ function dirname(p: string): string {
   const norm = p.replace(/\\/g, "/");
   const slash = norm.lastIndexOf("/");
   return slash >= 0 ? norm.slice(0, slash) : "";
+}
+
+function normalizePathSegments(raw: string): string {
+  const norm = normalizeSlashes(raw);
+  const absolute = norm.startsWith("/");
+  const parts: string[] = [];
+  for (const part of norm.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (parts.length > 0 && parts[parts.length - 1] !== "..") {
+        parts.pop();
+      } else if (!absolute) {
+        parts.push(part);
+      }
+      continue;
+    }
+    parts.push(part);
+  }
+  return (absolute ? "/" : "") + parts.join("/");
+}
+
+function hasKnownTextExtension(p: string): boolean {
+  return /\.(?:md|markdown|txt)$/i.test(p);
+}
+
+function isEscaped(content: string, index: number): boolean {
+  let slashes = 0;
+  for (let i = index - 1; i >= 0 && content[i] === "\\"; i--) slashes++;
+  return slashes % 2 === 1;
+}
+
+function findClosingBracket(content: string, open: number): number {
+  let depth = 0;
+  for (let i = open + 1; i < content.length; i++) {
+    const ch = content[i];
+    if (isEscaped(content, i)) continue;
+    if (ch === "[") {
+      depth++;
+    } else if (ch === "]") {
+      if (depth === 0) return i;
+      depth--;
+    }
+  }
+  return -1;
+}
+
+function findClosingParen(content: string, open: number): number {
+  let depth = 0;
+  for (let i = open + 1; i < content.length; i++) {
+    const ch = content[i];
+    if (isEscaped(content, i)) continue;
+    if (ch === "(") {
+      depth++;
+    } else if (ch === ")") {
+      if (depth === 0) return i;
+      depth--;
+    }
+  }
+  return -1;
+}
+
+function extractMarkdownDestination(raw: string): string | null {
+  const inner = raw.trim();
+  if (!inner) return null;
+  if (inner.startsWith("<")) {
+    const close = inner.indexOf(">");
+    return close > 1 ? inner.slice(1, close).trim() : null;
+  }
+  let depth = 0;
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if (ch === "\\") {
+      i++;
+      continue;
+    }
+    if (ch === "(") {
+      depth++;
+    } else if (ch === ")") {
+      if (depth > 0) depth--;
+    } else if (/\s/.test(ch) && depth === 0) {
+      const target = inner.slice(0, i).trim();
+      return target || null;
+    }
+  }
+  return inner;
+}
+
+function scanMarkdownLinks(content: string): MarkdownLinkMatch[] {
+  const out: MarkdownLinkMatch[] = [];
+  for (let i = 0; i < content.length; i++) {
+    if (content[i] !== "[" || isEscaped(content, i)) continue;
+    if (i > 0 && content[i - 1] === "!") continue;
+
+    const labelEnd = findClosingBracket(content, i);
+    if (labelEnd < 0) break;
+    if (content[labelEnd + 1] !== "(") {
+      i = labelEnd;
+      continue;
+    }
+
+    const destOpen = labelEnd + 1;
+    const destClose = findClosingParen(content, destOpen);
+    if (destClose < 0) {
+      i = labelEnd;
+      continue;
+    }
+
+    const target = extractMarkdownDestination(content.slice(destOpen + 1, destClose));
+    if (target) {
+      out.push({ target, from: i, to: destClose + 1 });
+    }
+    i = destClose;
+  }
+  return out;
+}
+
+function stripUrlDecorations(target: string): string {
+  let next = target.trim();
+  try {
+    next = decodeURI(next);
+  } catch {
+    // Keep the original text when the URL is not valid percent-encoding.
+  }
+  const hash = next.indexOf("#");
+  const query = next.indexOf("?");
+  const cuts = [hash, query].filter((i) => i >= 0);
+  if (cuts.length > 0) next = next.slice(0, Math.min(...cuts));
+  return next.trim();
+}
+
+function isExternalDestination(target: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith("//");
 }
 
 /**
@@ -267,6 +416,42 @@ export class LinkIndex {
     return this.backward.get(normalizeSlashes(targetPath)) ?? [];
   }
 
+  /** Get unresolved wiki/markdown links in a source file. */
+  getBrokenLinks(sourcePath: string): BrokenLinkHit[] {
+    const source = normalizeSlashes(sourcePath);
+    const content = this.contents.get(source);
+    if (content == null) return [];
+
+    const out: BrokenLinkHit[] = [];
+    for (const match of this.forward.get(source) ?? []) {
+      if (this.isWikiLinkResolved(source, content, match.target)) continue;
+      out.push({
+        sourcePath: source,
+        kind: "wikilink",
+        target: match.target,
+        from: match.from,
+        to: match.to,
+        snippet: snippetAround(content, match.from, match.to),
+      });
+    }
+
+    for (const match of scanMarkdownLinks(content)) {
+      const target = stripUrlDecorations(match.target);
+      if (!target || target.startsWith("#") || isExternalDestination(target)) continue;
+      if (this.resolveMarkdownFileLink(target, source)) continue;
+      out.push({
+        sourcePath: source,
+        kind: "markdown",
+        target: match.target,
+        from: match.from,
+        to: match.to,
+        snippet: snippetAround(content, match.from, match.to),
+      });
+    }
+
+    return out.sort((a, b) => a.from - b.from);
+  }
+
   /**
    * Find plain-text occurrences of the target file's basename (sans extension)
    * across every other file in the vault, excluding any occurrence that falls
@@ -330,6 +515,40 @@ export class LinkIndex {
    */
   resolve(name: string, fromPath: string | null | undefined): string | null {
     return this.resolveFromMaps(name, fromPath, this.contents, this.byBasename);
+  }
+
+  private isWikiLinkResolved(source: string, sourceContent: string, target: string): boolean {
+    const { bare, anchor } = parseAnchor(target);
+    if (!bare && anchor) return findAnchorPosition(sourceContent, anchor) !== null;
+    if (!bare) return false;
+
+    const resolved = this.resolveFromMaps(bare, source, this.contents, this.byBasename);
+    if (!resolved) return false;
+    if (!anchor) return true;
+
+    const targetContent = this.contents.get(resolved);
+    return targetContent == null ? true : findAnchorPosition(targetContent, anchor) !== null;
+  }
+
+  private resolveMarkdownFileLink(target: string, source: string): string | null {
+    if (!target || isExternalDestination(target)) return null;
+
+    const normTarget = normalizePathSegments(normalizeSlashes(target));
+    const candidates: string[] = [];
+    if (normTarget.startsWith("/")) {
+      candidates.push(normTarget);
+    } else {
+      candidates.push(normalizePathSegments(joinPath(dirname(source), normTarget)));
+    }
+
+    for (const candidate of candidates) {
+      if (this.contents.has(candidate)) return candidate;
+      if (!hasKnownTextExtension(candidate)) {
+        const md = `${candidate}.md`;
+        if (this.contents.has(md)) return md;
+      }
+    }
+    return null;
   }
 
   private resolveFromMaps(
