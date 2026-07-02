@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   findFuzzySearchMatches,
   findSearchMatches,
+  replaceAllMatches,
   fuzzyMatch
 } from "../src/index";
 
@@ -69,8 +70,40 @@ describe("@floatboat/nexus-plugin-search fuzzy matching", () => {
     expect(matches).toHaveLength(2);
   });
 
+  it("handles maxResults edge cases", () => {
+    const doc = "Alpha\nAlpine\nApple";
+
+    expect(findSearchMatches(doc, "ap", { fuzzy: true, maxResults: 0 })).toEqual([]);
+    expect(findSearchMatches(doc, "ap", { fuzzy: true, maxResults: -1 })).toEqual([]);
+    expect(findSearchMatches(doc, "ap", { fuzzy: true, maxResults: 1.8 })).toHaveLength(1);
+    expect(findSearchMatches(doc, "ap", { fuzzy: true, maxResults: Number.NaN })).toHaveLength(3);
+  });
+
+  it("keeps CRLF line endings out of fuzzy candidates", () => {
+    expect(findSearchMatches("Alpha\r\nApple", "ap", { fuzzy: true })).toEqual([
+      {
+        from: 7,
+        to: 9,
+        text: "Ap",
+        score: expect.any(Number),
+        positions: [7, 8]
+      },
+      {
+        from: 0,
+        to: 3,
+        text: "Alp",
+        score: expect.any(Number),
+        positions: [0, 2]
+      }
+    ]);
+  });
+
   it("returns no matches when fuzzy and regexp are both enabled", () => {
     expect(findSearchMatches("abc", "a.c", { fuzzy: true, regexp: true })).toEqual([]);
+  });
+
+  it("leaves replaceAll unchanged when fuzzy mode is requested", () => {
+    expect(replaceAllMatches("Nexus Markdown", "nm", "x", { fuzzy: true })).toBe("Nexus Markdown");
   });
 
   it("searches word candidates when wholeWord and fuzzy are combined", () => {

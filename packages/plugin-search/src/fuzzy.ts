@@ -13,6 +13,11 @@ const MAX_BRANCHES_PER_CHAR = 24;
 const MAX_BACKTRACK_PATHS = 4096;
 
 const WORD_BOUNDARY_PATTERN = /[\s\-_./\\()[\]{}:;,.!?]/;
+const MATCH_SCORE = 10;
+const CONSECUTIVE_BONUS = 15;
+const BOUNDARY_BONUS = 8;
+const START_PENALTY = 0.5;
+const SPAN_PENALTY = 0.1;
 
 function normalizeForFuzzy(value: string, options: FuzzySearchOptions): string {
   return options.caseSensitive ? value : value.toLowerCase();
@@ -60,7 +65,13 @@ function scoreFuzzyPath(target: string, positions: number[]): number {
   const last = positions[positions.length - 1];
   const span = last - first;
 
-  return positions.length * 10 + consecutiveCount * 15 + boundaryCount * 8 - first * 0.5 - span * 0.1;
+  return (
+    positions.length * MATCH_SCORE +
+    consecutiveCount * CONSECUTIVE_BONUS +
+    boundaryCount * BOUNDARY_BONUS -
+    first * START_PENALTY -
+    span * SPAN_PENALTY
+  );
 }
 
 function greedyFuzzyPath(query: string, target: string): number[] | null {
@@ -111,6 +122,7 @@ function collectBacktrackingPaths(
 }
 
 function collectFuzzyPaths(query: string, target: string): number[][] {
+  // Keep exhaustive scoring for short candidates, then fall back before long documents can fan out.
   if (query.length > MAX_BACKTRACK_QUERY_LENGTH || target.length > MAX_BACKTRACK_TARGET_LENGTH) {
     const path = greedyFuzzyPath(query, target);
     return path ? [path] : [];

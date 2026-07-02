@@ -400,7 +400,7 @@ export function replaceAllMatches(
   replacement: string,
   options: SearchOptions = {}
 ): string {
-  if (!query) {
+  if (!query || options.fuzzy) {
     return doc;
   }
 
