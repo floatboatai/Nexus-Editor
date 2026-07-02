@@ -23,11 +23,14 @@ body,
   background: #f0f0f0;
   border-bottom: 1px solid #ddd;
   flex-shrink: 0;
+  min-width: 0;
+  overflow-x: auto;
 }
 
 .toolbar button {
   padding: 4px 12px;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .main-area {
@@ -38,6 +41,7 @@ body,
 
 .editor-column {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;

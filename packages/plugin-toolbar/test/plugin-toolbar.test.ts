@@ -469,6 +469,19 @@ describe("createToolbarPlugin", () => {
 });
 
 describe("createToolbarUI", () => {
+  it("allows toolbar buttons to wrap in narrow containers", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+    const toolbar = createToolbarUI(editor);
+
+    expect(toolbar.element.style.display).toBe("flex");
+    expect(toolbar.element.style.flexWrap).toBe("wrap");
+    expect(toolbar.element.style.alignContent).toBe("center");
+
+    toolbar.destroy();
+    editor.destroy();
+  });
+
   it("shows custom text tooltip for icon-only toolbar buttons", () => {
     const container = document.createElement("div");
     const editor = createEditor({ container, initialValue: "hello world" });
