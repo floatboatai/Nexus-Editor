@@ -13,6 +13,39 @@ Framework-agnostic core · Official React & Vue bindings · MIT licensed.
 
 ---
 
+## ✨ Special Edition: YAML Frontmatter Interactive Suite
+
+To showcase the high extensibility and robust architecture of the AST-driven engine, we have implemented an **Obsidian-style YAML Frontmatter Interactive Suite** directly integrated into the core live-preview and autocompletion pipelines.
+
+### 1. Interactive Visually-Folded Metadata Panel (YamlWidget)
+* **Description**: A frosted-glass property card that automatically folds raw YAML text into low-saturation Morandi badges (for `tags`/`aliases` arrays) and clean property tables when the caret moves out of the metadata region. Clicking the **"✎ Edit"** button instantly moves the selection anchor back to offset `0`, triggering an atomic expansion back to the raw YAML source.
+* **Relative Path**: [`packages/core/src/live-preview.ts`](./packages/core/src/live-preview.ts) (Implementation of `YamlWidget` & `parseYamlSimple`).
+* **Screenshot**:
+  ![YAML Metadata Panel](./screenshot/卡片.png)
+
+### 2. Inline Linting & Error Diagnostic Panel (Diagnostics)
+* **Description**: A zero-dependency metadata validator. When errors (e.g. key missing colons, non-standard key-value spaces, unclosed quotes, orphaned lists) occur:
+  - **In Source Mode (Caret Inside)**: Outlines the error line with a red wavy underline (`text-decoration: underline wavy`) and displays the failure description on hover.
+  - **In Live-Preview Mode (Caret Outside)**: Intercepts the table render to display a light-red warn panel, highlighting the line number and the precise error cause to guarantee local-first runtime stability.
+* **Relative Path**: [`packages/core/src/live-preview.ts`](./packages/core/src/live-preview.ts) (Registration of linting decoration inside `buildDecorations` & `parseYamlSimple`).
+* **Screenshot**:
+  ![Metadata Error Diagnostic](./screenshot/错误提示.png)
+
+### 3. Non-Exclusive Frontmatter Property Autocompletion (Autocomplete)
+* **Description**: A smart property-key auto-suggestion source. It restricts completion triggers to the metadata physical boundary to maintain zero performance overhead for body-text edits. It automatically suggests common PKM properties (e.g., `title: `, `tags: [`, `aliases: [`, `author: `) without overriding global editor options, allowing seamless co-existence with existing plugins (such as wiki-links completion).
+* **Relative Path**: [`packages/core/src/live-preview.ts`](./packages/core/src/live-preview.ts) (Implementation of `yamlCompletionSource` & `yamlCompletionLanguageData` Prec registration).
+* **Screenshot**:
+  ![Autocomplete Suggestions](./screenshot/文字(代码)补全.png)
+
+### 📂 Newly Added Files & Structures
+To implement and document this special suite, the following files have been newly introduced to the repository:
+* [`PR_SUBMISSION.md`](./PR_SUBMISSION.md): **PR Submission Document** — Outlines the core design architecture, relative paths of changes, and local test guide for interview evaluation.
+* [`nexus-prompts.md`](./nexus-prompts.md): **AI Constraint Prompts** — Defines branch/commit formatting, monorepo scope whitelists, Table rules, and comment strictness to regulate AI tools.
+* [`md/YAML Frontmatter可视化渲染插件测试结果文档.md`](./md/YAML%20Frontmatter%E5%8F%AF%E8%A7%86%E5%8C%96%E6%B8%B2%E6%9F%93%E6%8F%92%E4%BB%B6%E6%B5%8B%E8%AF%95%E7%BB%93%E6%9E%9C%E6%96%87%E6%A1%A3.md): **Test Results Document** — Detailed record of expected vs. actual outcomes for all 6 regression test cases.
+* [`packages/core/test/frontmatter.test.ts`](./packages/core/test/frontmatter.test.ts): **Regression Unit Tests** — Automated test suite verifying AST parser, visual toggle, diagnostics, and autocomplete.
+
+---
+
 ## 🗺️ Roadmap (TL;DR)
 
 We ship in priority tiers — **P0 is what we're working on right now**.

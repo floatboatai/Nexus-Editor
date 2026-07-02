@@ -720,14 +720,62 @@ function adaptBlockChild(source: Source, node: SyntaxNode): Content | null {
  * to call inside StateField.update / view updateListener (Lezer parse is
  * incremental and the tree is intrinsic to EditorState).
  */
+/**
+ * 时间：2026-07-02
+ * 功能描述：在输入源中查找 Markdown 顶部的 YAML Frontmatter 范围与内容
+ * 参数含义：source 是 Source 结构的对象，代表文档源文本
+ * 返回值：返回一个包含 from、to 偏移以及 yaml 的值，如果不存在则返回 null
+ * 注意事项：通常 Frontmatter 的最大限制截取到 20000 字符内，足以应对绝大多数常规元数据。
+ * 业务需求背景：为了能在 Live Preview 中正确显示 Obsidian 样式的 YAML 属性面板，需要通过正则扫描并剥离出头部的 YAML 块。
+ */
+function findFrontmatterRange(source: Source): { from: number; to: number; value: string } | null {
+  if (source.length < 8) return null;
+  const startPrefix = source.slice(0, 3);
+  if (startPrefix !== "---") return null;
+
+  const fullText = source.slice(0, Math.min(20000, source.length));
+  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(fullText);
+  if (match) {
+    const yamlValue = match[1];
+    const endOffset = match[0].length;
+    return {
+      from: 0,
+      to: endOffset,
+      value: yamlValue,
+    };
+  }
+  return null;
+}
+
+/**
+ * Walk the editor's Lezer syntax tree and synthesize an mdast Root with the
+ * subset of fields consumed by the live-preview pipeline. Synchronous; safe
+ * to call inside StateField.update / view updateListener (Lezer parse is
+ * incremental and the tree is intrinsic to EditorState).
+ */
 function walkRoot(tree: Tree, source: Source): Root {
   const children: RootContent[] = [];
+  const fm = findFrontmatterRange(source);
+  let skipOffset = 0;
+
+  if (fm) {
+    children.push({
+      type: "yaml",
+      value: fm.value,
+      position: position(fm.from, fm.to),
+    } as any);
+    skipOffset = fm.to;
+  }
+
   const cursor = tree.cursor();
   if (!cursor.firstChild()) {
-    return { type: "root", children: [], position: position(0, source.length) };
+    return { type: "root", children, position: position(0, source.length) };
   }
   do {
     const node = cursor.node;
+    if (node.from < skipOffset) {
+      continue;
+    }
     const block = adaptBlockChild(source, node);
     if (block) children.push(block as RootContent);
   } while (cursor.nextSibling());

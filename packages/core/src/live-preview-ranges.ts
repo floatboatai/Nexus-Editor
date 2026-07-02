@@ -11,6 +11,13 @@ export interface LivePreviewRange {
   source: string;
 }
 
+/**
+ * 时间：2026-07-02
+ * 功能描述：判断节点是否需要参与 Live Preview 装饰渲染
+ * 参数含义：node 是 mdast 的内容节点
+ * 返回值：若为支持的 Live Preview 节点则返回 true，否则返回 false
+ * 业务需求背景：新增对 yaml 节点类型的支持，使其能够被 range 收集管线捕获。
+ */
 function isLivePreviewNode(node: Content): node is LivePreviewNode {
   return (
     node.type === "blockquote" ||
@@ -27,7 +34,8 @@ function isLivePreviewNode(node: Content): node is LivePreviewNode {
     node.type === "link" ||
     node.type === "strong" ||
     node.type === "table" ||
-    node.type === "thematicBreak"
+    node.type === "thematicBreak" ||
+    node.type === "yaml"
   );
 }
 
@@ -123,7 +131,7 @@ function visit(
     if (typeof from === "number" && typeof to === "number" && isLivePreviewNode(child)) {
       if (shouldSkipInsideWikiLink(child, from, to, wikiLinkSpans)) continue;
 
-      if (child.type === "table") {
+      if (child.type === "table" || child.type === "yaml") {
         ranges.push({ from, to, node: child, source: doc.slice(from, to) });
         continue;
       }

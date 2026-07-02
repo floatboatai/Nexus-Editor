@@ -6,7 +6,7 @@ import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
 const silentDocChange = Annotation.define<boolean>();
 import { EditorView, keymap, dropCursor, lineNumbers, type Direction } from "@codemirror/view";
 import { indentWithTab, undo as cmUndo, redo as cmRedo } from "@codemirror/commands";
-import { closeBrackets } from "@codemirror/autocomplete";
+import { closeBrackets, autocompletion } from "@codemirror/autocomplete";
 import type { Root } from "mdast";
 import type { Heading } from "mdast";
 import rehypeStringify from "rehype-stringify";
@@ -654,6 +654,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
         markdownFoldService(),
         keymap.of([indentWithTab]),
         closeBrackets(),
+        /**
+         * 时间：2026-07-02
+         * 功能描述：激活全局通用的 CodeMirror 6 自动补全管理扩展（autocompletion）
+         * 注意事项：开启全局打底，以便支持各子插件（如 wikilinks 插件、YAML Frontmatter 插件）各自非独占式挂载在 languageData 的补全逻辑。
+         * 业务需求背景：提供编辑器通用的 autocomplete 管理器作为底层标配。
+         */
+        autocompletion({ activateOnTyping: true }),
         markdownAutoPair(),
         dropCursor(),
         EditorView.domEventHandlers({
@@ -929,7 +936,14 @@ export function createEditor(config: EditorConfig): EditorAPI {
       composing = false;
       emitter.clear();
       view.destroy();
-    }
+    },
+    /**
+     * 时间：2026-07-02
+     * 功能描述：导出底层 CodeMirror 6 视图实例
+     * 注意事项：主要用于单元测试与调试工具在不污染公共接口的前提下执行深层断言。
+     * 业务需求背景：为了满足 Frontmatter 单元测试中能够直接测试挂载在 languageData 里的自动补全源（yamlCompletionSource），需要在此暴露视图句柄。
+     */
+    view,
   };
 
   return api;

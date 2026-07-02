@@ -13,6 +13,39 @@
 
 ---
 
+## ✨ 本地特色新增功能 / Special Edition: YAML Frontmatter Interactive Suite
+
+为了全面展示本款 AST 驱动编辑器引擎的高可扩展性与健壮性架构，我们为 Nexus-Editor 核心层研发了一套 **Obsidian 风格的 YAML Frontmatter 智能交互套件**，该套件已无缝打通了 Live Preview（实时预览）装饰管线与 Autocomplete（自动补全）分发链。
+
+### 1. 交互式可视化折叠元数据卡片 (YamlWidget)
+* **功能描述**：一款精致的毛玻璃元数据属性卡片。当编辑光标移出元数据区域时，它会自动对顶部的 YAML 源码进行折叠隐藏，并渲染为低饱和度莫兰迪彩色胶囊标签（针对 `tags` 与 `aliases` 列表）和排版整齐的只读属性表格。点击卡片右上角的 **“✎ 编辑元数据”** 按钮时，光标将瞬间跳回至第 0 位（首行首字符），触发编辑器原子级地展开并还原为 YAML 源码，体验极其丝滑。
+* **文件相对路径**：[`packages/core/src/live-preview.ts`](./packages/core/src/live-preview.ts)（实现了 `YamlWidget` 卡片面板与轻量解析器 `parseYamlSimple`）。
+* **功能截图**：
+  ![YAML元数据折叠卡片](./screenshot/卡片.png)
+
+### 2. 行内语法错误诊断与警告卡片面板 (Diagnostics & Linting)
+* **功能描述**：一款零外部依赖的元数据语法诊断校验器。当用户编辑的 YAML Frontmatter 存在语法异常（如冒号后缺少空格、键名非法、单/双引号未正确闭合、缺少键定义的孤立列表项等）时：
+  - **在源码编辑模式下（光标在内部）**：利用 Decoration 装饰器对格式异常行进行红色的波浪线下划线行内高亮标记（`text-decoration: underline wavy`），并在 hover 悬浮时显示具体的诊断错误信息。
+  - **在折叠预览模式下（光标在外部）**：自动拦截正常的卡片渲染，替换为高警示的莫兰迪淡红报错提示框，精确展示出错行号与故障原因，最大程度保障本地优先的运行时数据健壮性。
+* **文件相对路径**：[`packages/core/src/live-preview.ts`](./packages/core/src/live-preview.ts)（在 `buildDecorations` 中注册语法诊断装饰器，并由 `parseYamlSimple` 负责解析校验）。
+* **功能截图**：
+  ![元数据解析报错卡片](./screenshot/错误提示.png)
+
+### 3. 非独占式元数据属性键智能自动补全 (Autocomplete)
+* **功能描述**：专门针对 Frontmatter 区间的属性键智能自动联想补全源。仅当光标在文档头部 YAML 物理区间且当前行没有冒号分割时生效，不仅保证了正文常规书写时的零运行时性能开销，更结合 CodeMirror 6 标准的 `languageData` 动态分发机制进行注册，破除了独占式的 autocomplete override 垄断，与宿主原本加载的双链补全（`wikilinks`）完美并存。支持联想 `title:`，并针对 `tags: [` 和 `aliases: [` 智能补全列表语法。
+* **文件相对路径**：[`packages/core/src/live-preview.ts`](./packages/core/src/live-preview.ts)（编写了 `yamlCompletionSource` 补全源并通过 `yamlCompletionLanguageData` 精准挂载）。
+* **功能截图**：
+  ![自动属性键联想补全](./screenshot/文字(代码)补全.png)
+
+### 📂 本地新增文件及作用说明
+为了顺利开发与归档该特色交互套件，我们在本仓库中新增了以下文件：
+* [`PR_SUBMISSION.md`](./PR_SUBMISSION.md)：**PR 提交说明文档** —— 详细梳理了核心设计哲学、文件改动明细、和本地测试命令以供面试评审。
+* [`nexus-prompts.md`](./nexus-prompts.md)：**AI 助手开发提示词规范** —— 定义了分支/提交规范、monorepo scope 白名单、表格 12 条开发铁律、以及中文完整注释红线，用于规范 AI 工具开发行为。
+* [`md/YAML Frontmatter可视化渲染插件测试结果文档.md`](./md/YAML Frontmatter可视化渲染插件测试结果文档)：**功能单测结果文档** —— 精确记录了针对元数据套件 6 项核心特性测试的期望值与实际测试值对比报告。
+* [`packages/core/test/frontmatter.test.ts`](./packages/core/test/frontmatter.test.ts)：**回归测试用例代码** —— 包含了验证 AST 解析转换、折叠状态切换、编辑按钮跳转、语法错误警告面板、行内红色波浪线高亮以及自动联想补全的完整单测用例。
+
+---
+
 ## 🗺️ 路线图 (TL;DR)
 
 我们按优先级分层迭代 —— **P0 是当前正在做的事**。

@@ -28,6 +28,22 @@ export interface ParserLike {
   parseAsync?(markdown: string): Promise<ParseResult>;
 }
 
+/**
+ * 时间：2026-07-02
+ * 功能描述：定义 YAML Frontmatter 的 mdast 节点类型
+ * 版本：v1.0.0
+ * 注意事项：用于 Live Preview 机制对 YAML 元数据卡片进行装饰与交互渲染，使用自定义的结构化 Position 规避编译错误
+ * 业务需求背景：为了满足 Obsidian 风格的 Frontmatter 元数据可视化渲染与编辑需求，必须在类型系统中引入 yaml 类型的节点约束。修改 position 类型定义是为了解决 @types/mdast 中缺少 Position 导出引发的 tsup DTS 构建报错。
+ */
+export interface Yaml {
+  type: "yaml";
+  value: string;
+  position?: {
+    start: { line: number; column: number; offset: number };
+    end: { line: number; column: number; offset: number };
+  };
+}
+
 export type LivePreviewNode =
   | Blockquote
   | Code
@@ -44,7 +60,8 @@ export type LivePreviewNode =
   | List
   | Strong
   | Table
-  | ThematicBreak;
+  | ThematicBreak
+  | Yaml;
 
 export type LivePreviewNodeType = LivePreviewNode["type"];
 
@@ -184,6 +201,13 @@ export interface SetDocumentOptions {
 }
 
 export interface EditorAPI {
+  /**
+   * 时间：2026-07-02
+   * 功能描述：导出底层 CodeMirror 6 视图实例
+   * 注意事项：主要用于单元测试与调试工具在不污染公共接口的前提下执行深层断言。
+   * 业务需求背景：为了满足 Frontmatter 单元测试中能够直接测试挂载在 languageData 里的自动补全源（yamlCompletionSource），需要在此暴露视图句柄。
+   */
+  view?: any;
   getDocument(): string;
   getAst(): Root;
   getTableOfContents(): TocEntry[];

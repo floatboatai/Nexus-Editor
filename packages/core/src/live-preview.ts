@@ -1,6 +1,7 @@
-import { type EditorState, RangeSet, RangeSetBuilder, StateEffect, StateField, type Extension, type Range, type SelectionRange, type Transaction } from "@codemirror/state";
+import { EditorState, RangeSet, RangeSetBuilder, StateEffect, StateField, type Extension, type Range, type SelectionRange, type Transaction, Prec } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import { ensureSyntaxTree } from "@codemirror/language";
+import { type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import type { Code, FootnoteDefinition, FootnoteReference, Heading, Html, List, Root, Table } from "mdast";
 
 import type { CodeHighlightToken } from "./types";
@@ -191,6 +192,396 @@ class CodeCopyWidget extends WidgetType {
     return wrapper;
   }
 }
+
+/**
+ * 时间：2026-07-02
+ * 功能描述：轻量且健壮的简易 YAML 文本解析器，将键值对提取为对象
+ * 参数含义：yamlStr 代表原始 YAML 属性文本
+ * 返回值：返回解析后包含属性与对应值的 Record 对象
+ * 注意事项：支持行内数组 [a, b] 与多行 - 列表语法
+ * 业务需求背景：为了能将元数据卡片的可视化展示与内容剥离，需要从 YAML 块中提取结构化的属性。
+ */
+/**
+ * 时间：2026-07-02
+ * 功能描述：轻量且健壮的简易 YAML 文本解析器，将键值对提取为对象，并进行行级语法校验诊断
+ * 参数含义：yamlStr 代表原始 YAML 属性文本
+ * 返回值：返回包含数据 Record 对象和错误诊断信息（行号与消息）的结构体
+ * 注意事项：校验非法冒号分割、缺少间隔空格、未闭合引号以及无主列表项等五大异常。
+ * 业务需求背景：为了能在可视化面板以及源码模式下提供高优先级的格式校验与诊断机制（Diagnostics & Linting），保障用户 YAML 元数据输入的正确性。
+ */
+function parseYamlSimple(yamlStr: string): { data: Record<string, any>; error: { line: number; message: string } | null } {
+  const data: Record<string, any> = {};
+  const lines = yamlStr.split("\n");
+  let currentKey: string | null = null;
+  let currentList: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+
+    // 列表项格式校验
+    if (trimmed.startsWith("-")) {
+      if (!currentKey) {
+        return { data, error: { line: i + 1, message: "非法的列表项：未定义键的孤立列表项 (请在其上方指定父级属性键)" } };
+      }
+      const val = trimmed.slice(1).trim().replace(/^['"]|['"]$/g, "");
+      if (val) currentList.push(val);
+      continue;
+    }
+
+    if (currentKey && currentList.length > 0) {
+      data[currentKey] = currentList;
+      currentList = [];
+      currentKey = null;
+    }
+
+    const colonIdx = trimmed.indexOf(":");
+    if (colonIdx <= 0) {
+      return { data, error: { line: i + 1, message: "非法的属性定义：属性声明行缺少冒号 ':' 分割符" } };
+    }
+
+    const key = trimmed.slice(0, colonIdx).trim();
+    const val = trimmed.slice(colonIdx + 1).trim();
+
+    // 校验键命名合法性
+    if (!/^[a-zA-Z0-9_-]+$/.test(key)) {
+      return { data, error: { line: i + 1, message: `非法的键命名 '${key}'：键名只能包含字母、数字、下划线和中划线` } };
+    }
+
+    // 校验冒号后是否有空格
+    if (val !== "" && !trimmed.slice(colonIdx).startsWith(": ") && !trimmed.slice(colonIdx).startsWith(":\t")) {
+      return { data, error: { line: i + 1, message: "非法的 YAML 格式：冒号 ':' 与后面的值之间必须保留至少一个空格间隔" } };
+    }
+
+    if (val.startsWith("[") && val.endsWith("]")) {
+      const arrayVals = val
+        .slice(1, -1)
+        .split(",")
+        .map(v => v.trim().replace(/^['"]|['"]$/g, ""))
+        .filter(Boolean);
+      data[key] = arrayVals;
+    } else if (val === "") {
+      currentKey = key;
+      currentList = [];
+    } else {
+      // 校验引号对称性
+      const hasStartQuote = val.startsWith("'") || val.startsWith('"');
+      const hasEndQuote = val.endsWith("'") || val.endsWith('"');
+      if ((hasStartQuote && !hasEndQuote) || (!hasStartQuote && hasEndQuote)) {
+        return { data, error: { line: i + 1, message: "非法的引号闭合：属性值的单/双引号未能正确闭合" } };
+      }
+      data[key] = val.replace(/^['"]|['"]$/g, "");
+    }
+  }
+
+  if (currentKey && currentList.length > 0) {
+    data[currentKey] = currentList;
+  }
+
+  return { data, error: null };
+}
+
+/**
+ * 时间：2026-07-02
+ * 功能描述：用于渲染 YAML Frontmatter 的可视化属性面板 Widget 模块
+ * 参数含义：source 代表 YAML 的内容文本；viewRef 代表编辑器的 view 引用；from/to 代表元数据块在文档中的起止偏移
+ * 返回值：返回 DOM 节点
+ * 注意事项：点击右上角的“✎”按钮可快速回弹至第 0 偏移以修正源码；支持诊断错误卡片面板高亮显示。
+ * 业务需求背景：为了能以 Obsidian 风格的可视化面板展示和编辑元数据，并在语法异常时进行拦截警示，提供高完成度的报错机制。
+ */
+class YamlWidget extends WidgetType {
+  constructor(
+    private readonly source: string,
+    private readonly viewRef: { current: EditorView | null },
+    private readonly from: number,
+    private readonly to: number
+  ) {
+    super();
+  }
+
+  eq(other: YamlWidget): boolean {
+    return other.source === this.source && other.from === this.from && other.to === this.to;
+  }
+
+  ignoreEvent(): boolean {
+    return true;
+  }
+
+  toDOM(): HTMLElement {
+    const container = document.createElement("div");
+    container.className = "nexus-frontmatter-panel";
+
+    const parseResult = parseYamlSimple(this.source);
+
+    // ── 异常报错面板渲染 ──
+    if (parseResult.error) {
+      container.style.cssText = [
+        "position:relative",
+        "margin:10px 0",
+        "padding:14px 18px",
+        "background:rgba(207, 34, 46, 0.05)",
+        "border:1px solid rgba(207, 34, 46, 0.15)",
+        "border-radius:8px",
+        "box-shadow:0 4px 14px rgba(15,23,42,0.02)",
+        "font-family:system-ui, -apple-system, sans-serif",
+        "color:var(--nexus-hl-deletion, #cf222e)",
+      ].join(";") + ";";
+
+      const editBtn = document.createElement("button");
+      editBtn.type = "button";
+      editBtn.title = "编辑以修正语法错误";
+      editBtn.setAttribute("aria-label", "编辑元数据");
+      editBtn.textContent = "✎ 修正元数据";
+      editBtn.style.cssText = [
+        "position:absolute",
+        "top:8px",
+        "right:10px",
+        "padding:4px 10px",
+        "font-size:11px",
+        "font-family:system-ui,sans-serif",
+        "line-height:1.4",
+        "background:var(--nexus-bg, #fff)",
+        "border:1px solid rgba(207, 34, 46, 0.2)",
+        "border-radius:4px",
+        "color:var(--nexus-hl-deletion, #cf222e)",
+        "cursor:pointer",
+        "font-weight:500",
+        "opacity:0.9",
+        "z-index:2",
+        "user-select:none",
+        "transition:opacity .15s, background .15s",
+      ].join(";") + ";";
+
+      editBtn.addEventListener("mouseenter", () => {
+        editBtn.style.background = "rgba(207, 34, 46, 0.08)";
+      });
+      editBtn.addEventListener("mouseleave", () => {
+        editBtn.style.background = "var(--nexus-bg, #fff)";
+      });
+      editBtn.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+      editBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const v = this.viewRef.current;
+        if (!v) return;
+        v.dispatch({ selection: { anchor: 0 } });
+        v.focus();
+      });
+      container.appendChild(editBtn);
+
+      const errTitle = document.createElement("div");
+      errTitle.textContent = `⚠️ YAML 格式解析失败 (第 ${parseResult.error.line} 行)`;
+      errTitle.style.cssText = "font-weight:600;font-size:13px;margin-bottom:6px;display:flex;align-items:center;gap:6px;";
+
+      const errMsg = document.createElement("div");
+      errMsg.textContent = `具体原因：${parseResult.error.message}`;
+      errMsg.style.cssText =
+        "font-size:12px;color:var(--nexus-text, #1e293b);opacity:0.85;font-family:monospace;white-space:pre-wrap;padding-right:110px;";
+
+      container.appendChild(errTitle);
+      container.appendChild(errMsg);
+      return container;
+    }
+
+    // ── 正常属性表格面板渲染 ──
+    container.style.cssText = [
+      "position:relative",
+      "margin:10px 0",
+      "padding:14px 18px",
+      "background:rgba(255,255,255,0.55)",
+      "backdrop-filter:blur(10px)",
+      "-webkit-backdrop-filter:blur(10px)",
+      "border:1px solid var(--nexus-border-subtle, rgba(15,23,42,0.08))",
+      "border-radius:8px",
+      "box-shadow:0 4px 14px rgba(15,23,42,0.02)",
+      "font-family:system-ui, -apple-system, sans-serif",
+      "color:var(--nexus-text, #1e293b)",
+    ].join(";") + ";";
+
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.title = "编辑元数据";
+    editBtn.setAttribute("aria-label", "编辑元数据");
+    editBtn.textContent = "✎";
+    editBtn.style.cssText = [
+      "position:absolute",
+      "top:6px",
+      "right:8px",
+      "padding:2px 8px",
+      "font-size:12px",
+      "font-family:system-ui,sans-serif",
+      "line-height:1.4",
+      "background:var(--nexus-bg, #fff)",
+      "border:1px solid var(--nexus-border-subtle, rgba(15,23,42,0.12))",
+      "border-radius:4px",
+      "color:var(--nexus-text-muted, #64748b)",
+      "cursor:pointer",
+      "opacity:0.6",
+      "z-index:2",
+      "user-select:none",
+      "transition:opacity .15s, background .15s",
+    ].join(";") + ";";
+
+    editBtn.addEventListener("mouseenter", () => {
+      editBtn.style.opacity = "1";
+      editBtn.style.background = "var(--nexus-bg-hover, #f1f5f9)";
+    });
+    editBtn.addEventListener("mouseleave", () => {
+      editBtn.style.opacity = "0.6";
+      editBtn.style.background = "var(--nexus-bg, #fff)";
+    });
+    editBtn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    editBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const v = this.viewRef.current;
+      if (!v) return;
+      v.dispatch({ selection: { anchor: 0 } });
+      v.focus();
+    });
+    container.appendChild(editBtn);
+
+    const data = parseResult.data;
+    const keys = Object.keys(data);
+
+    if (keys.length === 0) {
+      const emptyTip = document.createElement("div");
+      emptyTip.textContent = "空元数据配置 (YAML Frontmatter)";
+      emptyTip.style.cssText = "font-size:12px;color:var(--nexus-text-muted, #94a3b8);font-style:italic;";
+      container.appendChild(emptyTip);
+      return container;
+    }
+
+    const tagColors = [
+      { bg: "rgba(14, 165, 233, 0.08)", border: "rgba(14, 165, 233, 0.2)", text: "#0284c7" },
+      { bg: "rgba(10, 185, 129, 0.08)", border: "rgba(10, 185, 129, 0.2)", text: "#059669" },
+      { bg: "rgba(139, 92, 246, 0.08)", border: "rgba(139, 92, 246, 0.2)", text: "#7c3aed" },
+      { bg: "rgba(244, 63, 94, 0.08)", border: "rgba(244, 63, 94, 0.2)", text: "#e11d48" },
+      { bg: "rgba(245, 158, 11, 0.08)", border: "rgba(245, 158, 11, 0.2)", text: "#d97706" }
+    ];
+
+    let colorIdx = 0;
+    const getTagStyle = () => {
+      const c = tagColors[colorIdx % tagColors.length];
+      colorIdx++;
+      return `background:${c.bg};border:1px solid ${c.border};color:${c.text};padding:2px 8px;border-radius:12px;font-size:11px;font-weight:500;display:inline-block;white-space:nowrap;line-height:1.2;`;
+    };
+
+    const table = document.createElement("div");
+    table.style.cssText = "display:flex;flex-direction:column;gap:8px;";
+
+    for (const key of keys) {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;align-items:flex-start;font-size:13px;line-height:1.6;";
+
+      const keyLabel = document.createElement("div");
+      keyLabel.textContent = key;
+      keyLabel.style.cssText = "width:100px;font-weight:500;color:var(--nexus-text-muted, #64748b);padding-top:2px;";
+      row.appendChild(keyLabel);
+
+      const valWrapper = document.createElement("div");
+      valWrapper.style.cssText = "flex:1;display:flex;flex-wrap:wrap;gap:6px;";
+
+      const val = data[key];
+      if (Array.isArray(val)) {
+        for (const item of val) {
+          const badge = document.createElement("span");
+          badge.textContent = item;
+          badge.style.cssText = getTagStyle();
+          valWrapper.appendChild(badge);
+        }
+      } else {
+        const isTagLike =
+          key.toLowerCase() === "tags" ||
+          key.toLowerCase() === "tag" ||
+          key.toLowerCase() === "aliases" ||
+          key.toLowerCase() === "alias";
+        if (isTagLike) {
+          const badge = document.createElement("span");
+          badge.textContent = val;
+          badge.style.cssText = getTagStyle();
+          valWrapper.appendChild(badge);
+        } else {
+          const textSpan = document.createElement("span");
+          textSpan.textContent = String(val);
+          textSpan.style.cssText = "color:var(--nexus-text, #1e293b);word-break:break-all;";
+          valWrapper.appendChild(textSpan);
+        }
+      }
+
+      row.appendChild(valWrapper);
+      table.appendChild(row);
+    }
+
+    container.appendChild(table);
+    return container;
+  }
+}
+
+/**
+ * 时间：2026-07-02
+ * 功能描述：针对 Markdown 文档头部 YAML Frontmatter 元数据属性键（Keys）的智能补全源函数
+ * 参数含义：context 是 CodeMirror 补全上下文对象
+ * 返回值：返回包含补全位置和联想列表的 CompletionResult，或在不满足条件时返回 null
+ * 注意事项：仅当光标在 YAML 物理区间且当前行没有冒号分割时触发；tags 和 aliases 自动补全为列表格式。
+ * 业务需求背景：为了能提供极佳的 YAML Frontmatter 可视化编辑录入体验，缩短输入成本，开发此智能自动补全源扩展。
+ */
+function yamlCompletionSource(context: CompletionContext): CompletionResult | null {
+  const docText = context.state.doc.toString();
+  const frontmatterMatch = /^(?:---\r?\n)([\s\S]*?)(?:\r?\n---)/.exec(docText);
+  if (!frontmatterMatch) return null;
+  const skipOffset = frontmatterMatch[0].length;
+
+  // 仅在 YAML 物理区内生效
+  if (context.pos < 0 || context.pos > skipOffset) return null;
+
+  const line = context.state.doc.lineAt(context.pos);
+  const textBefore = line.text.slice(0, context.pos - line.from);
+
+  // 如果这一行已经存在冒号，则不作为属性键补全
+  if (textBefore.includes(":")) return null;
+
+  const wordMatch = /([a-zA-Z0-9_-]*)$/.exec(textBefore);
+  if (!wordMatch) return null;
+  const word = wordMatch[1];
+
+  if (word === "" && !context.explicit) return null;
+
+  const options = [
+    { label: "title", type: "property", apply: "title: " },
+    { label: "tags", type: "property", apply: "tags: [" },
+    { label: "aliases", type: "property", apply: "aliases: [" },
+    { label: "author", type: "property", apply: "author: " },
+    { label: "date", type: "property", apply: "date: " },
+    { label: "version", type: "property", apply: "version: " },
+    { label: "publish", type: "property", apply: "publish: " },
+    { label: "status", type: "property", apply: "status: " },
+  ];
+
+  return {
+    from: context.pos - word.length,
+    options: options.filter(o => o.label.startsWith(word.toLowerCase())),
+  };
+}
+
+/**
+ * 时间：2026-07-02
+ * 功能描述：基于 CodeMirror 6 languageData 动态载入机制挂载的非独占式补全扩展定义
+ * 注意事项：使用 Prec.highest 确保其高优先级，同时保持与其他补全源（如 wikilinks）的兼容性。
+ * 业务需求背景：为了使自动补全源能无缝集成到编辑器的分发链中且不与 wikilinks 发生覆写冲突，使用此动态挂载结构。
+ */
+const yamlCompletionLanguageData = Prec.highest(
+  EditorState.languageData.of((state, pos) => {
+    return [{ autocomplete: yamlCompletionSource }];
+  })
+);
 
 // ── Mermaid support ─────────────────────────────────────────────────────────
 // Lazy-loaded so the ~500KB mermaid bundle only ships when a user actually
@@ -1067,6 +1458,48 @@ function buildDecorations(
   for (const range of ranges) {
     if (parentSpans.some(([from, to]) => range.from >= from && range.to <= to)) continue;
 
+    /**
+     * 时间：2026-07-02
+     * 功能描述：处理 YAML Frontmatter 节点的 Live Preview 装饰逻辑
+     * 注意事项：利用 selectionIntersects 判定光标是否在 YAML 块中，实现“在内展开，在外折叠”
+     * 业务需求背景：根据 Obsidian 元数据面板规范，在光标离开元数据属性区时，应自动渲染为高度直观、可视化的只读卡片。
+     */
+    if (range.node.type === "yaml") {
+      const cursorOnYaml = selectionIntersects(range.from, range.to, selection, true);
+      if (!cursorOnYaml) {
+        decos.push(
+          Decoration.replace({
+            widget: new YamlWidget(range.node.value ?? "", viewRef, range.from, range.to),
+            block: true,
+          }).range(range.from, range.to)
+        );
+      } else {
+        // 光标在 YAML 内部（源码编辑状态下），如果有语法错误，通过逐行推算绝对偏移高亮出错的那一行
+        const result = parseYamlSimple(range.node.value ?? "");
+        if (result.error) {
+          const lines = (range.node.value ?? "").split("\n");
+          let lineOffset = range.from;
+          for (let idx = 0; idx < lines.length; idx++) {
+            const lineLen = lines[idx].length;
+            if (idx === result.error.line - 1) {
+              // 这一行检测出 YAML 语法解析异常，应用红色波浪线进行行内高亮诊断 (Inline Diagnostics)
+              decos.push(
+                Decoration.mark({
+                  attributes: {
+                    style: "text-decoration: underline wavy var(--nexus-hl-deletion, #cf222e); text-decoration-skip-ink: none;",
+                    title: `YAML 格式错误：${result.error.message}`
+                  }
+                }).range(lineOffset, lineOffset + lineLen)
+              );
+              break;
+            }
+            lineOffset += lineLen + 1;
+          }
+        }
+      }
+      continue;
+    }
+
     if (range.node.type === "heading" && !config.renderers.heading) {
       buildHeadingDecorations(
         range as { from: number; to: number; node: Heading },
@@ -1490,5 +1923,5 @@ export function createLivePreviewExtension(
     return builder.finish();
   });
 
-  return [field, viewCapture, compositionHandler, linkHandler, tableAtomicRanges, createLivePreviewDiagnostics()];
+  return [field, viewCapture, compositionHandler, linkHandler, tableAtomicRanges, createLivePreviewDiagnostics(), yamlCompletionLanguageData];
 }

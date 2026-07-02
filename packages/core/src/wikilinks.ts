@@ -4,7 +4,7 @@ import {
   type CompletionResult,
   type Completion
 } from "@codemirror/autocomplete";
-import { StateEffect, StateField, type Extension, type Range, type Transaction } from "@codemirror/state";
+import { StateEffect, StateField, type Extension, type Range, type Transaction, EditorState } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView } from "@codemirror/view";
 
 import type { NexusPlugin } from "./types";
@@ -319,9 +319,14 @@ export function createWikilinksExtension(options: WikilinksOptions = {}): Extens
 
   if (options.suggest) {
     exts.push(
-      autocompletion({
-        override: [createAutocompleteSource(options.suggest)],
-        activateOnTyping: true,
+      /**
+       * 时间：2026-07-02
+       * 功能描述：通过 languageData 动态挂载非独占式的 wikilinks 自动补全源
+       * 注意事项：改用中立的 languageData 注册，以防止独占式 override 干扰其他插件（如 YAML Frontmatter 补全插件）的补全源分发。
+       * 业务需求背景：为了与 YAML 元数据补全源友好并存，破除原本使用独占式的 autocompletion 实例垄断。
+       */
+      EditorState.languageData.of((state) => {
+        return [{ autocomplete: createAutocompleteSource(options.suggest!) }];
       })
     );
   }
