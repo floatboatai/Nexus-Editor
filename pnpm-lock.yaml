@@ -53,6 +53,9 @@ importers:
       '@floatboat/nexus-core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@floatboat/nexus-plugin-ai-assistant':
+        specifier: workspace:*
+        version: link:../../packages/plugin-ai-assistant
       '@floatboat/nexus-plugin-history':
         specifier: workspace:*
         version: link:../../packages/plugin-history
@@ -138,6 +141,12 @@ importers:
       unified:
         specifier: ^11.0.5
         version: 11.0.5
+
+  packages/plugin-ai-assistant:
+    dependencies:
+      '@floatboat/nexus-core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/plugin-history:
     dependencies:

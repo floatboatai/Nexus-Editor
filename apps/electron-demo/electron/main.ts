@@ -122,6 +122,86 @@ ipcMain.handle(
   }
 );
 
+// -- AI assistant network bridge ---------------------------------------------
+
+interface AIFetchRequest {
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+function normalizeAIFetchRequest(input: unknown): AIFetchRequest {
+  if (!input || typeof input !== "object") {
+    throw new Error("Invalid AI request.");
+  }
+  const request = input as Partial<AIFetchRequest>;
+  if (typeof request.url !== "string") {
+    throw new Error("AI request URL is required.");
+  }
+
+  const url = new URL(request.url);
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error("AI request URL must use HTTP or HTTPS.");
+  }
+  if (!url.pathname.replace(/\/+$/, "").endsWith("/chat/completions")) {
+    throw new Error("AI bridge only supports OpenAI-compatible chat completions.");
+  }
+
+  const method = (request.method ?? "POST").toUpperCase();
+  if (method !== "POST") {
+    throw new Error("AI bridge only supports POST requests.");
+  }
+  if (typeof request.body !== "string" || request.body.length === 0) {
+    throw new Error("AI request body is required.");
+  }
+
+  return {
+    url: url.toString(),
+    method,
+    headers: sanitizeAIHeaders(request.headers),
+    body: request.body
+  };
+}
+
+function sanitizeAIHeaders(headers: unknown): Record<string, string> {
+  const out: Record<string, string> = {
+    "Content-Type": "application/json"
+  };
+  if (!headers || typeof headers !== "object") return out;
+
+  const record = headers as Record<string, unknown>;
+  for (const [name, value] of Object.entries(record)) {
+    if (typeof value !== "string") continue;
+    const lower = name.toLowerCase();
+    if (lower === "authorization" || lower === "content-type") {
+      out[name] = value;
+    }
+  }
+  return out;
+}
+
+ipcMain.handle("ai:chat-completions", async (_event, input: unknown) => {
+  const request = normalizeAIFetchRequest(input);
+  const response = await net.fetch(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body: request.body
+  });
+
+  const responseHeaders: Record<string, string> = {};
+  response.headers.forEach((value, key) => {
+    responseHeaders[key] = value;
+  });
+
+  return {
+    status: response.status,
+    statusText: response.statusText,
+    headers: responseHeaders,
+    body: await response.text()
+  };
+});
+
 // -- vault helpers ------------------------------------------------------------
 
 function assertInsideVault(target: string): string {

@@ -7,6 +7,7 @@ import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
+import { createAIAssistantPanel, type AIAssistantPanel } from "@floatboat/nexus-plugin-ai-assistant";
 
 installLongTaskWatch(50);
 
@@ -17,6 +18,7 @@ let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+let aiPanel: AIAssistantPanel;
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
@@ -65,6 +67,11 @@ function createAppToolbar(): HTMLElement {
   backlinksBtn.style.fontSize = "14px";
   backlinksBtn.addEventListener("click", toggleBacklinks);
 
+  const aiBtn = document.createElement("button");
+  aiBtn.textContent = "AI";
+  aiBtn.title = "Toggle AI assistant";
+  aiBtn.addEventListener("click", toggleAI);
+
   const searchBtn = document.createElement("button");
   searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
   searchBtn.title = "Search (Ctrl+F)";
@@ -86,6 +93,7 @@ function createAppToolbar(): HTMLElement {
     vaultToggleBtn,
     outlineBtn,
     backlinksBtn,
+    aiBtn,
     searchBtn,
     settingsBtn
   );
@@ -112,6 +120,29 @@ function renderStatus(): void {
     : "";
   const errorText = state.error ? ` — Error: ${state.error}` : "";
   el.textContent = `${pathLabel}${dirtyMark}${statsText}${vaultLabel}${errorText}`;
+  syncAIAssistantAvailability();
+}
+
+function hasActiveAIDocument(): boolean {
+  return Boolean(state.activeFile ?? state.filePath);
+}
+
+function getAIAssistantSessionKey(): string {
+  return state.activeFile ?? state.filePath ?? "__unsaved__";
+}
+
+function syncAIAssistantSession(): void {
+  shell?.aiAssistant.setSessionKey(getAIAssistantSessionKey());
+}
+
+function syncAIAssistantAvailability(): void {
+  aiPanel?.setEnabled(hasActiveAIDocument(), "Open a file before using AI assistant.");
+}
+
+function afterNextPaint(fn: () => void): void {
+  requestAnimationFrame(() => {
+    setTimeout(fn, 0);
+  });
 }
 
 async function confirmDiscardIfDirty(): Promise<boolean> {
@@ -130,7 +161,10 @@ async function handleOpen(): Promise<void> {
     state.activeFile = result.path;
     shell.loadDocument(result.content);
     vault.setActiveFile(result.path);
-    backlinks.refresh();
+    afterNextPaint(() => {
+      syncAIAssistantSession();
+      backlinks.refresh();
+    });
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
   }
@@ -141,11 +175,13 @@ async function handleSave(): Promise<void> {
   try {
     state.error = null;
     const targetPath = state.activeFile ?? state.filePath;
+    const content = shell?.editor.getDocument() ?? state.content;
+    state.content = content;
     if (targetPath) {
       if (state.vaultPath && targetPath.startsWith(state.vaultPath)) {
-        await window.nexusDemo.vault.write(targetPath, state.content);
+        await window.nexusDemo.vault.write(targetPath, content);
       } else {
-        await window.nexusDemo.saveFile(targetPath, state.content);
+        await window.nexusDemo.saveFile(targetPath, content);
       }
       state.dirty = false;
     } else {
@@ -167,6 +203,7 @@ async function handleSaveAs(): Promise<void> {
     state.filePath = result.path;
     state.activeFile = result.path;
     state.dirty = false;
+    syncAIAssistantSession();
     vault.setActiveFile(result.path);
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
@@ -202,6 +239,10 @@ function toggleBacklinks(): void {
   togglePanel(backlinks.element, () => backlinks.refresh());
 }
 
+function toggleAI(): void {
+  togglePanel(aiPanel.element);
+}
+
 async function handleVaultFileOpen(filePath: string): Promise<void> {
   const total = perfStart("open-file", { filePath });
   try {
@@ -223,9 +264,12 @@ async function handleVaultFileOpen(filePath: string): Promise<void> {
     vault.setActiveFile(result.path);
     perfEnd(setActive);
 
-    const bl = perfStart("open-file.backlinks.refresh");
-    backlinks.refresh();
-    perfEnd(bl);
+    afterNextPaint(() => {
+      syncAIAssistantSession();
+      const bl = perfStart("open-file.backlinks.refresh");
+      backlinks.refresh();
+      perfEnd(bl);
+    });
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
   }
@@ -409,6 +453,20 @@ function boot(): void {
 
   editorColumn.append(searchBar.element, editorContainer);
   mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
+  aiPanel = createAIAssistantPanel(shell.aiAssistant, {
+    container: mainArea,
+    defaultOpen: false,
+    classPrefix: "nexus-ai",
+    storage: localStorage,
+    storageKey: "nexus-ai-assistant",
+    enabled: hasActiveAIDocument(),
+    disabledMessage: "Open a file before using AI assistant.",
+    onApplyOperation: () => {
+      requestAnimationFrame(() => {
+        void handleSave();
+      });
+    }
+  });
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {

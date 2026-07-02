@@ -14,7 +14,7 @@ Thanks for contributing! This is a pnpm + TypeScript monorepo following **Conven
 |---|---|
 | `packages/core` | Editor engine (CodeMirror 6, live preview, AST pipeline) |
 | `packages/preset-gfm` | Default GFM preset |
-| `packages/plugin-*` | Feature plugins (history / search / slash / toolbar / math / vim) |
+| `packages/plugin-*` | Feature plugins (history / search / slash / toolbar / math / vim / ai-assistant) |
 | `packages/react`, `packages/vue` | Framework bindings |
 | `apps/electron-demo` | Desktop demo / integration playground |
 | `openspec/` | Spec-driven development (proposal / specs / archive) |
@@ -47,7 +47,7 @@ Examples: `feat/toolbar-list-toggle`, `fix/search-regex-escape`, `docs/roadmap-u
   | `react` | `packages/react` |
   | `vue` | `packages/vue` |
   | `gfm` | `packages/preset-gfm` |
-  | `history` / `search` / `slash` / `toolbar` / `math` / `vim` / `wordcount` | corresponding `plugin-*` |
+  | `history` / `search` / `slash` / `toolbar` / `math` / `vim` / `wordcount` / `ai-assistant` | corresponding `plugin-*` |
   | `electron` | `apps/electron-demo` |
   | `live-preview` / `wikilinks` / `image` | core subsystems (historical usage) |
   | `openspec` | `openspec/` |

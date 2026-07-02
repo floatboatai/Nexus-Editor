@@ -9,7 +9,8 @@
       "@floatboat/nexus-plugin-search": ["packages/plugin-search/src/index.ts"],
       "@floatboat/nexus-plugin-slash": ["packages/plugin-slash/src/index.ts"],
       "@floatboat/nexus-plugin-toolbar": ["packages/plugin-toolbar/src/index.ts"],
-      "@floatboat/nexus-plugin-wordcount": ["packages/plugin-wordcount/src/index.ts"]
+      "@floatboat/nexus-plugin-wordcount": ["packages/plugin-wordcount/src/index.ts"],
+      "@floatboat/nexus-plugin-ai-assistant": ["packages/plugin-ai-assistant/src/index.ts"]
     }
   },
   "include": [

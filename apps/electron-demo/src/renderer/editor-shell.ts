@@ -14,6 +14,12 @@ import {
   createWordCountPlugin,
   type WordCountPlugin
 } from "@floatboat/nexus-plugin-wordcount";
+import {
+  attachAIAssistantPlugin,
+  createOpenAICompatibleProvider,
+  createAIAssistantPlugin,
+  type AIAssistantPlugin
+} from "@floatboat/nexus-plugin-ai-assistant";
 import type { AppState } from "./state";
 import { type EditorSettings, settingsToTheme } from "./settings";
 
@@ -85,9 +91,39 @@ export interface EditorShell {
   slashMenu: SlashMenuUI;
   /** Markdown-aware word-count plugin (handle + status bar). */
   wordcount: WordCountPlugin;
+  /** OpenAI-compatible assistant plugin (handle + panel state). */
+  aiAssistant: AIAssistantPlugin;
   applySettings(settings: EditorSettings): void;
   loadDocument(content: string): void;
   destroy(): void;
+}
+
+function createElectronAIFetch(): typeof fetch {
+  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+    const headers: Record<string, string> = {};
+    new Headers(init?.headers).forEach((value, key) => {
+      headers[key] = value;
+    });
+    const body = typeof init?.body === "string" ? init.body : undefined;
+    const result = await window.nexusDemo.ai.chatCompletions({
+      url,
+      method: init?.method,
+      headers,
+      body
+    });
+
+    return new Response(result.body, {
+      status: result.status,
+      statusText: result.statusText,
+      headers: result.headers
+    });
+  };
 }
 
 export function createEditorShell(options: EditorShellOptions): EditorShell {
@@ -118,6 +154,15 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   const wordcount = createWordCountPlugin({
     statusBar: { container, classPrefix: "nexus-wordcount" },
   });
+  const aiAssistant = createAIAssistantPlugin({
+    provider: createOpenAICompatibleProvider(createElectronAIFetch()),
+    storage: localStorage,
+    storageKey: "nexus-ai-assistant:sessions",
+    contextProvider: () => [
+      state.activeFile ? `Current file: ${state.activeFile}` : "Current file: unsaved document",
+      state.vaultPath ? `Vault root: ${state.vaultPath}` : null
+    ].filter(Boolean).join("\n"),
+  });
 
   // No more parser worker. Live-preview drives off `syntaxTree(state)` from
   // @codemirror/lang-markdown (incremental, intrinsic to EditorState), and
@@ -143,6 +188,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       createSearchPlugin(),
       wikilinksPlugin,
       wordcount,
+      aiAssistant,
     ],
     livePreview: settings.livePreview
       ? {
@@ -345,12 +391,14 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   // microtask), so it's already wired by the time the user sees the
   // first paint.
   attachWordCountPlugin(wordcount, editor);
+  attachAIAssistantPlugin(aiAssistant, editor);
 
   return {
     editor,
     toolbar,
     slashMenu,
     wordcount,
+    aiAssistant,
     applySettings(next: EditorSettings) {
       editor.setTheme(settingsToTheme(next));
     },
@@ -373,6 +421,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
         `${(t1 - t0).toFixed(1)}ms`, { bytes: content.length });
     },
     destroy() {
+      aiAssistant.destroy();
       wordcount.destroy();
       slashMenu.destroy();
       toolbar.destroy();

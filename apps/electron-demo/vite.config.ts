@@ -60,6 +60,10 @@ export default defineConfig({
         __dirname,
         "../../packages/plugin-wordcount/src/index.ts"
       ),
+      "@floatboat/nexus-plugin-ai-assistant": path.resolve(
+        __dirname,
+        "../../packages/plugin-ai-assistant/src/index.ts"
+      ),
     },
   },
   server: {

@@ -30,11 +30,30 @@ interface VaultBridge {
   onChanged(cb: (payload: { vault: string }) => void): () => void;
 }
 
+interface AIFetchRequest {
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+interface AIFetchResponse {
+  status: number;
+  statusText: string;
+  headers: Record<string, string>;
+  body: string;
+}
+
+interface AIBridge {
+  chatCompletions(request: AIFetchRequest): Promise<AIFetchResponse>;
+}
+
 interface DemoBridge {
   openFile(): Promise<DemoFileHandle | null>;
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
   vault: VaultBridge;
+  ai: AIBridge;
 }
 
 interface Window {

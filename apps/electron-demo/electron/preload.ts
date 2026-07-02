@@ -32,11 +32,30 @@ export interface VaultBridge {
   onChanged(cb: (payload: { vault: string }) => void): () => void;
 }
 
+export interface AIFetchRequest {
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+export interface AIFetchResponse {
+  status: number;
+  statusText: string;
+  headers: Record<string, string>;
+  body: string;
+}
+
+export interface AIBridge {
+  chatCompletions(request: AIFetchRequest): Promise<AIFetchResponse>;
+}
+
 export interface DemoBridge {
   openFile(): Promise<DemoFileHandle | null>;
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
   vault: VaultBridge;
+  ai: AIBridge;
 }
 
 const vaultBridge: VaultBridge = {
@@ -82,6 +101,12 @@ const vaultBridge: VaultBridge = {
   },
 };
 
+const aiBridge: AIBridge = {
+  chatCompletions(request) {
+    return ipcRenderer.invoke("ai:chat-completions", request);
+  },
+};
+
 const bridge: DemoBridge = {
   openFile() {
     return ipcRenderer.invoke("demo:open-file");
@@ -93,6 +118,7 @@ const bridge: DemoBridge = {
     return ipcRenderer.invoke("demo:save-file-as", content);
   },
   vault: vaultBridge,
+  ai: aiBridge,
 };
 
 contextBridge.exposeInMainWorld("nexusDemo", bridge);
