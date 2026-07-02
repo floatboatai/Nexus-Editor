@@ -803,6 +803,149 @@ describe("live preview", () => {
     container.remove();
   });
 
+  it("copies table range selections as both TSV text and HTML table", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| A & B | **bold** |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const cells = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell");
+    const firstCell = cells?.[0];
+    const secondCell = cells?.[1];
+    expect(firstCell).not.toBeUndefined();
+    expect(secondCell).not.toBeUndefined();
+
+    firstCell!.getBoundingClientRect = () => ({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 80,
+      bottom: 30,
+      width: 80,
+      height: 30,
+      toJSON: () => ({})
+    });
+    secondCell!.getBoundingClientRect = () => ({
+      x: 80,
+      y: 0,
+      left: 80,
+      top: 0,
+      right: 160,
+      bottom: 30,
+      width: 80,
+      height: 30,
+      toJSON: () => ({})
+    });
+
+    firstCell?.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 40,
+      clientY: 15
+    }));
+    document.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true,
+      button: 0,
+      clientX: 120,
+      clientY: 15
+    }));
+    document.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 0,
+      clientX: 120,
+      clientY: 15
+    }));
+
+    const copied: Record<string, string> = {};
+    const copyEvent = new Event("copy", { bubbles: true, cancelable: true });
+    Object.defineProperty(copyEvent, "clipboardData", {
+      configurable: true,
+      value: {
+        setData: (type: string, value: string) => {
+          copied[type] = value;
+        },
+      },
+    });
+    container.querySelector<HTMLElement>(".nexus-table-wrapper")?.dispatchEvent(copyEvent);
+
+    expect(copyEvent.defaultPrevented).toBe(true);
+    expect(copied["text/plain"]).toBe("A & B\tbold");
+    expect(copied["text/html"]).toBe("<table><tbody><tr><td>A &amp; B</td><td><strong>bold</strong></td></tr></tbody></table>");
+    editor.destroy();
+    container.remove();
+  });
+
+  it("copies table column selections with header cells in the HTML table", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| Name | Score |\n| --- | --- |\n| Alice | 42 |\n| Bob | 7 |",
+      livePreview: true
+    });
+
+    const firstGrip = container.querySelector<HTMLElement>(".nexus-col-grip");
+    expect(firstGrip).not.toBeNull();
+    firstGrip?.click();
+
+    const copied: Record<string, string> = {};
+    const copyEvent = new Event("copy", { bubbles: true, cancelable: true });
+    Object.defineProperty(copyEvent, "clipboardData", {
+      configurable: true,
+      value: {
+        setData: (type: string, value: string) => {
+          copied[type] = value;
+        },
+      },
+    });
+    container.querySelector<HTMLElement>(".nexus-table-wrapper")?.dispatchEvent(copyEvent);
+
+    expect(copyEvent.defaultPrevented).toBe(true);
+    expect(copied["text/plain"]).toBe("Name\nAlice\nBob");
+    expect(copied["text/html"]).toBe("<table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>Alice</td></tr><tr><td>Bob</td></tr></tbody></table>");
+    editor.destroy();
+    container.remove();
+  });
+
+  it("copies table row selections as both TSV text and HTML table", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| Name | Score |\n| --- | --- |\n| Alice | **42** |\n| Bob | 7 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const firstDataRowGrip = container.querySelectorAll<HTMLElement>(".nexus-row-grip")[1];
+    expect(firstDataRowGrip).not.toBeUndefined();
+    firstDataRowGrip?.click();
+
+    const copied: Record<string, string> = {};
+    const copyEvent = new Event("copy", { bubbles: true, cancelable: true });
+    Object.defineProperty(copyEvent, "clipboardData", {
+      configurable: true,
+      value: {
+        setData: (type: string, value: string) => {
+          copied[type] = value;
+        },
+      },
+    });
+    container.querySelector<HTMLElement>(".nexus-table-wrapper")?.dispatchEvent(copyEvent);
+
+    expect(copyEvent.defaultPrevented).toBe(true);
+    expect(copied["text/plain"]).toBe("Alice\t42");
+    expect(copied["text/html"]).toBe("<table><tbody><tr><td>Alice</td><td><strong>42</strong></td></tr></tbody></table>");
+    editor.destroy();
+    container.remove();
+  });
+
   it("allows native text selection inside a table cell without entering edit mode", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);

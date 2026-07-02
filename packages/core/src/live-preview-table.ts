@@ -756,6 +756,36 @@ export class EditableTableWidget extends WidgetType {
       return lines.join("\n");
     }
 
+    function clipboardCellHtml(cell: HTMLElement | null): string {
+      if (!cell) return "";
+      const clone = cell.cloneNode(true) as HTMLElement;
+      // Clipboard HTML should include cell content only, not editor-only controls.
+      clone.querySelectorAll(".nexus-col-resize").forEach((el) => el.remove());
+      return clone.innerHTML;
+    }
+
+    function serializeRangeSelectionHtml(range: { r1: number; c1: number; r2: number; c2: number }): string {
+      const headRows: string[] = [];
+      const bodyRows: string[] = [];
+      for (let row = range.r1; row <= range.r2; row++) {
+        const cellHtml: string[] = [];
+        const tagName = row === 0 ? "th" : "td";
+        for (let col = range.c1; col <= range.c2; col++) {
+          const cell = getCellElement(row, col);
+          cellHtml.push(`<${tagName}>${clipboardCellHtml(cell)}</${tagName}>`);
+        }
+        const html = `<tr>${cellHtml.join("")}</tr>`;
+        if (row === 0) {
+          headRows.push(html);
+        } else {
+          bodyRows.push(html);
+        }
+      }
+      const thead = headRows.length > 0 ? `<thead>${headRows.join("")}</thead>` : "";
+      const tbody = bodyRows.length > 0 ? `<tbody>${bodyRows.join("")}</tbody>` : "";
+      return `<table>${thead}${tbody}</table>`;
+    }
+
     function selectedCopyRange(): { r1: number; c1: number; r2: number; c2: number } | null {
       const range = getNormalizedRange();
       if (rangeActive && range) return range;
@@ -1630,6 +1660,7 @@ export class EditableTableWidget extends WidgetType {
       const text = serializeRangeSelection(range);
       if (!text) return;
       e.clipboardData?.setData("text/plain", text);
+      e.clipboardData?.setData("text/html", serializeRangeSelectionHtml(range));
       e.preventDefault();
     });
     wrapper.tabIndex = -1;
