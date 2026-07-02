@@ -2,6 +2,7 @@ import { createState, type AppState } from "./state";
 import { createEditorShell, type EditorShell } from "./editor-shell";
 import { loadSettings, createSettingsPanel, type EditorSettings } from "./settings";
 import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
+import { createPluginsPanel, type PluginsPanel } from "./plugins-panel";
 import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
@@ -17,6 +18,7 @@ let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+let pluginsPanel: PluginsPanel;
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
@@ -71,6 +73,12 @@ function createAppToolbar(): HTMLElement {
   searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
 
+  const pluginsBtn = document.createElement("button");
+  pluginsBtn.textContent = "\uD83E\uDDE9"; // 🧩
+  pluginsBtn.title = "Toggle plugins panel";
+  pluginsBtn.style.fontSize = "14px";
+  pluginsBtn.addEventListener("click", togglePlugins);
+
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "\u2699"; // ⚙
   settingsBtn.title = "Settings";
@@ -87,6 +95,7 @@ function createAppToolbar(): HTMLElement {
     outlineBtn,
     backlinksBtn,
     searchBtn,
+    pluginsBtn,
     settingsBtn
   );
   return toolbar;
@@ -183,7 +192,10 @@ function handleSettings(): void {
 
 function togglePanel(panel: HTMLElement, onShow?: () => void): void {
   if (panel.style.display === "none") {
-    panel.style.display = "";
+    // Restore the panel's original display value (flex, block, etc.).
+    // Panels that use flex set data-default-display at creation time;
+    // the fallback to "" produces "block" for plain divs.
+    panel.style.display = panel.dataset.defaultDisplay ?? "";
     onShow?.();
   } else {
     panel.style.display = "none";
@@ -200,6 +212,10 @@ function toggleVault(): void {
 
 function toggleBacklinks(): void {
   togglePanel(backlinks.element, () => backlinks.refresh());
+}
+
+function togglePlugins(): void {
+  togglePanel(pluginsPanel.element);
 }
 
 async function handleVaultFileOpen(filePath: string): Promise<void> {
@@ -233,11 +249,7 @@ async function handleVaultFileOpen(filePath: string): Promise<void> {
   perfEnd(total);
 }
 
-function dirname(p: string): string {
-  const norm = p.replace(/\\/g, "/");
-  const slash = norm.lastIndexOf("/");
-  return slash >= 0 ? norm.slice(0, slash) : "";
-}
+import { dirname } from "./path-utils";
 
 /** Coalesce repeated re-seeds (e.g. a burst of FS changes) into a single run. */
 let seedToken = 0;
@@ -389,6 +401,8 @@ function boot(): void {
     },
   });
 
+  vault.element.dataset.defaultDisplay = "flex";
+
   // Keep state in sync when the vault panel picks a new vault.
   const originalOpenVault = vault.openVault;
   vault.openVault = async (nextPath: string) => {
@@ -400,15 +414,29 @@ function boot(): void {
   };
 
   outline = createOutlinePanel(shell.editor);
+  outline.element.dataset.defaultDisplay = "flex";
   searchBar = createSearchBar(shell.editor);
   backlinks = createBacklinksPanel({
     index: linkIndex,
     onOpenFile: (filePath) => void handleVaultFileOpen(filePath),
     getActiveFile: () => state.activeFile,
   });
+  backlinks.element.dataset.defaultDisplay = "flex";
+
+  pluginsPanel = createPluginsPanel(shell.editor);
+  // The panel uses display:flex; remember that so togglePanel restores it
+  // correctly instead of defaulting to block.
+  pluginsPanel.element.dataset.defaultDisplay = "flex";
+  pluginsPanel.element.style.display = "none";
 
   editorColumn.append(searchBar.element, editorContainer);
-  mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
+  mainArea.append(
+    vault.element,
+    editorColumn,
+    outline.element,
+    backlinks.element,
+    pluginsPanel.element
+  );
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {

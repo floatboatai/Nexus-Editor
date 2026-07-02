@@ -1,3 +1,4 @@
+import { basename } from "./path-utils";
 import type { LinkIndex, BacklinkHit } from "./link-index";
 
 export interface BacklinksPanelOptions {
@@ -10,12 +11,6 @@ export interface BacklinksPanel {
   element: HTMLElement;
   refresh(): void;
   destroy(): void;
-}
-
-function basename(p: string): string {
-  const norm = p.replace(/\\/g, "/");
-  const slash = norm.lastIndexOf("/");
-  return slash >= 0 ? norm.slice(slash + 1) : norm;
 }
 
 function scheduleLowPriority(cb: () => void): () => void {
