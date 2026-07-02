@@ -1,0 +1,132 @@
+# 表格「列拖动重排」用例（真实 moveColumn）
+#
+# 凡 id 以 `tabledrag-` 开头的用例，harness 会用真实 headless 编辑器渲染表格，
+# 再模拟拖动列把手（真实 grip mousedown→mousemove→mouseup，触发真实 moveColumn），
+# 然后断言这是一次「纯列重排」：
+#   - 拖动后各行列数一致（表头不得与数据行错位）
+#   - 行数不变
+#   - 每一行的单元格集合守恒（无丢失 / 无重复 / 无串列）
+#
+# `expect.tableMove: {from, to}` 指定拖动哪一列到哪一列（0 基，数据列）。
+# `expect.tableLayout` 可选，模拟宽表 / 视口（仅 headless 桥使用）：
+#   viewportWidth  可见视口宽度（px）
+#   scrollLeft     横向滚动偏移（px）
+#   columnWidths   各数据列宽度（px）；省略时按单元格文本长度估算
+# `expect.normalizePipes`  为 true 时，保存后所有含 | 的表格行必须以 | 开头
+# `expect.tableCountAfter` 拖动后文档中表格 widget 数量
+# `expect.tableIndex`      操作第几个表格（0 基，默认 0）
+# `expect.secondTableUnchanged` 为 true 时，第二个表格块内容必须不变
+#
+# ⚠️ 说明：其中多条用例目前会判为 `table-corruption`（🧱）——这正是要暴露的真实
+# 缺陷：当某一行（尤其表头）省略了行首竖线时，列重排会丢单元格、行列错位。
+# `tabledrag-wellformed` 作为对照，良构表应判为 ✅ 守恒。
+
+cases:
+  - id: tabledrag-user-report
+    input: |-
+      姓名 | 年龄 | 职位  |  |
+      | --- | --- | ---  | --- |
+      | 张三 | 25 | 提示词工程师  |  |
+      | 李四 | 30 | 测开工程师  |  |
+    tags: [tabledrag, table, ragged, regression]
+    note: 用户原始复现——表头缺行首竖线、带尾部空列，拖动「年龄」「职位」互换
+    expect:
+      tableMove: { from: 1, to: 2 }
+
+  - id: tabledrag-header-no-leading-pipe
+    input: |-
+      姓名 | 年龄 | 职位
+      | --- | --- | --- |
+      | 张三 | 25 | 工程师 |
+    tags: [tabledrag, table, ragged]
+    note: 表头缺行首竖线（且无尾竖线），拖动第 0 列到第 2 列
+    expect:
+      tableMove: { from: 0, to: 2 }
+
+  - id: tabledrag-header-no-trailing-pipe
+    input: |-
+      | 姓名 | 年龄 | 职位
+      | --- | --- | --- |
+      | 张三 | 25 | 工程师 |
+    tags: [tabledrag, table, ragged]
+    note: 表头缺行尾竖线，拖动第 2 列到第 0 列
+    expect:
+      tableMove: { from: 2, to: 0 }
+
+  - id: tabledrag-bare-no-pipes
+    input: |-
+      a | b | c
+      --- | --- | ---
+      1 | 2 | 3
+    tags: [tabledrag, table, ragged]
+    note: 所有行都无首尾竖线，拖动第 0 列到第 1 列
+    expect:
+      tableMove: { from: 0, to: 1 }
+
+  - id: tabledrag-trailing-empty-column
+    input: |-
+      | 姓名 | 年龄 | 职位 |  |
+      | --- | --- | --- | --- |
+      | 张三 | 25 | 工程师 |  |
+    tags: [tabledrag, table]
+    note: 良构但带尾部空列，拖动第 1 列到第 2 列（列数应始终一致）
+    expect:
+      tableMove: { from: 1, to: 2 }
+
+  - id: tabledrag-wellformed
+    input: |-
+      | a | b | c |
+      | --- | --- | --- |
+      | 1 | 2 | 3 |
+      | 4 | 5 | 6 |
+    tags: [tabledrag, table, control]
+    note: 对照组——完全良构的表格，列重排必须守恒（应判 ✅）
+    expect:
+      tableMove: { from: 0, to: 2 }
+
+  - id: tabledrag-wide-roadmap-search-commands
+    input: |-
+      | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
+      | --- | --- | --- | --- | --- | --- | --- |
+      | 2 | Whole-word matching | plugin-search | P1 | done | No | wholeWord option via buildSearchPattern with \b boundaries |
+      | 15 | Regex search | plugin-search | P1 | done | No | regexp option landed alongside whole-word; invalid-regex guarded |
+      | 16 | Command / search history | plugin-search + plugin-slash | P2 | done | Yes | Host-injected storage (no implicit localStorage) — add-search-query-history + add-slash-recent-command-history |
+      | 17 | Fuzzy search | plugin-search | P2 | planned | No | Evaluate fzf-like algorithm vs. third-party lib; needs backtracking matcher |
+      | 3 | Slash command sorting + limit | plugin-slash | P0 | done | Yes | Landed alongside the floating menu UI — see openspec/changes/add-slash-menu-ui |
+      | 27 | Slash command floating menu UI | plugin-slash + electron-demo | P0 | done | Yes | createSlashMenuUI(editor, options) — see openspec/changes/add-slash-menu-ui |
+    tags: [tabledrag, table, wide, layout, regression]
+    note: Roadmap 宽表（约 2× 视口）——拖动 Feature 列到 Package 列时，鼠标在视口内始终落在源列上，无法放置到相邻列
+    expect:
+      tableMove: { from: 1, to: 2 }
+      tableLayout:
+        viewportWidth: 800
+        columnWidths: [40, 760, 180, 70, 70, 110, 420]
+
+  - id: tabledrag-ragged-normalize-leading-pipe
+    input: |-
+      姓名 | 年龄 | 职位  |  |
+      | --- | --- | ---  | --- |
+      | 张三 | 25 | 提示词工程师  |  |
+      | 李四 | 30 | 测开工程师  |  |
+    tags: [tabledrag, table, ragged, normalize]
+    note: 表头缺行首竖线但已渲染为表格——列拖动保存后应补全各行首 |，且列重排正确
+    expect:
+      tableMove: { from: 1, to: 2 }
+      normalizePipes: true
+
+  - id: tabledrag-adjacent-tables-no-merge
+    input: |-
+      | a | b | c |
+      | --- | --- | --- |
+      | 1 | 2 | 3 |
+
+      | x | y | z |
+      | --- | --- | --- |
+      | 4 | 5 | 6 |
+    tags: [tabledrag, table, adjacent]
+    note: 两个相邻良构表格——拖动上方表格列时，不得与下方表格合并，且下方表格内容不变
+    expect:
+      tableMove: { from: 0, to: 2 }
+      tableIndex: 0
+      tableCountAfter: 2
+      secondTableUnchanged: true

@@ -24,3 +24,8 @@ pnpm-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+
+# Eval harness local artifacts
+eval/.venv/
+__pycache__/
+*.pyc
