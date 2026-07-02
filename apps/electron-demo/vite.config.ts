@@ -8,6 +8,10 @@ export default defineConfig({
     outDir: path.resolve(__dirname, "dist"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 1024,
+    // Generate source maps for production debugging (useful with Electron DevTools)
+    sourcemap: true,
+    // Minify with esbuild for faster builds (terser is ~20x slower)
+    minify: "esbuild",
     rollupOptions: {
       output: {
         // Split large vendor deps out of the main chunk so cold-start

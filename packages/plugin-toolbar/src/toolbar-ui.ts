@@ -38,7 +38,9 @@ import {
   iconHighlight,
   iconImage,
   iconFullscreen,
+  iconEmoji,
 } from "./icons";
+import { showEmojiPicker } from "./emoji-picker";
 
 export interface ToolbarButton {
   id: string;
@@ -182,6 +184,7 @@ function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
     {
       buttons: [
         { id: "image", title: "Insert image", icon: iconImage, action: insertImage },
+        { id: "emoji", title: "Emoji", icon: iconEmoji, action: () => {} },
         { id: "fullscreen", title: "Fullscreen", icon: iconFullscreen, action: () => options?.onFullscreen?.() },
       ],
     },
@@ -441,7 +444,7 @@ function showColorPicker(
 }
 
 /** IDs that trigger dropdown behavior instead of a direct action. */
-const DROPDOWN_IDS = new Set(["heading-menu", "text-color", "highlight"]);
+const DROPDOWN_IDS = new Set(["heading-menu", "text-color", "highlight", "emoji"]);
 
 export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): ToolbarUI {
   const groups = options?.groups ?? defaultGroups(options);
@@ -510,11 +513,17 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
             activeDropdown = showColorPicker(editor, button, COLOR_PALETTE, applyTextColor, closeDropdown);
           } else if (btn.id === "highlight") {
             activeDropdown = showColorPicker(editor, button, HIGHLIGHT_PALETTE, applyHighlight, closeDropdown);
+          } else if (btn.id === "emoji") {
+            const pickerEl = showEmojiPicker(button, editor, closeDropdown);
+            activeDropdown = { destroy: () => pickerEl.remove() };
           }
 
           outsideHandler = (ev: MouseEvent) => {
             const dropdownEl = document.querySelector(".nexus-toolbar-dropdown");
-            if (!button.contains(ev.target as Node) && (!dropdownEl || !dropdownEl.contains(ev.target as Node))) {
+            const emojiEl = document.querySelector(".nexus-emoji-picker");
+            if (!button.contains(ev.target as Node) &&
+                (!dropdownEl || !dropdownEl.contains(ev.target as Node)) &&
+                (!emojiEl || !emojiEl.contains(ev.target as Node))) {
               closeDropdown();
             }
           };

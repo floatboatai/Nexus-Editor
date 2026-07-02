@@ -59,6 +59,23 @@ jobs:
       - name: Build Electron demo
         run: pnpm build:electron-demo
 
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: pnpm test:e2e
+        timeout-minutes: 10
+
+      - name: Upload E2E artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: |
+            e2e/test-results/
+            e2e/playwright-report/
+          retention-days: 7
+
   publish:
     name: Publish Packages
     runs-on: ubuntu-latest

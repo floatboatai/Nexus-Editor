@@ -141,6 +141,13 @@ export interface SelectionState {
   mainIndex: number;
 }
 
+export interface ScrollState {
+  /** Fraction of the document scrolled (0 = top, 1 = bottom). */
+  fraction: number;
+  /** Line number of the first visible line (1-based). */
+  topLine: number;
+}
+
 export interface EditorEventMap {
   change: (doc: string, ast: Root) => void;
   focus: () => void;
@@ -148,6 +155,8 @@ export interface EditorEventMap {
   /** `anchor` / `head` describe the main range; `ranges` carries all of them. */
   selectionChange: (selection: { anchor: number; head: number } & SelectionState) => void;
   slashMenuChange: (state: SlashMenuState) => void;
+  /** Emitted when the editor scrolls. */
+  scrollChange: (state: ScrollState) => void;
 }
 
 export interface TocEntry {
@@ -252,6 +261,21 @@ export interface EditorAPI {
   ): void;
   undo(): boolean;
   redo(): boolean;
+  /**
+   * Execute a function where all document changes are grouped into a single
+   * undo/redo entry. Uses CM6's `isolateHistory` annotation to fence the
+   * group: changes before/after the group are separate undo steps.
+   *
+   * Example:
+   * ```ts
+   * editor.groupChanges(() => {
+   *   editor.replaceRange(0, 5, "hello");
+   *   editor.replaceRange(6, 10, "world");
+   * });
+   * // One Ctrl+Z undoes both replacements
+   * ```
+   */
+  groupChanges(fn: () => void): void;
   focus(): void;
   blur(): void;
   runShortcut(key: string): boolean;
@@ -269,12 +293,39 @@ export interface EditorAPI {
   off<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
   getCoordsAtPos(pos: number): { left: number; right: number; top: number; bottom: number } | null;
   /**
+   * Get the current scroll position as a fraction (0 = top, 1 = bottom).
+   * Useful for synchronizing an external preview panel.
+   */
+  getScrollFraction(): number;
+  /**
+   * Scroll the editor to a given fraction of the document (0 = top, 1 = bottom).
+   * Used for bidirectional scroll sync with an external preview.
+   */
+  scrollToFraction(fraction: number): void;
+  /**
    * 返回某个 DOM 节点当前对应的文档偏移（基于 CodeMirror 的 DOM↔文档映射）。
    * 用于会被复用、平移的 live-preview widget（如图片）在事件发生时解析自身实时位置，
    * 而不是依赖渲染时捕获、可能因上方编辑而过期的固定 from/to。无法解析时返回 null。
    */
   getPosAtDOM(node: HTMLElement): number | null;
   getDocumentStats(): { characters: number; words: number; lines: number };
+  /** Plugin event bus for inter-plugin communication. */
+  bus: import("./plugin-bus").PluginBus;
+  /**
+   * Get all registered keybindings as an array of { id, key } pairs.
+   * Includes shortcuts from plugins + commands with hotkeys.
+   */
+  getKeybindings(): Array<{ id: string; key: string; label?: string }>;
+  /**
+   * Override a keybinding for a given command id.
+   * Returns false if no command with that id exists.
+   */
+  setKeybinding(id: string, key: string): boolean;
+  /**
+   * Reset a keybinding to its original default.
+   * Returns false if no command with that id exists.
+   */
+  resetKeybinding(id: string): boolean;
 }
 
 export interface SlashCommandDef {
@@ -319,10 +370,41 @@ export interface WidgetRenderContext {
   focus: () => void;
 }
 
+/**
+ * Lifecycle hooks for Widget API v2. All hooks are optional.
+ * Widgets that only provide `render` (v1 style) continue to work unchanged.
+ */
+export interface WidgetLifecycle {
+  /**
+   * Called after the widget DOM is inserted into the document.
+   * Use for attaching external event listeners or initializing third-party libs.
+   */
+  onMount?: (element: HTMLElement, ctx: WidgetRenderContext) => void;
+  /**
+   * Called when the widget's source content or position changes but the widget
+   * DOM is reused (i.e., `eq()` returned true but offsets shifted).
+   * Use for updating dynamic content without full re-render.
+   */
+  onUpdate?: (element: HTMLElement, node: any, source: string, ctx: WidgetRenderContext) => void;
+  /**
+   * Called before the widget DOM is removed from the document.
+   * Use for cleanup (event listeners, timers, third-party lib teardown).
+   * This replaces the simpler `destroy` callback when both are provided.
+   */
+  onUnmount?: (element: HTMLElement) => void;
+}
+
 export interface WidgetDefinition {
+  /**
+   * Optional unique identifier for this widget type. Used for conflict resolution
+   * when multiple widgets match the same node. Widgets with an explicit `id` can
+   * be referenced by other plugins.
+   */
+  id?: string;
   nodeType: string;
   match?: (node: any) => boolean;
   render: (node: any, source: string, ctx?: WidgetRenderContext) => HTMLElement;
+  /** @deprecated Use `lifecycle.onUnmount` instead. Still supported for v1 compat. */
   destroy?: (element: HTMLElement) => void;
   /**
    * Whether the widget replaces a block-level range (occupies its own line)
@@ -339,6 +421,16 @@ export interface WidgetDefinition {
    * `false` — events bubble through and CM6 places the cursor normally.
    */
   ignoreEvents?: boolean;
+  /**
+   * Priority for conflict resolution: when multiple WidgetDefinitions match the
+   * same AST node, the one with the highest priority wins. Default: 0.
+   */
+  priority?: number;
+  /**
+   * Lifecycle hooks for advanced widget management (v2 API).
+   * See {@link WidgetLifecycle}.
+   */
+  lifecycle?: WidgetLifecycle;
 }
 
 /**
@@ -392,7 +484,13 @@ export interface NexusPlugin {
   commands?: EditorCommand[];
   /** DOM 事件钩子，见 {@link EditorEventHandlers}。 */
   handlers?: EditorEventHandlers;
-  remarkPlugins?: Array<Plugin<[], Root, Root>>;
+  remarkPlugins?: Array<Plugin<[], Root, Root> | [Plugin<any[], Root, Root>, ...any[]]>;
   cmExtensions?: Extension[];
   widgets?: WidgetDefinition[];
+  /**
+   * Optional setup hook called after the editor is fully initialized.
+   * Receives the EditorAPI so plugins can subscribe to bus events, register
+   * commands, or perform other initialization that requires a live editor.
+   */
+  setup?: (editor: EditorAPI) => void;
 }

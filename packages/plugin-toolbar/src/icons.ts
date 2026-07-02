@@ -174,3 +174,12 @@ export function iconHorizontalRule(): HTMLElement {
     `<line x1="2" y1="9" x2="16" y2="9"/>`
   );
 }
+
+export function iconEmoji(): HTMLElement {
+  return svgIcon(
+    `<circle cx="9" cy="9" r="7"/>` +
+    `<circle cx="6.5" cy="7.5" r="0.8" fill="currentColor" stroke="none"/>` +
+    `<circle cx="11.5" cy="7.5" r="0.8" fill="currentColor" stroke="none"/>` +
+    `<path d="M6 11 c0.5 1.5 2.5 2.5 3 2.5 s2.5-1 3-2.5"/>`
+  );
+}

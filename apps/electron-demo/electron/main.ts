@@ -435,6 +435,21 @@ app.whenReady().then(() => {
     }
   });
   createWindow();
+
+  // Auto-updater: lazy-load electron-updater to avoid blocking startup.
+  // Only active in packaged builds (autoUpdater does nothing in dev mode).
+  if (!process.env.VITE_DEV_SERVER_URL) {
+    setTimeout(() => {
+      import("electron-updater").then(({ autoUpdater }) => {
+        autoUpdater.logger = console;
+        autoUpdater.checkForUpdatesAndNotify().catch(() => {
+          // Silently fail if offline or no update server configured
+        });
+      }).catch(() => {
+        // electron-updater not available (e.g. dev install without it)
+      });
+    }, 3000); // Delay 3s after startup to avoid blocking initial render
+  }
 });
 
 app.on("window-all-closed", () => {

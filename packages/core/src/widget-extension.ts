@@ -69,9 +69,18 @@ function collectWidgetRanges(
       const to = child.position?.end.offset;
 
       if (typeof from === "number" && typeof to === "number") {
-        const matched = widgets.find(
+        // Find all matching widgets and pick the one with highest priority
+        const candidates = widgets.filter(
           (w) => w.nodeType === child.type && (!w.match || w.match(child))
         );
+
+        let matched: WidgetDefinition | undefined;
+        if (candidates.length === 1) {
+          matched = candidates[0];
+        } else if (candidates.length > 1) {
+          // Sort by priority descending, pick the first
+          matched = candidates.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))[0];
+        }
 
         if (matched && !selectionIntersects(from, to, selection)) {
           ranges.push({
@@ -117,7 +126,32 @@ class NexusWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
-    const ctx: WidgetRenderContext = {
+    const ctx: WidgetRenderContext = this.createContext();
+    const el = this.definition.render(this.node, this.source, ctx);
+    el.setAttribute("data-nexus-widget", this.definition.nodeType);
+    if (this.definition.id) {
+      el.setAttribute("data-nexus-widget-id", this.definition.id);
+    }
+    // v2 lifecycle: onMount
+    this.definition.lifecycle?.onMount?.(el, ctx);
+    return el;
+  }
+
+  destroy(dom: HTMLElement): void {
+    // v2 lifecycle: onUnmount takes precedence over deprecated destroy
+    if (this.definition.lifecycle?.onUnmount) {
+      this.definition.lifecycle.onUnmount(dom);
+    } else {
+      this.definition.destroy?.(dom);
+    }
+  }
+
+  ignoreEvent(): boolean {
+    return this.definition.ignoreEvents === true;
+  }
+
+  private createContext(): WidgetRenderContext {
+    return {
       from: this.from,
       to: this.to,
       setSelection: (anchor, head) => {
@@ -133,17 +167,6 @@ class NexusWidget extends WidgetType {
         this.viewRef.current?.focus();
       },
     };
-    const el = this.definition.render(this.node, this.source, ctx);
-    el.setAttribute("data-nexus-widget", this.definition.nodeType);
-    return el;
-  }
-
-  destroy(dom: HTMLElement): void {
-    this.definition.destroy?.(dom);
-  }
-
-  ignoreEvent(): boolean {
-    return this.definition.ignoreEvents === true;
   }
 }
 
@@ -255,4 +278,31 @@ export function createWidgetExtension(
   });
 
   return [field, viewCapture, compositionHandler];
+}
+
+/**
+ * Factory function to create a WidgetDefinition with sensible defaults.
+ * Simplifies widget creation by inferring block/inline from the nodeType
+ * and providing a fluent-style API.
+ *
+ * @example
+ * ```ts
+ * const mermaidWidget = createWidget({
+ *   id: "mermaid",
+ *   nodeType: "code",
+ *   match: (node) => node.lang === "mermaid",
+ *   render: (node, source) => renderMermaidChart(source),
+ *   lifecycle: {
+ *     onMount: (el) => initMermaid(el),
+ *     onUnmount: (el) => cleanupMermaid(el),
+ *   },
+ * });
+ * ```
+ */
+export function createWidget(definition: WidgetDefinition): WidgetDefinition {
+  return {
+    block: true, // default to block for backward compat
+    priority: 0,
+    ...definition,
+  };
 }

@@ -190,3 +190,176 @@ body,
   color: var(--nexus-accent, #2563eb);
   font-weight: 500;
 }
+
+/* ── Split preview panel ─────────────────────────────────────────── */
+.preview-panel {
+  width: 50%;
+  min-width: 200px;
+  border-left: 1px solid #ddd;
+  overflow-y: auto;
+  padding: 24px 32px;
+  background: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+  color: #24292e;
+  display: none; /* hidden by default */
+}
+
+.preview-panel.is-visible {
+  display: block;
+}
+
+/* When split mode is active, the editor column should shrink */
+.editor-column.split-mode {
+  flex: 1;
+  max-width: 50%;
+}
+
+/* Preview typography */
+.preview-panel h1 { font-size: 2em; margin: 0.67em 0; border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
+.preview-panel h2 { font-size: 1.5em; margin: 0.83em 0; border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
+.preview-panel h3 { font-size: 1.25em; margin: 1em 0; }
+.preview-panel h4 { font-size: 1em; margin: 1.33em 0; }
+.preview-panel h5 { font-size: 0.875em; margin: 1.5em 0; }
+.preview-panel h6 { font-size: 0.85em; margin: 1.67em 0; color: #6a737d; }
+
+.preview-panel p { margin: 0 0 16px; }
+.preview-panel a { color: #0366d6; text-decoration: none; }
+.preview-panel a:hover { text-decoration: underline; }
+
+.preview-panel code {
+  padding: 0.2em 0.4em;
+  background: #f6f8fa;
+  border-radius: 3px;
+  font-size: 85%;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.preview-panel pre {
+  padding: 16px;
+  overflow: auto;
+  background: #f6f8fa;
+  border-radius: 6px;
+  margin: 0 0 16px;
+  line-height: 1.45;
+}
+
+.preview-panel pre code {
+  padding: 0;
+  background: none;
+  font-size: 85%;
+}
+
+.preview-panel blockquote {
+  margin: 0 0 16px;
+  padding: 0 1em;
+  border-left: 0.25em solid #dfe2e5;
+  color: #6a737d;
+}
+
+.preview-panel ul, .preview-panel ol {
+  margin: 0 0 16px;
+  padding-left: 2em;
+}
+
+.preview-panel li + li { margin-top: 0.25em; }
+
+.preview-panel table {
+  border-collapse: collapse;
+  margin: 0 0 16px;
+  width: auto;
+}
+
+.preview-panel th, .preview-panel td {
+  padding: 6px 13px;
+  border: 1px solid #dfe2e5;
+}
+
+.preview-panel th {
+  font-weight: 600;
+  background: #f6f8fa;
+}
+
+.preview-panel tr:nth-child(2n) {
+  background: #f6f8fa;
+}
+
+.preview-panel img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+.preview-panel hr {
+  height: 0.25em;
+  padding: 0;
+  margin: 24px 0;
+  background: #e1e4e8;
+  border: 0;
+}
+
+.preview-panel del { color: #6a737d; }
+
+.preview-panel .task-list-item {
+  list-style: none;
+}
+
+.preview-panel .task-list-item input[type="checkbox"] {
+  margin-right: 0.5em;
+}
+
+/* ── Emoji picker ───────────────────────────────────────────────────── */
+.nexus-emoji-picker {
+  background: var(--nexus-bg, #fff);
+  border: 1px solid var(--nexus-border, #e4e7eb);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 8px;
+  width: 280px;
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+  font-family: system-ui, sans-serif;
+}
+
+.nexus-emoji-picker-search {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--nexus-border, #ddd);
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+  margin-bottom: 8px;
+}
+
+.nexus-emoji-picker-search:focus {
+  border-color: var(--nexus-accent, #0969da);
+  box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.15);
+}
+
+.nexus-emoji-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  overflow-y: auto;
+  max-height: 240px;
+}
+
+.nexus-emoji-picker-item {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.nexus-emoji-picker-item:hover {
+  background: var(--nexus-bg-muted, #f0f0f0);
+}

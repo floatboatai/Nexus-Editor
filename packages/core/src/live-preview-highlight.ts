@@ -10,7 +10,9 @@
 
 import hljsCore from "highlight.js/lib/core";
 import bash from "highlight.js/lib/languages/bash";
+import c from "highlight.js/lib/languages/c";
 import cpp from "highlight.js/lib/languages/cpp";
+import csharp from "highlight.js/lib/languages/csharp";
 import css from "highlight.js/lib/languages/css";
 import dockerfile from "highlight.js/lib/languages/dockerfile";
 import go from "highlight.js/lib/languages/go";
@@ -20,11 +22,15 @@ import json from "highlight.js/lib/languages/json";
 import kotlin from "highlight.js/lib/languages/kotlin";
 import markdown from "highlight.js/lib/languages/markdown";
 import nginx from "highlight.js/lib/languages/nginx";
+import php from "highlight.js/lib/languages/php";
 import properties from "highlight.js/lib/languages/properties";
 import python from "highlight.js/lib/languages/python";
+import ruby from "highlight.js/lib/languages/ruby";
 import rust from "highlight.js/lib/languages/rust";
+import scss from "highlight.js/lib/languages/scss";
 import shell from "highlight.js/lib/languages/shell";
 import sql from "highlight.js/lib/languages/sql";
+import swift from "highlight.js/lib/languages/swift";
 import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
@@ -33,7 +39,9 @@ import type { CodeHighlightToken } from "./types";
 
 const hljs = hljsCore;
 hljs.registerLanguage("bash", bash);
+hljs.registerLanguage("c", c);
 hljs.registerLanguage("cpp", cpp);
+hljs.registerLanguage("csharp", csharp);
 hljs.registerLanguage("css", css);
 hljs.registerLanguage("dockerfile", dockerfile);
 hljs.registerLanguage("go", go);
@@ -43,11 +51,15 @@ hljs.registerLanguage("json", json);
 hljs.registerLanguage("kotlin", kotlin);
 hljs.registerLanguage("markdown", markdown);
 hljs.registerLanguage("nginx", nginx);
+hljs.registerLanguage("php", php);
 hljs.registerLanguage("properties", properties);
 hljs.registerLanguage("python", python);
+hljs.registerLanguage("ruby", ruby);
 hljs.registerLanguage("rust", rust);
+hljs.registerLanguage("scss", scss);
 hljs.registerLanguage("shell", shell);
 hljs.registerLanguage("sql", sql);
+hljs.registerLanguage("swift", swift);
 hljs.registerLanguage("typescript", typescript);
 hljs.registerLanguage("xml", xml);
 hljs.registerLanguage("yaml", yaml);
@@ -58,6 +70,9 @@ hljs.registerAliases("ts", { languageName: "typescript" });
 hljs.registerAliases("js", { languageName: "javascript" });
 hljs.registerAliases("py", { languageName: "python" });
 hljs.registerAliases("yml", { languageName: "yaml" });
+hljs.registerAliases("rb", { languageName: "ruby" });
+hljs.registerAliases("cs", { languageName: "csharp" });
+hljs.registerAliases("objc", { languageName: "cpp" });
 
 // Cap on per-block highlight cost. hljs is fast on short snippets; arbitrarily
 // large code blocks (think a 500-line file pasted in) can still produce a

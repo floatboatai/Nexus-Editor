@@ -619,3 +619,72 @@ describe("@floatboat/nexus-plugin-search", () => {
     container.remove();
   });
 });
+
+describe("fuzzy search", () => {
+  it("finds fuzzy matches with characters in sequence", () => {
+    const doc = "function createEditor() {}";
+    const results = findSearchMatches(doc, "cred", { fuzzy: true });
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].text).toContain("c");
+    expect(results[0].score).toBeDefined();
+  });
+
+  it("returns empty results for empty query", () => {
+    expect(findSearchMatches("hello world", "", { fuzzy: true })).toEqual([]);
+  });
+
+  it("returns empty results when chars are not in sequence", () => {
+    const results = findSearchMatches("abc", "zyx", { fuzzy: true });
+    expect(results).toEqual([]);
+  });
+
+  it("is case-insensitive by default", () => {
+    const doc = "HelloWorld";
+    const results = findSearchMatches(doc, "hw", { fuzzy: true });
+    expect(results.length).toBeGreaterThan(0);
+  });
+
+  it("respects caseSensitive option", () => {
+    const doc = "HelloWorld helloworld";
+    const results = findSearchMatches(doc, "HW", { fuzzy: true, caseSensitive: true });
+    expect(results.length).toBe(1);
+    expect(results[0].from).toBe(0);
+  });
+
+  it("scores consecutive matches higher", () => {
+    const doc = "abcdef a_b_c_d_e_f";
+    const results = findSearchMatches(doc, "abcd", { fuzzy: true });
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    // The consecutive match "abcdef" should have a higher score
+    const consecutiveMatch = results.find(m => m.from === 0);
+    const gappedMatch = results.find(m => m.from > 0);
+    if (consecutiveMatch && gappedMatch) {
+      expect(consecutiveMatch.score!).toBeGreaterThan(gappedMatch.score!);
+    }
+  });
+
+  it("supports CJK characters in fuzzy search", () => {
+    const doc = "你好世界欢迎来到这里";
+    const results = findSearchMatches(doc, "好界", { fuzzy: true });
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].text).toContain("好");
+    expect(results[0].text).toContain("界");
+  });
+
+  it("results are sorted by score descending", () => {
+    const doc = "foobar f_o_o_b_a_r foo_bar";
+    const results = findSearchMatches(doc, "fobr", { fuzzy: true });
+    for (let i = 1; i < results.length; i++) {
+      expect(results[i - 1].score!).toBeGreaterThanOrEqual(results[i].score!);
+    }
+  });
+
+  it("matches across word boundaries with bonus", () => {
+    const doc = "file-browser";
+    const results = findSearchMatches(doc, "fb", { fuzzy: true });
+    expect(results.length).toBe(1);
+    expect(results[0].score).toBeDefined();
+    // 'f' at start + 'b' at word boundary after '-' should score well
+    expect(results[0].score!).toBeGreaterThan(0);
+  });
+});

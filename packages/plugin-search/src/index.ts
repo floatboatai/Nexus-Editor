@@ -21,12 +21,16 @@ export interface SearchMatch {
   from: number;
   to: number;
   text: string;
+  /** Relevance score for fuzzy matches (higher = better). Only present when `fuzzy` option is used. */
+  score?: number;
 }
 
 export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  /** Enable fuzzy matching (fzf-like character sequence matching). */
+  fuzzy?: boolean;
 }
 
 export interface SearchHistoryStorage {
@@ -232,6 +236,71 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Compute a fuzzy match score. Higher score = tighter match.
+ * Scoring heuristic:
+ * - +10 per matched character
+ * - +5 bonus for consecutive character matches
+ * - +3 bonus if a match starts at word boundary (start of string, after space/punctuation)
+ * - -1 penalty per gap character between matches
+ */
+function computeFuzzyScore(text: string, queryChars: string[], caseSensitive: boolean): number {
+  let score = 0;
+  let lastIdx = -1;
+  const compareText = caseSensitive ? text : text.toLowerCase();
+
+  for (const ch of queryChars) {
+    const idx = compareText.indexOf(ch, lastIdx + 1);
+    if (idx === -1) return -1;
+
+    score += 10;
+
+    // Consecutive bonus
+    if (lastIdx >= 0 && idx === lastIdx + 1) {
+      score += 5;
+    }
+
+    // Word boundary bonus
+    if (idx === 0 || /[\s_\-./]/.test(text[idx - 1])) {
+      score += 3;
+    }
+
+    // Gap penalty
+    if (lastIdx >= 0) {
+      const gap = idx - lastIdx - 1;
+      score -= gap;
+    }
+
+    lastIdx = idx;
+  }
+
+  // Shorter matches are better (penalize long stretches)
+  const span = lastIdx - (compareText.indexOf(queryChars[0]) );
+  if (span > queryChars.length) {
+    score -= Math.floor((span - queryChars.length) * 0.5);
+  }
+
+  return score;
+}
+
+/**
+ * Build a fuzzy RegExp pattern from a query string.
+ * Each character in the query is separated by `.*?` to match in sequence.
+ */
+function buildFuzzyPattern(query: string, caseSensitive: boolean): RegExp | null {
+  const chars = Array.from(query);
+  if (chars.length === 0) return null;
+
+  const pattern = chars.map(escapeRegExp).join(".*?");
+  const flags = caseSensitive ? "g" : "gi";
+
+  try {
+    return new RegExp(pattern, flags);
+  } catch {
+    return null;
+  }
+}
+
 function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp | null {
   const flags = options.caseSensitive ? "g" : "gi";
 
@@ -259,6 +328,11 @@ export function findSearchMatches(
     return [];
   }
 
+  // Fuzzy search mode
+  if (options.fuzzy) {
+    return findFuzzyMatches(doc, query, options);
+  }
+
   const pattern = buildSearchPattern(query, options);
   if (!pattern) {
     return [];
@@ -276,6 +350,41 @@ export function findSearchMatches(
     });
   }
 
+  return matches;
+}
+
+/**
+ * Find fuzzy matches in a document. Returns matches sorted by score (best first).
+ */
+function findFuzzyMatches(
+  doc: string,
+  query: string,
+  options: SearchOptions
+): SearchMatch[] {
+  const caseSensitive = options.caseSensitive ?? false;
+  const pattern = buildFuzzyPattern(query, caseSensitive);
+  if (!pattern) return [];
+
+  const queryChars = Array.from(caseSensitive ? query : query.toLowerCase());
+  const matches: SearchMatch[] = [];
+
+  for (const match of doc.matchAll(pattern)) {
+    const text = match[0];
+    const from = match.index ?? 0;
+    const score = computeFuzzyScore(text, queryChars, caseSensitive);
+
+    if (score >= 0) {
+      matches.push({
+        from,
+        to: from + text.length,
+        text,
+        score
+      });
+    }
+  }
+
+  // Sort by score descending (best matches first)
+  matches.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   return matches;
 }
 
