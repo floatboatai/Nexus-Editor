@@ -71,6 +71,27 @@ editor.on("selectionChange", ({ anchor, head, ranges, mainIndex }) => {
 
 Multiple ranges in `setSelections` require `multiCursor: true` — without the flag CodeMirror collapses the selection to its main range.
 
+## Split-pane preview sync scroll
+
+Hosts that render a side-by-side HTML preview (via `exportHTML()`) can wire bidirectional scroll sync:
+
+```ts
+import { attachSyncScroll } from "@floatboat/nexus-core";
+
+const editorScroll = editor.getScrollElement();
+const previewScroll = document.querySelector(".preview-scroll") as HTMLElement;
+
+const sync = attachSyncScroll({
+  primary: editorScroll!,
+  secondary: previewScroll,
+});
+
+// later
+sync.destroy();
+```
+
+`attachSyncScroll` maps scroll position by normalized ratio so the preview does not need a line-perfect DOM mapping. See `docs/ROADMAP.md` item #13.
+
 ## Other config highlights
 
 See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.

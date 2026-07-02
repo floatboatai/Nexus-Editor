@@ -43,6 +43,78 @@ body,
   overflow: hidden;
 }
 
+.editor-workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.split-preview-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--nexus-border, #ddd);
+  background: var(--nexus-bg, #fff);
+}
+
+.split-preview-pane[hidden] {
+  display: none !important;
+}
+
+.split-preview-header {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--nexus-text-muted, #666);
+  border-bottom: 1px solid var(--nexus-border-subtle, #eee);
+}
+
+.split-preview-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 20px;
+}
+
+.split-preview-content {
+  max-width: 720px;
+  line-height: 1.6;
+  color: var(--nexus-text, #24292e);
+}
+
+.split-preview-content h1,
+.split-preview-content h2,
+.split-preview-content h3,
+.split-preview-content h4 {
+  margin: 1.2em 0 0.5em;
+  line-height: 1.25;
+}
+
+.split-preview-content p,
+.split-preview-content ul,
+.split-preview-content ol,
+.split-preview-content pre {
+  margin: 0.75em 0;
+}
+
+.split-preview-content pre {
+  padding: 12px;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: var(--nexus-bg-subtle, #f6f8fa);
+}
+
+.split-preview-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
 .editor-container {
   flex: 1;
   min-height: 0;

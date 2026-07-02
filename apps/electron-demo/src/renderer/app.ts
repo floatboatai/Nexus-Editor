@@ -354,6 +354,9 @@ function boot(): void {
   const editorColumn = document.createElement("div");
   editorColumn.className = "editor-column";
 
+  const editorWorkspace = document.createElement("div");
+  editorWorkspace.className = "editor-workspace";
+
   const editorContainer = document.createElement("div");
   editorContainer.className = "editor-container";
 
@@ -407,8 +410,12 @@ function boot(): void {
     getActiveFile: () => state.activeFile,
   });
 
-  editorColumn.append(searchBar.element, editorContainer);
+  editorWorkspace.append(editorContainer);
+  editorColumn.append(searchBar.element, editorWorkspace);
   mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
+
+  // Split preview mounts beside the editor once the shell is ready.
+  editorWorkspace.append(shell.splitPreview.element);
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {

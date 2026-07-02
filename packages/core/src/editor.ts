@@ -883,6 +883,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
     off(event, handler) {
       emitter.off(event, handler);
     },
+    getScrollElement() {
+      if (destroyed) return null;
+      return view.scrollDOM;
+    },
     getCoordsAtPos(pos) {
       if (destroyed) return null;
       try {

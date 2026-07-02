@@ -16,6 +16,7 @@ import {
 } from "@floatboat/nexus-plugin-wordcount";
 import type { AppState } from "./state";
 import { type EditorSettings, settingsToTheme } from "./settings";
+import { createSplitPreviewPane, type SplitPreviewPane } from "./split-preview";
 
 // Parse Obsidian-style size specifier from the alt text: `alt|width` or
 // `alt|widthxheight`. Returns { alt, width, height } with the size stripped
@@ -85,6 +86,8 @@ export interface EditorShell {
   slashMenu: SlashMenuUI;
   /** Markdown-aware word-count plugin (handle + status bar). */
   wordcount: WordCountPlugin;
+  /** Side-by-side HTML preview pane (Roadmap P2 #13). */
+  splitPreview: SplitPreviewPane;
   applySettings(settings: EditorSettings): void;
   loadDocument(content: string): void;
   destroy(): void;
@@ -100,6 +103,8 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     resolveWikilink,
     suggestWikilinks,
   } = options;
+
+  let currentSettings = settings;
 
   // Forward ref so the image renderer (built BEFORE createEditor returns)
   // can dispatch selection changes through the editor API after it exists.
@@ -144,7 +149,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       wikilinksPlugin,
       wordcount,
     ],
-    livePreview: settings.livePreview
+    livePreview: currentSettings.livePreview
       ? {
           enabled: true,
           renderers: {
@@ -314,10 +319,10 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
           },
         }
       : false,
-    theme: settingsToTheme(settings),
-    tabSize: settings.tabSize,
-    direction: settings.direction,
-    indentGuides: settings.indentGuides,
+    theme: settingsToTheme(currentSettings),
+    tabSize: currentSettings.tabSize,
+    direction: currentSettings.direction,
+    indentGuides: currentSettings.indentGuides,
     onChange(doc) {
       state.content = doc;
       state.dirty = true;
@@ -326,11 +331,20 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       if (state.linkIndex && state.activeFile) {
         state.linkIndex.updateFile(state.activeFile, doc);
       }
+      if (currentSettings.splitPreview) {
+        splitPreview.updateFromEditor(editor);
+      }
       onStateChange();
     },
   });
 
   editorRef.current = editor;
+
+  const splitPreview = createSplitPreviewPane(editor);
+  splitPreview.setEnabled(currentSettings.splitPreview);
+  if (currentSettings.splitPreview) {
+    splitPreview.updateFromEditor(editor);
+  }
 
   const toolbar = createToolbarUI(editor);
   container.insertBefore(toolbar.element, container.firstChild);
@@ -351,8 +365,14 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     toolbar,
     slashMenu,
     wordcount,
+    splitPreview,
     applySettings(next: EditorSettings) {
+      currentSettings = next;
       editor.setTheme(settingsToTheme(next));
+      splitPreview.setEnabled(next.splitPreview);
+      if (next.splitPreview) {
+        splitPreview.updateFromEditor(editor);
+      }
     },
     loadDocument(content: string) {
       // Load from disk is NOT a user edit — use silent mode to skip the
@@ -371,8 +391,12 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       // eslint-disable-next-line no-console
       console.log("%c[perf]", "color:#0aa;font-weight:bold", "editor.setDocument",
         `${(t1 - t0).toFixed(1)}ms`, { bytes: content.length });
+      if (currentSettings.splitPreview) {
+        splitPreview.updateFromEditor(editor);
+      }
     },
     destroy() {
+      splitPreview.destroy();
       wordcount.destroy();
       slashMenu.destroy();
       toolbar.destroy();

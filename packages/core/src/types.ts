@@ -267,6 +267,11 @@ export interface EditorAPI {
   destroy(): void;
   on<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
   off<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
+  /**
+   * Returns the editor's primary scroll container (CodeMirror `scrollDOM`).
+   * Hosts use this to wire split-pane preview sync — see `attachSyncScroll`.
+   */
+  getScrollElement(): HTMLElement | null;
   getCoordsAtPos(pos: number): { left: number; right: number; top: number; bottom: number } | null;
   /**
    * 返回某个 DOM 节点当前对应的文档偏移（基于 CodeMirror 的 DOM↔文档映射）。

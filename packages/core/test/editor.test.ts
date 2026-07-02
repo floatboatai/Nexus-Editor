@@ -610,6 +610,17 @@ describe("createEditor", () => {
 
   // ── HTML export ──
 
+  it("returns the scroll container for split-pane hosts", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello" });
+
+    const scrollEl = editor.getScrollElement();
+    expect(scrollEl).not.toBeNull();
+    expect(scrollEl?.classList.contains("cm-scroller")).toBe(true);
+    editor.destroy();
+    expect(editor.getScrollElement()).toBeNull();
+  });
+
   it("exports markdown to semantic HTML", () => {
     const container = document.createElement("div");
     const editor = createEditor({

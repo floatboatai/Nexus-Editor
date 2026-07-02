@@ -12,6 +12,8 @@ export interface EditorSettings {
   indentGuides: boolean;
   lineNumbers: boolean;
   livePreview: boolean;
+  /** Side-by-side HTML preview with bidirectional scroll sync (Roadmap P2 #13). */
+  splitPreview: boolean;
 }
 
 const STORAGE_KEY = "nexus-editor-settings";
@@ -28,6 +30,7 @@ export function defaultSettings(): EditorSettings {
     indentGuides: false,
     lineNumbers: true,
     livePreview: true,
+    splitPreview: false,
   };
 }
 
@@ -271,6 +274,7 @@ export function createSettingsPanel(settings: EditorSettings, onChange: OnChange
   body.appendChild(row("Color scheme", "Light or dark theme", createSelect(["light", "dark"], s.colorScheme, (v) => { s.colorScheme = v as "light" | "dark"; emit(); })));
   body.appendChild(row("Line numbers", "Show line numbers in the gutter", createToggle(s.lineNumbers, (v) => { s.lineNumbers = v; emit(); })));
   body.appendChild(row("Live preview", "Render markdown in real-time", createToggle(s.livePreview, (v) => { s.livePreview = v; emit(); })));
+  body.appendChild(row("Split preview", "Side-by-side HTML preview with sync scroll", createToggle(s.splitPreview, (v) => { s.splitPreview = v; emit(); })));
   body.appendChild(row("Indent guides", "Show indentation guide lines", createToggle(s.indentGuides, (v) => { s.indentGuides = v; emit(); })));
   body.appendChild(row("Content max width", "Limit line width for readability (e.g. 720px)", createTextInput(s.contentMaxWidth, "e.g. 720px", (v) => { s.contentMaxWidth = v; emit(); })));
   body.appendChild(row("Text direction", "Left-to-right or right-to-left", createSelect(["ltr", "rtl"], s.direction, (v) => { s.direction = v as "ltr" | "rtl"; emit(); })));

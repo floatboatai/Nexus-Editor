@@ -21,6 +21,13 @@ export {
 } from "./slash-state";
 export { lightTheme, darkTheme, type NexusTheme } from "./theme";
 export {
+  applyScrollRatio,
+  attachSyncScroll,
+  computeScrollRatio,
+  type AttachSyncScrollOptions,
+  type SyncScrollHandle,
+} from "./sync-scroll";
+export {
   scanWikiLinks,
   createWikilinksExtension,
   createWikilinksPlugin,
