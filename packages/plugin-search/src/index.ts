@@ -16,17 +16,25 @@ import {
 import { keymap, runScopeHandlers, type EditorView, type Panel, type ViewUpdate } from "@codemirror/view";
 
 import type { NexusPlugin } from "@floatboat/nexus-core";
+import { fuzzyMatch } from "./fuzzy";
+
+export { fuzzyMatch };
+export type { FuzzyMatchResult, FuzzySearchOptions } from "./fuzzy";
 
 export interface SearchMatch {
   from: number;
   to: number;
   text: string;
+  score?: number;
+  positions?: number[];
 }
 
 export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  fuzzy?: boolean;
+  maxResults?: number;
 }
 
 export interface SearchHistoryStorage {
@@ -250,6 +258,109 @@ function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp 
   }
 }
 
+interface SearchCandidate {
+  from: number;
+  to: number;
+  text: string;
+}
+
+const WORD_CANDIDATE_PATTERN = /[\p{L}\p{N}_-]+/gu;
+
+function collectLineCandidates(doc: string): SearchCandidate[] {
+  const candidates: SearchCandidate[] = [];
+  let lineStart = 0;
+
+  for (let i = 0; i < doc.length; i += 1) {
+    if (doc[i] !== "\n") continue;
+
+    const lineEnd = i > lineStart && doc[i - 1] === "\r" ? i - 1 : i;
+    if (lineEnd > lineStart) {
+      candidates.push({
+        from: lineStart,
+        to: lineEnd,
+        text: doc.slice(lineStart, lineEnd)
+      });
+    }
+    lineStart = i + 1;
+  }
+
+  if (lineStart < doc.length) {
+    candidates.push({
+      from: lineStart,
+      to: doc.length,
+      text: doc.slice(lineStart)
+    });
+  }
+
+  return candidates;
+}
+
+function collectWordCandidates(doc: string): SearchCandidate[] {
+  const candidates: SearchCandidate[] = [];
+
+  for (const match of doc.matchAll(WORD_CANDIDATE_PATTERN)) {
+    const text = match[0];
+    const from = match.index ?? 0;
+    candidates.push({
+      from,
+      to: from + text.length,
+      text
+    });
+  }
+
+  return candidates;
+}
+
+function resolveMaxResults(maxResults: number | undefined): number | null {
+  if (maxResults === undefined || !Number.isFinite(maxResults)) {
+    return null;
+  }
+
+  return Math.max(0, Math.floor(maxResults));
+}
+
+export function findFuzzySearchMatches(
+  doc: string,
+  query: string,
+  options: SearchOptions = {}
+): SearchMatch[] {
+  if (!query || options.regexp) {
+    return [];
+  }
+
+  const candidates = options.wholeWord ? collectWordCandidates(doc) : collectLineCandidates(doc);
+  const matches: SearchMatch[] = [];
+
+  for (const candidate of candidates) {
+    const match = fuzzyMatch(query, candidate.text, {
+      caseSensitive: options.caseSensitive
+    });
+    if (!match) continue;
+
+    const first = match.positions[0];
+    const last = match.positions[match.positions.length - 1];
+    const from = candidate.from + first;
+    const to = candidate.from + last + 1;
+
+    matches.push({
+      from,
+      to,
+      text: doc.slice(from, to),
+      score: match.score,
+      positions: match.positions.map((position) => candidate.from + position)
+    });
+  }
+
+  matches.sort((a, b) => {
+    const scoreDelta = (b.score ?? 0) - (a.score ?? 0);
+    if (scoreDelta !== 0) return scoreDelta;
+    return a.from - b.from;
+  });
+
+  const maxResults = resolveMaxResults(options.maxResults);
+  return maxResults === null ? matches : matches.slice(0, maxResults);
+}
+
 export function findSearchMatches(
   doc: string,
   query: string,
@@ -257,6 +368,10 @@ export function findSearchMatches(
 ): SearchMatch[] {
   if (!query) {
     return [];
+  }
+
+  if (options.fuzzy) {
+    return findFuzzySearchMatches(doc, query, options);
   }
 
   const pattern = buildSearchPattern(query, options);
