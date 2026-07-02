@@ -242,3 +242,57 @@ export function findFuzzyMatches(
   matches.sort((a, b) => b.score - a.score || a.from - b.from);
   return matches;
 }
+
+export interface FuzzyFilterOptions<T> extends FuzzyMatchOptions {
+  /**
+   * Extract the string to match from each item. Defaults to identity, so the
+   * items must be strings unless a `key` is supplied.
+   */
+  key?: (item: T) => string;
+  /** Keep at most this many results (applied after ranking). */
+  limit?: number;
+}
+
+export interface FuzzyFilterResult<T> extends FuzzyMatchResult {
+  /** The original item. */
+  item: T;
+  /** The string that was matched — the result of `key(item)`. */
+  text: string;
+}
+
+/**
+ * Rank a list of candidates against a query — the building block for a
+ * quick-open dialog, command palette, or symbol picker. Items that do not
+ * fuzzy-match are dropped; the rest are sorted best match first, ties broken by
+ * original order.
+ *
+ * Unlike {@link findFuzzyMatches}, an empty query returns *every* item (in
+ * input order, score 0): a picker shows the full list before you type.
+ * `positions` are indices into each item's own `text`.
+ */
+export function fuzzyFilter<T>(
+  items: readonly T[],
+  query: string,
+  options: FuzzyFilterOptions<T> = {}
+): FuzzyFilterResult<T>[] {
+  const key = options.key ?? ((item: T) => item as unknown as string);
+  const limit = options.limit === undefined ? undefined : Math.max(0, options.limit);
+  const clamp = <U>(list: U[]): U[] => (limit === undefined ? list : list.slice(0, limit));
+
+  if (query.length === 0) {
+    return clamp(items.map((item) => ({ item, text: key(item), score: 0, positions: [] })));
+  }
+
+  const ranked: Array<FuzzyFilterResult<T> & { index: number }> = [];
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index];
+    const text = key(item);
+    const match = fuzzyMatch(text, query, options);
+    if (match) {
+      ranked.push({ item, text, score: match.score, positions: match.positions, index });
+    }
+  }
+
+  ranked.sort((a, b) => b.score - a.score || a.index - b.index);
+  return clamp(ranked).map(({ index: _index, ...result }) => result);
+}

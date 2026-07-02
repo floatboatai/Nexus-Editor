@@ -20,9 +20,12 @@ import type { NexusPlugin } from "@floatboat/nexus-core";
 export {
   fuzzyMatch,
   findFuzzyMatches,
+  fuzzyFilter,
   type FuzzyMatchOptions,
   type FuzzyMatchResult,
-  type FuzzyMatch
+  type FuzzyMatch,
+  type FuzzyFilterOptions,
+  type FuzzyFilterResult
 } from "./fuzzy";
 
 export interface SearchMatch {

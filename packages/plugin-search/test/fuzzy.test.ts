@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findFuzzyMatches, fuzzyMatch } from "../src/index";
+import { findFuzzyMatches, fuzzyFilter, fuzzyMatch } from "../src/index";
 
 function scoreOf(text: string, query: string, caseSensitive = false): number {
   const result = fuzzyMatch(text, query, { caseSensitive });
@@ -134,5 +134,69 @@ describe("findFuzzyMatches", () => {
   it("honors caseSensitive", () => {
     expect(findFuzzyMatches("Config", "config", { caseSensitive: true })).toHaveLength(0);
     expect(findFuzzyMatches("Config", "Config", { caseSensitive: true })).toHaveLength(1);
+  });
+});
+
+describe("fuzzyFilter", () => {
+  const files = [
+    "src/live-preview.ts",
+    "src/live-preview-table.ts",
+    "src/fuzzy.ts",
+    "README.md"
+  ];
+
+  it("filters a string list and keeps only subsequence matches", () => {
+    const results = fuzzyFilter(files, "lpt");
+    expect(results.map((r) => r.text).sort()).toEqual(
+      ["src/live-preview-table.ts", "src/live-preview.ts"].sort()
+    );
+    // positions index into each item's own text
+    for (const result of results) {
+      expect(result.positions.map((p) => result.text[p]).join("")).toBe("lpt");
+    }
+  });
+
+  it("ranks the stronger match first regardless of input order", () => {
+    const results = fuzzyFilter(["xxconfig", "config"], "config");
+    expect(results[0].text).toBe("config"); // boundary + first-char beats mid-string
+    expect(results[0].score).toBeGreaterThan(results[1].score);
+  });
+
+  it("drops items that do not match", () => {
+    expect(fuzzyFilter(files, "zzz")).toEqual([]);
+  });
+
+  it("supports a key accessor for object items", () => {
+    const commands = [
+      { id: "bold", title: "Toggle Bold" },
+      { id: "italic", title: "Toggle Italic" },
+      { id: "code", title: "Insert Code Block" }
+    ];
+    const results = fuzzyFilter(commands, "tb", { key: (c) => c.title });
+    expect(results[0].item.id).toBe("bold"); // "Toggle Bold" beats "Insert Code Block"
+    expect(results.some((r) => r.item.id === "italic")).toBe(false); // no "b"
+  });
+
+  it("returns every item in original order for an empty query", () => {
+    const results = fuzzyFilter(files, "");
+    expect(results.map((r) => r.text)).toEqual(files);
+    expect(results.every((r) => r.score === 0 && r.positions.length === 0)).toBe(true);
+  });
+
+  it("caps results with limit", () => {
+    expect(fuzzyFilter(files, "e", { limit: 2 })).toHaveLength(2);
+    expect(fuzzyFilter(files, "", { limit: 1 })).toHaveLength(1);
+    expect(fuzzyFilter(files, "e", { limit: 0 })).toHaveLength(0);
+  });
+
+  it("breaks ties by original order", () => {
+    const results = fuzzyFilter(["ab", "ac", "ad"], "a");
+    // all score equally; input order is preserved
+    expect(results.map((r) => r.text)).toEqual(["ab", "ac", "ad"]);
+  });
+
+  it("honors caseSensitive", () => {
+    expect(fuzzyFilter(["Config"], "config", { caseSensitive: true })).toHaveLength(0);
+    expect(fuzzyFilter(["Config"], "C", { caseSensitive: true })).toHaveLength(1);
   });
 });

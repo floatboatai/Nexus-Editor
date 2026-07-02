@@ -132,6 +132,33 @@ for (const match of findFuzzyMatches(doc, "todo")) {
 
 An empty query returns `[]` (matching `findSearchMatches`), not every line.
 
+### `fuzzyFilter(items, query, options?): FuzzyFilterResult<T>[]`
+
+Rank an arbitrary list of candidates — the building block for a quick-open
+dialog, command palette, or symbol picker. Non-matching items are dropped; the
+rest are ranked best-first, ties broken by original order. Pass `key` to match
+against a field of object items, and `limit` to cap the result count.
+
+```ts
+import { fuzzyFilter } from "@floatboat/nexus-plugin-search";
+
+// strings
+fuzzyFilter(["src/live-preview.ts", "src/fuzzy.ts", "README.md"], "fzy");
+// [{ item: "src/fuzzy.ts", text: "src/fuzzy.ts", score, positions: [4, 6, 8] }]
+
+// objects, via `key`
+const commands = [
+  { id: "bold", title: "Toggle Bold" },
+  { id: "code", title: "Insert Code Block" }
+];
+fuzzyFilter(commands, "tb", { key: (c) => c.title, limit: 10 });
+// ranked by title; each result carries the original `item`
+```
+
+Unlike `findFuzzyMatches`, an **empty query returns every item** (input order,
+score 0) — a picker shows the full list before the user types. `positions`
+index into each result's own `text`.
+
 ### Scoring model
 
 The scorer follows fzf's `FuzzyMatchV1`: a forward + backward scan narrows the
