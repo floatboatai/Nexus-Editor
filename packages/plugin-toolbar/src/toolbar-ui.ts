@@ -191,6 +191,8 @@ function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
 const TOOLBAR_STYLES = `
   display: flex;
   align-items: center;
+  align-content: center;
+  flex-wrap: wrap;
   gap: 2px;
   padding: 6px 12px;
   background: var(--nexus-bg-subtle, #f6f8fa);
