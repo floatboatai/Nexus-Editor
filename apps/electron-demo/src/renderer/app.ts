@@ -404,6 +404,10 @@ function boot(): void {
   backlinks = createBacklinksPanel({
     index: linkIndex,
     onOpenFile: (filePath) => void handleVaultFileOpen(filePath),
+    onSelectLink: (hit) => {
+      shell.editor.setSelection(hit.from);
+      shell.editor.focus();
+    },
     getActiveFile: () => state.activeFile,
   });
 

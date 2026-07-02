@@ -77,6 +77,59 @@ describe("LinkIndex.backlinks", () => {
   });
 });
 
+describe("LinkIndex.getBrokenLinks", () => {
+  it("reports unresolved wiki links in the source file", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "/v/Known.md", content: "# Known" },
+      { path: "/v/Inbox.md", content: "See [[Known]] and [[Ghost]] today" },
+    ]);
+
+    const broken = idx.getBrokenLinks("/v/Inbox.md");
+    expect(broken).toHaveLength(1);
+    expect(broken[0]).toMatchObject({
+      sourcePath: "/v/Inbox.md",
+      kind: "wikilink",
+      target: "Ghost",
+      snippet: "See [[Known]] and [[Ghost]] today",
+    });
+  });
+
+  it("reports wiki links whose target anchor is missing", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "/v/Foo.md", content: "# Real heading\nbody ^real-block" },
+      { path: "/v/Inbox.md", content: "[[Foo#Real heading]]\n[[Foo#Missing]]\n[[Foo^real-block]]" },
+    ]);
+
+    const broken = idx.getBrokenLinks("/v/Inbox.md");
+    expect(broken.map((hit) => hit.target)).toEqual(["Foo#Missing"]);
+  });
+
+  it("reports missing local markdown links without flagging external URLs", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "/v/docs/Guide.md", content: "# Guide" },
+      {
+        path: "/v/notes/Inbox.md",
+        content: [
+          "[guide](../docs/Guide.md)",
+          "[missing](../docs/Missing.md)",
+          "[external](https://example.com/missing.md)",
+        ].join("\n"),
+      },
+    ]);
+
+    const broken = idx.getBrokenLinks("/v/notes/Inbox.md");
+    expect(broken).toHaveLength(1);
+    expect(broken[0]).toMatchObject({
+      kind: "markdown",
+      target: "../docs/Missing.md",
+      snippet: "[missing](../docs/Missing.md)",
+    });
+  });
+});
+
 describe("LinkIndex.getAllNoteNames", () => {
   it("returns dedup'd basenames without extension", () => {
     const idx = new LinkIndex();
