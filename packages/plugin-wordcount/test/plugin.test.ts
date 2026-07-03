@@ -167,6 +167,19 @@ describe("createWordCountPlugin", () => {
 
     expect(wordcount.getStats().words).toBe(1);
   });
+
+  it("activates via editor.usePlugin at runtime", async () => {
+    const wordcount = createWordCountPlugin();
+    editor = createEditor({
+      container,
+      initialValue: "runtime plugin activation",
+      plugins: []
+    });
+
+    expect(editor.usePlugin(wordcount)).toBe(true);
+    await flushMicrotasks();
+    expect(wordcount.getStats().words).toBe(3);
+  });
 });
 
 describe("createWordCountPlugin — status bar", () => {
@@ -257,6 +270,19 @@ describe("createWordCountPlugin — status bar", () => {
 
     expect(document.querySelector('[data-test-id="nexus-wordcount-bar"]')).not.toBeNull();
     wordcount.destroy();
+    expect(document.querySelector('[data-test-id="nexus-wordcount-bar"]')).toBeNull();
+  });
+
+  it("removes status bar when runtime plugin is un-used", async () => {
+    const wordcount = createWordCountPlugin({ statusBar: {} });
+    editor = createEditor({ container, initialValue: "runtime status bar", plugins: [] });
+
+    expect(editor.usePlugin(wordcount)).toBe(true);
+    await flushMicrotasks();
+    expect(document.querySelector('[data-test-id="nexus-wordcount-bar"]')).not.toBeNull();
+
+    expect(editor.unusePlugin("plugin-wordcount")).toBe(true);
+    await flushMicrotasks();
     expect(document.querySelector('[data-test-id="nexus-wordcount-bar"]')).toBeNull();
   });
 });
