@@ -7,9 +7,7 @@ import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
-import { renderMarkdownPreview } from "./markdown-preview-renderer";
 import { createSplitPreview, type SplitPreview } from "./split-preview";
-import { parseMarkdownToAst } from "@floatboat/nexus-core";
 
 installLongTaskWatch(50);
 
@@ -229,6 +227,13 @@ function toggleSplitPreview(): void {
   syncSplitPreviewButton();
 }
 
+function renderSplitPreview(): DocumentFragment {
+  const exported = shell.editor.exportHTML({ sourceMap: true });
+  const template = document.createElement("template");
+  template.innerHTML = exported.html;
+  return template.content;
+}
+
 async function handleVaultFileOpen(filePath: string): Promise<void> {
   const total = perfStart("open-file", { filePath });
   try {
@@ -439,7 +444,7 @@ function boot(): void {
   splitPreview = createSplitPreview({
     editor: shell.editor,
     editorColumn,
-    renderPreview: () => renderMarkdownPreview(parseMarkdownToAst(shell.editor.getDocument())),
+    renderPreview: renderSplitPreview,
   });
 
   editorColumn.append(searchBar.element, editorContainer);

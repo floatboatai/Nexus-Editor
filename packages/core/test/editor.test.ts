@@ -2,7 +2,7 @@ import type { Root } from "mdast";
 import { EditorView, ViewPlugin } from "@codemirror/view";
 import type { Plugin } from "unified";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createEditor } from "../src/index";
+import { createEditor, parseMarkdownToAst } from "../src/index";
 import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
 
 function requireEditorView(view: EditorView | null): EditorView {
@@ -666,6 +666,99 @@ describe("createEditor", () => {
     expect(html).toContain("<strong>bold</strong>");
     expect(html).toContain("<code");
     expect(html).toContain("console.log(1)");
+    editor.destroy();
+  });
+
+  it("keeps parseMarkdownToAst available from the public package entry", () => {
+    const ast = parseMarkdownToAst("# Hello");
+
+    expect(ast.type).toBe("root");
+    expect(ast.children[0]?.type).toBe("heading");
+  });
+
+  it("exports source-mapped HTML for split preview sync", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "# Hello\n\nParagraph\n\n```js\nconsole.log(1)\n```"
+    });
+
+    const result = editor.exportHTML({ sourceMap: true });
+
+    expect(result.html).toContain('data-source-type="heading"');
+    expect(result.html).toContain('data-source-line="1"');
+    expect(result.html).toContain('data-source-offset="0"');
+    expect(result.html).toContain('data-source-type="paragraph"');
+    expect(result.html).toContain('data-source-type="code"');
+    expect(result.sourceMap.map((entry) => entry.type)).toEqual(["heading", "paragraph", "code"]);
+    expect(result.sourceMap[0]?.offset).toBe(0);
+    expect(result.sourceMap.map((entry) => entry.line)).toEqual([1, 3, 5]);
+    editor.destroy();
+  });
+
+  it("sanitizes raw HTML before split preview inserts exported HTML into the DOM", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: [
+        '<script>alert("x")</script>',
+        '<iframe src="https://example.com"></iframe>',
+        '<object data="https://example.com/payload"></object>',
+        '<embed src="https://example.com/payload">',
+        '<style>body { display: none }</style>',
+        '<div onclick="alert(1)"><a href="javascript:alert(2)">safe-ish</a></div>',
+        '<a href=javascript:alert(3)>unquoted</a>',
+        '<a href="&#x6a;avascript:alert(4)">encoded</a>',
+      ].join("\n\n")
+    });
+
+    const result = editor.exportHTML({ sourceMap: true });
+    const template = document.createElement("template");
+    template.innerHTML = result.html;
+
+    expect(result.html).not.toContain("<script");
+    expect(result.html).not.toContain("<iframe");
+    expect(result.html).not.toContain("<object");
+    expect(result.html).not.toContain("<embed");
+    expect(result.html).not.toContain("<style");
+    expect(result.html).not.toContain("onclick");
+    expect(result.html).not.toContain("javascript:");
+    expect(result.html).not.toContain("&#x6a;avascript:");
+    expect(result.html).toContain('href="#"');
+    expect(template.content.querySelector("script,iframe,object,embed,style")).toBeNull();
+    expect(template.content.querySelector("[onclick]")).toBeNull();
+    expect(Array.from(template.content.querySelectorAll("a")).map((link) => link.getAttribute("href"))).toEqual([
+      "#",
+      "#",
+      "#",
+    ]);
+    editor.destroy();
+  });
+
+  it("replaces unsafe markdown link and image protocols in exported HTML", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: [
+        "[data link](data:text/html,<script>alert(1)</script>)",
+        "[file link](file:///etc/passwd)",
+        "![data image](data:image/png;base64,AAAA)",
+        "[relative](notes/today.md)",
+        "[https](https://example.com)",
+      ].join("\n\n")
+    });
+
+    const html = editor.exportHTML();
+    const template = document.createElement("template");
+    template.innerHTML = html;
+
+    expect(Array.from(template.content.querySelectorAll("a")).map((link) => link.getAttribute("href"))).toEqual([
+      "#",
+      "#",
+      "notes/today.md",
+      "https://example.com",
+    ]);
+    expect(template.content.querySelector("img")?.getAttribute("src")).toBe("#");
     editor.destroy();
   });
 });

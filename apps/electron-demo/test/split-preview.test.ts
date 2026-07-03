@@ -92,7 +92,9 @@ function createEditorStub(sourceScroller: HTMLElement): EditorAPI {
     getDocument: vi.fn(() => "a\n".repeat(500)),
     getAst: vi.fn((): Root => ({ type: "root", children: [] })),
     getTableOfContents: vi.fn(() => []),
-    exportHTML: vi.fn(() => ""),
+    exportHTML: vi.fn((options?: { sourceMap?: boolean }) =>
+      options?.sourceMap ? { html: "", sourceMap: [] } : ""
+    ) as unknown as EditorAPI["exportHTML"],
     setTheme: vi.fn(),
     getSelection: vi.fn(() => ({ anchor: 5, head: 5 })),
     getSelections: vi.fn(() => ({ ranges: [{ anchor: 5, head: 5 }], mainIndex: 0 })),

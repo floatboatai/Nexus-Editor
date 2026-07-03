@@ -18,6 +18,8 @@ import { EventEmitter } from "./event-emitter";
 import { createLivePreviewExtension } from "./live-preview";
 import { createMarkdownLanguageSupport } from "./lezer-markdown";
 import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
+import { exportMarkdownHtml } from "./html-export";
+import { defaultSanitizeHtml } from "./html-sanitizer";
 import { markdownFoldService } from "./markdown-fold";
 import { resolveLocale } from "./locale";
 import { markdownAutoPair } from "./markdown-autopair";
@@ -33,6 +35,7 @@ import type {
   EditorEventContext,
   EditorEventHandler,
   EditorEventMap,
+  ExportHTMLOptions,
   EditorLineBlock,
   EditorSelectionRange,
   NexusPlugin,
@@ -714,6 +717,15 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // / silent setDocument can read the live incremental Lezer tree.
   viewRef.current = view;
 
+  const exportHTML = ((options?: ExportHTMLOptions) => {
+    if (!options?.sourceMap) return defaultSanitizeHtml(markdownToHtml(view.state.doc.toString(), plugins));
+
+    const ast = customParser
+      ? parseDocument(customParser, view.state.doc.toString())
+      : transformAst(lezerAstFromAnywhere(viewRef, view.state.doc.toString()));
+    return exportMarkdownHtml(ast, true, (offset) => view.state.doc.lineAt(clampPosition(offset, view.state.doc.length)).number);
+  }) as EditorAPI["exportHTML"];
+
   api = {
     getDocument() {
       return view.state.doc.toString();
@@ -724,9 +736,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
     getTableOfContents() {
       return extractToc(currentAst);
     },
-    exportHTML() {
-      return markdownToHtml(view.state.doc.toString(), plugins);
-    },
+    exportHTML,
     setTheme(theme: NexusTheme) {
       if (destroyed) return;
       view.dispatch(themeExt.reconfigure(theme));

@@ -157,6 +157,32 @@ export interface TocEntry {
   to: number;
 }
 
+export interface ExportHTMLOptions {
+  /**
+   * Include `data-source-*` attributes in the emitted HTML and return the
+   * corresponding block-level source map. Used by split-preview scroll sync.
+   */
+  sourceMap?: boolean;
+}
+
+export interface ExportHTMLSourceMapEntry {
+  /** One-based source line when available; 0 when only an offset is known. */
+  line: number;
+  /** Absolute source offset of the rendered block. */
+  offset: number;
+  /** One-based end line when available. */
+  endLine?: number;
+  /** Absolute source end offset when available. */
+  endOffset?: number;
+  /** Markdown/mdast block type, e.g. heading, paragraph, list, code. */
+  type: string;
+}
+
+export interface ExportHTMLResult {
+  html: string;
+  sourceMap: ExportHTMLSourceMapEntry[];
+}
+
 export interface EditorSelectionRange {
   anchor: number;
   head: number;
@@ -188,6 +214,8 @@ export interface EditorAPI {
   getAst(): Root;
   getTableOfContents(): TocEntry[];
   exportHTML(): string;
+  exportHTML(options: ExportHTMLOptions & { sourceMap: true }): ExportHTMLResult;
+  exportHTML(options?: ExportHTMLOptions): string | ExportHTMLResult;
   setTheme(theme: import("./theme").NexusTheme): void;
   getSelection(): { anchor: number; head: number };
   /** All selection ranges plus the main-range index. Single-range editors return one entry. */
