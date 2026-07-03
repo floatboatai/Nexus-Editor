@@ -50,8 +50,8 @@
 
 | # | 功能 | 归属包 | 优先级 | 状态 | 需要 OpenSpec | 备注 |
 |---|---|---|---|---|---|---|
-| 13 | Markdown live preview 同步滚动 | `core` | P2 | planned | 否 | 仅在分屏 preview 场景生效 |
-| 14 | 自定义快捷键界面 | `react` / `vue` + `core` | P2 | planned | 是 | 需要先暴露 keymap 注册 / 查询 API |
+| 13 | Markdown live preview 同步滚动 | `core` | P2 | done | 否 | Core 暴露 `scroll` 事件 + `getScrollInfo()` / `getVisibleRange()` / `scrollPosIntoView()`；宿主自行驱动 preview 面板。示例见 `apps/electron-demo` |
+| 14 | 自定义快捷键界面 | `react` / `vue` + `core` | P2 | in-progress | 是 | Core `getKeybindings()` / `setUserKeybindings()` + `keybindingsChange` 事件已落地，见 `openspec/changes/add-customizable-keymap-ui`；SDK 设置面板为后续 iteration |
 
 ## 6. React / Vue SDK
 
