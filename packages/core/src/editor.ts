@@ -518,9 +518,71 @@ export function createEditor(config: EditorConfig): EditorAPI {
     if (typeof plugin.setup !== "function") return;
 
     const localTeardowns: PluginTeardown[] = [];
+    const setupOwner = `setup:${plugin.name}`;
+    const setupEventBindings: Array<{ event: string; handler: PluginEventHandler }> = [];
+    localTeardowns.push(() => {
+      for (let i = setupEventBindings.length - 1; i >= 0; i--) {
+        const binding = setupEventBindings[i];
+        if (!binding) continue;
+        api.offPluginEvent(binding.event, binding.handler);
+      }
+
+      const ownedCommandIds = Array.from(commandOwnerById.entries())
+        .filter(([, owner]) => owner === setupOwner)
+        .map(([id]) => id);
+      for (const id of ownedCommandIds) {
+        commandById.delete(id);
+        commandOwnerById.delete(id);
+      }
+    });
     const context = {
       pluginName: plugin.name,
       editor: api,
+      commandBus: {
+        registerCommand: (command: EditorCommand, opts?: { override?: boolean }) =>
+          registerCommandInternal(command, {
+            pluginName: plugin.name,
+            source: "runtime",
+            override: opts?.override === true,
+            owner: setupOwner,
+          }),
+        unregisterCommand: (id: string) => {
+          if (commandOwnerById.get(id) !== setupOwner) return false;
+          commandOwnerById.delete(id);
+          return commandById.delete(id);
+        },
+        runCommand: (id: string) => api.runCommand(id),
+      },
+      eventBus: {
+        emit: (event: string, payload?: unknown) => {
+          api.emitPluginEvent(event, payload);
+        },
+        on: (event: string, handler: PluginEventHandler) => {
+          setupEventBindings.push({ event, handler });
+          api.onPluginEvent(event, handler);
+        },
+        off: (event: string, handler: PluginEventHandler) => {
+          api.offPluginEvent(event, handler);
+          for (let i = setupEventBindings.length - 1; i >= 0; i--) {
+            const binding = setupEventBindings[i];
+            if (!binding) continue;
+            if (binding.event === event && binding.handler === handler) {
+              setupEventBindings.splice(i, 1);
+            }
+          }
+        },
+      },
+      diagnostics: {
+        report: (
+          level: PluginDiagnostic["level"],
+          code: string,
+          message: string,
+          details?: Record<string, unknown>
+        ) => {
+          pushDiagnostic({ level, code, message, pluginName: plugin.name, details });
+        },
+        list: () => diagnostics.filter((entry) => entry.pluginName === plugin.name),
+      },
       onDispose: (teardown: PluginTeardown) => {
         if (typeof teardown !== "function") return;
         localTeardowns.push(teardown);

@@ -285,6 +285,40 @@ describe("createEditor", () => {
     ]);
   });
 
+  it("provides scoped setup buses and auto-cleans setup resources", () => {
+    const container = document.createElement("div");
+    const events: string[] = [];
+    const editor = createEditor({
+      container,
+      plugins: [
+        {
+          name: "scoped-setup",
+          setup(context) {
+            context.commandBus.registerCommand({
+              id: "scoped.command",
+              run(api) {
+                api.emitPluginEvent("scoped:trigger", "from-command");
+                return true;
+              },
+            });
+            context.eventBus.on("scoped:trigger", (payload) => events.push(String(payload)));
+            context.diagnostics.report("info", "SCOPED_SETUP_READY", "Scoped setup initialized");
+          },
+        },
+      ],
+    });
+
+    expect(editor.runCommand("scoped.command")).toBe(true);
+    expect(events).toEqual(["from-command"]);
+    expect(editor.getPluginDiagnostics().some((entry) => entry.code === "SCOPED_SETUP_READY")).toBe(true);
+
+    expect(editor.unusePlugin("scoped-setup")).toBe(true);
+    editor.emitPluginEvent("scoped:trigger", "after-unuse");
+    expect(events).toEqual(["from-command"]);
+    expect(editor.runCommand("scoped.command")).toBe(false);
+    editor.destroy();
+  });
+
   it("sorts plugins by dependsOn before running setup", () => {
     const container = document.createElement("div");
     const order: string[] = [];

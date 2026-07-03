@@ -236,21 +236,22 @@ const myPlugin: NexusPlugin = {
 
   // Optional lifecycle: called once after createEditor() returns.
   // Use for subscriptions / side effects that need a live EditorAPI.
-  setup: ({ editor, onDispose }) => {
-    editor.registerCommand({
+  setup: ({ editor, commandBus, eventBus, diagnostics, onDispose }) => {
+    commandBus.registerCommand({
       id: "my-plugin.ping",
       run: () => {
-        editor.emitPluginEvent("my-plugin:ping", { at: Date.now() });
+        eventBus.emit("my-plugin:ping", { at: Date.now() });
         return true;
       },
     });
 
     const onPing = (payload: unknown) => console.log(payload);
-    editor.onPluginEvent("my-plugin:ping", onPing);
+    eventBus.on("my-plugin:ping", onPing);
+    diagnostics.report("info", "PLUGIN_READY", "my-plugin setup complete");
 
     const onChange = (doc: string) => console.log(doc);
     editor.on("change", onChange);
-    onDispose(() => editor.offPluginEvent("my-plugin:ping", onPing));
+    onDispose(() => eventBus.off("my-plugin:ping", onPing));
     onDispose(() => editor.off("change", onChange));
   },
 
@@ -287,6 +288,11 @@ Phase-3 ecosystem adds runtime plugin management:
 - `usePlugin(plugin)`
 - `unusePlugin(name)`
 - `reloadPlugin(name, nextPlugin?)`
+
+Plugin setup context now also exposes scoped facades:
+- `commandBus` (runtime command registration scoped to plugin setup)
+- `eventBus` (plugin event subscriptions with teardown-friendly lifecycle)
+- `diagnostics` (structured plugin-scoped diagnostic reporting)
 
 </details>
 

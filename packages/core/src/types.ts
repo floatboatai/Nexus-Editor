@@ -420,11 +420,39 @@ export interface PluginDiagnostic {
   timestamp: number;
 }
 
+export interface PluginCommandBus {
+  registerCommand(command: EditorCommand, opts?: { override?: boolean }): boolean;
+  unregisterCommand(id: string): boolean;
+  runCommand(id: string): boolean;
+}
+
+export interface PluginEventBus {
+  emit(event: string, payload?: unknown): void;
+  on(event: string, handler: PluginEventHandler): void;
+  off(event: string, handler: PluginEventHandler): void;
+}
+
+export interface PluginDiagnosticsReporter {
+  report(
+    level: PluginDiagnostic["level"],
+    code: string,
+    message: string,
+    details?: Record<string, unknown>
+  ): void;
+  list(): PluginDiagnostic[];
+}
+
 export interface NexusPluginContext {
   /** Stable plugin name for logging / diagnostics. */
   pluginName: string;
   /** Editor handle exposed to plugin lifecycle hooks. */
   editor: EditorAPI;
+  /** Scoped command bus for runtime plugin commands. */
+  commandBus: PluginCommandBus;
+  /** Scoped plugin event bus for setup lifecycle. */
+  eventBus: PluginEventBus;
+  /** Structured diagnostics emitter scoped to this plugin. */
+  diagnostics: PluginDiagnosticsReporter;
   /**
    * Register teardown logic owned by this plugin setup run.
    * Callbacks run during `editor.destroy()` in reverse registration order.
