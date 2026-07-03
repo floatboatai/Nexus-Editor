@@ -192,6 +192,10 @@ importers:
       '@floatboat/nexus-core':
         specifier: workspace:*
         version: link:../core
+    devDependencies:
+      '@floatboat/nexus-plugin-history':
+        specifier: workspace:*
+        version: link:../plugin-history
 
   packages/plugin-vim:
     dependencies:
