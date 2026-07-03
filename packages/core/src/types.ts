@@ -141,6 +141,75 @@ export interface SelectionState {
   mainIndex: number;
 }
 
+/**
+ * Snapshot of the editor's scroll state. Emitted on the `scroll` event and
+ * returned by `EditorAPI.getScrollInfo()`. Hosts that render a split-view
+ * markdown preview use this to keep the preview panel aligned with the
+ * editor's viewport (see #13 on `docs/ROADMAP.md`).
+ *
+ * `scrollTop`/`scrollHeight`/`clientHeight` are raw pixel values from CM6's
+ * scroll container. `topPos`/`bottomPos` are the document offsets that map to
+ * the top and bottom edges of the current viewport — hosts can use them
+ * directly instead of reverse-mapping pixels themselves.
+ */
+export interface ScrollInfo {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+  /** Document offset at the top edge of the viewport. */
+  topPos: number;
+  /** Document offset at the bottom edge of the viewport. */
+  bottomPos: number;
+}
+
+/**
+ * A single active keybinding as surfaced by `EditorAPI.getKeybindings()`.
+ *
+ * Every entry is sourced from either a `NexusPlugin.shortcuts[]` entry or an
+ * `EditorCommand` that carries a `hotkey`. Built-in markdown keymaps (Enter
+ * list continuation, tab indent) are intentionally NOT included in this
+ * surface for now — they remain hard-wired. See spec's open question and
+ * `docs/ROADMAP.md` #14.
+ */
+export interface KeybindingEntry {
+  /**
+   * Stable id — format is public surface, changing it breaks persisted
+   * overrides. Formats:
+   * - `plugin:<name>/command:<commandId>` for a plugin command with hotkey
+   * - `plugin:<name>/shortcut:<index>` for an anonymous plugin shortcut
+   */
+  id: string;
+  /**
+   * Currently active key string in CodeMirror format (e.g. `Mod-b`, `Ctrl-k`).
+   * `null` when the user override explicitly unbinds this entry via
+   * `setUserKeybindings([{ id, key: null }])`.
+   */
+  key: string | null;
+  /** Original key declared by the plugin. Never null. */
+  defaultKey: string;
+  /** Source category — useful for grouping in a settings UI. */
+  source: "plugin-shortcut" | "plugin-command";
+  /** Owning plugin name (from `NexusPlugin.name`). */
+  pluginName: string;
+  /** Command label when the source is a labelled `EditorCommand`. */
+  label?: string;
+  /**
+   * Ids of other entries that resolve to the same active `key` after the
+   * override layer is applied. Empty when no collision.
+   */
+  conflicts: string[];
+}
+
+/**
+ * One override in a snapshot passed to `EditorAPI.setUserKeybindings()`.
+ * `key: null` unbinds; a string rebinds to that key. Unknown ids are
+ * accepted silently (see spec's "Unknown override id is ignored" scenario).
+ */
+export interface KeybindingOverride {
+  id: string;
+  key: string | null;
+}
+
 export interface EditorEventMap {
   change: (doc: string, ast: Root) => void;
   focus: () => void;
@@ -148,6 +217,20 @@ export interface EditorEventMap {
   /** `anchor` / `head` describe the main range; `ranges` carries all of them. */
   selectionChange: (selection: { anchor: number; head: number } & SelectionState) => void;
   slashMenuChange: (state: SlashMenuState) => void;
+  /**
+   * Fired when the editor's scroll container scrolls. Coalesced to at most
+   * once per animation frame so tight scroll loops don't overwhelm host
+   * listeners (a common issue when hosts drive a preview panel from this
+   * event).
+   */
+  scroll: (info: ScrollInfo) => void;
+  /**
+   * Fired once during editor initialization (hydration snapshot) and again
+   * after every `setUserKeybindings()` call. Emits the fully merged view —
+   * defaults + user overrides + conflict tags — so a settings UI can redraw
+   * without polling.
+   */
+  keybindingsChange: (entries: KeybindingEntry[]) => void;
 }
 
 export interface TocEntry {
@@ -274,6 +357,51 @@ export interface EditorAPI {
    * 而不是依赖渲染时捕获、可能因上方编辑而过期的固定 from/to。无法解析时返回 null。
    */
   getPosAtDOM(node: HTMLElement): number | null;
+  /**
+   * Snapshot of the editor's scroll state — pixels and the document offsets
+   * that map to the top/bottom of the visible viewport. Hosts driving a
+   * split-view preview panel typically compute a top-line anchor from
+   * `topPos` and scroll their preview to the matching element.
+   *
+   * Returns a zero-filled snapshot before the view has laid out (e.g. before
+   * the first paint on a freshly-mounted editor) so callers can rely on the
+   * shape without null-checking.
+   */
+  getScrollInfo(): ScrollInfo;
+  /**
+   * Document offsets that currently fall within the visible viewport.
+   * Equivalent to reading `topPos`/`bottomPos` off `getScrollInfo()`, kept as
+   * a first-class API because "what's on screen right now" is the most
+   * common question preview panels need to answer.
+   */
+  getVisibleRange(): { from: number; to: number };
+  /**
+   * Scroll the given document offset into the viewport. `align` follows CM6's
+   * `EditorView.scrollIntoView` semantics: `"nearest"` (default) only scrolls
+   * when the target is off-screen, `"center"` centers the target vertically,
+   * `"start"`/`"end"` pin the target to the corresponding edge. Out-of-bounds
+   * positions are clamped by CM6 rather than throwing.
+   */
+  scrollPosIntoView(pos: number, opts?: { align?: "start" | "center" | "end" | "nearest" }): void;
+  /**
+   * Return every currently active keybinding (plugin shortcuts + command
+   * hotkeys) with source tagging and conflict info. The returned array is
+   * fresh each call — safe to mutate, but the next call rebuilds from the
+   * registry so mutations don't persist.
+   *
+   * See `KeybindingEntry` for the id format contract.
+   */
+  getKeybindings(): KeybindingEntry[];
+  /**
+   * Replace the user-override layer wholesale. Every entry not mentioned in
+   * `overrides` reverts to its `defaultKey`. Pass `[]` to restore all
+   * defaults. Unknown ids are ignored — the call still succeeds and
+   * `keybindingsChange` still fires once with the applied snapshot.
+   *
+   * Overrides are not persisted by the core. Hosts must call this on every
+   * editor construction if they want the previous session's overrides.
+   */
+  setUserKeybindings(overrides: KeybindingOverride[]): void;
   getDocumentStats(): { characters: number; words: number; lines: number };
 }
 

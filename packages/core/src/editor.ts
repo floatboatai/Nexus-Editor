@@ -1,4 +1,4 @@
-import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
+import { Annotation, Compartment, EditorSelection, EditorState } from "@codemirror/state";
 
 // Annotation attached to dispatches that load content programmatically (e.g.
 // setDocument from file open) so updateListener can skip the user-edit path —
@@ -15,6 +15,12 @@ import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 
 import { EventEmitter } from "./event-emitter";
+import {
+  buildKeymapItems,
+  collectRegistrations,
+  mergeOverrides,
+  type KeybindingRegistration,
+} from "./keymap-registry";
 import { createLivePreviewExtension } from "./live-preview";
 import { createMarkdownLanguageSupport } from "./lezer-markdown";
 import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
@@ -34,8 +40,11 @@ import type {
   EditorEventHandler,
   EditorEventMap,
   EditorSelectionRange,
+  KeybindingEntry,
+  KeybindingOverride,
   NexusPlugin,
   ParserLike,
+  ScrollInfo,
   SetDocumentOptions,
   TocEntry,
 } from "./types";
@@ -496,34 +505,32 @@ export function createEditor(config: EditorConfig): EditorAPI {
   const indentGuidesExt = config.indentGuides ? indentationMarkers() : [];
   const multiCursorExt = config.multiCursor ? multiCursorExtension() : [];
 
-  const shortcutExtensions =
-    shortcuts.length > 0
-      ? [
-          keymap.of(
-            shortcuts.map((shortcut) => ({
-              key: shortcut.key,
-              run: () => shortcut.run(api)
-            }))
-          )
-        ]
-      : [];
-
-  // 带 hotkey 的命名命令注册成 CodeMirror keymap；返回非 false 视为已消费。
-  const hotkeyCommands = commands.filter(
-    (command): command is EditorCommand & { hotkey: string } =>
-      typeof command.hotkey === "string" && command.hotkey.length > 0
+  // --- Keybinding registry + override layer ---
+  // The old shortcutExtensions / commandKeymapExtensions pipeline is replaced
+  // with a single Compartment-wrapped keymap so `setUserKeybindings()` can
+  // reconfigure it at runtime without recreating the whole editor. `apiRef`
+  // is a late-bound accessor because registrations need to call methods on
+  // the api object, which is only constructed after the view exists.
+  const apiRef: { current: EditorAPI | null } = { current: null };
+  const getApi = (): EditorAPI => {
+    if (!apiRef.current) throw new Error("EditorAPI accessed before initialization");
+    return apiRef.current;
+  };
+  const keybindingRegistrations: KeybindingRegistration[] = collectRegistrations(
+    plugins,
+    getApi
   );
-  const commandKeymapExtensions =
-    hotkeyCommands.length > 0
-      ? [
-          keymap.of(
-            hotkeyCommands.map((command) => ({
-              key: command.hotkey,
-              run: () => command.run(api) !== false
-            }))
-          )
-        ]
-      : [];
+  let userKeybindingOverrides: KeybindingOverride[] = [];
+  let currentKeybindingEntries: KeybindingEntry[] = mergeOverrides(
+    keybindingRegistrations,
+    userKeybindingOverrides
+  );
+
+  const keybindingCompartment = new Compartment();
+  function keybindingKeymapExt() {
+    const items = buildKeymapItems(currentKeybindingEntries, keybindingRegistrations);
+    return items.length > 0 ? keymap.of(items) : [];
+  }
 
   const view = new EditorView({
     parent: config.container,
@@ -702,8 +709,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
           insertRowBelow: locale.insertRowBelow,
         }),
         ...(widgetParser ? createWidgetExtension(widgetParser, widgetDefs) : []),
-        ...shortcutExtensions,
-        ...commandKeymapExtensions,
+        keybindingCompartment.of(keybindingKeymapExt()),
         ...cmExtensions
       ]
     })
@@ -712,6 +718,59 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // Hand the view to lezerAstFromAnywhere consumers so getAst() / emitChange
   // / silent setDocument can read the live incremental Lezer tree.
   viewRef.current = view;
+
+  // --- Scroll info + scroll event ---
+  // Coalesce scroll notifications to one per animation frame. Hosts driving a
+  // split-view preview panel commonly listen here to align the preview
+  // viewport; the raw DOM scroll event fires far more often than the preview
+  // side can afford to re-layout, and CM6 does not surface a coalesced scroll
+  // callback of its own.
+  let scrollRAF: number | null = null;
+
+  function computeScrollInfo(): ScrollInfo {
+    const dom = view.scrollDOM;
+    const info: ScrollInfo = {
+      scrollTop: dom.scrollTop,
+      scrollHeight: dom.scrollHeight,
+      clientHeight: dom.clientHeight,
+      topPos: 0,
+      bottomPos: view.state.doc.length,
+    };
+    // `posAtCoords` throws / returns null before the view has laid out (fresh
+    // mount, jsdom without geometry). Keep the pre-seeded defaults in that
+    // case so the returned object always has the ScrollInfo shape.
+    try {
+      const topPos = view.posAtCoords({ x: 0, y: 0 }, false);
+      const bottomPos = view.posAtCoords(
+        { x: 0, y: Math.max(0, dom.clientHeight - 1) },
+        false
+      );
+      if (typeof topPos === "number") info.topPos = topPos;
+      if (typeof bottomPos === "number") info.bottomPos = bottomPos;
+    } catch { /* no layout yet */ }
+    return info;
+  }
+
+  const scheduleFrame: (cb: () => void) => number =
+    typeof requestAnimationFrame === "function"
+      ? (cb) => requestAnimationFrame(cb)
+      : (cb) => setTimeout(cb, 16) as unknown as number;
+  const cancelFrame: (handle: number) => void =
+    typeof cancelAnimationFrame === "function"
+      ? (handle) => cancelAnimationFrame(handle)
+      : (handle) => clearTimeout(handle);
+
+  function handleScrollDom() {
+    if (destroyed) return;
+    if (scrollRAF !== null) return;
+    scrollRAF = scheduleFrame(() => {
+      scrollRAF = null;
+      if (destroyed) return;
+      emitter.emit("scroll", computeScrollInfo());
+    });
+  }
+
+  view.scrollDOM.addEventListener("scroll", handleScrollDom, { passive: true });
 
   api = {
     getDocument() {
@@ -899,6 +958,42 @@ export function createEditor(config: EditorConfig): EditorAPI {
         return null;
       }
     },
+    getScrollInfo() {
+      if (destroyed) {
+        return { scrollTop: 0, scrollHeight: 0, clientHeight: 0, topPos: 0, bottomPos: 0 };
+      }
+      return computeScrollInfo();
+    },
+    getVisibleRange() {
+      if (destroyed) return { from: 0, to: 0 };
+      const info = computeScrollInfo();
+      return { from: info.topPos, to: info.bottomPos };
+    },
+    scrollPosIntoView(pos, opts) {
+      if (destroyed) return;
+      const align = opts?.align ?? "nearest";
+      view.dispatch({
+        effects: EditorView.scrollIntoView(pos, { y: align }),
+      });
+    },
+    getKeybindings() {
+      // Fresh copy each call — mutations from a settings UI shouldn't leak
+      // back into our snapshot.
+      return currentKeybindingEntries.map((e) => ({ ...e, conflicts: e.conflicts.slice() }));
+    },
+    setUserKeybindings(overrides) {
+      if (destroyed) return;
+      // Snapshot semantics — replace, don't merge.
+      userKeybindingOverrides = overrides.map((o) => ({ id: o.id, key: o.key }));
+      currentKeybindingEntries = mergeOverrides(
+        keybindingRegistrations,
+        userKeybindingOverrides
+      );
+      view.dispatch({
+        effects: keybindingCompartment.reconfigure(keybindingKeymapExt()),
+      });
+      emitter.emit("keybindingsChange", api.getKeybindings());
+    },
     getDocumentStats() {
       const doc = view.state.doc.toString();
       const characters = doc.length;
@@ -927,10 +1022,27 @@ export function createEditor(config: EditorConfig): EditorAPI {
       pendingCompositionMarkdown = null;
       pendingDocumentLoad = null;
       composing = false;
+      view.scrollDOM.removeEventListener("scroll", handleScrollDom);
+      if (scrollRAF !== null) {
+        cancelFrame(scrollRAF);
+        scrollRAF = null;
+      }
       emitter.clear();
       view.destroy();
     }
   };
+
+  // Publish the api reference so keybinding `run` closures (which were
+  // captured before `api` was constructed) can dispatch through it.
+  apiRef.current = api;
+
+  // Fire the hydration snapshot asynchronously so consumers have a chance to
+  // register a `keybindingsChange` listener between `createEditor()` returning
+  // and this fire.
+  queueMicrotask(() => {
+    if (destroyed) return;
+    emitter.emit("keybindingsChange", api.getKeybindings());
+  });
 
   return api;
 }
