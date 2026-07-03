@@ -113,6 +113,14 @@ describe("exportHTML sourceMap", () => {
     editor.destroy();
   });
 
+  it("handles an empty document", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "" });
+
+    expect(editor.exportHTML({ sourceMap: true })).toBe("");
+    editor.destroy();
+  });
+
   it("stamps blockquote content instead of the blockquote container", () => {
     const doc = "intro\n\n> quoted line\n";
     const container = document.createElement("div");

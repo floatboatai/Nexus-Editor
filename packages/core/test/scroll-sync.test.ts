@@ -49,6 +49,41 @@ describe("sourceOffsetToPreviewTop", () => {
   });
 });
 
+describe("mapping edge cases", () => {
+  it("never produces NaN and stays monotonic across the whole range", () => {
+    // Sweep the full source range including gaps and out-of-range values:
+    // mapped positions must be finite and non-decreasing.
+    let lastTop = -Infinity;
+    for (let offset = -10; offset <= 120; offset++) {
+      const top = sourceOffsetToPreviewTop(ANCHORS, offset)!;
+      expect(Number.isFinite(top)).toBe(true);
+      expect(top).toBeGreaterThanOrEqual(lastTop);
+      lastTop = top;
+    }
+  });
+
+  it("inverse mapping is monotonic and finite too", () => {
+    let lastOffset = -Infinity;
+    for (let top = -20; top <= 260; top += 2) {
+      const offset = previewTopToSourceOffset(ANCHORS, top)!;
+      expect(Number.isFinite(offset)).toBe(true);
+      expect(offset).toBeGreaterThanOrEqual(lastOffset);
+      lastOffset = offset;
+    }
+  });
+
+  it("handles negative scroll positions (elastic overscroll)", () => {
+    expect(previewTopToSourceOffset(ANCHORS, -50)).toBe(0);
+    expect(sourceOffsetToPreviewTop(ANCHORS, -50)).toBe(0);
+  });
+
+  it("handles a single zero-height anchor without dividing by zero", () => {
+    const anchors: ScrollSyncAnchor[] = [{ from: 0, to: 10, top: 40, bottom: 40 }];
+    expect(sourceOffsetToPreviewTop(anchors, 5)).toBe(40);
+    expect(previewTopToSourceOffset(anchors, 40)).toBe(0);
+  });
+});
+
 describe("previewTopToSourceOffset", () => {
   it("returns null without anchors", () => {
     expect(previewTopToSourceOffset([], 10)).toBeNull();
@@ -306,6 +341,15 @@ describe("editor scroll API", () => {
     const anchor = editor.getScrollAnchor();
     expect(anchor).toBeGreaterThanOrEqual(0);
     expect(anchor).toBeLessThanOrEqual(editor.getDocument().length);
+    editor.destroy();
+  });
+
+  it("handles an empty document without throwing", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "" });
+
+    expect(editor.getScrollAnchor()).toBe(0);
+    expect(() => editor.scrollToAnchor(0)).not.toThrow();
     editor.destroy();
   });
 
