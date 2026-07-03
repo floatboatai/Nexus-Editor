@@ -242,6 +242,49 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("runs plugin setup hooks after editor creation", () => {
+    const container = document.createElement("div");
+    const setupSpy = vi.fn();
+    const editor = createEditor({
+      container,
+      plugins: [
+        {
+          name: "lifecycle-plugin",
+          setup(context) {
+            setupSpy(context.pluginName, context.editor.getDocument());
+          },
+        },
+      ],
+      initialValue: "hello",
+    });
+
+    expect(setupSpy).toHaveBeenCalledWith("lifecycle-plugin", "hello");
+    editor.destroy();
+  });
+
+  it("runs plugin teardown callbacks on editor destroy", () => {
+    const container = document.createElement("div");
+    const teardownSpy = vi.fn();
+    const editor = createEditor({
+      container,
+      plugins: [
+        {
+          name: "lifecycle-plugin",
+          setup(context) {
+            context.onDispose(() => teardownSpy("from-onDispose"));
+            return () => teardownSpy("from-return");
+          },
+        },
+      ],
+    });
+
+    editor.destroy();
+    expect(teardownSpy.mock.calls.map((entry) => entry[0])).toEqual([
+      "from-return",
+      "from-onDispose",
+    ]);
+  });
+
   it("debounces parsing and emits only the latest document version", () => {
     vi.useFakeTimers();
 

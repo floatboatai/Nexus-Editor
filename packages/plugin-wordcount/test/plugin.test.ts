@@ -32,12 +32,23 @@ describe("createWordCountPlugin", () => {
       initialValue: "Hello world.\n\nSecond paragraph.",
       plugins: [wordcount]
     });
-    attachWordCountPlugin(wordcount, editor);
 
     await flushMicrotasks();
 
     const expected = countMarkdown("Hello world.\n\nSecond paragraph.", { ast: editor.getAst() });
     expect(wordcount.getStats()).toEqual(expected);
+  });
+
+  it("auto-attaches through the plugin setup lifecycle", async () => {
+    const wordcount = createWordCountPlugin();
+    editor = createEditor({
+      container,
+      initialValue: "one two three",
+      plugins: [wordcount]
+    });
+
+    await flushMicrotasks();
+    expect(wordcount.getStats().words).toBe(3);
   });
 
   it("emits initial state synchronously on subscribe", async () => {

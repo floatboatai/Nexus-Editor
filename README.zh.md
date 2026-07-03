@@ -233,6 +233,14 @@ editor.getCoordsAtPos(pos)     // { left, right, top, bottom } | null
 const myPlugin: NexusPlugin = {
   name: "my-plugin",
 
+  // 可选生命周期：createEditor() 返回后执行一次。
+  // 适合放依赖 EditorAPI 的订阅和副作用逻辑。
+  setup: ({ editor, onDispose }) => {
+    const onChange = (doc: string) => console.log(doc);
+    editor.on("change", onChange);
+    onDispose(() => editor.off("change", onChange));
+  },
+
   // 第一层：快捷键与斜杠命令
   shortcuts: [{ key: "Mod-b", run: (editor) => { /* 切换加粗 */ return true; } }],
   slashCommands: [{ id: "heading", title: "标题", keywords: ["h1"] }],
@@ -250,6 +258,9 @@ const myPlugin: NexusPlugin = {
   cmExtensions: [myCodeMirrorExtension],
 };
 ```
+
+`setup` 是增量能力且保持向后兼容：只使用静态字段
+（`shortcuts`、`commands`、`remarkPlugins`、`cmExtensions` 等）的旧插件无需修改即可继续工作。
 
 </details>
 

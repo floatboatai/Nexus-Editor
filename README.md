@@ -233,6 +233,14 @@ editor.getCoordsAtPos(pos)     // { left, right, top, bottom } | null
 const myPlugin: NexusPlugin = {
   name: "my-plugin",
 
+  // Optional lifecycle: called once after createEditor() returns.
+  // Use for subscriptions / side effects that need a live EditorAPI.
+  setup: ({ editor, onDispose }) => {
+    const onChange = (doc: string) => console.log(doc);
+    editor.on("change", onChange);
+    onDispose(() => editor.off("change", onChange));
+  },
+
   // Tier 1: Shortcuts & slash commands
   shortcuts: [{ key: "Mod-b", run: (editor) => { /* toggle bold */ return true; } }],
   slashCommands: [{ id: "heading", title: "Heading", keywords: ["h1"] }],
@@ -250,6 +258,10 @@ const myPlugin: NexusPlugin = {
   cmExtensions: [myCodeMirrorExtension],
 };
 ```
+
+`setup` is additive and backwards-compatible: existing plugins that only use
+static fields (`shortcuts`, `commands`, `remarkPlugins`, `cmExtensions`, etc.)
+continue to work unchanged.
 
 </details>
 

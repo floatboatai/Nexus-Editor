@@ -384,8 +384,36 @@ export interface EditorEventHandlers {
   keydown?: EditorEventHandler<KeyboardEvent>;
 }
 
+export type PluginTeardown = () => void;
+
+export interface NexusPluginContext {
+  /** Stable plugin name for logging / diagnostics. */
+  pluginName: string;
+  /** Editor handle exposed to plugin lifecycle hooks. */
+  editor: EditorAPI;
+  /**
+   * Register teardown logic owned by this plugin setup run.
+   * Callbacks run during `editor.destroy()` in reverse registration order.
+   */
+  onDispose: (teardown: PluginTeardown) => void;
+}
+
+export type NexusPluginSetupResult =
+  | void
+  | PluginTeardown
+  | { dispose?: PluginTeardown };
+
 export interface NexusPlugin {
   name: string;
+  /**
+   * Optional plugin lifecycle hook.
+   *
+   * Runs once after `createEditor()` has produced the full EditorAPI.
+   * This is the preferred place for plugin-internal subscriptions that need
+   * a live editor instance. Legacy static contributions (`shortcuts`,
+   * `commands`, `handlers`, etc.) remain fully supported.
+   */
+  setup?: (context: NexusPluginContext) => NexusPluginSetupResult;
   shortcuts?: Array<{ key: string; run: (editor: EditorAPI) => boolean }>;
   slashCommands?: SlashCommandDef[];
   /** 命名命令，见 {@link EditorCommand}。带 hotkey 的会自动注册快捷键。 */

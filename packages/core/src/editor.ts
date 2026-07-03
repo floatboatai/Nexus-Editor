@@ -35,7 +35,9 @@ import type {
   EditorEventMap,
   EditorSelectionRange,
   NexusPlugin,
+  NexusPluginSetupResult,
   ParserLike,
+  PluginTeardown,
   SetDocumentOptions,
   TocEntry,
 } from "./types";
@@ -228,6 +230,14 @@ function createTransformProcessor(plugins: NexusPlugin[]): { runSync(tree: Root)
   return { runSync: (tree) => processor.runSync(tree) as Root };
 }
 
+function normalizePluginTeardown(result: NexusPluginSetupResult): PluginTeardown | null {
+  if (typeof result === "function") return result;
+  if (result && typeof result === "object" && typeof result.dispose === "function") {
+    return result.dispose;
+  }
+  return null;
+}
+
 export function createEditor(config: EditorConfig): EditorAPI {
   const plugins = config.plugins ?? [];
   debugNexus("create", {
@@ -284,6 +294,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
   let focused = false;
   let parseTimer: ReturnType<typeof setTimeout> | undefined;
   let compositionFlushTimer: ReturnType<typeof setTimeout> | undefined;
+  const pluginTeardowns: PluginTeardown[] = [];
   let pendingCompositionMarkdown: string | null = null;
   // 组合输入（IME）状态与被推迟的文档回灌。组合输入进行中调用 setDocument 会被
   // 推迟到 compositionend 再应用，避免整文档替换打断输入法、丢失合成中文字、视口跳顶。
@@ -300,6 +311,51 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // the live EditorState once the view is constructed.
   const viewRef: { current: EditorView | null } = { current: null };
   let api!: EditorAPI;
+
+  function runPluginTeardowns() {
+    while (pluginTeardowns.length > 0) {
+      const teardown = pluginTeardowns.pop();
+      if (!teardown) continue;
+      try {
+        teardown();
+      } catch (error) {
+        console.error("[NexusEditor] plugin teardown failed", error);
+      }
+    }
+  }
+
+  function activatePluginSetups() {
+    for (const plugin of plugins) {
+      if (typeof plugin.setup !== "function") continue;
+
+      const localTeardowns: PluginTeardown[] = [];
+      const context = {
+        pluginName: plugin.name,
+        editor: api,
+        onDispose: (teardown: PluginTeardown) => {
+          if (typeof teardown !== "function") return;
+          localTeardowns.push(teardown);
+        }
+      };
+
+      try {
+        const setupResult = plugin.setup(context);
+        const normalized = normalizePluginTeardown(setupResult);
+        if (normalized) localTeardowns.push(normalized);
+      } catch (error) {
+        console.error(`[NexusEditor] plugin setup failed: ${plugin.name}`, error);
+      }
+
+      if (localTeardowns.length === 0) continue;
+      pluginTeardowns.push(() => {
+        while (localTeardowns.length > 0) {
+          const teardown = localTeardowns.pop();
+          if (!teardown) continue;
+          teardown();
+        }
+      });
+    }
+  }
 
   function setFocused(next: boolean) {
     if (destroyed || focused === next) {
@@ -927,10 +983,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
       pendingCompositionMarkdown = null;
       pendingDocumentLoad = null;
       composing = false;
+      runPluginTeardowns();
       emitter.clear();
       view.destroy();
     }
   };
+
+  activatePluginSetups();
 
   return api;
 }
