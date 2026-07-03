@@ -1,4 +1,4 @@
-﻿# Tasks: add-customizable-keymap-ui
+# Tasks: add-customizable-keymap-ui
 
 ## Phase 1: Type surface
 
@@ -10,7 +10,7 @@
 ## Phase 2: Core implementation
 
 - [ ] 2.1 Introduce a `keymap-registry.ts` module: collects `NexusPlugin.shortcuts[]` + `EditorCommand.hotkey` into a normalized list at editor construction
-- [ ] 2.2 Add a user-override layer that maps entry id 鈫?new key (or `null` for unbound), merged on every read
+- [ ] 2.2 Add a user-override layer that maps entry id to new key (or `null` for unbound), merged on every read
 - [ ] 2.3 Rebuild CM6 keymap extension via `Compartment.reconfigure` when overrides change
 - [ ] 2.4 Conflict resolution: if two entries collide on the same key after merge, the override takes precedence; unresolved defaults follow existing declaration-order semantics but surface a `conflicts: KeybindingEntry[]` field on the affected entries
 - [ ] 2.5 Emit `keybindingsChange` after every applied override, and once on `createEditor` completion for initial hydration
@@ -33,7 +33,7 @@
 
 ## Phase 5: Follow-up (out of scope for this PR)
 
-- [ ] 5.1 React SDK: `useKeybindings()` hook and a headless `<KeybindingsEditor />` primitive 鈥?separate proposal
-- [ ] 5.2 Vue SDK: `useKeybindings()` composable 鈥?separate proposal
-- [ ] 5.3 Persistence adapter examples in `apps/electron-demo` 鈥?after 5.1 lands
-- [ ] 5.4 Include built-in markdown keymap entries (Enter list continuation, tab indent) in `getKeybindings()` as read-only entries 鈥?open question in `design.md`
+- [ ] 5.1 React SDK: `useKeybindings()` hook and a headless `<KeybindingsEditor />` primitive - separate proposal
+- [ ] 5.2 Vue SDK: `useKeybindings()` composable - separate proposal
+- [ ] 5.3 Persistence adapter examples in `apps/electron-demo` - after 5.1 lands
+- [ ] 5.4 Include built-in markdown keymap entries (Enter list continuation, tab indent) in `getKeybindings()` as read-only entries - open question in `design.md`
