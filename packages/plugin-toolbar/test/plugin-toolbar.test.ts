@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createEditor } from "@floatboat/nexus-core";
 import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
 import {
+  toggleBlockquote,
   toggleBold,
   toggleItalic,
   toggleInlineCode,
@@ -84,6 +85,217 @@ describe("insertLink", () => {
     insertLink(editor);
 
     expect(editor.getDocument()).toBe("text [link text](url)");
+    editor.destroy();
+  });
+});
+
+describe("toggleBlockquote — single line (existing behaviour)", () => {
+  it("adds blockquote prefix to current line", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello" });
+
+    editor.setSelection(2);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("> hello");
+    editor.destroy();
+  });
+
+  it("removes blockquote prefix when already present", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "> hello" });
+
+    editor.setSelection(4);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("hello");
+    editor.destroy();
+  });
+});
+
+describe("toggleBlockquote — multi-line selection", () => {
+  it("adds blockquote prefix to every selected line", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "foo\nbar\nbaz" });
+
+    editor.setSelection(0, 11);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("> foo\n> bar\n> baz");
+    editor.destroy();
+  });
+
+  it("removes blockquote prefix when all selected lines already have one", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "> foo\n> bar\n> baz" });
+
+    editor.setSelection(0, 17);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("foo\nbar\nbaz");
+    editor.destroy();
+  });
+
+  it("adds blockquote when only some lines have it (mixed → toggle on)", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "> foo\nbar" });
+
+    editor.setSelection(0, 9);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("> foo\n> bar");
+    editor.destroy();
+  });
+
+  it("normalizes reversed selection (head before anchor)", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "foo\nbar" });
+
+    editor.setSelection(7, 0); // reversed
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("> foo\n> bar");
+    editor.destroy();
+  });
+
+  it("does not include the next line when selection ends at its start", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "foo\nbar" });
+
+    editor.setSelection(0, 4);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("> foo\nbar");
+    editor.destroy();
+  });
+
+  it("single line at end of document toggles correctly", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "foo\nbar" });
+
+    editor.setSelection(4); // cursor on "bar"
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("foo\n> bar");
+    editor.destroy();
+  });
+});
+
+describe("toggleBlockquote — round-trip stability", () => {
+  it("toggle on then off restores original document", () => {
+    const container = document.createElement("div");
+    const original = "foo\nbar\nbaz";
+    const editor = createEditor({ container, initialValue: original });
+
+    editor.setSelection(0, 11);
+    toggleBlockquote(editor);
+    const { anchor, head } = editor.getSelection();
+    editor.setSelection(anchor, head);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe(original);
+    editor.destroy();
+  });
+});
+
+describe("toggleBlockquote — atomic undo", () => {
+  it("Case 1: multi-line toggle → single undo fully restores document", () => {
+    const container = document.createElement("div");
+    const original = "foo\nbar\nbaz";
+    const editor = createEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
+
+    editor.setSelection(0, 11);
+    toggleBlockquote(editor);
+    expect(editor.getDocument()).toBe("> foo\n> bar\n> baz");
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe(original);
+    editor.destroy();
+  });
+
+  it("Case 2: toggle → undo → redo recovers toggled state in one step", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "foo\nbar", plugins: [createHistoryPlugin()] });
+
+    editor.setSelection(0, 7);
+    toggleBlockquote(editor);
+    editor.undo();
+    expect(editor.redo()).toBe(true);
+    expect(editor.getDocument()).toBe("> foo\n> bar");
+    editor.destroy();
+  });
+
+  it("Case 3: single-line toggle → undo restores original (regression guard)", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello", plugins: [createHistoryPlugin()] });
+
+    editor.setSelection(2);
+    toggleBlockquote(editor);
+    expect(editor.getDocument()).toBe("> hello");
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("hello");
+    editor.destroy();
+  });
+
+  it("Case 4 (load-bearing): multi-line toggle → undo → second undo returns false", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "foo\nbar", plugins: [createHistoryPlugin()] });
+
+    editor.setSelection(0, 7);
+    toggleBlockquote(editor);
+    editor.undo();
+
+    expect(editor.undo()).toBe(false);
+    editor.destroy();
+  });
+
+  it("Case 5: reversed multi-line selection → toggle → undo restores original", () => {
+    const container = document.createElement("div");
+    const original = "foo\nbar";
+    const editor = createEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
+
+    editor.setSelection(7, 0); // reversed: head before anchor
+    toggleBlockquote(editor);
+    expect(editor.getDocument()).toBe("> foo\n> bar");
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe(original);
+    editor.destroy();
+  });
+
+  it("Case 6: collapsed cursor → toggle → undo restores original", () => {
+    const container = document.createElement("div");
+    const original = "foo\nbar\nbaz";
+    const editor = createEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
+
+    editor.setSelection(5); // cursor inside "bar" line
+    toggleBlockquote(editor);
+    expect(editor.getDocument()).toBe("foo\n> bar\nbaz");
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe(original);
+    editor.destroy();
+  });
+
+  it("Case 7: toggle → undo → redo → undo round-trip is consistent", () => {
+    const container = document.createElement("div");
+    const original = "foo\nbar";
+    const editor = createEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
+
+    editor.setSelection(0, 7);
+    toggleBlockquote(editor);
+    const toggled = "> foo\n> bar";
+    expect(editor.getDocument()).toBe(toggled);
+
+    editor.undo();
+    expect(editor.getDocument()).toBe(original);
+
+    editor.redo();
+    expect(editor.getDocument()).toBe(toggled);
+
+    editor.undo();
+    expect(editor.getDocument()).toBe(original);
     editor.destroy();
   });
 });
