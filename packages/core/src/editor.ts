@@ -33,6 +33,7 @@ import type {
   EditorEventContext,
   EditorEventHandler,
   EditorEventMap,
+  EditorLineBlock,
   EditorSelectionRange,
   NexusPlugin,
   ParserLike,
@@ -773,6 +774,66 @@ export function createEditor(config: EditorConfig): EditorAPI {
         selection: { anchor, head },
         scrollIntoView: true
       });
+    },
+    getScrollTop() {
+      if (destroyed) return 0;
+      return view.scrollDOM.scrollTop;
+    },
+    setScrollTop(top: number) {
+      if (destroyed) return;
+      const maxTop = Math.max(0, view.scrollDOM.scrollHeight - view.scrollDOM.clientHeight);
+      view.scrollDOM.scrollTop = Math.max(0, Math.min(maxTop, Number.isFinite(top) ? top : 0));
+    },
+    getScrollMax() {
+      if (destroyed) return 0;
+      return Math.max(0, view.scrollDOM.scrollHeight - view.scrollDOM.clientHeight);
+    },
+    getScrollElement() {
+      if (destroyed) return null;
+      return view.scrollDOM;
+    },
+    getPositionAtLine(line: number) {
+      if (destroyed || !Number.isFinite(line)) return null;
+      const lineNumber = Math.max(1, Math.min(view.state.doc.lines, Math.trunc(line)));
+      try {
+        return view.state.doc.line(lineNumber).from;
+      } catch {
+        return null;
+      }
+    },
+    getLineNumberAtPosition(pos: number) {
+      if (destroyed) return 1;
+      return view.state.doc.lineAt(clampPosition(pos, view.state.doc.length)).number;
+    },
+    getLineBlockAtPosition(pos: number): EditorLineBlock | null {
+      if (destroyed) return null;
+      try {
+        const block = view.lineBlockAt(clampPosition(pos, view.state.doc.length));
+        return {
+          from: block.from,
+          to: block.to,
+          top: block.top,
+          bottom: block.bottom,
+          height: block.height,
+        };
+      } catch {
+        return null;
+      }
+    },
+    getLineBlockAtHeight(height: number): EditorLineBlock | null {
+      if (destroyed) return null;
+      try {
+        const block = view.lineBlockAtHeight(Math.max(0, Number.isFinite(height) ? height : 0));
+        return {
+          from: block.from,
+          to: block.to,
+          top: block.top,
+          bottom: block.bottom,
+          height: block.height,
+        };
+      } catch {
+        return null;
+      }
     },
     setSelections(ranges, mainIndex) {
       if (destroyed || ranges.length === 0) {

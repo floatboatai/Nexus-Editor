@@ -197,6 +197,22 @@ export interface EditorAPI {
   getSlashCommands(): SlashCommandDef[];
   uploadAsset(file: File): Promise<string | null>;
   setSelection(anchor: number, head?: number): void;
+  /** Current vertical scroll offset of the editor viewport. */
+  getScrollTop(): number;
+  /** Set the editor viewport scroll offset without changing selection or focus. */
+  setScrollTop(top: number): void;
+  /** Maximum vertical scroll offset of the editor viewport. */
+  getScrollMax(): number;
+  /** The actual CodeMirror scroll element used by the editor viewport. */
+  getScrollElement(): HTMLElement | null;
+  /** Return the document offset at the start of a one-based line number. */
+  getPositionAtLine(line: number): number | null;
+  /** Return the one-based line number containing the document offset. */
+  getLineNumberAtPosition(pos: number): number;
+  /** Return the editor line block that contains the offset. Coordinates match scrollTop. */
+  getLineBlockAtPosition(pos: number): EditorLineBlock | null;
+  /** Return the editor line block at a document-height coordinate. Coordinates match scrollTop. */
+  getLineBlockAtHeight(height: number): EditorLineBlock | null;
   /**
    * Replace the selection with the given ranges. `mainIndex` defaults to the
    * last range (CodeMirror's latest-added-is-main convention). Multiple
@@ -275,6 +291,14 @@ export interface EditorAPI {
    */
   getPosAtDOM(node: HTMLElement): number | null;
   getDocumentStats(): { characters: number; words: number; lines: number };
+}
+
+export interface EditorLineBlock {
+  from: number;
+  to: number;
+  top: number;
+  bottom: number;
+  height: number;
 }
 
 export interface SlashCommandDef {

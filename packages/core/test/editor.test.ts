@@ -103,6 +103,50 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("exposes viewport scrolling without changing the selection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: Array.from({ length: 80 }, (_, i) => `line ${i + 1}`).join("\n") });
+    const scroller = editor.getScrollElement();
+
+    expect(scroller).not.toBeNull();
+    if (!scroller) throw new Error("Expected editor scroll element");
+    Object.defineProperties(scroller, {
+      clientHeight: { configurable: true, value: 120 },
+      scrollHeight: { configurable: true, value: 960 },
+    });
+
+    editor.setSelection(3, 7);
+    editor.setScrollTop(300);
+
+    expect(editor.getScrollTop()).toBe(300);
+    expect(editor.getScrollMax()).toBe(840);
+    expect(editor.getSelection()).toEqual({ anchor: 3, head: 7 });
+
+    editor.setScrollTop(1200);
+    expect(editor.getScrollTop()).toBe(840);
+    expect(editor.getSelection()).toEqual({ anchor: 3, head: 7 });
+    editor.destroy();
+  });
+
+  it("maps document lines to CodeMirror line block coordinates", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "alpha\nbeta\ngamma" });
+
+    const lineTwoPosition = editor.getPositionAtLine(2);
+    expect(lineTwoPosition).toBe(6);
+    expect(editor.getLineNumberAtPosition(8)).toBe(2);
+
+    const blockAtPosition = lineTwoPosition === null ? null : editor.getLineBlockAtPosition(lineTwoPosition);
+    expect(blockAtPosition?.from).toBe(6);
+    expect(blockAtPosition?.to).toBe(10);
+    expect(blockAtPosition?.height).toBeGreaterThan(0);
+
+    const blockAtHeight = editor.getLineBlockAtHeight(blockAtPosition?.top ?? 0);
+    expect(blockAtHeight?.from).toBeGreaterThanOrEqual(0);
+    expect(blockAtHeight?.height).toBeGreaterThan(0);
+    editor.destroy();
+  });
+
   it("clamps preserved selection to the new document length", () => {
     const container = document.createElement("div");
     const editor = createEditor({ container, initialValue: "0123456789" });
