@@ -35,6 +35,8 @@ import type {
   EditorEventMap,
   EditorSelectionRange,
   NexusPlugin,
+  PluginDiagnostic,
+  PluginEventHandler,
   NexusPluginSetupResult,
   ParserLike,
   PluginTeardown,
@@ -238,8 +240,110 @@ function normalizePluginTeardown(result: NexusPluginSetupResult): PluginTeardown
   return null;
 }
 
+function sortPluginsByDependencies(
+  plugins: NexusPlugin[],
+  pushDiagnostic: (diag: Omit<PluginDiagnostic, "timestamp">) => void,
+): NexusPlugin[] {
+  if (plugins.length <= 1) return plugins;
+
+  const originalIndex = new Map<string, number>();
+  const pluginByName = new Map<string, NexusPlugin>();
+  for (let i = 0; i < plugins.length; i++) {
+    const plugin = plugins[i];
+    if (pluginByName.has(plugin.name)) {
+      pushDiagnostic({
+        level: "warn",
+        code: "PLUGIN_DUPLICATE_NAME",
+        message: `Duplicate plugin name "${plugin.name}" detected; dependency sorting skipped.`,
+        pluginName: plugin.name,
+      });
+      return plugins;
+    }
+    pluginByName.set(plugin.name, plugin);
+    originalIndex.set(plugin.name, i);
+  }
+
+  const indegree = new Map<string, number>();
+  const edges = new Map<string, string[]>();
+  for (const plugin of plugins) {
+    indegree.set(plugin.name, 0);
+    edges.set(plugin.name, []);
+  }
+
+  for (const plugin of plugins) {
+    for (const depName of plugin.dependsOn ?? []) {
+      if (!pluginByName.has(depName)) {
+        pushDiagnostic({
+          level: "warn",
+          code: "PLUGIN_MISSING_DEPENDENCY",
+          message: `Plugin "${plugin.name}" depends on missing plugin "${depName}".`,
+          pluginName: plugin.name,
+          details: { dependency: depName },
+        });
+        continue;
+      }
+      indegree.set(plugin.name, (indegree.get(plugin.name) ?? 0) + 1);
+      edges.get(depName)?.push(plugin.name);
+    }
+  }
+
+  const queue = Array.from(pluginByName.keys())
+    .filter((name) => (indegree.get(name) ?? 0) === 0)
+    .sort((a, b) => (originalIndex.get(a) ?? 0) - (originalIndex.get(b) ?? 0));
+  const resolved: string[] = [];
+
+  while (queue.length > 0) {
+    const name = queue.shift()!;
+    resolved.push(name);
+    const neighbors = (edges.get(name) ?? [])
+      .slice()
+      .sort((a, b) => (originalIndex.get(a) ?? 0) - (originalIndex.get(b) ?? 0));
+    for (const neighbor of neighbors) {
+      const nextDegree = (indegree.get(neighbor) ?? 0) - 1;
+      indegree.set(neighbor, nextDegree);
+      if (nextDegree === 0) queue.push(neighbor);
+    }
+  }
+
+  if (resolved.length !== plugins.length) {
+    pushDiagnostic({
+      level: "error",
+      code: "PLUGIN_DEPENDENCY_CYCLE",
+      message: "Plugin dependency cycle detected; falling back to registration order.",
+      details: {
+        unresolved: Array.from(pluginByName.keys()).filter((name) => !resolved.includes(name)),
+      },
+    });
+    return plugins;
+  }
+
+  const sorted = resolved.map((name) => pluginByName.get(name)!);
+  const changed = sorted.some((plugin, index) => plugin !== plugins[index]);
+  if (changed) {
+    pushDiagnostic({
+      level: "info",
+      code: "PLUGIN_ORDER_RESOLVED",
+      message: "Plugin order was adjusted by dependency sorting.",
+      details: { order: sorted.map((plugin) => plugin.name) },
+    });
+  }
+  return sorted;
+}
+
 export function createEditor(config: EditorConfig): EditorAPI {
-  const plugins = config.plugins ?? [];
+  const diagnostics: PluginDiagnostic[] = [];
+  const pushDiagnostic = (diag: Omit<PluginDiagnostic, "timestamp">) => {
+    const full = { ...diag, timestamp: Date.now() };
+    diagnostics.push(full);
+    if (diag.level === "error") {
+      console.error(`[NexusEditor] ${diag.code}: ${diag.message}`, diag.details ?? {});
+    } else if (diag.level === "warn") {
+      console.warn(`[NexusEditor] ${diag.code}: ${diag.message}`, diag.details ?? {});
+    } else {
+      debugNexus(`${diag.code}: ${diag.message}`, diag.details);
+    }
+  };
+  const plugins = sortPluginsByDependencies(config.plugins ?? [], pushDiagnostic);
   debugNexus("create", {
     initialLength: (config.initialValue ?? "").length,
     pluginNames: plugins.map((plugin) => plugin.name),
@@ -257,12 +361,51 @@ export function createEditor(config: EditorConfig): EditorAPI {
   const slashCommands = plugins.flatMap((plugin) => plugin.slashCommands ?? []);
   const cmExtensions = plugins.flatMap((plugin) => plugin.cmExtensions ?? []);
   const widgetDefs = plugins.flatMap((plugin) => plugin.widgets ?? []);
-  // 命名命令（类 Obsidian addCommand）。同 id 以先注册者为准。
-  const commands = plugins.flatMap((plugin) => plugin.commands ?? []);
   const commandById = new Map<string, EditorCommand>();
-  for (const command of commands) {
-    if (!commandById.has(command.id)) commandById.set(command.id, command);
+  const registerCommandInternal = (
+    command: EditorCommand,
+    options: { pluginName?: string; source: "plugin-static" | "runtime"; override?: boolean }
+  ): boolean => {
+    if (!command?.id) return false;
+    const existing = commandById.get(command.id);
+    if (existing && options.override !== true) {
+      pushDiagnostic({
+        level: "warn",
+        code: "COMMAND_ID_CONFLICT",
+        message: `Command id "${command.id}" already registered; keeping existing handler.`,
+        pluginName: options.pluginName,
+        details: { source: options.source },
+      });
+      return false;
+    }
+
+    if (existing && options.override === true) {
+      pushDiagnostic({
+        level: "info",
+        code: "COMMAND_ID_OVERRIDDEN",
+        message: `Command id "${command.id}" was overridden.`,
+        pluginName: options.pluginName,
+        details: { source: options.source },
+      });
+    }
+    if (options.source === "runtime" && command.hotkey) {
+      pushDiagnostic({
+        level: "warn",
+        code: "RUNTIME_HOTKEY_UNSUPPORTED",
+        message: `Runtime command "${command.id}" has hotkey "${command.hotkey}" but dynamic keymap binding is not supported yet.`,
+        pluginName: options.pluginName,
+      });
+    }
+    commandById.set(command.id, command);
+    return true;
+  };
+  for (const plugin of plugins) {
+    for (const command of plugin.commands ?? []) {
+      registerCommandInternal(command, { pluginName: plugin.name, source: "plugin-static" });
+    }
   }
+
+  const pluginEventHandlers = new Map<string, Set<PluginEventHandler>>();
   // 插件 DOM 事件钩子。内置资源上传作为兜底，在所有钩子都未消费时才执行。
   const pasteHandlers = plugins
     .map((plugin) => plugin.handlers?.paste)
@@ -319,7 +462,12 @@ export function createEditor(config: EditorConfig): EditorAPI {
       try {
         teardown();
       } catch (error) {
-        console.error("[NexusEditor] plugin teardown failed", error);
+        pushDiagnostic({
+          level: "error",
+          code: "PLUGIN_TEARDOWN_FAILED",
+          message: "Plugin teardown callback threw an error.",
+          details: { error: error instanceof Error ? error.message : String(error) },
+        });
       }
     }
   }
@@ -343,7 +491,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
         const normalized = normalizePluginTeardown(setupResult);
         if (normalized) localTeardowns.push(normalized);
       } catch (error) {
-        console.error(`[NexusEditor] plugin setup failed: ${plugin.name}`, error);
+        pushDiagnostic({
+          level: "error",
+          code: "PLUGIN_SETUP_FAILED",
+          message: `Plugin setup failed: ${plugin.name}.`,
+          pluginName: plugin.name,
+          details: { error: error instanceof Error ? error.message : String(error) },
+        });
       }
 
       if (localTeardowns.length === 0) continue;
@@ -565,7 +719,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
       : [];
 
   // 带 hotkey 的命名命令注册成 CodeMirror keymap；返回非 false 视为已消费。
-  const hotkeyCommands = commands.filter(
+  const hotkeyCommands = Array.from(commandById.values()).filter(
     (command): command is EditorCommand & { hotkey: string } =>
       typeof command.hotkey === "string" && command.hotkey.length > 0
   );
@@ -918,7 +1072,18 @@ export function createEditor(config: EditorConfig): EditorAPI {
       return shortcut ? shortcut.run(api) : false;
     },
     getCommands() {
-      return commands.slice();
+      return Array.from(commandById.values());
+    },
+    registerCommand(command, opts) {
+      if (destroyed) return false;
+      return registerCommandInternal(command, {
+        source: "runtime",
+        override: opts?.override === true,
+      });
+    },
+    unregisterCommand(id) {
+      if (destroyed) return false;
+      return commandById.delete(id);
     },
     runCommand(id) {
       if (destroyed) {
@@ -927,7 +1092,52 @@ export function createEditor(config: EditorConfig): EditorAPI {
 
       const command = commandById.get(id);
       if (!command) return false;
-      return command.run(api) !== false;
+      try {
+        return command.run(api) !== false;
+      } catch (error) {
+        pushDiagnostic({
+          level: "error",
+          code: "COMMAND_RUN_FAILED",
+          message: `Command execution failed: ${id}.`,
+          details: { error: error instanceof Error ? error.message : String(error) },
+        });
+        return false;
+      }
+    },
+    emitPluginEvent(event, payload) {
+      if (destroyed) return;
+      const handlers = pluginEventHandlers.get(event);
+      if (!handlers || handlers.size === 0) return;
+      for (const handler of handlers) {
+        try {
+          handler(payload);
+        } catch (error) {
+          pushDiagnostic({
+            level: "error",
+            code: "PLUGIN_EVENT_HANDLER_FAILED",
+            message: `Plugin event handler failed for "${event}".`,
+            details: { error: error instanceof Error ? error.message : String(error) },
+          });
+        }
+      }
+    },
+    onPluginEvent(event, handler) {
+      if (destroyed) return;
+      const set = pluginEventHandlers.get(event);
+      if (set) {
+        set.add(handler);
+        return;
+      }
+      pluginEventHandlers.set(event, new Set([handler]));
+    },
+    offPluginEvent(event, handler) {
+      const set = pluginEventHandlers.get(event);
+      if (!set) return;
+      set.delete(handler);
+      if (set.size === 0) pluginEventHandlers.delete(event);
+    },
+    getPluginDiagnostics() {
+      return diagnostics.slice();
     },
     isComposing() {
       if (destroyed) return false;
@@ -983,6 +1193,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
       pendingCompositionMarkdown = null;
       pendingDocumentLoad = null;
       composing = false;
+      pluginEventHandlers.clear();
       runPluginTeardowns();
       emitter.clear();
       view.destroy();

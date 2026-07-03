@@ -285,6 +285,74 @@ describe("createEditor", () => {
     ]);
   });
 
+  it("sorts plugins by dependsOn before running setup", () => {
+    const container = document.createElement("div");
+    const order: string[] = [];
+    const editor = createEditor({
+      container,
+      plugins: [
+        {
+          name: "dependent",
+          dependsOn: ["base"],
+          setup() {
+            order.push("dependent");
+          },
+        },
+        {
+          name: "base",
+          setup() {
+            order.push("base");
+          },
+        },
+      ],
+    });
+
+    expect(order).toEqual(["base", "dependent"]);
+    editor.destroy();
+  });
+
+  it("records diagnostics for missing plugin dependencies", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      plugins: [
+        {
+          name: "dependent",
+          dependsOn: ["missing-plugin"],
+        },
+      ],
+    });
+
+    const diagnostics = editor.getPluginDiagnostics();
+    expect(diagnostics.some((entry) => entry.code === "PLUGIN_MISSING_DEPENDENCY")).toBe(true);
+    editor.destroy();
+  });
+
+  it("supports runtime command registration and plugin event bus", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container });
+    const seen: unknown[] = [];
+    const handler = (payload: unknown) => seen.push(payload);
+    editor.onPluginEvent("demo:event", handler);
+
+    expect(
+      editor.registerCommand({
+        id: "runtime.echo",
+        run(api) {
+          api.emitPluginEvent("demo:event", { ok: true });
+          return true;
+        },
+      })
+    ).toBe(true);
+    expect(editor.runCommand("runtime.echo")).toBe(true);
+    expect(seen).toEqual([{ ok: true }]);
+
+    expect(editor.unregisterCommand("runtime.echo")).toBe(true);
+    expect(editor.runCommand("runtime.echo")).toBe(false);
+    editor.offPluginEvent("demo:event", handler);
+    editor.destroy();
+  });
+
   it("debounces parsing and emits only the latest document version", () => {
     vi.useFakeTimers();
 

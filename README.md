@@ -232,12 +232,25 @@ editor.getCoordsAtPos(pos)     // { left, right, top, bottom } | null
 ```ts
 const myPlugin: NexusPlugin = {
   name: "my-plugin",
+  dependsOn: ["plugin-history"],
 
   // Optional lifecycle: called once after createEditor() returns.
   // Use for subscriptions / side effects that need a live EditorAPI.
   setup: ({ editor, onDispose }) => {
+    editor.registerCommand({
+      id: "my-plugin.ping",
+      run: () => {
+        editor.emitPluginEvent("my-plugin:ping", { at: Date.now() });
+        return true;
+      },
+    });
+
+    const onPing = (payload: unknown) => console.log(payload);
+    editor.onPluginEvent("my-plugin:ping", onPing);
+
     const onChange = (doc: string) => console.log(doc);
     editor.on("change", onChange);
+    onDispose(() => editor.offPluginEvent("my-plugin:ping", onPing));
     onDispose(() => editor.off("change", onChange));
   },
 
@@ -262,6 +275,12 @@ const myPlugin: NexusPlugin = {
 `setup` is additive and backwards-compatible: existing plugins that only use
 static fields (`shortcuts`, `commands`, `remarkPlugins`, `cmExtensions`, etc.)
 continue to work unchanged.
+
+Phase-2 plugin architecture adds:
+- dependency ordering via `dependsOn`
+- a command bus (`registerCommand` / `unregisterCommand` / `runCommand`)
+- a plugin event bus (`emitPluginEvent` / `onPluginEvent` / `offPluginEvent`)
+- runtime diagnostics via `editor.getPluginDiagnostics()`
 
 </details>
 

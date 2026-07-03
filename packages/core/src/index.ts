@@ -45,6 +45,8 @@ export type {
   LivePreviewRenderContext,
   LivePreviewRenderer,
   NexusPlugin,
+  PluginDiagnostic,
+  PluginEventHandler,
   ParseResult,
   ParserLike,
   PluginTeardown,

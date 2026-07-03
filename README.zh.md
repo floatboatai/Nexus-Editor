@@ -232,12 +232,25 @@ editor.getCoordsAtPos(pos)     // { left, right, top, bottom } | null
 ```ts
 const myPlugin: NexusPlugin = {
   name: "my-plugin",
+  dependsOn: ["plugin-history"],
 
   // 可选生命周期：createEditor() 返回后执行一次。
   // 适合放依赖 EditorAPI 的订阅和副作用逻辑。
   setup: ({ editor, onDispose }) => {
+    editor.registerCommand({
+      id: "my-plugin.ping",
+      run: () => {
+        editor.emitPluginEvent("my-plugin:ping", { at: Date.now() });
+        return true;
+      },
+    });
+
+    const onPing = (payload: unknown) => console.log(payload);
+    editor.onPluginEvent("my-plugin:ping", onPing);
+
     const onChange = (doc: string) => console.log(doc);
     editor.on("change", onChange);
+    onDispose(() => editor.offPluginEvent("my-plugin:ping", onPing));
     onDispose(() => editor.off("change", onChange));
   },
 
@@ -261,6 +274,12 @@ const myPlugin: NexusPlugin = {
 
 `setup` 是增量能力且保持向后兼容：只使用静态字段
 （`shortcuts`、`commands`、`remarkPlugins`、`cmExtensions` 等）的旧插件无需修改即可继续工作。
+
+Phase-2 插件架构新增：
+- `dependsOn` 依赖排序
+- 命令总线（`registerCommand` / `unregisterCommand` / `runCommand`）
+- 插件事件总线（`emitPluginEvent` / `onPluginEvent` / `offPluginEvent`）
+- 运行期诊断日志（`editor.getPluginDiagnostics()`）
 
 </details>
 
