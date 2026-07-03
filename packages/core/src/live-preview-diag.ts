@@ -41,7 +41,11 @@ interface ClickSnapshot {
   cmLineCount: number;
 }
 
-function diagOn(): boolean { return Boolean((globalThis as any).__NEXUS_DIAG__); }
+interface NexusDiagGlobal {
+  __NEXUS_DIAG__?: boolean;
+}
+
+function diagOn(): boolean { return Boolean((globalThis as NexusDiagGlobal).__NEXUS_DIAG__); }
 
 let clickCounter = 0;
 let txCounter = 0;

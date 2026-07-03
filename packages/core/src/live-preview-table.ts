@@ -1,5 +1,5 @@
 import { EditorView, WidgetType, runScopeHandlers } from "@codemirror/view";
-import type { Table } from "mdast";
+import type { Node as MdastNode, PhrasingContent, Table, TableCell } from "mdast";
 
 import type { LivePreviewLabels } from "./types";
 
@@ -45,15 +45,77 @@ const SEPARATOR_RE = /^\|?\s*[-:]+\s*(\|\s*[-:]+\s*)*\|?\s*$/;
 // table's header line (e.g. `| 头像 | 用户名 | 主页 |`) so widths survive
 // the widget being rebuilt across edits as long as the header doesn't
 // change. Not persisted across reloads — markdown tables don't have a
-// place to store column widths and we don't want to write sidecar files
-// for this. Values: [rowGripWidth, ...dataColumnWidths].
+/**
+ * In-memory column-width cache shared across widget re-renders.
+ * Key: `tableWidthId(source, tableFrom)`, Value: [rowGripWidth, ...dataColumnWidths].
+ * The Map survives widget rebuilds within a session; localStorage below extends that
+ * across page loads.
+ */
 const tableColumnWidths = new Map<string, number[]>();
+
+const COL_WIDTH_LOCAL_KEY = "nexus-table-col-widths";
+const COL_WIDTH_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const COL_WIDTH_MAX_ENTRIES = 50;
+
+/** Generate a stable key for column-width persistence.
+ *
+ *  Uses the table's document offset + the separator line so the key survives
+ *  cell-content edits but invalidates on column add/remove or table move.
+ */
+function tableWidthId(source: string, tableFrom: number): string {
+  const sepLine = source.split("\n").find((l) => /^\|[-:\s|]+\|?\s*$/.test(l)) ?? "";
+  return `nexus-tw:${tableFrom}:${sepLine.replace(/\s+/g, "").toLowerCase()}`;
+}
+
+/** Persist column widths to localStorage with automatic eviction. */
+function persistWidths(key: string, widths: number[]): void {
+  try {
+    const raw = localStorage.getItem(COL_WIDTH_LOCAL_KEY);
+    const store: Record<string, { w: number[]; ts: number }> = raw ? JSON.parse(raw) : {};
+    store[key] = { w: widths, ts: Date.now() };
+    const entries = Object.entries(store);
+    if (entries.length > COL_WIDTH_MAX_ENTRIES) {
+      entries.sort((a, b) => b[1].ts - a[1].ts);
+      localStorage.setItem(COL_WIDTH_LOCAL_KEY, JSON.stringify(Object.fromEntries(entries.slice(0, COL_WIDTH_MAX_ENTRIES))));
+    } else {
+      localStorage.setItem(COL_WIDTH_LOCAL_KEY, JSON.stringify(store));
+    }
+  } catch { /* localStorage full / unavailable — silently degrade */ }
+}
+
+/** Load column widths from localStorage, returning null if expired or missing. */
+function loadPersistedWidths(key: string): number[] | null {
+  try {
+    const raw = localStorage.getItem(COL_WIDTH_LOCAL_KEY);
+    if (!raw) return null;
+    const store: Record<string, { w: number[]; ts: number }> = JSON.parse(raw);
+    const entry = store[key];
+    if (!entry) return null;
+    if (Date.now() - entry.ts > COL_WIDTH_MAX_AGE_MS) {
+      delete store[key];
+      localStorage.setItem(COL_WIDTH_LOCAL_KEY, JSON.stringify(store));
+      return null;
+    }
+    return entry.w;
+  } catch { return null; }
+}
+
+/** Ensure the saved widths array matches the current column count (trim or pad). */
+function adjustWidthsForColCount(widths: number[], targetLen: number, defaultWidth = 120): number[] {
+  if (widths.length === targetLen) return widths;
+  const adjusted = widths.slice(0, targetLen);
+  while (adjusted.length < targetLen) adjusted.push(defaultWidth);
+  return adjusted;
+}
 
 const ROW_GRIP_WIDTH = 16;
 const MIN_COLUMN_WIDTH = 48;
 const renderedSourceOffsets = new WeakMap<Node, { start: number; end: number }>();
 
-function getNodeSourceOffsets(node: any, tableFrom: number, rawSourceStart: number, inlineCode = false): { start: number; end: number } | null {
+/** Minimal shape with offset-based position — subset of unist.Position used by getNodeSourceOffsets. */
+type PositionalNode = { position?: { start: { offset?: number }; end: { offset?: number } } };
+
+function getNodeSourceOffsets(node: MdastNode | PositionalNode, tableFrom: number, rawSourceStart: number, inlineCode = false): { start: number; end: number } | null {
   const startOffset = node?.position?.start?.offset;
   const endOffset = node?.position?.end?.offset;
   if (typeof startOffset !== "number" || typeof endOffset !== "number") return null;
@@ -132,13 +194,13 @@ function placeRawSourceCaret(td: HTMLElement, rawOffset: number): void {
   selection?.addRange(range);
 }
 
-function extractCellText(cell: any): string {
+function extractCellText(cell: TableCell): string {
   if (!cell || !("children" in cell) || !Array.isArray(cell.children)) return "";
   return cell.children
-    .map((c: any) => {
+      .map((c) => {
       if ("value" in c && typeof c.value === "string") return c.value;
       if ("children" in c && Array.isArray(c.children))
-        return c.children.map((n: any) => ("value" in n ? n.value : "")).join("");
+        return c.children.map((n) => ("value" in n ? n.value : "")).join("");
       return "";
     })
     .join("");
@@ -156,9 +218,9 @@ function extractCellText(cell: any): string {
  * ignored. Media-only cells render the image scaled to the cell width
  * so the user can grow / shrink the image by resizing the column.
  */
-function isCellMediaOnly(astCell: any): boolean {
+function isCellMediaOnly(astCell: TableCell): boolean {
   if (!astCell || !Array.isArray(astCell.children)) return false;
-  const meaningful = astCell.children.filter((c: any) => {
+  const meaningful = astCell.children.filter((c) => {
     if (!c) return false;
     if (c.type === "text") return typeof c.value === "string" && c.value.trim() !== "";
     return true;
@@ -167,7 +229,7 @@ function isCellMediaOnly(astCell: any): boolean {
   const only = meaningful[0];
   if (only.type === "image") return true;
   if (only.type === "link" && Array.isArray(only.children)) {
-    const linkInner = only.children.filter((c: any) => {
+    const linkInner = only.children.filter((c) => {
       if (!c) return false;
       if (c.type === "text") return typeof c.value === "string" && c.value.trim() !== "";
       return true;
@@ -177,7 +239,7 @@ function isCellMediaOnly(astCell: any): boolean {
   return false;
 }
 
-function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourceStart = 0): Node {
+function renderInlineMdast(node: PhrasingContent, mediaOnly = false, tableFrom = 0, rawSourceStart = 0): Node {
   if (!node) return document.createTextNode("");
   switch (node.type) {
     case "text": {
@@ -274,20 +336,23 @@ function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourc
       return img;
     }
     default: {
-      if (Array.isArray(node.children)) {
+      // Remaining PhrasingContent types (FootnoteReference, ImageReference,
+      // LinkReference) are structurally diverse — check shape at runtime.
+      const n = node as { children?: unknown[]; value?: unknown; position?: { start: { offset?: number }; end: { offset?: number } } };
+      if (Array.isArray(n.children)) {
         const frag = document.createDocumentFragment();
-        for (const child of node.children) frag.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+        for (const child of n.children) frag.appendChild(renderInlineMdast(child as PhrasingContent, false, tableFrom, rawSourceStart));
         return frag;
       }
-      const text = document.createTextNode(typeof node.value === "string" ? node.value : "");
-      const sourceOffsets = getNodeSourceOffsets(node, tableFrom, rawSourceStart);
+      const text = document.createTextNode(typeof n.value === "string" ? n.value : "");
+      const sourceOffsets = getNodeSourceOffsets(n, tableFrom, rawSourceStart);
       if (sourceOffsets) renderedSourceOffsets.set(text, sourceOffsets);
       return text;
     }
   }
 }
 
-function renderCellRich(td: HTMLElement, astCell: any, tableFrom = 0, rawSourceStart = 0): void {
+function renderCellRich(td: HTMLElement, astCell: TableCell, tableFrom = 0, rawSourceStart = 0): void {
   td.textContent = "";
   if (!astCell || !Array.isArray(astCell.children)) return;
   const mediaOnly = isCellMediaOnly(astCell);
@@ -337,7 +402,7 @@ export class EditableTableWidget extends WidgetType {
     v.dispatch({ changes: { from: this.tableFrom, to: this.tableFrom + this.source.length, insert: newSource } });
   }
 
-  private deleteColumn(colIdx: number): void {
+  public deleteColumn(colIdx: number): void {
     const lines = this.source.split("\n");
     const newLines = lines.map((line) => {
       const cells = line.split("|").filter((_, i, a) => i > 0 && i < a.length - 1);
@@ -348,7 +413,7 @@ export class EditableTableWidget extends WidgetType {
     this.dispatch(newLines.join("\n"));
   }
 
-  private deleteRow(rowIdx: number): void {
+  public deleteRow(rowIdx: number): void {
     const lines = this.source.split("\n");
     const dataLines: number[] = [];
     for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dataLines.push(i);
@@ -358,14 +423,14 @@ export class EditableTableWidget extends WidgetType {
     this.dispatch(lines.join("\n"));
   }
 
-  private addColumn(): void {
+  public addColumn(): void {
     const lines = this.source.split("\n");
     const nl = lines.map((l) => SEPARATOR_RE.test(l) ? l.replace(/\|?\s*$/, " | --- |") : l.replace(/\|?\s*$/, " |  |"));
     this.dispatch(nl.join("\n"));
   }
 
-  private addRow(): void {
-    const cc = (this.node.children?.[0] as any)?.children?.length ?? 2;
+  public addRow(): void {
+    const cc = this.node.children?.[0]?.children?.length ?? 2;
     const nr = "\n| " + Array(cc).fill("  ").join(" | ") + " |";
     const v = this.viewRef.current;
     if (!v) return;
@@ -483,9 +548,9 @@ export class EditableTableWidget extends WidgetType {
     if (rows.length === 0) { wrapper.appendChild(table); return wrapper; }
 
     // ── Column-width persistence ──
-    // Keyed by the table's header source line so widths stick across
-    // widget rebuilds caused by editing other cells.
-    const widthKey = sourceLines[dataLineIndices[0] ?? 0] ?? "";
+    // Stable key based on document position + separator line so widths
+    // survive cell-content edits and stick across widget rebuilds.
+    const widthKey = tableWidthId(this.source, this.tableFrom);
 
     /**
      * Apply (or refresh) an explicit `<colgroup>` + `table-layout: fixed`
@@ -542,7 +607,9 @@ export class EditableTableWidget extends WidgetType {
       acquireEditingLock("drag");
       const baseWidths = (() => {
         const saved = tableColumnWidths.get(widthKey);
-        if (saved && saved.length === colCount + 1) return saved.slice();
+        if (saved) return adjustWidthsForColCount(saved.slice(), colCount + 1);
+        const persisted = loadPersistedWidths(widthKey);
+        if (persisted) return adjustWidthsForColCount(persisted, colCount + 1);
         return measureColumnWidths();
       })();
       applyColumnWidths(baseWidths);
@@ -563,11 +630,28 @@ export class EditableTableWidget extends WidgetType {
         document.removeEventListener("mouseup", onUp);
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
-        tableColumnWidths.set(widthKey, baseWidths.slice());
+        const finalWidths = baseWidths.slice();
+        tableColumnWidths.set(widthKey, finalWidths);
+        persistWidths(widthKey, finalWidths);
         releaseEditingLock("drag");
       };
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
+    };
+
+    /** Reset column widths for this table to auto-measured defaults. */
+    const resetColumnWidths = (): void => {
+      tableColumnWidths.delete(widthKey);
+      try {
+        const raw = localStorage.getItem(COL_WIDTH_LOCAL_KEY);
+        if (raw) {
+          const store = JSON.parse(raw);
+          delete store[widthKey];
+          localStorage.setItem(COL_WIDTH_LOCAL_KEY, JSON.stringify(store));
+        }
+      } catch { /* ignore */ }
+      const autoWidths = measureColumnWidths();
+      applyColumnWidths(autoWidths);
     };
 
     // ── Selection overlay — highlights entire table when CM6 selection covers it ──
@@ -1247,6 +1331,11 @@ export class EditableTableWidget extends WidgetType {
             e.stopPropagation();
             startColumnResize(handleColIdx, e.clientX);
           });
+          // Double-click resets ALL columns to auto-measured width.
+          resizeHandle.addEventListener("dblclick", (e) => {
+            e.stopPropagation();
+            resetColumnWidths();
+          });
           // Tiny background flash on hover so the user can see where the
           // handle lives without us drawing a permanent divider line.
           resizeHandle.addEventListener("mouseenter", () => {
@@ -1503,12 +1592,13 @@ export class EditableTableWidget extends WidgetType {
 
     wrapper.appendChild(table);
 
-    // Re-apply column widths the user previously set via drag (keyed by
-    // header line in `tableColumnWidths`). Done after the rows are
-    // mounted so colgroup + the widths take effect on the actual DOM.
-    const savedWidths = tableColumnWidths.get(widthKey);
-    if (savedWidths && savedWidths.length === colCount + 1) {
-      applyColumnWidths(savedWidths);
+    // Re-apply column widths the user previously set via drag.
+    // Check in-memory cache first, then localStorage. Done after the
+    // rows are mounted so colgroup + widths take effect on the DOM.
+    const savedWidths = tableColumnWidths.get(widthKey) ?? loadPersistedWidths(widthKey);
+    if (savedWidths) {
+      const adjusted = adjustWidthsForColCount(savedWidths, colCount + 1);
+      applyColumnWidths(adjusted);
     }
 
     // ── "+" buttons ──
@@ -1693,11 +1783,11 @@ function showContextMenu(
   }
 
   if (!isHeader) {
-    addItem(labels.deleteRow, () => (widget as any).deleteRow(rowIdx));
+    addItem(labels.deleteRow, () => widget.deleteRow(rowIdx));
   }
-  addItem(labels.deleteColumn, () => (widget as any).deleteColumn(colIdx), colCount <= 1);
-  addItem(labels.insertRowBelow, () => (widget as any).addRow());
-  addItem(labels.insertColumnAfter, () => (widget as any).addColumn());
+  addItem(labels.deleteColumn, () => widget.deleteColumn(colIdx), colCount <= 1);
+  addItem(labels.insertRowBelow, () => widget.addRow());
+  addItem(labels.insertColumnAfter, () => widget.addColumn());
 
   mountTarget.appendChild(menu);
 

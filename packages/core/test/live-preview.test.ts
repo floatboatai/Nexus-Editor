@@ -1592,4 +1592,47 @@ describe("live preview", () => {
     expect(text).not.toContain("*italic*");
     editor.destroy();
   });
+
+  it("handles empty or whitespace-only table cells without error", () => {
+    // Exercise extractCellText and renderCellRich with edge cases
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue:
+        "|   | A  |\n" +
+        "| - | -- |\n" +
+        "|   | B  |\n" +
+        "|   |    |",
+      livePreview: true,
+      plugins: [createGfmPreset()],
+    });
+
+    const cells = container.querySelectorAll<HTMLElement>(".nexus-cell");
+    expect(cells.length).toBeGreaterThanOrEqual(4);
+    // First cell empty → no crash, cell element exists
+    expect(cells[0]).not.toBeNull();
+    editor.destroy();
+  });
+
+  it("renders inline HTML inside table cells via the default renderInlineMdast branch", () => {
+    // Inline HTML <del> is a PhrasingContent node that hits the default
+    // branch in renderInlineMdast (neither text/code/link/image/strong/em).
+    // This exercises the PositionalNode-widened getNodeSourceOffsets path.
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue:
+        "| A       |\n" +
+        "| ------- |\n" +
+        "| foo <del>bar</del> baz |",
+      livePreview: true,
+      plugins: [createGfmPreset()],
+    });
+
+    // Widget rendered without throwing in getNodeSourceOffsets / renderInlineMdast default
+    const table = container.querySelector("table");
+    expect(table).not.toBeNull();
+    expect(table?.textContent).toContain("foo");
+    editor.destroy();
+  });
 });

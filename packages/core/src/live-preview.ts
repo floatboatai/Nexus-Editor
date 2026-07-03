@@ -198,6 +198,7 @@ class CodeCopyWidget extends WidgetType {
 // edits elsewhere in the doc don't re-render existing diagrams.
 
 type MermaidAPI = {
+  initialize(config: Record<string, unknown>): void;
   render(id: string, text: string): Promise<{ svg: string }>;
   parse(text: string, opts?: { suppressErrors?: boolean }): Promise<boolean | { diagramType: string }> | boolean | { diagramType: string };
 };
@@ -205,10 +206,10 @@ type MermaidAPI = {
 let mermaidPromise: Promise<MermaidAPI> | null = null;
 function loadMermaid(): Promise<MermaidAPI> {
   if (!mermaidPromise) {
-    mermaidPromise = import("mermaid").then((mod) => {
-      const m = (mod as any).default ?? mod;
+    mermaidPromise = import("mermaid").then((mod: Record<string, unknown>) => {
+      const m = ("default" in mod ? mod.default : mod) as MermaidAPI;
       m.initialize({ startOnLoad: false, theme: "default", securityLevel: "strict" });
-      return m as MermaidAPI;
+      return m;
     });
   }
   return mermaidPromise;
