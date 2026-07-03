@@ -7,8 +7,7 @@ const silentDocChange = Annotation.define<boolean>();
 import { EditorView, keymap, dropCursor, lineNumbers, type Direction } from "@codemirror/view";
 import { indentWithTab, undo as cmUndo, redo as cmRedo } from "@codemirror/commands";
 import { closeBrackets } from "@codemirror/autocomplete";
-import type { Root } from "mdast";
-import type { Heading } from "mdast";
+import type { Heading, PhrasingContent, Root } from "mdast";
 import rehypeStringify from "rehype-stringify";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
@@ -150,9 +149,9 @@ function extractToc(ast: Root): TocEntry[] {
     if (typeof from !== "number" || typeof to !== "number") continue;
     // Extract text from children recursively
     let text = "";
-    const walk = (n: any) => {
-      if (n.value) text += n.value;
-      if (n.children) for (const c of n.children) walk(c);
+    const walk = (n: PhrasingContent | Heading): void => {
+      if ("value" in n && n.value) text += n.value;
+      if ("children" in n && n.children) for (const c of n.children) walk(c);
     };
     walk(h);
     entries.push({ level: h.depth, text, from, to });

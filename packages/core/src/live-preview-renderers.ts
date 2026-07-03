@@ -181,7 +181,7 @@ export function createDefaultRenderer(context: LivePreviewRenderContext): HTMLEl
           // Extract cell text
           if ("children" in cell && Array.isArray(cell.children)) {
             td.textContent = cell.children
-              .map((c: any) => ("value" in c ? c.value : ""))
+              .map((c) => ("value" in c ? c.value : ""))
               .join("");
           }
           tr.appendChild(td);

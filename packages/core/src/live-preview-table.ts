@@ -45,15 +45,77 @@ const SEPARATOR_RE = /^\|?\s*[-:]+\s*(\|\s*[-:]+\s*)*\|?\s*$/;
 // table's header line (e.g. `| 头像 | 用户名 | 主页 |`) so widths survive
 // the widget being rebuilt across edits as long as the header doesn't
 // change. Not persisted across reloads — markdown tables don't have a
-// place to store column widths and we don't want to write sidecar files
-// for this. Values: [rowGripWidth, ...dataColumnWidths].
+/**
+ * In-memory column-width cache shared across widget re-renders.
+ * Key: `tableWidthId(source, tableFrom)`, Value: [rowGripWidth, ...dataColumnWidths].
+ * The Map survives widget rebuilds within a session; localStorage below extends that
+ * across page loads.
+ */
 const tableColumnWidths = new Map<string, number[]>();
+
+const COL_WIDTH_LOCAL_KEY = "nexus-table-col-widths";
+const COL_WIDTH_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const COL_WIDTH_MAX_ENTRIES = 50;
+
+/** Generate a stable key for column-width persistence.
+ *
+ *  Uses the table's document offset + the separator line so the key survives
+ *  cell-content edits but invalidates on column add/remove or table move.
+ */
+function tableWidthId(source: string, tableFrom: number): string {
+  const sepLine = source.split("\n").find((l) => /^\|[-:\s|]+\|?\s*$/.test(l)) ?? "";
+  return `nexus-tw:${tableFrom}:${sepLine.replace(/\s+/g, "").toLowerCase()}`;
+}
+
+/** Persist column widths to localStorage with automatic eviction. */
+function persistWidths(key: string, widths: number[]): void {
+  try {
+    const raw = localStorage.getItem(COL_WIDTH_LOCAL_KEY);
+    const store: Record<string, { w: number[]; ts: number }> = raw ? JSON.parse(raw) : {};
+    store[key] = { w: widths, ts: Date.now() };
+    const entries = Object.entries(store);
+    if (entries.length > COL_WIDTH_MAX_ENTRIES) {
+      entries.sort((a, b) => b[1].ts - a[1].ts);
+      localStorage.setItem(COL_WIDTH_LOCAL_KEY, JSON.stringify(Object.fromEntries(entries.slice(0, COL_WIDTH_MAX_ENTRIES))));
+    } else {
+      localStorage.setItem(COL_WIDTH_LOCAL_KEY, JSON.stringify(store));
+    }
+  } catch { /* localStorage full / unavailable — silently degrade */ }
+}
+
+/** Load column widths from localStorage, returning null if expired or missing. */
+function loadPersistedWidths(key: string): number[] | null {
+  try {
+    const raw = localStorage.getItem(COL_WIDTH_LOCAL_KEY);
+    if (!raw) return null;
+    const store: Record<string, { w: number[]; ts: number }> = JSON.parse(raw);
+    const entry = store[key];
+    if (!entry) return null;
+    if (Date.now() - entry.ts > COL_WIDTH_MAX_AGE_MS) {
+      delete store[key];
+      localStorage.setItem(COL_WIDTH_LOCAL_KEY, JSON.stringify(store));
+      return null;
+    }
+    return entry.w;
+  } catch { return null; }
+}
+
+/** Ensure the saved widths array matches the current column count (trim or pad). */
+function adjustWidthsForColCount(widths: number[], targetLen: number, defaultWidth = 120): number[] {
+  if (widths.length === targetLen) return widths;
+  const adjusted = widths.slice(0, targetLen);
+  while (adjusted.length < targetLen) adjusted.push(defaultWidth);
+  return adjusted;
+}
 
 const ROW_GRIP_WIDTH = 16;
 const MIN_COLUMN_WIDTH = 48;
 const renderedSourceOffsets = new WeakMap<Node, { start: number; end: number }>();
 
-function getNodeSourceOffsets(node: MdastNode, tableFrom: number, rawSourceStart: number, inlineCode = false): { start: number; end: number } | null {
+/** Minimal shape with offset-based position — subset of unist.Position used by getNodeSourceOffsets. */
+type PositionalNode = { position?: { start: { offset?: number }; end: { offset?: number } } };
+
+function getNodeSourceOffsets(node: MdastNode | PositionalNode, tableFrom: number, rawSourceStart: number, inlineCode = false): { start: number; end: number } | null {
   const startOffset = node?.position?.start?.offset;
   const endOffset = node?.position?.end?.offset;
   if (typeof startOffset !== "number" || typeof endOffset !== "number") return null;
@@ -283,7 +345,7 @@ function renderInlineMdast(node: PhrasingContent, mediaOnly = false, tableFrom =
         return frag;
       }
       const text = document.createTextNode(typeof n.value === "string" ? n.value : "");
-      const sourceOffsets = getNodeSourceOffsets(n as unknown as MdastNode, tableFrom, rawSourceStart);
+      const sourceOffsets = getNodeSourceOffsets(n, tableFrom, rawSourceStart);
       if (sourceOffsets) renderedSourceOffsets.set(text, sourceOffsets);
       return text;
     }
@@ -486,9 +548,9 @@ export class EditableTableWidget extends WidgetType {
     if (rows.length === 0) { wrapper.appendChild(table); return wrapper; }
 
     // ── Column-width persistence ──
-    // Keyed by the table's header source line so widths stick across
-    // widget rebuilds caused by editing other cells.
-    const widthKey = sourceLines[dataLineIndices[0] ?? 0] ?? "";
+    // Stable key based on document position + separator line so widths
+    // survive cell-content edits and stick across widget rebuilds.
+    const widthKey = tableWidthId(this.source, this.tableFrom);
 
     /**
      * Apply (or refresh) an explicit `<colgroup>` + `table-layout: fixed`
@@ -545,7 +607,9 @@ export class EditableTableWidget extends WidgetType {
       acquireEditingLock("drag");
       const baseWidths = (() => {
         const saved = tableColumnWidths.get(widthKey);
-        if (saved && saved.length === colCount + 1) return saved.slice();
+        if (saved) return adjustWidthsForColCount(saved.slice(), colCount + 1);
+        const persisted = loadPersistedWidths(widthKey);
+        if (persisted) return adjustWidthsForColCount(persisted, colCount + 1);
         return measureColumnWidths();
       })();
       applyColumnWidths(baseWidths);
@@ -566,11 +630,28 @@ export class EditableTableWidget extends WidgetType {
         document.removeEventListener("mouseup", onUp);
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
-        tableColumnWidths.set(widthKey, baseWidths.slice());
+        const finalWidths = baseWidths.slice();
+        tableColumnWidths.set(widthKey, finalWidths);
+        persistWidths(widthKey, finalWidths);
         releaseEditingLock("drag");
       };
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
+    };
+
+    /** Reset column widths for this table to auto-measured defaults. */
+    const resetColumnWidths = (): void => {
+      tableColumnWidths.delete(widthKey);
+      try {
+        const raw = localStorage.getItem(COL_WIDTH_LOCAL_KEY);
+        if (raw) {
+          const store = JSON.parse(raw);
+          delete store[widthKey];
+          localStorage.setItem(COL_WIDTH_LOCAL_KEY, JSON.stringify(store));
+        }
+      } catch { /* ignore */ }
+      const autoWidths = measureColumnWidths();
+      applyColumnWidths(autoWidths);
     };
 
     // ── Selection overlay — highlights entire table when CM6 selection covers it ──
@@ -1250,6 +1331,11 @@ export class EditableTableWidget extends WidgetType {
             e.stopPropagation();
             startColumnResize(handleColIdx, e.clientX);
           });
+          // Double-click resets ALL columns to auto-measured width.
+          resizeHandle.addEventListener("dblclick", (e) => {
+            e.stopPropagation();
+            resetColumnWidths();
+          });
           // Tiny background flash on hover so the user can see where the
           // handle lives without us drawing a permanent divider line.
           resizeHandle.addEventListener("mouseenter", () => {
@@ -1506,12 +1592,13 @@ export class EditableTableWidget extends WidgetType {
 
     wrapper.appendChild(table);
 
-    // Re-apply column widths the user previously set via drag (keyed by
-    // header line in `tableColumnWidths`). Done after the rows are
-    // mounted so colgroup + the widths take effect on the actual DOM.
-    const savedWidths = tableColumnWidths.get(widthKey);
-    if (savedWidths && savedWidths.length === colCount + 1) {
-      applyColumnWidths(savedWidths);
+    // Re-apply column widths the user previously set via drag.
+    // Check in-memory cache first, then localStorage. Done after the
+    // rows are mounted so colgroup + widths take effect on the DOM.
+    const savedWidths = tableColumnWidths.get(widthKey) ?? loadPersistedWidths(widthKey);
+    if (savedWidths) {
+      const adjusted = adjustWidthsForColCount(savedWidths, colCount + 1);
+      applyColumnWidths(adjusted);
     }
 
     // ── "+" buttons ──
