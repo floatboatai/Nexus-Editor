@@ -232,6 +232,28 @@ editor.getCoordsAtPos(pos)     // { left, right, top, bottom } | null
 ```ts
 const myPlugin: NexusPlugin = {
   name: "my-plugin",
+  dependsOn: ["plugin-history"],
+
+  // Optional lifecycle: called once after createEditor() returns.
+  // Use for subscriptions / side effects that need a live EditorAPI.
+  setup: ({ editor, commandBus, eventBus, diagnostics, onDispose }) => {
+    commandBus.registerCommand({
+      id: "my-plugin.ping",
+      run: () => {
+        eventBus.emit("my-plugin:ping", { at: Date.now() });
+        return true;
+      },
+    });
+
+    const onPing = (payload: unknown) => console.log(payload);
+    eventBus.on("my-plugin:ping", onPing);
+    diagnostics.report("info", "PLUGIN_READY", "my-plugin setup complete");
+
+    const onChange = (doc: string) => console.log(doc);
+    editor.on("change", onChange);
+    onDispose(() => eventBus.off("my-plugin:ping", onPing));
+    onDispose(() => editor.off("change", onChange));
+  },
 
   // Tier 1: Shortcuts & slash commands
   shortcuts: [{ key: "Mod-b", run: (editor) => { /* toggle bold */ return true; } }],
@@ -250,6 +272,27 @@ const myPlugin: NexusPlugin = {
   cmExtensions: [myCodeMirrorExtension],
 };
 ```
+
+`setup` is additive and backwards-compatible: existing plugins that only use
+static fields (`shortcuts`, `commands`, `remarkPlugins`, `cmExtensions`, etc.)
+continue to work unchanged.
+
+Phase-2 plugin architecture adds:
+- dependency ordering via `dependsOn`
+- a command bus (`registerCommand` / `unregisterCommand` / `runCommand`)
+- a plugin event bus (`emitPluginEvent` / `onPluginEvent` / `offPluginEvent`)
+- runtime diagnostics via `editor.getPluginDiagnostics()`
+
+Phase-3 ecosystem adds runtime plugin management:
+- `getActivePlugins()`
+- `usePlugin(plugin)`
+- `unusePlugin(name)`
+- `reloadPlugin(name, nextPlugin?)`
+
+Plugin setup context now also exposes scoped facades:
+- `commandBus` (runtime command registration scoped to plugin setup)
+- `eventBus` (plugin event subscriptions with teardown-friendly lifecycle)
+- `diagnostics` (structured plugin-scoped diagnostic reporting)
 
 </details>
 

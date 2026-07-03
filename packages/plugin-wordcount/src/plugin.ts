@@ -234,6 +234,10 @@ export function createWordCountPlugin(options: WordCountPluginOptions = {}): Wor
   const plugin: WordCountPlugin = {
     name: "plugin-wordcount",
     cmExtensions: [],
+    setup(context) {
+      plugin.attachEditor(context.editor);
+      context.onDispose(() => api.destroy());
+    },
     ...api,
     attachEditor(target: EditorAPI) {
       if (editor || destroyed) return;

@@ -232,6 +232,28 @@ editor.getCoordsAtPos(pos)     // { left, right, top, bottom } | null
 ```ts
 const myPlugin: NexusPlugin = {
   name: "my-plugin",
+  dependsOn: ["plugin-history"],
+
+  // 可选生命周期：createEditor() 返回后执行一次。
+  // 适合放依赖 EditorAPI 的订阅和副作用逻辑。
+  setup: ({ editor, commandBus, eventBus, diagnostics, onDispose }) => {
+    commandBus.registerCommand({
+      id: "my-plugin.ping",
+      run: () => {
+        eventBus.emit("my-plugin:ping", { at: Date.now() });
+        return true;
+      },
+    });
+
+    const onPing = (payload: unknown) => console.log(payload);
+    eventBus.on("my-plugin:ping", onPing);
+    diagnostics.report("info", "PLUGIN_READY", "my-plugin setup complete");
+
+    const onChange = (doc: string) => console.log(doc);
+    editor.on("change", onChange);
+    onDispose(() => eventBus.off("my-plugin:ping", onPing));
+    onDispose(() => editor.off("change", onChange));
+  },
 
   // 第一层：快捷键与斜杠命令
   shortcuts: [{ key: "Mod-b", run: (editor) => { /* 切换加粗 */ return true; } }],
@@ -250,6 +272,26 @@ const myPlugin: NexusPlugin = {
   cmExtensions: [myCodeMirrorExtension],
 };
 ```
+
+`setup` 是增量能力且保持向后兼容：只使用静态字段
+（`shortcuts`、`commands`、`remarkPlugins`、`cmExtensions` 等）的旧插件无需修改即可继续工作。
+
+Phase-2 插件架构新增：
+- `dependsOn` 依赖排序
+- 命令总线（`registerCommand` / `unregisterCommand` / `runCommand`）
+- 插件事件总线（`emitPluginEvent` / `onPluginEvent` / `offPluginEvent`）
+- 运行期诊断日志（`editor.getPluginDiagnostics()`）
+
+Phase-3 生态化新增运行时插件管理：
+- `getActivePlugins()`
+- `usePlugin(plugin)`
+- `unusePlugin(name)`
+- `reloadPlugin(name, nextPlugin?)`
+
+`setup` 上下文现在还提供受控能力门面：
+- `commandBus`（面向 setup 的运行时命令注册）
+- `eventBus`（易于清理的插件事件订阅）
+- `diagnostics`（结构化插件级诊断上报）
 
 </details>
 

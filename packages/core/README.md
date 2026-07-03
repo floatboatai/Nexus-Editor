@@ -74,3 +74,12 @@ Multiple ranges in `setSelections` require `multiCursor: true` — without the f
 ## Other config highlights
 
 See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.
+
+Plugin architecture highlights (Phase 1/2):
+- plugin lifecycle hook: `NexusPlugin.setup({ editor, onDispose, pluginName })`
+- dependency ordering: `NexusPlugin.dependsOn`
+- command bus: `registerCommand` / `unregisterCommand` / `runCommand`
+- plugin event bus: `emitPluginEvent` / `onPluginEvent` / `offPluginEvent`
+- diagnostics: `editor.getPluginDiagnostics()`
+- runtime plugin management: `getActivePlugins` / `usePlugin` / `unusePlugin` / `reloadPlugin`
+- setup context facades: `commandBus` / `eventBus` / `diagnostics`

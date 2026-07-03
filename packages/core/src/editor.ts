@@ -35,7 +35,11 @@ import type {
   EditorEventMap,
   EditorSelectionRange,
   NexusPlugin,
+  PluginDiagnostic,
+  PluginEventHandler,
+  NexusPluginSetupResult,
   ParserLike,
+  PluginTeardown,
   SetDocumentOptions,
   TocEntry,
 } from "./types";
@@ -228,11 +232,121 @@ function createTransformProcessor(plugins: NexusPlugin[]): { runSync(tree: Root)
   return { runSync: (tree) => processor.runSync(tree) as Root };
 }
 
+function normalizePluginTeardown(result: NexusPluginSetupResult): PluginTeardown | null {
+  if (typeof result === "function") return result;
+  if (result && typeof result === "object" && typeof result.dispose === "function") {
+    return result.dispose;
+  }
+  return null;
+}
+
+function sortPluginsByDependencies(
+  plugins: NexusPlugin[],
+  pushDiagnostic: (diag: Omit<PluginDiagnostic, "timestamp">) => void,
+): NexusPlugin[] {
+  if (plugins.length === 0) return plugins;
+
+  const originalIndex = new Map<string, number>();
+  const pluginByName = new Map<string, NexusPlugin>();
+  for (let i = 0; i < plugins.length; i++) {
+    const plugin = plugins[i];
+    if (pluginByName.has(plugin.name)) {
+      pushDiagnostic({
+        level: "warn",
+        code: "PLUGIN_DUPLICATE_NAME",
+        message: `Duplicate plugin name "${plugin.name}" detected; dependency sorting skipped.`,
+        pluginName: plugin.name,
+      });
+      return plugins;
+    }
+    pluginByName.set(plugin.name, plugin);
+    originalIndex.set(plugin.name, i);
+  }
+
+  const indegree = new Map<string, number>();
+  const edges = new Map<string, string[]>();
+  for (const plugin of plugins) {
+    indegree.set(plugin.name, 0);
+    edges.set(plugin.name, []);
+  }
+
+  for (const plugin of plugins) {
+    for (const depName of plugin.dependsOn ?? []) {
+      if (!pluginByName.has(depName)) {
+        pushDiagnostic({
+          level: "warn",
+          code: "PLUGIN_MISSING_DEPENDENCY",
+          message: `Plugin "${plugin.name}" depends on missing plugin "${depName}".`,
+          pluginName: plugin.name,
+          details: { dependency: depName },
+        });
+        continue;
+      }
+      indegree.set(plugin.name, (indegree.get(plugin.name) ?? 0) + 1);
+      edges.get(depName)?.push(plugin.name);
+    }
+  }
+
+  const queue = Array.from(pluginByName.keys())
+    .filter((name) => (indegree.get(name) ?? 0) === 0)
+    .sort((a, b) => (originalIndex.get(a) ?? 0) - (originalIndex.get(b) ?? 0));
+  const resolved: string[] = [];
+
+  while (queue.length > 0) {
+    const name = queue.shift()!;
+    resolved.push(name);
+    const neighbors = (edges.get(name) ?? [])
+      .slice()
+      .sort((a, b) => (originalIndex.get(a) ?? 0) - (originalIndex.get(b) ?? 0));
+    for (const neighbor of neighbors) {
+      const nextDegree = (indegree.get(neighbor) ?? 0) - 1;
+      indegree.set(neighbor, nextDegree);
+      if (nextDegree === 0) queue.push(neighbor);
+    }
+  }
+
+  if (resolved.length !== plugins.length) {
+    pushDiagnostic({
+      level: "error",
+      code: "PLUGIN_DEPENDENCY_CYCLE",
+      message: "Plugin dependency cycle detected; falling back to registration order.",
+      details: {
+        unresolved: Array.from(pluginByName.keys()).filter((name) => !resolved.includes(name)),
+      },
+    });
+    return plugins;
+  }
+
+  const sorted = resolved.map((name) => pluginByName.get(name)!);
+  const changed = sorted.some((plugin, index) => plugin !== plugins[index]);
+  if (changed) {
+    pushDiagnostic({
+      level: "info",
+      code: "PLUGIN_ORDER_RESOLVED",
+      message: "Plugin order was adjusted by dependency sorting.",
+      details: { order: sorted.map((plugin) => plugin.name) },
+    });
+  }
+  return sorted;
+}
+
 export function createEditor(config: EditorConfig): EditorAPI {
-  const plugins = config.plugins ?? [];
+  const diagnostics: PluginDiagnostic[] = [];
+  const pushDiagnostic = (diag: Omit<PluginDiagnostic, "timestamp">) => {
+    const full = { ...diag, timestamp: Date.now() };
+    diagnostics.push(full);
+    if (diag.level === "error") {
+      console.error(`[NexusEditor] ${diag.code}: ${diag.message}`, diag.details ?? {});
+    } else if (diag.level === "warn") {
+      console.warn(`[NexusEditor] ${diag.code}: ${diag.message}`, diag.details ?? {});
+    } else {
+      debugNexus(`${diag.code}: ${diag.message}`, diag.details);
+    }
+  };
+  let activePlugins = sortPluginsByDependencies(config.plugins ?? [], pushDiagnostic);
   debugNexus("create", {
     initialLength: (config.initialValue ?? "").length,
-    pluginNames: plugins.map((plugin) => plugin.name),
+    pluginNames: activePlugins.map((plugin) => plugin.name),
     readOnly: config.readOnly === true,
     direction: config.direction ?? "ltr",
   });
@@ -243,38 +357,120 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // (when provided) win, so existing test contracts that swap in mock
   // parsers stay green.
   const customParser = config.parser;
-  const shortcuts = plugins.flatMap((plugin) => plugin.shortcuts ?? []);
-  const slashCommands = plugins.flatMap((plugin) => plugin.slashCommands ?? []);
-  const cmExtensions = plugins.flatMap((plugin) => plugin.cmExtensions ?? []);
-  const widgetDefs = plugins.flatMap((plugin) => plugin.widgets ?? []);
-  // 命名命令（类 Obsidian addCommand）。同 id 以先注册者为准。
-  const commands = plugins.flatMap((plugin) => plugin.commands ?? []);
+  let shortcuts = activePlugins.flatMap((plugin) => plugin.shortcuts ?? []);
+  let slashCommands = activePlugins.flatMap((plugin) => plugin.slashCommands ?? []);
+  const cmExtensions = activePlugins.flatMap((plugin) => plugin.cmExtensions ?? []);
+  const widgetDefs = activePlugins.flatMap((plugin) => plugin.widgets ?? []);
   const commandById = new Map<string, EditorCommand>();
-  for (const command of commands) {
-    if (!commandById.has(command.id)) commandById.set(command.id, command);
+  const commandOwnerById = new Map<string, string>();
+  const registerCommandInternal = (
+    command: EditorCommand,
+    options: {
+      pluginName?: string;
+      source: "plugin-static" | "runtime";
+      override?: boolean;
+      owner?: string;
+    }
+  ): boolean => {
+    if (!command?.id) return false;
+    const existing = commandById.get(command.id);
+    if (existing && options.override !== true) {
+      pushDiagnostic({
+        level: "warn",
+        code: "COMMAND_ID_CONFLICT",
+        message: `Command id "${command.id}" already registered; keeping existing handler.`,
+        pluginName: options.pluginName,
+        details: { source: options.source },
+      });
+      return false;
+    }
+
+    if (existing && options.override === true) {
+      pushDiagnostic({
+        level: "info",
+        code: "COMMAND_ID_OVERRIDDEN",
+        message: `Command id "${command.id}" was overridden.`,
+        pluginName: options.pluginName,
+        details: { source: options.source },
+      });
+    }
+    if (options.source === "runtime" && command.hotkey) {
+      pushDiagnostic({
+        level: "warn",
+        code: "RUNTIME_HOTKEY_UNSUPPORTED",
+        message: `Runtime command "${command.id}" has hotkey "${command.hotkey}" but dynamic keymap binding is not supported yet.`,
+        pluginName: options.pluginName,
+      });
+    }
+    commandById.set(command.id, command);
+    if (options.owner) {
+      commandOwnerById.set(command.id, options.owner);
+    } else {
+      commandOwnerById.delete(command.id);
+    }
+    return true;
+  };
+  const pluginEventHandlers = new Map<string, Set<PluginEventHandler>>();
+  const pluginTeardownsByName = new Map<string, PluginTeardown>();
+
+  function rebuildStaticPluginContributions() {
+    shortcuts = activePlugins.flatMap((plugin) => plugin.shortcuts ?? []);
+    slashCommands = activePlugins.flatMap((plugin) => plugin.slashCommands ?? []);
+
+    const staticCommandIds = Array.from(commandOwnerById.entries())
+      .filter(([, owner]) => owner.startsWith("plugin:"))
+      .map(([id]) => id);
+    for (const id of staticCommandIds) {
+      commandById.delete(id);
+      commandOwnerById.delete(id);
+    }
+
+    for (const plugin of activePlugins) {
+      for (const command of plugin.commands ?? []) {
+        registerCommandInternal(command, {
+          pluginName: plugin.name,
+          source: "plugin-static",
+          owner: `plugin:${plugin.name}`,
+        });
+      }
+    }
   }
+  rebuildStaticPluginContributions();
+
   // 插件 DOM 事件钩子。内置资源上传作为兜底，在所有钩子都未消费时才执行。
-  const pasteHandlers = plugins
+  let pasteHandlers = activePlugins
     .map((plugin) => plugin.handlers?.paste)
     .filter((handler): handler is EditorEventHandler<ClipboardEvent> => Boolean(handler));
-  const dropHandlers = plugins
+  let dropHandlers = activePlugins
     .map((plugin) => plugin.handlers?.drop)
     .filter((handler): handler is EditorEventHandler<DragEvent> => Boolean(handler));
-  const keydownHandlers = plugins
+  let keydownHandlers = activePlugins
     .map((plugin) => plugin.handlers?.keydown)
     .filter((handler): handler is EditorEventHandler<KeyboardEvent> => Boolean(handler));
+
+  function rebuildDomHandlers() {
+    pasteHandlers = activePlugins
+      .map((plugin) => plugin.handlers?.paste)
+      .filter((handler): handler is EditorEventHandler<ClipboardEvent> => Boolean(handler));
+    dropHandlers = activePlugins
+      .map((plugin) => plugin.handlers?.drop)
+      .filter((handler): handler is EditorEventHandler<DragEvent> => Boolean(handler));
+    keydownHandlers = activePlugins
+      .map((plugin) => plugin.handlers?.keydown)
+      .filter((handler): handler is EditorEventHandler<KeyboardEvent> => Boolean(handler));
+  }
 
   // The sync remark parser is only needed for the legacy WidgetDefinition
   // extension. Live preview, getAst(), table-of-contents, and normal change
   // events all use the Lezer path below, so avoid paying this startup cost in
   // the common no-widget case (including the Electron demo).
-  const fallbackParser = !customParser && widgetDefs.length > 0 ? createParser(plugins) : null;
+  const fallbackParser = !customParser && widgetDefs.length > 0 ? createParser(activePlugins) : null;
   const widgetParser: ParserLike | null = customParser ?? fallbackParser;
   // Built only when the user passes remarkPlugins AND no custom parser.
   // Custom-parser callers run their plugins inside `parser.parse`, so the
   // transform pass would double-apply.
-  const hasRemarkPlugins = plugins.some((plugin) => (plugin.remarkPlugins?.length ?? 0) > 0);
-  const transformProcessor = !customParser && hasRemarkPlugins ? createTransformProcessor(plugins) : null;
+  const hasRemarkPlugins = activePlugins.some((plugin) => (plugin.remarkPlugins?.length ?? 0) > 0);
+  const transformProcessor = !customParser && hasRemarkPlugins ? createTransformProcessor(activePlugins) : null;
   const transformAst = (ast: Root): Root =>
     transformProcessor ? transformProcessor.runSync(ast) : ast;
   const locale = resolveLocale(config.locale);
@@ -300,6 +496,226 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // the live EditorState once the view is constructed.
   const viewRef: { current: EditorView | null } = { current: null };
   let api!: EditorAPI;
+
+  function deactivatePluginSetup(pluginName: string): void {
+    const teardown = pluginTeardownsByName.get(pluginName);
+    if (!teardown) return;
+    pluginTeardownsByName.delete(pluginName);
+    try {
+      teardown();
+    } catch (error) {
+      pushDiagnostic({
+        level: "error",
+        code: "PLUGIN_TEARDOWN_FAILED",
+        message: "Plugin teardown callback threw an error.",
+        pluginName,
+        details: { error: error instanceof Error ? error.message : String(error) },
+      });
+    }
+  }
+
+  function activatePluginSetup(plugin: NexusPlugin): void {
+    if (typeof plugin.setup !== "function") return;
+
+    const localTeardowns: PluginTeardown[] = [];
+    const setupOwner = `setup:${plugin.name}`;
+    const setupEventBindings: Array<{ event: string; handler: PluginEventHandler }> = [];
+    localTeardowns.push(() => {
+      for (let i = setupEventBindings.length - 1; i >= 0; i--) {
+        const binding = setupEventBindings[i];
+        if (!binding) continue;
+        api.offPluginEvent(binding.event, binding.handler);
+      }
+
+      const ownedCommandIds = Array.from(commandOwnerById.entries())
+        .filter(([, owner]) => owner === setupOwner)
+        .map(([id]) => id);
+      for (const id of ownedCommandIds) {
+        commandById.delete(id);
+        commandOwnerById.delete(id);
+      }
+    });
+    const context = {
+      pluginName: plugin.name,
+      editor: api,
+      commandBus: {
+        registerCommand: (command: EditorCommand, opts?: { override?: boolean }) =>
+          registerCommandInternal(command, {
+            pluginName: plugin.name,
+            source: "runtime",
+            override: opts?.override === true,
+            owner: setupOwner,
+          }),
+        unregisterCommand: (id: string) => {
+          if (commandOwnerById.get(id) !== setupOwner) return false;
+          commandOwnerById.delete(id);
+          return commandById.delete(id);
+        },
+        runCommand: (id: string) => api.runCommand(id),
+      },
+      eventBus: {
+        emit: (event: string, payload?: unknown) => {
+          api.emitPluginEvent(event, payload);
+        },
+        on: (event: string, handler: PluginEventHandler) => {
+          setupEventBindings.push({ event, handler });
+          api.onPluginEvent(event, handler);
+        },
+        off: (event: string, handler: PluginEventHandler) => {
+          api.offPluginEvent(event, handler);
+          for (let i = setupEventBindings.length - 1; i >= 0; i--) {
+            const binding = setupEventBindings[i];
+            if (!binding) continue;
+            if (binding.event === event && binding.handler === handler) {
+              setupEventBindings.splice(i, 1);
+            }
+          }
+        },
+      },
+      diagnostics: {
+        report: (
+          level: PluginDiagnostic["level"],
+          code: string,
+          message: string,
+          details?: Record<string, unknown>
+        ) => {
+          pushDiagnostic({ level, code, message, pluginName: plugin.name, details });
+        },
+        list: () => diagnostics.filter((entry) => entry.pluginName === plugin.name),
+      },
+      onDispose: (teardown: PluginTeardown) => {
+        if (typeof teardown !== "function") return;
+        localTeardowns.push(teardown);
+      }
+    };
+
+    try {
+      const setupResult = plugin.setup(context);
+      const normalized = normalizePluginTeardown(setupResult);
+      if (normalized) localTeardowns.push(normalized);
+    } catch (error) {
+      pushDiagnostic({
+        level: "error",
+        code: "PLUGIN_SETUP_FAILED",
+        message: `Plugin setup failed: ${plugin.name}.`,
+        pluginName: plugin.name,
+        details: { error: error instanceof Error ? error.message : String(error) },
+      });
+      return;
+    }
+
+    if (localTeardowns.length === 0) return;
+    pluginTeardownsByName.set(plugin.name, () => {
+      while (localTeardowns.length > 0) {
+        const teardown = localTeardowns.pop();
+        if (!teardown) continue;
+        teardown();
+      }
+    });
+  }
+
+  function activateAllPluginSetups() {
+    for (const plugin of activePlugins) activatePluginSetup(plugin);
+  }
+
+  function deactivateAllPluginSetups() {
+    const names = Array.from(pluginTeardownsByName.keys());
+    for (let i = names.length - 1; i >= 0; i--) {
+      const name = names[i];
+      if (name) deactivatePluginSetup(name);
+    }
+  }
+
+  function removeStaticCommandsForPlugin(pluginName: string) {
+    const ownedIds = Array.from(commandOwnerById.entries())
+      .filter(([, owner]) => owner === `plugin:${pluginName}`)
+      .map(([id]) => id);
+    for (const id of ownedIds) {
+      commandById.delete(id);
+      commandOwnerById.delete(id);
+    }
+  }
+
+  function applyActivePlugins(nextPlugins: NexusPlugin[]): void {
+    activePlugins = sortPluginsByDependencies(nextPlugins, pushDiagnostic);
+    rebuildStaticPluginContributions();
+    rebuildDomHandlers();
+  }
+
+  function checkRuntimePluginLimitations(plugin: NexusPlugin): void {
+    if ((plugin.cmExtensions?.length ?? 0) > 0) {
+      pushDiagnostic({
+        level: "warn",
+        code: "RUNTIME_PLUGIN_CM_EXTENSION_UNSUPPORTED",
+        message: `Runtime plugin "${plugin.name}" provides cmExtensions which require editor reconfiguration and are ignored.`,
+        pluginName: plugin.name,
+      });
+    }
+    if ((plugin.remarkPlugins?.length ?? 0) > 0) {
+      pushDiagnostic({
+        level: "warn",
+        code: "RUNTIME_PLUGIN_REMARK_UNSUPPORTED",
+        message: `Runtime plugin "${plugin.name}" provides remarkPlugins which are not hot-swappable yet.`,
+        pluginName: plugin.name,
+      });
+    }
+    if ((plugin.widgets?.length ?? 0) > 0) {
+      pushDiagnostic({
+        level: "warn",
+        code: "RUNTIME_PLUGIN_WIDGET_UNSUPPORTED",
+        message: `Runtime plugin "${plugin.name}" provides widgets which are not hot-swappable yet.`,
+        pluginName: plugin.name,
+      });
+    }
+    const runtimeShortcutKeys = new Set((plugin.shortcuts ?? []).map((entry) => entry.key));
+    const unsupportedShortcutKeys = Array.from(runtimeShortcutKeys).filter((key) => !initialShortcutKeys.includes(key));
+    if (unsupportedShortcutKeys.length > 0) {
+      pushDiagnostic({
+        level: "warn",
+        code: "RUNTIME_PLUGIN_SHORTCUT_UNSUPPORTED",
+        message: `Runtime plugin "${plugin.name}" uses shortcut keys that were not present at startup and cannot be key-bound dynamically yet.`,
+        pluginName: plugin.name,
+        details: { keys: unsupportedShortcutKeys },
+      });
+    }
+    const hotkeys = (plugin.commands ?? [])
+      .map((command) => command.hotkey)
+      .filter((value): value is string => typeof value === "string" && value.length > 0);
+    if (hotkeys.length > 0) {
+      pushDiagnostic({
+        level: "warn",
+        code: "RUNTIME_PLUGIN_HOTKEY_UNSUPPORTED",
+        message: `Runtime plugin "${plugin.name}" provides command hotkeys that cannot be key-bound dynamically yet.`,
+        pluginName: plugin.name,
+        details: { hotkeys },
+      });
+    }
+  }
+
+  function activateRuntimePlugin(plugin: NexusPlugin): boolean {
+    if (activePlugins.some((entry) => entry.name === plugin.name)) {
+      pushDiagnostic({
+        level: "warn",
+        code: "PLUGIN_ALREADY_ACTIVE",
+        message: `Plugin "${plugin.name}" is already active.`,
+        pluginName: plugin.name,
+      });
+      return false;
+    }
+    applyActivePlugins([...activePlugins, plugin]);
+    checkRuntimePluginLimitations(plugin);
+    activatePluginSetup(plugin);
+    return true;
+  }
+
+  function deactivateRuntimePlugin(name: string): boolean {
+    const plugin = activePlugins.find((entry) => entry.name === name);
+    if (!plugin) return false;
+    deactivatePluginSetup(name);
+    removeStaticCommandsForPlugin(name);
+    applyActivePlugins(activePlugins.filter((entry) => entry.name !== name));
+    return true;
+  }
 
   function setFocused(next: boolean) {
     if (destroyed || focused === next) {
@@ -496,20 +912,24 @@ export function createEditor(config: EditorConfig): EditorAPI {
   const indentGuidesExt = config.indentGuides ? indentationMarkers() : [];
   const multiCursorExt = config.multiCursor ? multiCursorExtension() : [];
 
+  const initialShortcutKeys = Array.from(new Set(shortcuts.map((shortcut) => shortcut.key)));
   const shortcutExtensions =
-    shortcuts.length > 0
+    initialShortcutKeys.length > 0
       ? [
           keymap.of(
-            shortcuts.map((shortcut) => ({
-              key: shortcut.key,
-              run: () => shortcut.run(api)
+            initialShortcutKeys.map((key) => ({
+              key,
+              run: () => {
+                const shortcut = shortcuts.find((entry) => entry.key === key);
+                return shortcut ? shortcut.run(api) : false;
+              }
             }))
           )
         ]
       : [];
 
   // 带 hotkey 的命名命令注册成 CodeMirror keymap；返回非 false 视为已消费。
-  const hotkeyCommands = commands.filter(
+  const hotkeyCommands = Array.from(commandById.values()).filter(
     (command): command is EditorCommand & { hotkey: string } =>
       typeof command.hotkey === "string" && command.hotkey.length > 0
   );
@@ -519,7 +939,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
           keymap.of(
             hotkeyCommands.map((command) => ({
               key: command.hotkey,
-              run: () => command.run(api) !== false
+              run: () => api.runCommand(command.id)
             }))
           )
         ]
@@ -724,7 +1144,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
       return extractToc(currentAst);
     },
     exportHTML() {
-      return markdownToHtml(view.state.doc.toString(), plugins);
+      return markdownToHtml(view.state.doc.toString(), activePlugins);
     },
     setTheme(theme: NexusTheme) {
       if (destroyed) return;
@@ -862,7 +1282,19 @@ export function createEditor(config: EditorConfig): EditorAPI {
       return shortcut ? shortcut.run(api) : false;
     },
     getCommands() {
-      return commands.slice();
+      return Array.from(commandById.values());
+    },
+    registerCommand(command, opts) {
+      if (destroyed) return false;
+      return registerCommandInternal(command, {
+        source: "runtime",
+        override: opts?.override === true,
+      });
+    },
+    unregisterCommand(id) {
+      if (destroyed) return false;
+      commandOwnerById.delete(id);
+      return commandById.delete(id);
     },
     runCommand(id) {
       if (destroyed) {
@@ -871,7 +1303,86 @@ export function createEditor(config: EditorConfig): EditorAPI {
 
       const command = commandById.get(id);
       if (!command) return false;
-      return command.run(api) !== false;
+      try {
+        return command.run(api) !== false;
+      } catch (error) {
+        pushDiagnostic({
+          level: "error",
+          code: "COMMAND_RUN_FAILED",
+          message: `Command execution failed: ${id}.`,
+          details: { error: error instanceof Error ? error.message : String(error) },
+        });
+        return false;
+      }
+    },
+    emitPluginEvent(event, payload) {
+      if (destroyed) return;
+      const handlers = pluginEventHandlers.get(event);
+      if (!handlers || handlers.size === 0) return;
+      for (const handler of handlers) {
+        try {
+          handler(payload);
+        } catch (error) {
+          pushDiagnostic({
+            level: "error",
+            code: "PLUGIN_EVENT_HANDLER_FAILED",
+            message: `Plugin event handler failed for "${event}".`,
+            details: { error: error instanceof Error ? error.message : String(error) },
+          });
+        }
+      }
+    },
+    onPluginEvent(event, handler) {
+      if (destroyed) return;
+      const set = pluginEventHandlers.get(event);
+      if (set) {
+        set.add(handler);
+        return;
+      }
+      pluginEventHandlers.set(event, new Set([handler]));
+    },
+    offPluginEvent(event, handler) {
+      const set = pluginEventHandlers.get(event);
+      if (!set) return;
+      set.delete(handler);
+      if (set.size === 0) pluginEventHandlers.delete(event);
+    },
+    getPluginDiagnostics() {
+      return diagnostics.slice();
+    },
+    getActivePlugins() {
+      return activePlugins.map((plugin) => plugin.name);
+    },
+    usePlugin(plugin) {
+      if (destroyed) return false;
+      return activateRuntimePlugin(plugin);
+    },
+    unusePlugin(name) {
+      if (destroyed) return false;
+      return deactivateRuntimePlugin(name);
+    },
+    reloadPlugin(name, nextPlugin) {
+      if (destroyed) return false;
+      const current = activePlugins.find((plugin) => plugin.name === name);
+      if (!current) return false;
+      if (nextPlugin && nextPlugin.name !== name) {
+        pushDiagnostic({
+          level: "warn",
+          code: "PLUGIN_RELOAD_NAME_MISMATCH",
+          message: `reloadPlugin("${name}") received replacement plugin "${nextPlugin.name}".`,
+          pluginName: name,
+          details: { nextPlugin: nextPlugin.name },
+        });
+        return false;
+      }
+
+      const replacement = nextPlugin ?? current;
+      if (!deactivateRuntimePlugin(name)) return false;
+      if (activateRuntimePlugin(replacement)) return true;
+
+      // Best-effort rollback to avoid leaving editor without the plugin.
+      activateRuntimePlugin(current);
+      return false;
     },
     isComposing() {
       if (destroyed) return false;
@@ -927,10 +1438,14 @@ export function createEditor(config: EditorConfig): EditorAPI {
       pendingCompositionMarkdown = null;
       pendingDocumentLoad = null;
       composing = false;
+      pluginEventHandlers.clear();
+      deactivateAllPluginSetups();
       emitter.clear();
       view.destroy();
     }
   };
+
+  activateAllPluginSetups();
 
   return api;
 }

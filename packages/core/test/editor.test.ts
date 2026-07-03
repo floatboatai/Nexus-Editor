@@ -242,6 +242,232 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("runs plugin setup hooks after editor creation", () => {
+    const container = document.createElement("div");
+    const setupSpy = vi.fn();
+    const editor = createEditor({
+      container,
+      plugins: [
+        {
+          name: "lifecycle-plugin",
+          setup(context) {
+            setupSpy(context.pluginName, context.editor.getDocument());
+          },
+        },
+      ],
+      initialValue: "hello",
+    });
+
+    expect(setupSpy).toHaveBeenCalledWith("lifecycle-plugin", "hello");
+    editor.destroy();
+  });
+
+  it("runs plugin teardown callbacks on editor destroy", () => {
+    const container = document.createElement("div");
+    const teardownSpy = vi.fn();
+    const editor = createEditor({
+      container,
+      plugins: [
+        {
+          name: "lifecycle-plugin",
+          setup(context) {
+            context.onDispose(() => teardownSpy("from-onDispose"));
+            return () => teardownSpy("from-return");
+          },
+        },
+      ],
+    });
+
+    editor.destroy();
+    expect(teardownSpy.mock.calls.map((entry) => entry[0])).toEqual([
+      "from-return",
+      "from-onDispose",
+    ]);
+  });
+
+  it("provides scoped setup buses and auto-cleans setup resources", () => {
+    const container = document.createElement("div");
+    const events: string[] = [];
+    const editor = createEditor({
+      container,
+      plugins: [
+        {
+          name: "scoped-setup",
+          setup(context) {
+            context.commandBus.registerCommand({
+              id: "scoped.command",
+              run(api) {
+                api.emitPluginEvent("scoped:trigger", "from-command");
+                return true;
+              },
+            });
+            context.eventBus.on("scoped:trigger", (payload) => events.push(String(payload)));
+            context.diagnostics.report("info", "SCOPED_SETUP_READY", "Scoped setup initialized");
+          },
+        },
+      ],
+    });
+
+    expect(editor.runCommand("scoped.command")).toBe(true);
+    expect(events).toEqual(["from-command"]);
+    expect(editor.getPluginDiagnostics().some((entry) => entry.code === "SCOPED_SETUP_READY")).toBe(true);
+
+    expect(editor.unusePlugin("scoped-setup")).toBe(true);
+    editor.emitPluginEvent("scoped:trigger", "after-unuse");
+    expect(events).toEqual(["from-command"]);
+    expect(editor.runCommand("scoped.command")).toBe(false);
+    editor.destroy();
+  });
+
+  it("sorts plugins by dependsOn before running setup", () => {
+    const container = document.createElement("div");
+    const order: string[] = [];
+    const editor = createEditor({
+      container,
+      plugins: [
+        {
+          name: "dependent",
+          dependsOn: ["base"],
+          setup() {
+            order.push("dependent");
+          },
+        },
+        {
+          name: "base",
+          setup() {
+            order.push("base");
+          },
+        },
+      ],
+    });
+
+    expect(order).toEqual(["base", "dependent"]);
+    editor.destroy();
+  });
+
+  it("records diagnostics for missing plugin dependencies", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      plugins: [
+        {
+          name: "dependent",
+          dependsOn: ["missing-plugin"],
+        },
+      ],
+    });
+
+    const diagnostics = editor.getPluginDiagnostics();
+    expect(diagnostics.some((entry) => entry.code === "PLUGIN_MISSING_DEPENDENCY")).toBe(true);
+    editor.destroy();
+  });
+
+  it("supports runtime command registration and plugin event bus", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container });
+    const seen: unknown[] = [];
+    const handler = (payload: unknown) => seen.push(payload);
+    editor.onPluginEvent("demo:event", handler);
+
+    expect(
+      editor.registerCommand({
+        id: "runtime.echo",
+        run(api) {
+          api.emitPluginEvent("demo:event", { ok: true });
+          return true;
+        },
+      })
+    ).toBe(true);
+    expect(editor.runCommand("runtime.echo")).toBe(true);
+    expect(seen).toEqual([{ ok: true }]);
+
+    expect(editor.unregisterCommand("runtime.echo")).toBe(true);
+    expect(editor.runCommand("runtime.echo")).toBe(false);
+    editor.offPluginEvent("demo:event", handler);
+    editor.destroy();
+  });
+
+  it("supports runtime plugin use/unuse with lifecycle teardown", () => {
+    const container = document.createElement("div");
+    const calls: string[] = [];
+    const editor = createEditor({ container });
+    const plugin = {
+      name: "runtime-plugin",
+      slashCommands: [{ id: "runtime.slash", title: "Runtime Slash" }],
+      commands: [{ id: "runtime.command", run: () => (calls.push("command"), true) }],
+      setup(context: { onDispose: (cb: () => void) => void }) {
+        calls.push("setup");
+        context.onDispose(() => calls.push("dispose"));
+      },
+    };
+
+    expect(editor.usePlugin(plugin)).toBe(true);
+    expect(editor.getActivePlugins()).toContain("runtime-plugin");
+    expect(editor.getSlashCommands().map((entry) => entry.id)).toContain("runtime.slash");
+    expect(editor.runCommand("runtime.command")).toBe(true);
+    expect(calls).toEqual(["setup", "command"]);
+
+    expect(editor.unusePlugin("runtime-plugin")).toBe(true);
+    expect(editor.getActivePlugins()).not.toContain("runtime-plugin");
+    expect(editor.runCommand("runtime.command")).toBe(false);
+    expect(editor.getSlashCommands().map((entry) => entry.id)).not.toContain("runtime.slash");
+    expect(calls).toEqual(["setup", "command", "dispose"]);
+    editor.destroy();
+  });
+
+  it("supports runtime plugin reload", () => {
+    const container = document.createElement("div");
+    const calls: string[] = [];
+    const editor = createEditor({
+      container,
+      plugins: [
+        {
+          name: "reloadable",
+          commands: [{ id: "reload.cmd", run: () => (calls.push("v1"), true) }],
+        },
+      ],
+    });
+
+    expect(editor.runCommand("reload.cmd")).toBe(true);
+    expect(calls).toEqual(["v1"]);
+
+    expect(
+      editor.reloadPlugin("reloadable", {
+        name: "reloadable",
+        commands: [{ id: "reload.cmd", run: () => (calls.push("v2"), true) }],
+      })
+    ).toBe(true);
+    expect(editor.runCommand("reload.cmd")).toBe(true);
+    expect(calls).toEqual(["v1", "v2"]);
+    editor.destroy();
+  });
+
+  it("applies dependsOn ordering when adding runtime plugins", () => {
+    const container = document.createElement("div");
+    const order: string[] = [];
+    const editor = createEditor({ container });
+    const dep = {
+      name: "dep",
+      dependsOn: ["base"],
+      setup() {
+        order.push("dep");
+      },
+    };
+    const base = {
+      name: "base",
+      setup() {
+        order.push("base");
+      },
+    };
+
+    expect(editor.usePlugin(dep)).toBe(true);
+    expect(editor.usePlugin(base)).toBe(true);
+    expect(editor.getActivePlugins()).toEqual(["base", "dep"]);
+    // setup still executes at activation-time; ordering here validates final resolved list.
+    expect(order).toEqual(["dep", "base"]);
+    editor.destroy();
+  });
+
   it("debounces parsing and emits only the latest document version", () => {
     vi.useFakeTimers();
 

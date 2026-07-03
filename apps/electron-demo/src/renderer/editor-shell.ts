@@ -10,7 +10,6 @@ import { createToolbarPlugin, createToolbarUI, type ToolbarUI } from "@floatboat
 import { createSearchPlugin } from "@floatboat/nexus-plugin-search";
 import { createSlashMenuUI, type SlashMenuUI } from "@floatboat/nexus-plugin-slash";
 import {
-  attachWordCountPlugin,
   createWordCountPlugin,
   type WordCountPlugin
 } from "@floatboat/nexus-plugin-wordcount";
@@ -339,12 +338,6 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   // it can overflow the editor's clipping context (panels, scroll
   // ancestors). Its lifecycle is tied to the shell — destroyed below.
   const slashMenu = createSlashMenuUI(editor);
-
-  // Bind the wordcount plugin now that the editor is fully constructed.
-  // The plugin's status-bar widget mounts on its first emission (next
-  // microtask), so it's already wired by the time the user sees the
-  // first paint.
-  attachWordCountPlugin(wordcount, editor);
 
   return {
     editor,

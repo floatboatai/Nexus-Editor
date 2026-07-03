@@ -29,8 +29,7 @@ pnpm add @floatboat/nexus-plugin-wordcount @floatboat/nexus-core
 ```ts
 import { createEditor } from "@floatboat/nexus-core";
 import {
-  createWordCountPlugin,
-  attachWordCountPlugin
+  createWordCountPlugin
 } from "@floatboat/nexus-plugin-wordcount";
 
 const wordcount = createWordCountPlugin({ statusBar: {} });
@@ -39,7 +38,6 @@ const editor = createEditor({
   initialValue: "# Hello\n\nStart typing...",
   plugins: [wordcount]
 });
-attachWordCountPlugin(wordcount, editor);
 
 // Query the latest stats at any time:
 wordcount.subscribe(({ doc, selection, isSelectionActive }) => {
@@ -50,8 +48,9 @@ wordcount.subscribe(({ doc, selection, isSelectionActive }) => {
 
 The plugin returns an object that is both a valid `NexusPlugin` (pass
 it to `createEditor`) and a query handle (read stats, subscribe, tear
-down). `attachWordCountPlugin` binds the plugin to the editor — call
-it once after `createEditor` returns.
+down). On modern `nexus-core`, binding happens automatically through the
+plugin lifecycle `setup()` hook. `attachWordCountPlugin` remains
+available as a backwards-compatible helper (safe no-op if already bound).
 
 ## Why not just use `editor.getDocumentStats()`?
 
