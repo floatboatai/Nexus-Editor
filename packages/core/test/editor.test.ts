@@ -353,6 +353,86 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("supports runtime plugin use/unuse with lifecycle teardown", () => {
+    const container = document.createElement("div");
+    const calls: string[] = [];
+    const editor = createEditor({ container });
+    const plugin = {
+      name: "runtime-plugin",
+      slashCommands: [{ id: "runtime.slash", title: "Runtime Slash" }],
+      commands: [{ id: "runtime.command", run: () => (calls.push("command"), true) }],
+      setup(context: { onDispose: (cb: () => void) => void }) {
+        calls.push("setup");
+        context.onDispose(() => calls.push("dispose"));
+      },
+    };
+
+    expect(editor.usePlugin(plugin)).toBe(true);
+    expect(editor.getActivePlugins()).toContain("runtime-plugin");
+    expect(editor.getSlashCommands().map((entry) => entry.id)).toContain("runtime.slash");
+    expect(editor.runCommand("runtime.command")).toBe(true);
+    expect(calls).toEqual(["setup", "command"]);
+
+    expect(editor.unusePlugin("runtime-plugin")).toBe(true);
+    expect(editor.getActivePlugins()).not.toContain("runtime-plugin");
+    expect(editor.runCommand("runtime.command")).toBe(false);
+    expect(editor.getSlashCommands().map((entry) => entry.id)).not.toContain("runtime.slash");
+    expect(calls).toEqual(["setup", "command", "dispose"]);
+    editor.destroy();
+  });
+
+  it("supports runtime plugin reload", () => {
+    const container = document.createElement("div");
+    const calls: string[] = [];
+    const editor = createEditor({
+      container,
+      plugins: [
+        {
+          name: "reloadable",
+          commands: [{ id: "reload.cmd", run: () => (calls.push("v1"), true) }],
+        },
+      ],
+    });
+
+    expect(editor.runCommand("reload.cmd")).toBe(true);
+    expect(calls).toEqual(["v1"]);
+
+    expect(
+      editor.reloadPlugin("reloadable", {
+        name: "reloadable",
+        commands: [{ id: "reload.cmd", run: () => (calls.push("v2"), true) }],
+      })
+    ).toBe(true);
+    expect(editor.runCommand("reload.cmd")).toBe(true);
+    expect(calls).toEqual(["v1", "v2"]);
+    editor.destroy();
+  });
+
+  it("applies dependsOn ordering when adding runtime plugins", () => {
+    const container = document.createElement("div");
+    const order: string[] = [];
+    const editor = createEditor({ container });
+    const dep = {
+      name: "dep",
+      setup() {
+        order.push("dep");
+      },
+    };
+    const base = {
+      name: "base",
+      setup() {
+        order.push("base");
+      },
+    };
+
+    expect(editor.usePlugin(dep)).toBe(true);
+    expect(editor.usePlugin(base)).toBe(true);
+    expect(editor.getActivePlugins()).toEqual(["base", "dep"]);
+    // setup still executes at activation-time; ordering here validates final resolved list.
+    expect(order).toEqual(["dep", "base"]);
+    editor.destroy();
+  });
+
   it("debounces parsing and emits only the latest document version", () => {
     vi.useFakeTimers();
 

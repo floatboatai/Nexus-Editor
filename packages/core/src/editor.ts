@@ -343,10 +343,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
       debugNexus(`${diag.code}: ${diag.message}`, diag.details);
     }
   };
-  const plugins = sortPluginsByDependencies(config.plugins ?? [], pushDiagnostic);
+  let activePlugins = sortPluginsByDependencies(config.plugins ?? [], pushDiagnostic);
   debugNexus("create", {
     initialLength: (config.initialValue ?? "").length,
-    pluginNames: plugins.map((plugin) => plugin.name),
+    pluginNames: activePlugins.map((plugin) => plugin.name),
     readOnly: config.readOnly === true,
     direction: config.direction ?? "ltr",
   });
@@ -357,14 +357,20 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // (when provided) win, so existing test contracts that swap in mock
   // parsers stay green.
   const customParser = config.parser;
-  const shortcuts = plugins.flatMap((plugin) => plugin.shortcuts ?? []);
-  const slashCommands = plugins.flatMap((plugin) => plugin.slashCommands ?? []);
-  const cmExtensions = plugins.flatMap((plugin) => plugin.cmExtensions ?? []);
-  const widgetDefs = plugins.flatMap((plugin) => plugin.widgets ?? []);
+  let shortcuts = activePlugins.flatMap((plugin) => plugin.shortcuts ?? []);
+  let slashCommands = activePlugins.flatMap((plugin) => plugin.slashCommands ?? []);
+  const cmExtensions = activePlugins.flatMap((plugin) => plugin.cmExtensions ?? []);
+  const widgetDefs = activePlugins.flatMap((plugin) => plugin.widgets ?? []);
   const commandById = new Map<string, EditorCommand>();
+  const commandOwnerById = new Map<string, string>();
   const registerCommandInternal = (
     command: EditorCommand,
-    options: { pluginName?: string; source: "plugin-static" | "runtime"; override?: boolean }
+    options: {
+      pluginName?: string;
+      source: "plugin-static" | "runtime";
+      override?: boolean;
+      owner?: string;
+    }
   ): boolean => {
     if (!command?.id) return false;
     const existing = commandById.get(command.id);
@@ -397,37 +403,74 @@ export function createEditor(config: EditorConfig): EditorAPI {
       });
     }
     commandById.set(command.id, command);
+    if (options.owner) {
+      commandOwnerById.set(command.id, options.owner);
+    } else {
+      commandOwnerById.delete(command.id);
+    }
     return true;
   };
-  for (const plugin of plugins) {
-    for (const command of plugin.commands ?? []) {
-      registerCommandInternal(command, { pluginName: plugin.name, source: "plugin-static" });
+  const pluginEventHandlers = new Map<string, Set<PluginEventHandler>>();
+  const pluginTeardownsByName = new Map<string, PluginTeardown>();
+
+  function rebuildStaticPluginContributions() {
+    shortcuts = activePlugins.flatMap((plugin) => plugin.shortcuts ?? []);
+    slashCommands = activePlugins.flatMap((plugin) => plugin.slashCommands ?? []);
+
+    const staticCommandIds = Array.from(commandOwnerById.entries())
+      .filter(([, owner]) => owner.startsWith("plugin:"))
+      .map(([id]) => id);
+    for (const id of staticCommandIds) {
+      commandById.delete(id);
+      commandOwnerById.delete(id);
+    }
+
+    for (const plugin of activePlugins) {
+      for (const command of plugin.commands ?? []) {
+        registerCommandInternal(command, {
+          pluginName: plugin.name,
+          source: "plugin-static",
+          owner: `plugin:${plugin.name}`,
+        });
+      }
     }
   }
+  rebuildStaticPluginContributions();
 
-  const pluginEventHandlers = new Map<string, Set<PluginEventHandler>>();
   // 插件 DOM 事件钩子。内置资源上传作为兜底，在所有钩子都未消费时才执行。
-  const pasteHandlers = plugins
+  let pasteHandlers = activePlugins
     .map((plugin) => plugin.handlers?.paste)
     .filter((handler): handler is EditorEventHandler<ClipboardEvent> => Boolean(handler));
-  const dropHandlers = plugins
+  let dropHandlers = activePlugins
     .map((plugin) => plugin.handlers?.drop)
     .filter((handler): handler is EditorEventHandler<DragEvent> => Boolean(handler));
-  const keydownHandlers = plugins
+  let keydownHandlers = activePlugins
     .map((plugin) => plugin.handlers?.keydown)
     .filter((handler): handler is EditorEventHandler<KeyboardEvent> => Boolean(handler));
+
+  function rebuildDomHandlers() {
+    pasteHandlers = activePlugins
+      .map((plugin) => plugin.handlers?.paste)
+      .filter((handler): handler is EditorEventHandler<ClipboardEvent> => Boolean(handler));
+    dropHandlers = activePlugins
+      .map((plugin) => plugin.handlers?.drop)
+      .filter((handler): handler is EditorEventHandler<DragEvent> => Boolean(handler));
+    keydownHandlers = activePlugins
+      .map((plugin) => plugin.handlers?.keydown)
+      .filter((handler): handler is EditorEventHandler<KeyboardEvent> => Boolean(handler));
+  }
 
   // The sync remark parser is only needed for the legacy WidgetDefinition
   // extension. Live preview, getAst(), table-of-contents, and normal change
   // events all use the Lezer path below, so avoid paying this startup cost in
   // the common no-widget case (including the Electron demo).
-  const fallbackParser = !customParser && widgetDefs.length > 0 ? createParser(plugins) : null;
+  const fallbackParser = !customParser && widgetDefs.length > 0 ? createParser(activePlugins) : null;
   const widgetParser: ParserLike | null = customParser ?? fallbackParser;
   // Built only when the user passes remarkPlugins AND no custom parser.
   // Custom-parser callers run their plugins inside `parser.parse`, so the
   // transform pass would double-apply.
-  const hasRemarkPlugins = plugins.some((plugin) => (plugin.remarkPlugins?.length ?? 0) > 0);
-  const transformProcessor = !customParser && hasRemarkPlugins ? createTransformProcessor(plugins) : null;
+  const hasRemarkPlugins = activePlugins.some((plugin) => (plugin.remarkPlugins?.length ?? 0) > 0);
+  const transformProcessor = !customParser && hasRemarkPlugins ? createTransformProcessor(activePlugins) : null;
   const transformAst = (ast: Root): Root =>
     transformProcessor ? transformProcessor.runSync(ast) : ast;
   const locale = resolveLocale(config.locale);
@@ -437,7 +480,6 @@ export function createEditor(config: EditorConfig): EditorAPI {
   let focused = false;
   let parseTimer: ReturnType<typeof setTimeout> | undefined;
   let compositionFlushTimer: ReturnType<typeof setTimeout> | undefined;
-  const pluginTeardowns: PluginTeardown[] = [];
   let pendingCompositionMarkdown: string | null = null;
   // 组合输入（IME）状态与被推迟的文档回灌。组合输入进行中调用 setDocument 会被
   // 推迟到 compositionend 再应用，避免整文档替换打断输入法、丢失合成中文字、视口跳顶。
@@ -455,60 +497,162 @@ export function createEditor(config: EditorConfig): EditorAPI {
   const viewRef: { current: EditorView | null } = { current: null };
   let api!: EditorAPI;
 
-  function runPluginTeardowns() {
-    while (pluginTeardowns.length > 0) {
-      const teardown = pluginTeardowns.pop();
-      if (!teardown) continue;
-      try {
-        teardown();
-      } catch (error) {
-        pushDiagnostic({
-          level: "error",
-          code: "PLUGIN_TEARDOWN_FAILED",
-          message: "Plugin teardown callback threw an error.",
-          details: { error: error instanceof Error ? error.message : String(error) },
-        });
-      }
+  function deactivatePluginSetup(pluginName: string): void {
+    const teardown = pluginTeardownsByName.get(pluginName);
+    if (!teardown) return;
+    pluginTeardownsByName.delete(pluginName);
+    try {
+      teardown();
+    } catch (error) {
+      pushDiagnostic({
+        level: "error",
+        code: "PLUGIN_TEARDOWN_FAILED",
+        message: "Plugin teardown callback threw an error.",
+        pluginName,
+        details: { error: error instanceof Error ? error.message : String(error) },
+      });
     }
   }
 
-  function activatePluginSetups() {
-    for (const plugin of plugins) {
-      if (typeof plugin.setup !== "function") continue;
+  function activatePluginSetup(plugin: NexusPlugin): void {
+    if (typeof plugin.setup !== "function") return;
 
-      const localTeardowns: PluginTeardown[] = [];
-      const context = {
-        pluginName: plugin.name,
-        editor: api,
-        onDispose: (teardown: PluginTeardown) => {
-          if (typeof teardown !== "function") return;
-          localTeardowns.push(teardown);
-        }
-      };
-
-      try {
-        const setupResult = plugin.setup(context);
-        const normalized = normalizePluginTeardown(setupResult);
-        if (normalized) localTeardowns.push(normalized);
-      } catch (error) {
-        pushDiagnostic({
-          level: "error",
-          code: "PLUGIN_SETUP_FAILED",
-          message: `Plugin setup failed: ${plugin.name}.`,
-          pluginName: plugin.name,
-          details: { error: error instanceof Error ? error.message : String(error) },
-        });
+    const localTeardowns: PluginTeardown[] = [];
+    const context = {
+      pluginName: plugin.name,
+      editor: api,
+      onDispose: (teardown: PluginTeardown) => {
+        if (typeof teardown !== "function") return;
+        localTeardowns.push(teardown);
       }
+    };
 
-      if (localTeardowns.length === 0) continue;
-      pluginTeardowns.push(() => {
-        while (localTeardowns.length > 0) {
-          const teardown = localTeardowns.pop();
-          if (!teardown) continue;
-          teardown();
-        }
+    try {
+      const setupResult = plugin.setup(context);
+      const normalized = normalizePluginTeardown(setupResult);
+      if (normalized) localTeardowns.push(normalized);
+    } catch (error) {
+      pushDiagnostic({
+        level: "error",
+        code: "PLUGIN_SETUP_FAILED",
+        message: `Plugin setup failed: ${plugin.name}.`,
+        pluginName: plugin.name,
+        details: { error: error instanceof Error ? error.message : String(error) },
+      });
+      return;
+    }
+
+    if (localTeardowns.length === 0) return;
+    pluginTeardownsByName.set(plugin.name, () => {
+      while (localTeardowns.length > 0) {
+        const teardown = localTeardowns.pop();
+        if (!teardown) continue;
+        teardown();
+      }
+    });
+  }
+
+  function activateAllPluginSetups() {
+    for (const plugin of activePlugins) activatePluginSetup(plugin);
+  }
+
+  function deactivateAllPluginSetups() {
+    const names = Array.from(pluginTeardownsByName.keys());
+    for (let i = names.length - 1; i >= 0; i--) {
+      const name = names[i];
+      if (name) deactivatePluginSetup(name);
+    }
+  }
+
+  function removeStaticCommandsForPlugin(pluginName: string) {
+    const ownedIds = Array.from(commandOwnerById.entries())
+      .filter(([, owner]) => owner === `plugin:${pluginName}`)
+      .map(([id]) => id);
+    for (const id of ownedIds) {
+      commandById.delete(id);
+      commandOwnerById.delete(id);
+    }
+  }
+
+  function applyActivePlugins(nextPlugins: NexusPlugin[]): void {
+    activePlugins = sortPluginsByDependencies(nextPlugins, pushDiagnostic);
+    rebuildStaticPluginContributions();
+    rebuildDomHandlers();
+  }
+
+  function checkRuntimePluginLimitations(plugin: NexusPlugin): void {
+    if ((plugin.cmExtensions?.length ?? 0) > 0) {
+      pushDiagnostic({
+        level: "warn",
+        code: "RUNTIME_PLUGIN_CM_EXTENSION_UNSUPPORTED",
+        message: `Runtime plugin "${plugin.name}" provides cmExtensions which require editor reconfiguration and are ignored.`,
+        pluginName: plugin.name,
       });
     }
+    if ((plugin.remarkPlugins?.length ?? 0) > 0) {
+      pushDiagnostic({
+        level: "warn",
+        code: "RUNTIME_PLUGIN_REMARK_UNSUPPORTED",
+        message: `Runtime plugin "${plugin.name}" provides remarkPlugins which are not hot-swappable yet.`,
+        pluginName: plugin.name,
+      });
+    }
+    if ((plugin.widgets?.length ?? 0) > 0) {
+      pushDiagnostic({
+        level: "warn",
+        code: "RUNTIME_PLUGIN_WIDGET_UNSUPPORTED",
+        message: `Runtime plugin "${plugin.name}" provides widgets which are not hot-swappable yet.`,
+        pluginName: plugin.name,
+      });
+    }
+    const runtimeShortcutKeys = new Set((plugin.shortcuts ?? []).map((entry) => entry.key));
+    const unsupportedShortcutKeys = Array.from(runtimeShortcutKeys).filter((key) => !initialShortcutKeys.includes(key));
+    if (unsupportedShortcutKeys.length > 0) {
+      pushDiagnostic({
+        level: "warn",
+        code: "RUNTIME_PLUGIN_SHORTCUT_UNSUPPORTED",
+        message: `Runtime plugin "${plugin.name}" uses shortcut keys that were not present at startup and cannot be key-bound dynamically yet.`,
+        pluginName: plugin.name,
+        details: { keys: unsupportedShortcutKeys },
+      });
+    }
+    const hotkeys = (plugin.commands ?? [])
+      .map((command) => command.hotkey)
+      .filter((value): value is string => typeof value === "string" && value.length > 0);
+    if (hotkeys.length > 0) {
+      pushDiagnostic({
+        level: "warn",
+        code: "RUNTIME_PLUGIN_HOTKEY_UNSUPPORTED",
+        message: `Runtime plugin "${plugin.name}" provides command hotkeys that cannot be key-bound dynamically yet.`,
+        pluginName: plugin.name,
+        details: { hotkeys },
+      });
+    }
+  }
+
+  function activateRuntimePlugin(plugin: NexusPlugin): boolean {
+    if (activePlugins.some((entry) => entry.name === plugin.name)) {
+      pushDiagnostic({
+        level: "warn",
+        code: "PLUGIN_ALREADY_ACTIVE",
+        message: `Plugin "${plugin.name}" is already active.`,
+        pluginName: plugin.name,
+      });
+      return false;
+    }
+    applyActivePlugins([...activePlugins, plugin]);
+    checkRuntimePluginLimitations(plugin);
+    activatePluginSetup(plugin);
+    return true;
+  }
+
+  function deactivateRuntimePlugin(name: string): boolean {
+    const plugin = activePlugins.find((entry) => entry.name === name);
+    if (!plugin) return false;
+    deactivatePluginSetup(name);
+    removeStaticCommandsForPlugin(name);
+    applyActivePlugins(activePlugins.filter((entry) => entry.name !== name));
+    return true;
   }
 
   function setFocused(next: boolean) {
@@ -706,13 +850,17 @@ export function createEditor(config: EditorConfig): EditorAPI {
   const indentGuidesExt = config.indentGuides ? indentationMarkers() : [];
   const multiCursorExt = config.multiCursor ? multiCursorExtension() : [];
 
+  const initialShortcutKeys = Array.from(new Set(shortcuts.map((shortcut) => shortcut.key)));
   const shortcutExtensions =
-    shortcuts.length > 0
+    initialShortcutKeys.length > 0
       ? [
           keymap.of(
-            shortcuts.map((shortcut) => ({
-              key: shortcut.key,
-              run: () => shortcut.run(api)
+            initialShortcutKeys.map((key) => ({
+              key,
+              run: () => {
+                const shortcut = shortcuts.find((entry) => entry.key === key);
+                return shortcut ? shortcut.run(api) : false;
+              }
             }))
           )
         ]
@@ -729,7 +877,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
           keymap.of(
             hotkeyCommands.map((command) => ({
               key: command.hotkey,
-              run: () => command.run(api) !== false
+              run: () => api.runCommand(command.id)
             }))
           )
         ]
@@ -934,7 +1082,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
       return extractToc(currentAst);
     },
     exportHTML() {
-      return markdownToHtml(view.state.doc.toString(), plugins);
+      return markdownToHtml(view.state.doc.toString(), activePlugins);
     },
     setTheme(theme: NexusTheme) {
       if (destroyed) return;
@@ -1083,6 +1231,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
     },
     unregisterCommand(id) {
       if (destroyed) return false;
+      commandOwnerById.delete(id);
       return commandById.delete(id);
     },
     runCommand(id) {
@@ -1139,6 +1288,40 @@ export function createEditor(config: EditorConfig): EditorAPI {
     getPluginDiagnostics() {
       return diagnostics.slice();
     },
+    getActivePlugins() {
+      return activePlugins.map((plugin) => plugin.name);
+    },
+    usePlugin(plugin) {
+      if (destroyed) return false;
+      return activateRuntimePlugin(plugin);
+    },
+    unusePlugin(name) {
+      if (destroyed) return false;
+      return deactivateRuntimePlugin(name);
+    },
+    reloadPlugin(name, nextPlugin) {
+      if (destroyed) return false;
+      const current = activePlugins.find((plugin) => plugin.name === name);
+      if (!current) return false;
+      if (nextPlugin && nextPlugin.name !== name) {
+        pushDiagnostic({
+          level: "warn",
+          code: "PLUGIN_RELOAD_NAME_MISMATCH",
+          message: `reloadPlugin("${name}") received replacement plugin "${nextPlugin.name}".`,
+          pluginName: name,
+          details: { nextPlugin: nextPlugin.name },
+        });
+        return false;
+      }
+
+      const replacement = nextPlugin ?? current;
+      if (!deactivateRuntimePlugin(name)) return false;
+      if (activateRuntimePlugin(replacement)) return true;
+
+      // Best-effort rollback to avoid leaving editor without the plugin.
+      activateRuntimePlugin(current);
+      return false;
+    },
     isComposing() {
       if (destroyed) return false;
       return composing || view.composing || view.compositionStarted;
@@ -1194,13 +1377,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
       pendingDocumentLoad = null;
       composing = false;
       pluginEventHandlers.clear();
-      runPluginTeardowns();
+      deactivateAllPluginSetups();
       emitter.clear();
       view.destroy();
     }
   };
 
-  activatePluginSetups();
+  activateAllPluginSetups();
 
   return api;
 }

@@ -281,6 +281,12 @@ Phase-2 插件架构新增：
 - 插件事件总线（`emitPluginEvent` / `onPluginEvent` / `offPluginEvent`）
 - 运行期诊断日志（`editor.getPluginDiagnostics()`）
 
+Phase-3 生态化新增运行时插件管理：
+- `getActivePlugins()`
+- `usePlugin(plugin)`
+- `unusePlugin(name)`
+- `reloadPlugin(name, nextPlugin?)`
+
 </details>
 
 ---

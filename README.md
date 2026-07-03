@@ -282,6 +282,12 @@ Phase-2 plugin architecture adds:
 - a plugin event bus (`emitPluginEvent` / `onPluginEvent` / `offPluginEvent`)
 - runtime diagnostics via `editor.getPluginDiagnostics()`
 
+Phase-3 ecosystem adds runtime plugin management:
+- `getActivePlugins()`
+- `usePlugin(plugin)`
+- `unusePlugin(name)`
+- `reloadPlugin(name, nextPlugin?)`
+
 </details>
 
 ---

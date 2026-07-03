@@ -81,3 +81,4 @@ Plugin architecture highlights (Phase 1/2):
 - command bus: `registerCommand` / `unregisterCommand` / `runCommand`
 - plugin event bus: `emitPluginEvent` / `onPluginEvent` / `offPluginEvent`
 - diagnostics: `editor.getPluginDiagnostics()`
+- runtime plugin management: `getActivePlugins` / `usePlugin` / `unusePlugin` / `reloadPlugin`
