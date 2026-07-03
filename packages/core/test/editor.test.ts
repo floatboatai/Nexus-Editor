@@ -448,6 +448,7 @@ describe("createEditor", () => {
     const editor = createEditor({ container });
     const dep = {
       name: "dep",
+      dependsOn: ["base"],
       setup() {
         order.push("dep");
       },

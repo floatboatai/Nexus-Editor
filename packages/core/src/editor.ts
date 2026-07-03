@@ -244,7 +244,7 @@ function sortPluginsByDependencies(
   plugins: NexusPlugin[],
   pushDiagnostic: (diag: Omit<PluginDiagnostic, "timestamp">) => void,
 ): NexusPlugin[] {
-  if (plugins.length <= 1) return plugins;
+  if (plugins.length === 0) return plugins;
 
   const originalIndex = new Map<string, number>();
   const pluginByName = new Map<string, NexusPlugin>();
