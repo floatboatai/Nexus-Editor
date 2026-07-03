@@ -304,6 +304,7 @@ const TEXT_SELECTION_DRAG_THRESHOLD_PX = 3;
 export class EditableTableWidget extends WidgetType {
   private editing = false;
   private cleanupEditingLocks: (() => void) | null = null;
+  private dom: HTMLElement | null = null;
 
   constructor(
     private node: Table,
@@ -323,6 +324,7 @@ export class EditableTableWidget extends WidgetType {
   destroy(): void {
     this.cleanupEditingLocks?.();
     this.cleanupEditingLocks = null;
+    this.dom = null;
   }
 
   get estimatedHeight(): number {
@@ -331,14 +333,62 @@ export class EditableTableWidget extends WidgetType {
     return rows * 32 + 16;
   }
 
+  // Resolve where this table currently starts in the live document, rather
+  // than trusting the `tableFrom` captured at construction. eq() only compares
+  // `source`, so CM6 reuses this widget's DOM (and the event closures that
+  // reference `this`) whenever the table's own text is unchanged — even when
+  // document content *before* the table was inserted or deleted. In that case
+  // the closure's `tableFrom` is stale and dispatching against it corrupts or
+  // misaligns the change. `posAtDOM` reads the true position of the live DOM at
+  // the moment of interaction. We guard with `contentDOM.contains` (the dom
+  // must still live inside this editor's content — this holds even when the
+  // editor container is detached from the document, unlike `isConnected`) and
+  // fall back to the captured `tableFrom` when the DOM is gone or the lookup
+  // fails — posAtDOM raises for nodes the view no longer tracks.
+  private currentTableFrom(view: EditorView): number {
+    if (this.dom && view.contentDOM.contains(this.dom)) {
+      try {
+        const pos = view.posAtDOM(this.dom);
+        if (pos >= 0) return pos;
+      } catch {
+        // fall through to the captured offset
+      }
+    }
+    return this.tableFrom;
+  }
+
+  // The live table source, sliced out of the current document. `this.source`
+  // must stay the render-time snapshot (eq() diffing it against the next
+  // rebuild is what refreshes the DOM after an edit), but a widget kept alive
+  // across locked dispatches — in-cell typing runs under the focus lock, range
+  // clears under the range lock — sees the document move on without it. Every
+  // edit that keeps the widget alive preserves the table's line count, so the
+  // block is re-sliced by line span from its live start position. Falls back
+  // to the snapshot if the document got too short to hold the block.
+  private currentTableSource(): string {
+    const v = this.viewRef.current;
+    if (!v) return this.source;
+    try {
+      const from = this.currentTableFrom(v);
+      const lineCount = this.source.split("\n").length;
+      const startLine = v.state.doc.lineAt(from);
+      const lastLineNumber = startLine.number + lineCount - 1;
+      if (lastLineNumber > v.state.doc.lines) return this.source;
+      return v.state.doc.sliceString(from, v.state.doc.line(lastLineNumber).to);
+    } catch {
+      return this.source;
+    }
+  }
+
   private dispatch(newSource: string): void {
     const v = this.viewRef.current;
     if (!v) return;
-    v.dispatch({ changes: { from: this.tableFrom, to: this.tableFrom + this.source.length, insert: newSource } });
+    const from = this.currentTableFrom(v);
+    v.dispatch({ changes: { from, to: from + this.currentTableSource().length, insert: newSource } });
   }
 
   private deleteColumn(colIdx: number): void {
-    const lines = this.source.split("\n");
+    const lines = this.currentTableSource().split("\n");
     const newLines = lines.map((line) => {
       const cells = line.split("|").filter((_, i, a) => i > 0 && i < a.length - 1);
       if (cells.length === 0) return line;
@@ -349,7 +399,7 @@ export class EditableTableWidget extends WidgetType {
   }
 
   private deleteRow(rowIdx: number): void {
-    const lines = this.source.split("\n");
+    const lines = this.currentTableSource().split("\n");
     const dataLines: number[] = [];
     for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dataLines.push(i);
     const lineIdx = dataLines[rowIdx];
@@ -359,7 +409,7 @@ export class EditableTableWidget extends WidgetType {
   }
 
   private addColumn(): void {
-    const lines = this.source.split("\n");
+    const lines = this.currentTableSource().split("\n");
     const nl = lines.map((l) => SEPARATOR_RE.test(l) ? l.replace(/\|?\s*$/, " | --- |") : l.replace(/\|?\s*$/, " |  |"));
     this.dispatch(nl.join("\n"));
   }
@@ -369,11 +419,11 @@ export class EditableTableWidget extends WidgetType {
     const nr = "\n| " + Array(cc).fill("  ").join(" | ") + " |";
     const v = this.viewRef.current;
     if (!v) return;
-    v.dispatch({ changes: { from: this.tableFrom + this.source.length, insert: nr } });
+    v.dispatch({ changes: { from: this.currentTableFrom(v) + this.currentTableSource().length, insert: nr } });
   }
 
   private moveColumn(from: number, to: number): void {
-    const lines = this.source.split("\n");
+    const lines = this.currentTableSource().split("\n");
     const nl = lines.map((line) => {
       const p = line.split("|"), cells = p.slice(1, -1);
       if (from >= cells.length || to >= cells.length) return line;
@@ -385,7 +435,7 @@ export class EditableTableWidget extends WidgetType {
   }
 
   private moveRow(from: number, to: number): void {
-    const lines = this.source.split("\n");
+    const lines = this.currentTableSource().split("\n");
     const dl: number[] = [];
     for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dl.push(i);
     const s = dl[from], d = dl[to];
@@ -469,6 +519,7 @@ export class EditableTableWidget extends WidgetType {
     // ── Root wrapper ──
     const wrapper = document.createElement("div");
     wrapper.className = "nexus-table-wrapper";
+    this.dom = wrapper;
     // CRITICAL: use padding, not margin. CM6 measures block widget height via
     // getBoundingClientRect which EXCLUDES margin. margin:8px caused 16px of
     // untracked height per table → cumulative click-drift below every table.
@@ -577,7 +628,14 @@ export class EditableTableWidget extends WidgetType {
       "display:none;z-index:1;border-radius:2px;";
     wrapper.appendChild(selectionOverlay);
 
-    // Poll CM6 selection to show/hide overlay and clear range when focus leaves table
+    // Poll CM6 selection to show/hide overlay and clear range when focus leaves table.
+    // Absolute-position comparisons need the live offset (the captured `tableFrom`
+    // drifts as soon as content before the table changes), but this loop runs on
+    // every animation frame — so the posAtDOM lookup is memoized per document
+    // identity and idle frames stay pure arithmetic.
+    let checkedDoc: unknown = null;
+    let checkedTableFrom = self.tableFrom;
+    let checkedTableLength = self.source.length;
     const checkSelection = (): void => {
       if (!wrapper.isConnected) return;
       const v = self.viewRef.current;
@@ -586,14 +644,20 @@ export class EditableTableWidget extends WidgetType {
         // "table selected"; the cell-range only clears when every cursor
         // has left the table span.
         const ranges = v.state.selection.ranges;
-        const tableEnd = self.tableFrom + self.source.length;
+        if (v.state.doc !== checkedDoc) {
+          checkedDoc = v.state.doc;
+          checkedTableFrom = self.currentTableFrom(v);
+          checkedTableLength = self.currentTableSource().length;
+        }
+        const tableFrom = checkedTableFrom;
+        const tableEnd = tableFrom + checkedTableLength;
         const isSelected = ranges.some(
-          (range) => !range.empty && range.from <= self.tableFrom && range.to >= tableEnd
+          (range) => !range.empty && range.from <= tableFrom && range.to >= tableEnd
         );
         selectionOverlay.style.display = isSelected ? "block" : "none";
         // If cursor moved outside table, no active interaction, no active range, clear range selection
         const allOutside = ranges.every(
-          (range) => range.head < self.tableFrom || range.head > tableEnd
+          (range) => range.head < tableFrom || range.head > tableEnd
         );
         if (rangeStart && !isRangeSelecting && !cellMouseDown && !rangeActive && allOutside) {
           clearRangeSelection();
@@ -1436,7 +1500,7 @@ export class EditableTableWidget extends WidgetType {
             vals.push(el.dataset.source ?? el.textContent ?? "");
           });
           const newLine = "| " + vals.join(" | ") + " |";
-          let off = self.tableFrom;
+          let off = self.currentTableFrom(v);
           for (let i = 0; i < sourceLineIdx; i++) off += sourceLines[i].length + 1;
           const end = off + sourceLines[sourceLineIdx].length;
           sourceLines[sourceLineIdx] = newLine;
@@ -1598,7 +1662,7 @@ export class EditableTableWidget extends WidgetType {
         const range = getNormalizedRange();
         if (range) {
           e.preventDefault();
-          const lines = self.source.split("\n");
+          const lines = self.currentTableSource().split("\n");
           const dl: number[] = [];
           for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dl.push(i);
           for (let r = range.r1; r <= range.r2; r++) {
