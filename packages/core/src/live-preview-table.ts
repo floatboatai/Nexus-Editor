@@ -1,5 +1,5 @@
 import { EditorView, WidgetType, runScopeHandlers } from "@codemirror/view";
-import type { Table } from "mdast";
+import type { Node as MdastNode, PhrasingContent, Table, TableCell } from "mdast";
 
 import type { LivePreviewLabels } from "./types";
 
@@ -53,7 +53,7 @@ const ROW_GRIP_WIDTH = 16;
 const MIN_COLUMN_WIDTH = 48;
 const renderedSourceOffsets = new WeakMap<Node, { start: number; end: number }>();
 
-function getNodeSourceOffsets(node: any, tableFrom: number, rawSourceStart: number, inlineCode = false): { start: number; end: number } | null {
+function getNodeSourceOffsets(node: MdastNode, tableFrom: number, rawSourceStart: number, inlineCode = false): { start: number; end: number } | null {
   const startOffset = node?.position?.start?.offset;
   const endOffset = node?.position?.end?.offset;
   if (typeof startOffset !== "number" || typeof endOffset !== "number") return null;
@@ -132,13 +132,13 @@ function placeRawSourceCaret(td: HTMLElement, rawOffset: number): void {
   selection?.addRange(range);
 }
 
-function extractCellText(cell: any): string {
+function extractCellText(cell: TableCell): string {
   if (!cell || !("children" in cell) || !Array.isArray(cell.children)) return "";
   return cell.children
-    .map((c: any) => {
+      .map((c) => {
       if ("value" in c && typeof c.value === "string") return c.value;
       if ("children" in c && Array.isArray(c.children))
-        return c.children.map((n: any) => ("value" in n ? n.value : "")).join("");
+        return c.children.map((n) => ("value" in n ? n.value : "")).join("");
       return "";
     })
     .join("");
@@ -156,9 +156,9 @@ function extractCellText(cell: any): string {
  * ignored. Media-only cells render the image scaled to the cell width
  * so the user can grow / shrink the image by resizing the column.
  */
-function isCellMediaOnly(astCell: any): boolean {
+function isCellMediaOnly(astCell: TableCell): boolean {
   if (!astCell || !Array.isArray(astCell.children)) return false;
-  const meaningful = astCell.children.filter((c: any) => {
+  const meaningful = astCell.children.filter((c) => {
     if (!c) return false;
     if (c.type === "text") return typeof c.value === "string" && c.value.trim() !== "";
     return true;
@@ -167,7 +167,7 @@ function isCellMediaOnly(astCell: any): boolean {
   const only = meaningful[0];
   if (only.type === "image") return true;
   if (only.type === "link" && Array.isArray(only.children)) {
-    const linkInner = only.children.filter((c: any) => {
+    const linkInner = only.children.filter((c) => {
       if (!c) return false;
       if (c.type === "text") return typeof c.value === "string" && c.value.trim() !== "";
       return true;
@@ -177,7 +177,7 @@ function isCellMediaOnly(astCell: any): boolean {
   return false;
 }
 
-function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourceStart = 0): Node {
+function renderInlineMdast(node: PhrasingContent, mediaOnly = false, tableFrom = 0, rawSourceStart = 0): Node {
   if (!node) return document.createTextNode("");
   switch (node.type) {
     case "text": {
@@ -274,20 +274,23 @@ function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourc
       return img;
     }
     default: {
-      if (Array.isArray(node.children)) {
+      // Remaining PhrasingContent types (FootnoteReference, ImageReference,
+      // LinkReference) are structurally diverse — check shape at runtime.
+      const n = node as { children?: unknown[]; value?: unknown; position?: { start: { offset?: number }; end: { offset?: number } } };
+      if (Array.isArray(n.children)) {
         const frag = document.createDocumentFragment();
-        for (const child of node.children) frag.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+        for (const child of n.children) frag.appendChild(renderInlineMdast(child as PhrasingContent, false, tableFrom, rawSourceStart));
         return frag;
       }
-      const text = document.createTextNode(typeof node.value === "string" ? node.value : "");
-      const sourceOffsets = getNodeSourceOffsets(node, tableFrom, rawSourceStart);
+      const text = document.createTextNode(typeof n.value === "string" ? n.value : "");
+      const sourceOffsets = getNodeSourceOffsets(n as unknown as MdastNode, tableFrom, rawSourceStart);
       if (sourceOffsets) renderedSourceOffsets.set(text, sourceOffsets);
       return text;
     }
   }
 }
 
-function renderCellRich(td: HTMLElement, astCell: any, tableFrom = 0, rawSourceStart = 0): void {
+function renderCellRich(td: HTMLElement, astCell: TableCell, tableFrom = 0, rawSourceStart = 0): void {
   td.textContent = "";
   if (!astCell || !Array.isArray(astCell.children)) return;
   const mediaOnly = isCellMediaOnly(astCell);
@@ -337,7 +340,7 @@ export class EditableTableWidget extends WidgetType {
     v.dispatch({ changes: { from: this.tableFrom, to: this.tableFrom + this.source.length, insert: newSource } });
   }
 
-  private deleteColumn(colIdx: number): void {
+  public deleteColumn(colIdx: number): void {
     const lines = this.source.split("\n");
     const newLines = lines.map((line) => {
       const cells = line.split("|").filter((_, i, a) => i > 0 && i < a.length - 1);
@@ -348,7 +351,7 @@ export class EditableTableWidget extends WidgetType {
     this.dispatch(newLines.join("\n"));
   }
 
-  private deleteRow(rowIdx: number): void {
+  public deleteRow(rowIdx: number): void {
     const lines = this.source.split("\n");
     const dataLines: number[] = [];
     for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dataLines.push(i);
@@ -358,14 +361,14 @@ export class EditableTableWidget extends WidgetType {
     this.dispatch(lines.join("\n"));
   }
 
-  private addColumn(): void {
+  public addColumn(): void {
     const lines = this.source.split("\n");
     const nl = lines.map((l) => SEPARATOR_RE.test(l) ? l.replace(/\|?\s*$/, " | --- |") : l.replace(/\|?\s*$/, " |  |"));
     this.dispatch(nl.join("\n"));
   }
 
-  private addRow(): void {
-    const cc = (this.node.children?.[0] as any)?.children?.length ?? 2;
+  public addRow(): void {
+    const cc = this.node.children?.[0]?.children?.length ?? 2;
     const nr = "\n| " + Array(cc).fill("  ").join(" | ") + " |";
     const v = this.viewRef.current;
     if (!v) return;
@@ -1693,11 +1696,11 @@ function showContextMenu(
   }
 
   if (!isHeader) {
-    addItem(labels.deleteRow, () => (widget as any).deleteRow(rowIdx));
+    addItem(labels.deleteRow, () => widget.deleteRow(rowIdx));
   }
-  addItem(labels.deleteColumn, () => (widget as any).deleteColumn(colIdx), colCount <= 1);
-  addItem(labels.insertRowBelow, () => (widget as any).addRow());
-  addItem(labels.insertColumnAfter, () => (widget as any).addColumn());
+  addItem(labels.deleteColumn, () => widget.deleteColumn(colIdx), colCount <= 1);
+  addItem(labels.insertRowBelow, () => widget.addRow());
+  addItem(labels.insertColumnAfter, () => widget.addColumn());
 
   mountTarget.appendChild(menu);
 
