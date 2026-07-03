@@ -7,6 +7,7 @@ import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
+import { isPathInside } from "./path-utils";
 
 installLongTaskWatch(50);
 
@@ -142,7 +143,7 @@ async function handleSave(): Promise<void> {
     state.error = null;
     const targetPath = state.activeFile ?? state.filePath;
     if (targetPath) {
-      if (state.vaultPath && targetPath.startsWith(state.vaultPath)) {
+      if (state.vaultPath && isPathInside(state.vaultPath, targetPath)) {
         await window.nexusDemo.vault.write(targetPath, state.content);
       } else {
         await window.nexusDemo.saveFile(targetPath, state.content);
