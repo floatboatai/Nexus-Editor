@@ -7,6 +7,9 @@ import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
+import { renderMarkdownPreview } from "./markdown-preview-renderer";
+import { createSplitPreview, type SplitPreview } from "./split-preview";
+import { parseMarkdownToAst } from "@floatboat/nexus-core";
 
 installLongTaskWatch(50);
 
@@ -17,6 +20,8 @@ let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+let splitPreview: SplitPreview;
+let splitPreviewBtn: HTMLButtonElement | null = null;
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
@@ -71,6 +76,14 @@ function createAppToolbar(): HTMLElement {
   searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
 
+  splitPreviewBtn = document.createElement("button");
+  splitPreviewBtn.textContent = "\u25EB"; // ◫
+  splitPreviewBtn.title = "Toggle split preview";
+  splitPreviewBtn.setAttribute("aria-label", "Toggle split preview");
+  splitPreviewBtn.setAttribute("aria-pressed", "false");
+  splitPreviewBtn.style.fontSize = "16px";
+  splitPreviewBtn.addEventListener("click", toggleSplitPreview);
+
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "\u2699"; // ⚙
   settingsBtn.title = "Settings";
@@ -87,6 +100,7 @@ function createAppToolbar(): HTMLElement {
     outlineBtn,
     backlinksBtn,
     searchBtn,
+    splitPreviewBtn,
     settingsBtn
   );
   return toolbar;
@@ -200,6 +214,19 @@ function toggleVault(): void {
 
 function toggleBacklinks(): void {
   togglePanel(backlinks.element, () => backlinks.refresh());
+}
+
+function syncSplitPreviewButton(): void {
+  if (!splitPreviewBtn || !splitPreview) return;
+  const open = splitPreview.isOpen();
+  splitPreviewBtn.classList.toggle("is-active", open);
+  splitPreviewBtn.setAttribute("aria-pressed", String(open));
+}
+
+function toggleSplitPreview(): void {
+  if (!splitPreview) return;
+  splitPreview.toggle();
+  syncSplitPreviewButton();
 }
 
 async function handleVaultFileOpen(filePath: string): Promise<void> {
@@ -363,7 +390,10 @@ function boot(): void {
     container: editorContainer,
     state,
     settings,
-    onStateChange: renderStatus,
+    onStateChange: () => {
+      renderStatus();
+      splitPreview?.update();
+    },
     resolveWikilink: (name) => linkIndex.resolve(name, state.activeFile),
     suggestWikilinks: (q) => {
       const names = linkIndex.getAllNoteNames();
@@ -406,9 +436,14 @@ function boot(): void {
     onOpenFile: (filePath) => void handleVaultFileOpen(filePath),
     getActiveFile: () => state.activeFile,
   });
+  splitPreview = createSplitPreview({
+    editor: shell.editor,
+    editorColumn,
+    renderPreview: () => renderMarkdownPreview(parseMarkdownToAst(shell.editor.getDocument())),
+  });
 
   editorColumn.append(searchBar.element, editorContainer);
-  mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
+  mainArea.append(vault.element, editorColumn, splitPreview.element, outline.element, backlinks.element);
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {

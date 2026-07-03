@@ -30,6 +30,11 @@ body,
   cursor: pointer;
 }
 
+.toolbar button:hover,
+.toolbar button.is-active {
+  background: #e5e5e5;
+}
+
 .main-area {
   flex: 1;
   display: flex;
@@ -41,6 +46,10 @@ body,
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.editor-column--split-preview {
+  flex: 0 1 50%;
 }
 
 .editor-container {
@@ -61,6 +70,94 @@ body,
   flex: 1;
   min-height: 0;
   height: auto;
+}
+
+.split-preview {
+  flex: 0 1 50%;
+  overflow: auto;
+  border-left: 1px solid var(--nexus-border, #ddd);
+  background: var(--nexus-bg, #fff);
+  color: var(--nexus-text, #24292e);
+}
+
+.split-preview[hidden] {
+  display: none;
+}
+
+.split-preview__content {
+  max-width: var(--nexus-content-max-width, 820px);
+  margin: 0 auto;
+  padding: 24px 32px 64px;
+  font-family: var(--nexus-font, system-ui, -apple-system, "Segoe UI", sans-serif);
+  font-size: var(--nexus-font-size, 15px);
+  line-height: 1.65;
+}
+
+.split-preview__content > * + * {
+  margin-top: 1em;
+}
+
+.split-preview__content h1,
+.split-preview__content h2,
+.split-preview__content h3,
+.split-preview__content h4,
+.split-preview__content h5,
+.split-preview__content h6 {
+  line-height: 1.25;
+  margin-top: 1.6em;
+}
+
+.split-preview__content h1:first-child,
+.split-preview__content h2:first-child,
+.split-preview__content h3:first-child,
+.split-preview__content h4:first-child,
+.split-preview__content h5:first-child,
+.split-preview__content h6:first-child {
+  margin-top: 0;
+}
+
+.split-preview__content ul,
+.split-preview__content ol {
+  padding-left: 1.5em;
+}
+
+.split-preview__content blockquote {
+  padding-left: 1em;
+  color: var(--nexus-text-muted, #6e7681);
+  border-left: 3px solid var(--nexus-border, #d0d7de);
+}
+
+.split-preview__content pre {
+  overflow: auto;
+  padding: 12px 14px;
+  background: var(--nexus-bg-muted, #f6f8fa);
+  border: 1px solid var(--nexus-border-subtle, #eaeef2);
+  border-radius: 6px;
+}
+
+.split-preview__content code {
+  font-family: var(--nexus-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+}
+
+.split-preview__content :not(pre) > code {
+  padding: 0.1em 0.3em;
+  background: var(--nexus-bg-muted, #f6f8fa);
+  border-radius: 4px;
+}
+
+.split-preview__content table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.split-preview__content th,
+.split-preview__content td {
+  padding: 6px 8px;
+  border: 1px solid var(--nexus-border, #d0d7de);
+}
+
+.split-preview__content img {
+  max-width: 100%;
 }
 
 .status-line {
