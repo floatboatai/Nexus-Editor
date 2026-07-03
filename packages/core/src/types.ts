@@ -148,6 +148,13 @@ export interface EditorEventMap {
   /** `anchor` / `head` describe the main range; `ranges` carries all of them. */
   selectionChange: (selection: { anchor: number; head: number } & SelectionState) => void;
   slashMenuChange: (state: SlashMenuState) => void;
+  /**
+   * Fired when the editor's scroll container scrolls (user gesture or
+   * programmatic). Carries no payload — consumers query `getScrollAnchor()`
+   * for the position, which avoids paying the measurement cost for
+   * listeners that don't need it.
+   */
+  scroll: () => void;
 }
 
 export interface TocEntry {
@@ -160,6 +167,18 @@ export interface TocEntry {
 export interface EditorSelectionRange {
   anchor: number;
   head: number;
+}
+
+export interface ExportHTMLOptions {
+  /**
+   * Stamp every top-level block element with `data-nexus-from` /
+   * `data-nexus-to` attributes carrying the character range of the markdown
+   * source it was rendered from. Consumed by scroll-sync (see
+   * `createScrollSync`) and useful for any preview↔source position mapping.
+   * Default: false — the default output is byte-identical to previous
+   * releases.
+   */
+  sourceMap?: boolean;
 }
 
 export interface SetDocumentOptions {
@@ -187,7 +206,7 @@ export interface EditorAPI {
   getDocument(): string;
   getAst(): Root;
   getTableOfContents(): TocEntry[];
-  exportHTML(): string;
+  exportHTML(options?: ExportHTMLOptions): string;
   setTheme(theme: import("./theme").NexusTheme): void;
   getSelection(): { anchor: number; head: number };
   /** All selection ranges plus the main-range index. Single-range editors return one entry. */
@@ -268,6 +287,23 @@ export interface EditorAPI {
   on<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
   off<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
   getCoordsAtPos(pos: number): { left: number; right: number; top: number; bottom: number } | null;
+  /**
+   * The document offset currently aligned with the top edge of the visible
+   * editor viewport. Sub-line precision: within the top line block the
+   * offset is interpolated by the block's scrolled fraction, so a tall
+   * wrapped line or replaced widget maps smoothly instead of jumping at
+   * line boundaries. (The interpolation is character-linear — visual rows
+   * of a wrapped line are treated as equally many characters — an
+   * approximation that keeps round-trips within one line block.)
+   * Returns 0 when the editor is destroyed.
+   */
+  getScrollAnchor(): number;
+  /**
+   * Scroll the editor so the given document offset sits at the top edge of
+   * the viewport — the inverse of `getScrollAnchor()`. Out-of-range offsets
+   * are clamped to the document. No-op when the editor is destroyed.
+   */
+  scrollToAnchor(offset: number): void;
   /**
    * 返回某个 DOM 节点当前对应的文档偏移（基于 CodeMirror 的 DOM↔文档映射）。
    * 用于会被复用、平移的 live-preview widget（如图片）在事件发生时解析自身实时位置，
