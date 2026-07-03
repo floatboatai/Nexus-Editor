@@ -6,6 +6,9 @@ import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
+import { createPreviewPanel, type PreviewPanel } from "./preview-panel";
+import { createKeybindingsPanel, type KeybindingsPanel } from "./keybindings-panel";
+import { wireScrollSync } from "./scroll-sync";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
 
 installLongTaskWatch(50);
@@ -17,6 +20,9 @@ let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+let preview: PreviewPanel;
+let unwirePreviewSync: (() => void) | null = null;
+let keybindings: KeybindingsPanel;
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
@@ -65,6 +71,18 @@ function createAppToolbar(): HTMLElement {
   backlinksBtn.style.fontSize = "14px";
   backlinksBtn.addEventListener("click", toggleBacklinks);
 
+  const previewBtn = document.createElement("button");
+  previewBtn.textContent = "👁";
+  previewBtn.title = "Toggle live preview (with scroll sync)";
+  previewBtn.style.fontSize = "14px";
+  previewBtn.addEventListener("click", togglePreview);
+
+  const keybindingsBtn = document.createElement("button");
+  keybindingsBtn.textContent = "⌨";
+  keybindingsBtn.title = "Toggle keybindings panel";
+  keybindingsBtn.style.fontSize = "14px";
+  keybindingsBtn.addEventListener("click", toggleKeybindings);
+
   const searchBtn = document.createElement("button");
   searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
   searchBtn.title = "Search (Ctrl+F)";
@@ -86,6 +104,8 @@ function createAppToolbar(): HTMLElement {
     vaultToggleBtn,
     outlineBtn,
     backlinksBtn,
+    previewBtn,
+    keybindingsBtn,
     searchBtn,
     settingsBtn
   );
@@ -200,6 +220,25 @@ function toggleVault(): void {
 
 function toggleBacklinks(): void {
   togglePanel(backlinks.element, () => backlinks.refresh());
+}
+
+function togglePreview(): void {
+  const isHidden = preview.element.style.display === "none";
+  if (isHidden) {
+    preview.element.style.display = "";
+    preview.update();
+    if (!unwirePreviewSync) {
+      unwirePreviewSync = wireScrollSync(shell.editor, preview);
+    }
+  } else {
+    preview.element.style.display = "none";
+    unwirePreviewSync?.();
+    unwirePreviewSync = null;
+  }
+}
+
+function toggleKeybindings(): void {
+  togglePanel(keybindings.element);
 }
 
 async function handleVaultFileOpen(filePath: string): Promise<void> {
@@ -406,9 +445,16 @@ function boot(): void {
     onOpenFile: (filePath) => void handleVaultFileOpen(filePath),
     getActiveFile: () => state.activeFile,
   });
+  preview = createPreviewPanel(shell.editor);
+  // Off by default — the preview button toggles it and wires scroll sync
+  // lazily so headless / no-preview flows pay no cost.
+  preview.element.style.display = "none";
+
+  keybindings = createKeybindingsPanel(shell.editor);
+  keybindings.element.style.display = "none";
 
   editorColumn.append(searchBar.element, editorContainer);
-  mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
+  mainArea.append(vault.element, editorColumn, preview.element, outline.element, backlinks.element, keybindings.element);
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {
