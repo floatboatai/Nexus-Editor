@@ -26,20 +26,23 @@ export function toggleWrap(editor: EditorAPI, marker: string): boolean {
 
   if (before === marker && after === marker) {
     // Already wrapped — remove markers
-    const newDoc =
-      doc.slice(0, from - marker.length) +
-      selected +
-      doc.slice(to + marker.length);
-    editor.setDocument(newDoc);
-    editor.setSelection(from - marker.length, to - marker.length);
+    const replaceFrom = from - marker.length;
+    const replaceTo = to + marker.length;
+    const selection = {
+      anchor: replaceFrom,
+      head: replaceFrom + selected.length,
+    };
+    editor.replaceRange(replaceFrom, replaceTo, selected, selection);
     return true;
   }
 
   // Wrap selection with markers
-  const newDoc =
-    doc.slice(0, from) + marker + selected + marker + doc.slice(to);
-  editor.setDocument(newDoc);
-  editor.setSelection(from + marker.length, to + marker.length);
+  const newContent = marker + selected + marker;
+  const selection = {
+    anchor: from + marker.length,
+    head: from + marker.length + selected.length,
+  };
+  editor.replaceRange(from, to, newContent, selection);
   return true;
 }
 
@@ -68,12 +71,14 @@ export function insertLink(editor: EditorAPI): boolean {
 
   const linkText = selected || "link text";
   const md = `[${linkText}](url)`;
-  const newDoc = doc.slice(0, from) + md + doc.slice(to);
-  editor.setDocument(newDoc);
 
   // Select the "url" part for easy replacement
   const urlStart = from + linkText.length + 3;
-  editor.setSelection(urlStart, urlStart + 3);
+  const selection = {
+    anchor: urlStart,
+    head: urlStart + 3,
+  };
+  editor.replaceRange(from, to, md, selection);
   return true;
 }
 
@@ -100,9 +105,8 @@ export function toggleHeading(editor: EditorAPI, level: number): boolean {
     newLine = prefix + line;
   }
 
-  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(end);
-  editor.setDocument(newDoc);
-  editor.setSelection(lineStart + newLine.length);
+  const selection = { anchor: lineStart + newLine.length };
+  editor.replaceRange(lineStart, end, newLine, selection);
   return true;
 }
 
