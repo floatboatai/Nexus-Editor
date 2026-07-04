@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import { createHistoryPlugin } from "../../plugin-history/src/index";
+import { createGfmPreset } from "../../preset-gfm/src/index";
 import { createEditor } from "../src/index";
+
+// Count the cells in a serialized table row by stripping at most one leading
+// and one trailing pipe. Deliberately independent of the source implementation
+// so the widget assertions describe expected structure, not current behaviour.
+function countPipeCells(line: string): number {
+  let inner = line.trim();
+  if (inner.startsWith("|")) inner = inner.slice(1);
+  if (inner.endsWith("|")) inner = inner.slice(0, -1);
+  return inner.split("|").length;
+}
 
 describe("live preview regressions", () => {
   it("keeps live preview working when the history plugin is registered", () => {
@@ -241,6 +252,97 @@ describe("live preview regressions", () => {
     const widgetBack = container.querySelector("[data-live-preview-image]");
     expect(widgetBack).not.toBeNull();
     expect(container.textContent).not.toContain("![alt]");
+    editor.destroy();
+  });
+});
+
+// Widget-level regressions for structural edits on ragged GFM tables. These
+// drive the real event chain (grip click → Delete) and assert on the document
+// source only — no clientX/getBoundingClientRect dependency, because jsdom
+// reports zero layout and coordinate-driven tests are unreliable (PR #102).
+describe("table structural edits on ragged tables (widget level)", () => {
+  // User's original reproduction: header missing its leading pipe + a trailing
+  // empty column. Parses as a 4-column GFM table.
+  // Real deletion event chain: grip click selects the column, Delete removes it.
+  function deleteColumnViaGrip(wrapper: HTMLElement, colIdx: number): void {
+    const grips = wrapper.querySelectorAll<HTMLElement>(".nexus-col-grip");
+    expect(grips.length).toBeGreaterThan(colIdx);
+    grips[colIdx].dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    wrapper.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true }));
+  }
+
+  const raggedTable = [
+    "姓名 | 年龄 | 职位  |  |",
+    "| --- | --- | ---  | --- |",
+    "| 张三 | 25 | 提示词工程师  |  |",
+    "| 李四 | 30 | 测开工程师  |  |",
+  ].join("\n");
+
+  it("renders a ragged table (missing leading pipe, trailing empty column) as a 4-column widget", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: `Intro\n\n${raggedTable}`,
+      livePreview: true,
+      plugins: [createGfmPreset()],
+    });
+    editor.setSelection(0);
+
+    expect(container.querySelector(".nexus-table-wrapper")).not.toBeNull();
+    expect(container.querySelector("table[role='grid']")).not.toBeNull();
+    expect(container.querySelectorAll("th.nexus-cell").length).toBe(4);
+    editor.destroy();
+  });
+
+  it("preserves every cell when deleting a column via grip click + Delete", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: `Intro\n\n${raggedTable}`,
+      livePreview: true,
+      plugins: [createGfmPreset()],
+    });
+    editor.setSelection(0);
+
+    const wrapper = container.querySelector<HTMLElement>(".nexus-table-wrapper");
+    expect(wrapper).not.toBeNull();
+    expect(wrapper!.querySelectorAll(".nexus-col-grip").length).toBe(4);
+
+    // Select the first column (姓名), then delete it via the keyboard path.
+    deleteColumnViaGrip(wrapper!, 0);
+
+    const rows = editor.getDocument().split("\n").filter((line) => line.includes("|"));
+    const counts = rows.map(countPipeCells);
+    expect(new Set(counts).size).toBe(1);
+    for (const row of rows) expect(row.trim().startsWith("|")).toBe(true);
+    // Deleting 姓名 must not also drop the 年龄 column — the ragged split does.
+    expect(rows[0]).toContain("年龄");
+    editor.destroy();
+  });
+
+  it("leaves an adjacent table untouched when a column is deleted from the first", () => {
+    const secondTable = ["| x | y | z |", "| --- | --- | --- |", "| 4 | 5 | 6 |"].join("\n");
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: `Intro\n\n${raggedTable}\n\n${secondTable}`,
+      livePreview: true,
+      plugins: [createGfmPreset()],
+    });
+    editor.setSelection(0);
+
+    const wrappers = container.querySelectorAll<HTMLElement>(".nexus-table-wrapper");
+    expect(wrappers.length).toBe(2);
+
+    deleteColumnViaGrip(wrappers[0], 0);
+
+    // The second table's source is byte-identical after editing the first.
+    expect(editor.getDocument()).toContain(secondTable);
+    // Two tables remain — the edit did not merge them.
+    expect(editor.getDocument().split("\n\n").filter((block) => block.includes("| ---")).length).toBe(2);
+    // And the first table kept a consistent column count across all rows.
+    const firstTableRows = editor.getDocument().split("\n\n")[1].split("\n");
+    expect(new Set(firstTableRows.map(countPipeCells)).size).toBe(1);
     editor.destroy();
   });
 });

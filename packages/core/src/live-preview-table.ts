@@ -1,6 +1,14 @@
 import { EditorView, WidgetType, runScopeHandlers } from "@codemirror/view";
 import type { Table } from "mdast";
 
+import {
+  appendTableColumn,
+  clearTableCellRange,
+  deleteTableColumn,
+  isSeparatorLine,
+  moveTableColumn,
+  tableColumnCount,
+} from "./table-markdown";
 import type { LivePreviewLabels } from "./types";
 
 let tableEditingCount = 0;
@@ -38,8 +46,6 @@ function describeActiveCell(): string {
     return "<err>";
   }
 }
-
-const SEPARATOR_RE = /^\|?\s*[-:]+\s*(\|\s*[-:]+\s*)*\|?\s*$/;
 
 // Session-scoped store of user-customised column widths. Keyed by the
 // table's header line (e.g. `| 头像 | 用户名 | 主页 |`) so widths survive
@@ -338,20 +344,13 @@ export class EditableTableWidget extends WidgetType {
   }
 
   private deleteColumn(colIdx: number): void {
-    const lines = this.source.split("\n");
-    const newLines = lines.map((line) => {
-      const cells = line.split("|").filter((_, i, a) => i > 0 && i < a.length - 1);
-      if (cells.length === 0) return line;
-      cells.splice(colIdx, 1);
-      return "|" + cells.join("|") + "|";
-    });
-    this.dispatch(newLines.join("\n"));
+    this.dispatch(deleteTableColumn(this.source, colIdx));
   }
 
   private deleteRow(rowIdx: number): void {
     const lines = this.source.split("\n");
     const dataLines: number[] = [];
-    for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dataLines.push(i);
+    for (let i = 0; i < lines.length; i++) if (!isSeparatorLine(lines[i])) dataLines.push(i);
     const lineIdx = dataLines[rowIdx];
     if (lineIdx === undefined) return;
     lines.splice(lineIdx, 1);
@@ -359,13 +358,11 @@ export class EditableTableWidget extends WidgetType {
   }
 
   private addColumn(): void {
-    const lines = this.source.split("\n");
-    const nl = lines.map((l) => SEPARATOR_RE.test(l) ? l.replace(/\|?\s*$/, " | --- |") : l.replace(/\|?\s*$/, " |  |"));
-    this.dispatch(nl.join("\n"));
+    this.dispatch(appendTableColumn(this.source));
   }
 
   private addRow(): void {
-    const cc = (this.node.children?.[0] as any)?.children?.length ?? 2;
+    const cc = tableColumnCount(this.source);
     const nr = "\n| " + Array(cc).fill("  ").join(" | ") + " |";
     const v = this.viewRef.current;
     if (!v) return;
@@ -373,21 +370,13 @@ export class EditableTableWidget extends WidgetType {
   }
 
   private moveColumn(from: number, to: number): void {
-    const lines = this.source.split("\n");
-    const nl = lines.map((line) => {
-      const p = line.split("|"), cells = p.slice(1, -1);
-      if (from >= cells.length || to >= cells.length) return line;
-      const [m] = cells.splice(from, 1);
-      cells.splice(to, 0, m);
-      return "|" + cells.join("|") + "|";
-    });
-    this.dispatch(nl.join("\n"));
+    this.dispatch(moveTableColumn(this.source, from, to));
   }
 
   private moveRow(from: number, to: number): void {
     const lines = this.source.split("\n");
     const dl: number[] = [];
-    for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dl.push(i);
+    for (let i = 0; i < lines.length; i++) if (!isSeparatorLine(lines[i])) dl.push(i);
     const s = dl[from], d = dl[to];
     if (s === undefined || d === undefined) return;
     const [m] = lines.splice(s, 1);
@@ -410,7 +399,7 @@ export class EditableTableWidget extends WidgetType {
     }
     const sourceLines = this.source.split("\n");
     const dataLineIndices: number[] = [];
-    for (let i = 0; i < sourceLines.length; i++) if (!SEPARATOR_RE.test(sourceLines[i])) dataLineIndices.push(i);
+    for (let i = 0; i < sourceLines.length; i++) if (!isSeparatorLine(sourceLines[i])) dataLineIndices.push(i);
 
     // State
     let selectedCol = -1;
@@ -1598,19 +1587,7 @@ export class EditableTableWidget extends WidgetType {
         const range = getNormalizedRange();
         if (range) {
           e.preventDefault();
-          const lines = self.source.split("\n");
-          const dl: number[] = [];
-          for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dl.push(i);
-          for (let r = range.r1; r <= range.r2; r++) {
-            const lineIdx = dl[r];
-            if (lineIdx === undefined) continue;
-            const cells = lines[lineIdx].split("|").filter((_, i, a) => i > 0 && i < a.length - 1);
-            for (let c = range.c1; c <= range.c2; c++) {
-              if (c < cells.length) cells[c] = "  ";
-            }
-            lines[lineIdx] = "|" + cells.join("|") + "|";
-          }
-          self.dispatch(lines.join("\n"));
+          self.dispatch(clearTableCellRange(self.source, range.r1, range.c1, range.r2, range.c2));
           clearRangeSelection();
           return;
         }
