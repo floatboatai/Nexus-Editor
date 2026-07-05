@@ -17,6 +17,7 @@ const editorPropKeys = [
   "direction",
   "indentGuides",
   "readOnly",
+  "multiCursor",
   "slashMenuLimit",
   "onChange",
   "onFocus",
@@ -88,6 +89,10 @@ export const Editor = defineComponent({
       required: false
     },
     readOnly: {
+      type: Boolean,
+      required: false
+    },
+    multiCursor: {
       type: Boolean,
       required: false
     },
