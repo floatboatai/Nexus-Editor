@@ -13,6 +13,7 @@
     "build": "tsup electron/main.ts electron/preload.ts --outDir dist-electron --format cjs --platform node --external electron --clean && vite build",
     "start": "electron dist-electron/main.js",
     "test": "vitest run --config ../../vitest.config.ts",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "dist": "pnpm run build && electron-builder",
     "dist:mac": "pnpm run build && electron-builder --mac",
     "dist:mac-arm64": "pnpm run build && electron-builder --mac --arm64",
@@ -35,6 +36,7 @@
     "electron": "^35.0.0",
     "electron-builder": "^25.1.8",
     "npm-run-all2": "^7.0.0",
+    "playwright-core": "^1.61.1",
     "tsup": "^8.5.0",
     "vite": "^6.3.0"
   },
