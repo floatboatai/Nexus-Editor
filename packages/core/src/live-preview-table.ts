@@ -48,9 +48,11 @@ const SEPARATOR_RE = /^\|?\s*[-:]+\s*(\|\s*[-:]+\s*)*\|?\s*$/;
 // place to store column widths and we don't want to write sidecar files
 // for this. Values: [rowGripWidth, ...dataColumnWidths].
 const tableColumnWidths = new Map<string, number[]>();
+const tableRowHeights = new Map<string, number[]>();
 
 const ROW_GRIP_WIDTH = 16;
 const MIN_COLUMN_WIDTH = 48;
+const MIN_ROW_HEIGHT = 24;
 const renderedSourceOffsets = new WeakMap<Node, { start: number; end: number }>();
 
 function getNodeSourceOffsets(node: any, tableFrom: number, rawSourceStart: number, inlineCode = false): { start: number; end: number } | null {
@@ -360,7 +362,13 @@ export class EditableTableWidget extends WidgetType {
 
   private addColumn(): void {
     const lines = this.source.split("\n");
-    const nl = lines.map((l) => SEPARATOR_RE.test(l) ? l.replace(/\|?\s*$/, " | --- |") : l.replace(/\|?\s*$/, " |  |"));
+    const nl = lines.map((l) => {
+      const trimmed = l.replace(/\s*\|\s*$/, "");
+      // Detect separator by checking if every cell (non-empty after trimming pipes) looks like a dash sequence
+      const cells = trimmed.replace(/^\s*\|?\s*/, "").split(/\s*\|\s*/);
+      const isSep = cells.length > 0 && cells.every((c) => /^[-:]+$/.test(c));
+      return trimmed + (isSep ? " | --- |" : " |  |");
+    });
     this.dispatch(nl.join("\n"));
   }
 
@@ -564,6 +572,59 @@ export class EditableTableWidget extends WidgetType {
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
         tableColumnWidths.set(widthKey, baseWidths.slice());
+        releaseEditingLock("drag");
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    };
+
+    // ── Row height resize ──────────────────────────────────────────────
+
+    const getDataRows = (): HTMLTableRowElement[] =>
+      Array.from(table.rows).filter((_, i) => i > 0); // skip grip row
+
+    const applyRowHeights = (heights: number[]): void => {
+      const dataRows = getDataRows();
+      for (let i = 0; i < dataRows.length && i < heights.length; i++) {
+        dataRows[i].style.height = heights[i] + "px";
+      }
+    };
+
+    const measureRowHeights = (): number[] => {
+      return getDataRows().map((row) => {
+        const h = row.getBoundingClientRect().height;
+        return Math.max(MIN_ROW_HEIGHT, Math.round(h));
+      });
+    };
+
+    const startRowResize = (rowIdx: number, startY: number): void => {
+      acquireEditingLock("drag");
+      const dataRows = getDataRows();
+      const heightKey = widthKey + ":rowHeights";
+      const baseHeights = (() => {
+        const saved = tableRowHeights.get(heightKey);
+        if (saved && saved.length === dataRows.length) return saved.slice();
+        return measureRowHeights();
+      })();
+      applyRowHeights(baseHeights);
+      const initial = baseHeights[rowIdx];
+      document.body.style.cursor = "row-resize";
+      document.body.style.userSelect = "none";
+
+      const onMove = (ev: MouseEvent): void => {
+        const delta = ev.clientY - startY;
+        const next = Math.max(MIN_ROW_HEIGHT, initial + delta);
+        const updated = baseHeights.slice();
+        updated[rowIdx] = next;
+        applyRowHeights(updated);
+        baseHeights[rowIdx] = next;
+      };
+      const onUp = (): void => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        tableRowHeights.set(heightKey, baseHeights.slice());
         releaseEditingLock("drag");
       };
       document.addEventListener("mousemove", onMove);
@@ -1498,6 +1559,40 @@ export class EditableTableWidget extends WidgetType {
       });
 
       table.appendChild(tr);
+
+      // Row-height resize handle at bottom edge of each data row.
+      // Put it inside the first cell since position:relative on <tr> is unreliable.
+      if (!isHeader) {
+        const firstTd = tr.querySelector("td.nexus-cell") as HTMLElement | null;
+        if (firstTd) {
+          const rowResizeHandle = document.createElement("div");
+          rowResizeHandle.className = "nexus-row-resize";
+          rowResizeHandle.style.cssText = [
+            "position:absolute",
+            "bottom:-3px",
+            "left:0",
+            "width:100%",
+            "height:7px",
+            "cursor:row-resize",
+            "z-index:2",
+            "user-select:none",
+          ].join(";") + ";";
+          const resizeRowIdx = curRowIdx;
+          rowResizeHandle.addEventListener("mousedown", (ev) => {
+            if (ev.button !== 0) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            startRowResize(resizeRowIdx, ev.clientY);
+          });
+          rowResizeHandle.addEventListener("mouseenter", () => {
+            rowResizeHandle.style.background = "var(--nexus-border)";
+          });
+          rowResizeHandle.addEventListener("mouseleave", () => {
+            rowResizeHandle.style.background = "";
+          });
+          firstTd.appendChild(rowResizeHandle);
+        }
+      }
       rowIdx++;
     }
 
@@ -1509,6 +1604,12 @@ export class EditableTableWidget extends WidgetType {
     const savedWidths = tableColumnWidths.get(widthKey);
     if (savedWidths && savedWidths.length === colCount + 1) {
       applyColumnWidths(savedWidths);
+    }
+
+    // Re-apply saved row heights
+    const savedHeights = tableRowHeights.get(widthKey + ":rowHeights");
+    if (savedHeights && savedHeights.length === getDataRows().length) {
+      applyRowHeights(savedHeights);
     }
 
     // ── "+" buttons ──

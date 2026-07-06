@@ -11,6 +11,18 @@ import { createLivePreviewDiagnostics } from "./live-preview-diag";
 import { collectLivePreviewRanges, selectionIntersects, selectionOnSameLine } from "./live-preview-ranges";
 import { renderLivePreviewNode } from "./live-preview-renderers";
 import { EditableTableWidget, isTableEditing } from "./live-preview-table";
+
+// ── List item drag editing lock ────────────────────────────────────
+let listEditingCount = 0;
+function isListEditing(): boolean {
+  return listEditingCount > 0;
+}
+function acquireListEditLock(): void {
+  listEditingCount++;
+}
+function releaseListEditLock(): void {
+  listEditingCount = Math.max(0, listEditingCount - 1);
+}
 import type {
   LivePreviewConfig,
   LivePreviewLabels,
@@ -473,6 +485,184 @@ function buildHeadingDecorations(
 const LIST_MARKER_RE = /^(\s*)([-*+]|\d+[.)]) /;
 const CHECKBOX_RE = /^\[([ xX])\] /;
 
+// ── List item drag-reorder ─────────────────────────────────────────
+
+interface ListDragState {
+  items: { from: number; to: number }[];
+  fromIdx: number;
+  toIdx: number;
+  floatingPill: HTMLDivElement;
+  dropIndicator: HTMLDivElement;
+  onMove: (e: MouseEvent) => void;
+  onEnd: (e: MouseEvent) => void;
+}
+
+let activeListDrag: ListDragState | null = null;
+
+function moveListLines(
+  view: EditorView,
+  items: { from: number; to: number }[],
+  fromIdx: number,
+  toIdx: number,
+): void {
+  if (fromIdx === toIdx || items.length < 2) return;
+
+  // Collect text for each item line
+  const doc = view.state.doc.toString();
+  const texts = items.map((it) => doc.slice(it.from, it.to));
+  const srcText = texts[fromIdx];
+
+  // Build new order
+  const ordered = texts.filter((_, i) => i !== fromIdx);
+  ordered.splice(toIdx, 0, srcText);
+
+  // Reconstruct: keep text before/after list unchanged
+  const before = doc.slice(0, items[0].from);
+  const after = doc.slice(items[items.length - 1].to);
+  const newDoc = before + ordered.join("") + after;
+
+  view.dispatch({
+    changes: { from: 0, to: doc.length, insert: newDoc },
+  });
+}
+
+/** Find the end position of the list item starting at `from`. */
+export function findItemEnd(doc: string, from: number): number {
+  let i = doc.indexOf("\n", from);
+  if (i === -1) return doc.length;
+  // Consume subsequent non-blank, non-list-marker lines (multi-line item content)
+  let next = i + 1;
+  while (next < doc.length) {
+    const nl = doc.indexOf("\n", next);
+    const line = doc.slice(next, nl === -1 ? doc.length : nl);
+    if (line.trim() === "" || LIST_MARKER_RE.test(line)) break;
+    if (nl === -1) return doc.length;
+    next = nl + 1;
+  }
+  return next;
+}
+
+function createListDragInfra(view: EditorView): { floatingPill: HTMLDivElement; dropIndicator: HTMLDivElement } {
+  const floatingPill = document.createElement("div");
+  floatingPill.className = "nexus-list-drag-pill";
+  floatingPill.style.cssText =
+    "position:fixed;z-index:999;pointer-events:none;display:none;" +
+    "width:24px;height:6px;border-radius:3px;" +
+    "background:var(--nexus-accent,#7c6cf4);opacity:0.7;";
+  view.dom.parentElement?.appendChild(floatingPill);
+
+  const dropIndicator = document.createElement("div");
+  dropIndicator.className = "nexus-list-drop-indicator";
+  dropIndicator.style.cssText =
+    "position:fixed;z-index:998;pointer-events:none;display:none;" +
+    "height:2px;background:var(--nexus-accent,#7c6cf4);";
+  view.dom.parentElement?.appendChild(dropIndicator);
+
+  return { floatingPill, dropIndicator };
+}
+
+function removeListDragInfra(state: ListDragState): void {
+  state.floatingPill.remove();
+  state.dropIndicator.remove();
+}
+
+function startListDrag(
+  viewRef: { current: EditorView | null },
+  listNode: List,
+  fromIdx: number,
+  e: MouseEvent,
+): void {
+  const view = viewRef.current;
+  if (!view) return;
+
+  // Skip nested lists — only drag at the current level
+  for (const item of listNode.children) {
+    for (const child of item.children) {
+      if (child.type === "list") return;
+    }
+  }
+
+  acquireListEditLock();
+
+  const { floatingPill, dropIndicator } = createListDragInfra(view);
+
+  // Build item infos: position per item, and their Y coordinates for hit-testing
+  const doc = view.state.doc.toString();
+  const items: { from: number; to: number }[] = [];
+  for (const item of listNode.children) {
+    const pos = item.position?.start.offset;
+    if (typeof pos !== "number") continue;
+    items.push({ from: pos, to: findItemEnd(doc, pos) });
+  }
+
+  const state: ListDragState = {
+    items,
+    fromIdx,
+    toIdx: fromIdx,
+    floatingPill,
+    dropIndicator,
+    onMove: () => {},
+    onEnd: () => {},
+  };
+
+  const getTargetIdx = (clientY: number): number => {
+    let best = fromIdx;
+    let bestDist = Infinity;
+    for (let i = 0; i < items.length; i++) {
+      const coords = view.coordsAtPos(items[i].from);
+      if (!coords) continue;
+      const mid = coords.top + coords.bottom / 2;  // not quite right
+      const dist = Math.abs(clientY - coords.top);
+      if (dist < bestDist) { bestDist = dist; best = i; }
+    }
+    return best;
+  };
+
+  const editorRect = view.dom.getBoundingClientRect();
+
+  state.onMove = (ev: MouseEvent) => {
+    state.floatingPill.style.display = "block";
+    state.floatingPill.style.left = ev.clientX + "px";
+    state.floatingPill.style.top = ev.clientY + "px";
+
+    const target = getTargetIdx(ev.clientY);
+    if (target !== state.toIdx) {
+      state.toIdx = target;
+      const targetCoords = view.coordsAtPos(items[target].from);
+      if (targetCoords) {
+        state.dropIndicator.style.display = "block";
+        state.dropIndicator.style.left = editorRect.left + "px";
+        state.dropIndicator.style.width = editorRect.width + "px";
+        state.dropIndicator.style.top = (targetCoords.top - 2) + "px";
+      }
+    }
+  };
+
+  state.onEnd = () => {
+    document.removeEventListener("mousemove", state.onMove);
+    document.removeEventListener("mouseup", state.onEnd);
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+
+    removeListDragInfra(state);
+    releaseListEditLock();
+
+    if (state.fromIdx !== state.toIdx) {
+      moveListLines(view, items, state.fromIdx, state.toIdx);
+    }
+
+    activeListDrag = null;
+  };
+
+  document.body.style.cursor = "grabbing";
+  document.body.style.userSelect = "none";
+
+  document.addEventListener("mousemove", state.onMove);
+  document.addEventListener("mouseup", state.onEnd);
+
+  activeListDrag = state;
+}
+
 function buildListDecorations(
   range: { from: number; to: number; node: List },
   doc: string,
@@ -512,6 +702,42 @@ function buildListDecorations(
     const indent = markerMatch[1];
     const markerStart = itemFrom + indent.length;
     const markerEnd = itemFrom + markerMatch[0].length;
+
+    // ── Grip handle before each list item ──
+    const gripIndex = list.children.indexOf(item);
+    const grip = document.createElement("span");
+    grip.className = "nexus-list-grip";
+    grip.setAttribute("data-list-grip-index", String(gripIndex));
+    grip.style.cssText =
+      "display:inline-block;width:16px;height:16px;vertical-align:middle;" +
+      "cursor:grab;opacity:0.25;transition:opacity .15s;margin-right:2px;" +
+      "user-select:none;line-height:1;text-align:center;";
+    const gripDots = document.createElement("span");
+    gripDots.textContent = "⋮";
+    gripDots.style.cssText =
+      "font-size:14px;color:var(--nexus-text-muted,#656d76);" +
+      "display:inline-block;line-height:16px;";
+    grip.appendChild(gripDots);
+
+    grip.addEventListener("mouseenter", () => {
+      grip.style.opacity = "1";
+    });
+    grip.addEventListener("mouseleave", () => {
+      if (!activeListDrag) grip.style.opacity = "0.25";
+    });
+
+    grip.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      startListDrag(viewRef, list, gripIndex, e);
+    });
+
+    // Use inline widget, not replace — can't replace zero-length range
+    const gripWidget = new (class extends WidgetType {
+      eq() { return true; }
+      toDOM() { return grip; }
+    })();
+    decos.push(Decoration.widget({ widget: gripWidget, side: -1 }).range(markerStart));
 
     const bullet = document.createElement("span");
     let bulletKey: string;
@@ -1348,7 +1574,7 @@ export function createLivePreviewExtension(
       return build(state, state.selection.ranges, false);
     },
     update(decos: DecorationSet, tr: Transaction) {
-      if (isTableEditing()) {
+      if (isTableEditing() || isListEditing()) {
         return tr.docChanged ? decos.map(tr.changes) : decos;
       }
       if (tr.effects.some((effect) => effect.is(rebuildForCompositionStart))) {

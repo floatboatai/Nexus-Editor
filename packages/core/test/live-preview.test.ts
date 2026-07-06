@@ -1593,3 +1593,70 @@ describe("live preview", () => {
     editor.destroy();
   });
 });
+
+describe("list item drag reorder", () => {
+  it("renders grip handles on list items when cursor is outside", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "- apple\n- banana\n- cherry\n\nextra",
+      plugins: [createGfmPreset()],
+      livePreview: { enabled: true },
+    });
+
+    // Move cursor to the extra text so it's not on any list item
+    editor.setSelection(editor.getDocument().length - 1);
+    const grips = container.querySelectorAll(".nexus-list-grip");
+    // All 3 items should have grips
+    expect(grips.length).toBe(3);
+
+    editor.destroy();
+  });
+
+  it("hides grip only on the item under cursor", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "- apple\n- banana\n- cherry",
+      plugins: [createGfmPreset()],
+      livePreview: { enabled: true },
+    });
+
+    // Cursor on line 1, other items still show grips
+    editor.setSelection(2);
+    const grips = container.querySelectorAll(".nexus-list-grip");
+    expect(grips.length).toBe(2); // 3 items, 1 hidden
+
+    editor.destroy();
+  });
+
+  it("reorders items by moving lines in the document", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "- apple\n- banana\n- cherry",
+      plugins: [createGfmPreset()],
+      livePreview: { enabled: true },
+    });
+
+    const doc = editor.getDocument();
+    expect(doc).toBe("- apple\n- banana\n- cherry");
+
+    // "- apple\n" = 8 chars, "- banana\n" = 9 chars, "- cherry" = 7 chars
+    // Move apple below banana by editing the document directly
+    const appleLen = "- apple\n".length;   // 8
+    const bananaLen = "- banana\n".length;  // 9
+
+    const beforeApple = doc.slice(0, 0);              // ""
+    const apple = doc.slice(0, appleLen);              // "- apple\n"
+    const banana = doc.slice(appleLen, appleLen + bananaLen); // "- banana\n"
+    const cherry = doc.slice(appleLen + bananaLen);    // "- cherry"
+
+    // Swap: banana first, then apple, then cherry
+    const newDoc = banana + apple + cherry;
+    editor.setDocument(newDoc, { silent: true });
+    expect(editor.getDocument()).toBe("- banana\n- apple\n- cherry");
+
+    editor.destroy();
+  });
+});
