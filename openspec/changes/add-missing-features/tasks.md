@@ -14,7 +14,7 @@
 - [x] 2.1 Markdown auto-continuation
 - [x] 2.2 Fold/unfold for headings
 - [x] 2.3 Fold/unfold for code blocks
-- [ ] 2.4 List item drag reorder
+- [x] 2.4 List item drag reorder
 - [x] 2.5 Link hover preview
 
 ## Phase 3: P2 — Ecosystem

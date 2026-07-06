@@ -10,7 +10,12 @@ import { highlightCodeBlock } from "./live-preview-highlight";
 import { createLivePreviewDiagnostics } from "./live-preview-diag";
 import { collectLivePreviewRanges, selectionIntersects, selectionOnSameLine } from "./live-preview-ranges";
 import { renderLivePreviewNode } from "./live-preview-renderers";
-import { EditableTableWidget, isTableEditing } from "./live-preview-table";
+import {
+  EditableTableWidget,
+  acquireStructuralEditingLock,
+  isStructuralEditing,
+  releaseStructuralEditingLock,
+} from "./live-preview-table";
 import type {
   LivePreviewConfig,
   LivePreviewLabels,
@@ -472,6 +477,70 @@ function buildHeadingDecorations(
 
 const LIST_MARKER_RE = /^(\s*)([-*+]|\d+[.)]) /;
 const CHECKBOX_RE = /^\[([ xX])\] /;
+const LIST_GRIP_COLOR = "var(--nexus-text-muted)";
+const LIST_GRIP_COLOR_HOVER = "var(--nexus-border)";
+const LIST_DROP_INDICATOR_COLOR = "var(--nexus-accent, #4f8cff)";
+
+/** [from, to) byte range of each item's raw source, `to` being the next
+ * sibling's start (or the list's own end for the last item). Slicing the
+ * doc by these bounds and splicing the resulting strings is what lets a
+ * drag-reorder move an item \u2014 including any nested sub-list inside it \u2014
+ * verbatim, so indentation and content are preserved automatically. */
+export interface ListItemRange {
+  from: number;
+  to: number;
+}
+
+export function getListItemRanges(list: List, listEnd: number): ListItemRange[] {
+  const items = list.children;
+  const ranges: ListItemRange[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const from = items[i].position?.start.offset;
+    if (typeof from !== "number") continue;
+    const next = items[i + 1]?.position?.start.offset;
+    const to = typeof next === "number" ? next : listEnd;
+    ranges.push({ from, to });
+  }
+  return ranges;
+}
+
+/**
+ * Pure computation of the single document edit that moves item `fromIndex`
+ * to sit at `toIndex` among its siblings. Returns null for a no-op move.
+ * Kept side-effect free (no CM6/DOM dependency) so the reorder semantics \u2014
+ * the part the OpenSpec scenario actually cares about \u2014 are unit-testable
+ * without simulating pixel-based drag coordinates.
+ */
+export function computeListReorderChange(
+  doc: string,
+  itemRanges: readonly ListItemRange[],
+  fromIndex: number,
+  toIndex: number
+): { from: number; to: number; insert: string } | null {
+  if (
+    fromIndex === toIndex ||
+    fromIndex < 0 || toIndex < 0 ||
+    fromIndex >= itemRanges.length || toIndex >= itemRanges.length
+  ) {
+    return null;
+  }
+  // Every item's raw slice ends with whatever separates it from the next
+  // sibling (a single "\n", or "\n\n" for a loose list) — except the last
+  // item, which has none. Stripping that trailing whitespace and rejoining
+  // with a uniform "\n" avoids a missing/doubled separator whenever the
+  // previously-last (or previously-first) item lands somewhere else after
+  // the move; it does mean a loose list's blank lines collapse to tight
+  // spacing across a reorder, which is an acceptable trade-off for a
+  // guaranteed-valid result.
+  const contents = itemRanges.map((r) => doc.slice(r.from, r.to).replace(/\n+$/, ""));
+  const [moved] = contents.splice(fromIndex, 1);
+  contents.splice(toIndex, 0, moved);
+  return {
+    from: itemRanges[0].from,
+    to: itemRanges[itemRanges.length - 1].to,
+    insert: contents.join("\n"),
+  };
+}
 
 function buildListDecorations(
   range: { from: number; to: number; node: List },
@@ -488,8 +557,111 @@ function buildListDecorations(
   const list = range.node;
   const isOrdered = list.ordered === true;
   let orderNum = list.start ?? 1;
+  const itemRanges = getListItemRanges(list, range.to);
 
+  // \u2500\u2500 Custom drag state for this list's grip handles (mousedown/mousemove/
+  // mouseup, no HTML5 drag API \u2014 see CLAUDE.md Table Widget Development
+  // Rules #5). Scoped to this single call/list level, so dragging a nested
+  // item only ever reorders it among its own siblings, which is what keeps
+  // its indentation intact. \u2500\u2500
+  let draggingIndex = -1;
+  let dropGap = -1; // insertion gap index: 0..itemRanges.length
+  let indicatorEl: HTMLElement | null = null;
+
+  function removeIndicator(): void {
+    if (indicatorEl) {
+      indicatorEl.remove();
+      indicatorEl = null;
+    }
+  }
+
+  function gapIndexAtClientY(clientY: number): number {
+    const view = viewRef.current;
+    if (!view || itemRanges.length === 0) return -1;
+    const x = view.contentDOM.getBoundingClientRect().left + 4;
+    const pos = view.posAtCoords({ x, y: clientY }) ?? itemRanges[0].from;
+    let hovered = itemRanges.length - 1;
+    for (let i = 0; i < itemRanges.length; i++) {
+      if (pos < itemRanges[i].to) { hovered = i; break; }
+    }
+    const top = view.coordsAtPos(itemRanges[hovered].from)?.top ?? clientY;
+    const bottomPos = Math.max(itemRanges[hovered].from, itemRanges[hovered].to - 1);
+    const bottom = view.coordsAtPos(bottomPos)?.bottom ?? top;
+    const midpoint = (top + bottom) / 2;
+    return clientY < midpoint ? hovered : hovered + 1;
+  }
+
+  function showIndicatorAtGap(gap: number): void {
+    const view = viewRef.current;
+    if (!view) return;
+    const rect = view.contentDOM.getBoundingClientRect();
+    let y: number;
+    if (gap <= 0) {
+      y = view.coordsAtPos(itemRanges[0].from)?.top ?? rect.top;
+    } else if (gap >= itemRanges.length) {
+      const last = itemRanges[itemRanges.length - 1];
+      y = view.coordsAtPos(Math.max(last.from, last.to - 1))?.bottom ?? rect.bottom;
+    } else {
+      y = view.coordsAtPos(itemRanges[gap].from)?.top ?? rect.top;
+    }
+    if (!indicatorEl) {
+      indicatorEl = document.createElement("div");
+      indicatorEl.className = "nexus-list-drop-indicator";
+      indicatorEl.style.cssText =
+        `position:fixed;height:2px;background:${LIST_DROP_INDICATOR_COLOR};` +
+        "pointer-events:none;z-index:9999;border-radius:1px;";
+      document.body.appendChild(indicatorEl);
+    }
+    indicatorEl.style.left = rect.left + "px";
+    indicatorEl.style.width = rect.width + "px";
+    indicatorEl.style.top = (y - 1) + "px";
+  }
+
+  function onDragMove(e: MouseEvent): void {
+    e.preventDefault();
+    const gap = gapIndexAtClientY(e.clientY);
+    if (gap < 0) return;
+    dropGap = gap;
+    showIndicatorAtGap(gap);
+  }
+
+  function onDragEnd(): void {
+    document.removeEventListener("mousemove", onDragMove);
+    document.removeEventListener("mouseup", onDragEnd);
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    removeIndicator();
+
+    const savedDragIndex = draggingIndex;
+    const savedDropGap = dropGap;
+    draggingIndex = -1;
+    dropGap = -1;
+    releaseStructuralEditingLock();
+
+    // A gap immediately before/after the dragged item's own position is a
+    // no-op (the item would land back where it started).
+    const toIndex = savedDropGap > savedDragIndex ? savedDropGap - 1 : savedDropGap;
+    const view = viewRef.current;
+    if (!view || savedDragIndex < 0 || savedDropGap < 0 || toIndex === savedDragIndex) return;
+    const change = computeListReorderChange(doc, itemRanges, savedDragIndex, toIndex);
+    if (change) view.dispatch({ changes: change });
+  }
+
+  function startDrag(itemIndex: number): void {
+    draggingIndex = itemIndex;
+    dropGap = -1;
+    // Lock so the live-preview StateField skips rebuilds until mouseup \u2014
+    // otherwise CM6 could recreate this list's decorations/grips mid-drag.
+    acquireStructuralEditingLock();
+    document.addEventListener("mousemove", onDragMove);
+    document.addEventListener("mouseup", onDragEnd);
+    document.body.style.cursor = "grabbing";
+    document.body.style.userSelect = "none";
+  }
+
+  let itemIdx = -1;
   for (const item of list.children) {
+    itemIdx++;
     const itemFrom = item.position?.start.offset;
     if (typeof itemFrom !== "number") continue;
 
@@ -524,9 +696,37 @@ function buildListDecorations(
       bullet.style.color = "var(--nexus-text-muted)";
       bulletKey = `bullet:ul:${markerStart}-${markerEnd}`;
     }
+
+    // Grip handle: sits before the bullet/number at this item's own indent
+    // level, so nested items automatically get a correctly-indented grip
+    // (see CLAUDE.md Table Widget Development Rules #6 for why grips must
+    // stay anchored to their own content rather than a separate row/track).
+    const capturedIndex = itemIdx;
+    const grip = document.createElement("span");
+    grip.className = "nexus-list-item-grip";
+    grip.textContent = "\u283f";
+    grip.setAttribute("aria-hidden", "true");
+    grip.style.cssText =
+      "display:inline-block;width:12px;margin-right:2px;text-align:center;" +
+      `cursor:grab;user-select:none;color:${LIST_GRIP_COLOR};font-size:11px;line-height:1;`;
+    grip.addEventListener("mouseenter", () => { if (draggingIndex < 0) grip.style.color = LIST_GRIP_COLOR_HOVER; });
+    grip.addEventListener("mouseleave", () => { if (draggingIndex < 0) grip.style.color = LIST_GRIP_COLOR; });
+    // mousedown \u5148\u4e8e click\uff1a\u963b\u6b62 CM6 \u628a\u8fd9\u6b21\u70b9\u51fb\u89e3\u8bfb\u4e3a"\u628a\u5149\u6807\u79fb\u5230\u672c\u884c"\uff0c
+    // \u5426\u5219\u4f1a\u89e6\u53d1\u4e00\u6b21 selection \u4e8b\u52a1\uff0c\u5728\u62d6\u62fd\u5c1a\u672a\u7ed3\u675f\u524d\u91cd\u5efa\u672c\u5217\u8868\u7684 decorations\u3002
+    grip.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      startDrag(capturedIndex);
+    });
+
+    const bulletWrapper = document.createElement("span");
+    bulletWrapper.style.cssText = "display:inline-flex;align-items:center;";
+    bulletWrapper.appendChild(grip);
+    bulletWrapper.appendChild(bullet);
+
     decos.push(
       Decoration.replace({
-        widget: createWidget(bullet, false, undefined, bulletKey),
+        widget: createWidget(bulletWrapper, false, undefined, bulletKey),
       }).range(markerStart, markerEnd)
     );
 
@@ -1348,7 +1548,7 @@ export function createLivePreviewExtension(
       return build(state, state.selection.ranges, false);
     },
     update(decos: DecorationSet, tr: Transaction) {
-      if (isTableEditing()) {
+      if (isStructuralEditing()) {
         return tr.docChanged ? decos.map(tr.changes) : decos;
       }
       if (tr.effects.some((effect) => effect.is(rebuildForCompositionStart))) {
