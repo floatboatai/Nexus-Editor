@@ -575,6 +575,19 @@ function buildListDecorations(
     }
   }
 
+  // CM6 virtualizes rendering: coordsAtPos() throws "No tile at position N"
+  // for an offset outside the currently-measured viewport (an off-screen
+  // item in a long list, or — if the doc was mutated out from under a
+  // stale drag — an offset that no longer resolves at all). Never let a
+  // measurement failure mid-drag surface as an uncaught exception.
+  function safeCoordsAtPos(view: EditorView, pos: number): { top: number; bottom: number } | null {
+    try {
+      return view.coordsAtPos(pos);
+    } catch {
+      return null;
+    }
+  }
+
   function gapIndexAtClientY(clientY: number): number {
     const view = viewRef.current;
     if (!view || itemRanges.length === 0) return -1;
@@ -584,9 +597,9 @@ function buildListDecorations(
     for (let i = 0; i < itemRanges.length; i++) {
       if (pos < itemRanges[i].to) { hovered = i; break; }
     }
-    const top = view.coordsAtPos(itemRanges[hovered].from)?.top ?? clientY;
+    const top = safeCoordsAtPos(view, itemRanges[hovered].from)?.top ?? clientY;
     const bottomPos = Math.max(itemRanges[hovered].from, itemRanges[hovered].to - 1);
-    const bottom = view.coordsAtPos(bottomPos)?.bottom ?? top;
+    const bottom = safeCoordsAtPos(view, bottomPos)?.bottom ?? top;
     const midpoint = (top + bottom) / 2;
     return clientY < midpoint ? hovered : hovered + 1;
   }
@@ -597,12 +610,12 @@ function buildListDecorations(
     const rect = view.contentDOM.getBoundingClientRect();
     let y: number;
     if (gap <= 0) {
-      y = view.coordsAtPos(itemRanges[0].from)?.top ?? rect.top;
+      y = safeCoordsAtPos(view, itemRanges[0].from)?.top ?? rect.top;
     } else if (gap >= itemRanges.length) {
       const last = itemRanges[itemRanges.length - 1];
-      y = view.coordsAtPos(Math.max(last.from, last.to - 1))?.bottom ?? rect.bottom;
+      y = safeCoordsAtPos(view, Math.max(last.from, last.to - 1))?.bottom ?? rect.bottom;
     } else {
-      y = view.coordsAtPos(itemRanges[gap].from)?.top ?? rect.top;
+      y = safeCoordsAtPos(view, itemRanges[gap].from)?.top ?? rect.top;
     }
     if (!indicatorEl) {
       indicatorEl = document.createElement("div");
@@ -643,6 +656,12 @@ function buildListDecorations(
     const toIndex = savedDropGap > savedDragIndex ? savedDropGap - 1 : savedDropGap;
     const view = viewRef.current;
     if (!view || savedDragIndex < 0 || savedDropGap < 0 || toIndex === savedDragIndex) return;
+    // itemRanges/doc are a snapshot from when this list was last built. If
+    // something else changed the document while the grip was held (a host
+    // setDocument() call, a collaborative edit, ...), those offsets no
+    // longer describe the current text — silently splicing with them could
+    // corrupt the document instead of just failing loudly. Bail out.
+    if (view.state.doc.toString() !== doc) return;
     const change = computeListReorderChange(doc, itemRanges, savedDragIndex, toIndex);
     if (change) view.dispatch({ changes: change });
   }

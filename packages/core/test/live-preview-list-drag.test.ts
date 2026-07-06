@@ -168,4 +168,34 @@ describe("list item drag reorder", () => {
     expect(editor.getDocument()).toBe("- alpha\n- beta\n- gamma\n\nend");
     editor.destroy();
   });
+
+  it("ignores a stale drag if the document is mutated externally mid-drag (no crash, no corruption)", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "- alpha\n- beta\n- gamma",
+      livePreview: true,
+    });
+    editor.setSelection(editor.getDocument().length);
+    const grip = container.querySelector<HTMLElement>(".nexus-list-item-grip");
+    expect(grip).not.toBeNull();
+
+    grip!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
+
+    // Simulate a host calling setDocument() (e.g. an external sync, autosave
+    // reformat, or collaborative edit) while the user is still holding the
+    // grip mid-drag.
+    editor.setDocument("- one\n- two\n- three");
+
+    // Move so a drop gap gets computed, then release.
+    document.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, cancelable: true, clientX: 10, clientY: 999 }));
+    expect(() => {
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+    }).not.toThrow();
+
+    // The externally-set document must survive untouched — a stale drag must
+    // not splice text computed from now-invalid offsets/snapshot.
+    expect(editor.getDocument()).toBe("- one\n- two\n- three");
+    editor.destroy();
+  });
 });
