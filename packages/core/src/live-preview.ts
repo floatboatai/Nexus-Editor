@@ -678,9 +678,7 @@ function buildListDecorations(
     document.body.style.userSelect = "none";
   }
 
-  let itemIdx = -1;
   for (const item of list.children) {
-    itemIdx++;
     const itemFrom = item.position?.start.offset;
     if (typeof itemFrom !== "number") continue;
 
@@ -720,7 +718,18 @@ function buildListDecorations(
     // level, so nested items automatically get a correctly-indented grip
     // (see CLAUDE.md Table Widget Development Rules #6 for why grips must
     // stay anchored to their own content rather than a separate row/track).
-    const capturedIndex = itemIdx;
+    //
+    // Looked up by position rather than a parallel loop counter: this loop
+    // skips items whose head line doesn't match the list-marker regex or
+    // whose raw markup the cursor is currently revealing, but itemRanges
+    // (built once above, up front) only skips items lacking a `position`.
+    // A counter incremented once per `list.children` entry would silently
+    // drift out of sync with itemRanges' indices the moment a *different*
+    // kind of AST node (e.g. one injected without position info by a host
+    // remarkPlugin) caused itemRanges to skip an entry this loop wouldn't —
+    // sending later grips to reorder the wrong item. Deriving the index
+    // straight from itemRanges makes the two impossible to desync.
+    const capturedIndex = itemRanges.findIndex((r) => r.from === itemFrom);
     const grip = document.createElement("span");
     grip.className = "nexus-list-item-grip";
     grip.textContent = "\u283f";
