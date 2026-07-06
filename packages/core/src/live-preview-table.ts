@@ -3,10 +3,24 @@ import type { Table } from "mdast";
 
 import type { LivePreviewLabels } from "./types";
 
-let tableEditingCount = 0;
+// Shared lock: counts every in-flight multi-frame mouse interaction across
+// the live-preview layer (table drag/resize, list item drag reorder, ...).
+// While held, the live-preview StateField skips decoration rebuilds so CM6
+// never recreates the widget/decoration DOM mid-interaction (see CLAUDE.md
+// "Table Widget Development Rules" #8 — the same hazard applies to any
+// interaction that spans multiple animation frames, not just tables).
+let structuralEditingCount = 0;
 
-export function isTableEditing(): boolean {
-  return tableEditingCount > 0;
+export function isStructuralEditing(): boolean {
+  return structuralEditingCount > 0;
+}
+
+export function acquireStructuralEditingLock(): void {
+  structuralEditingCount++;
+}
+
+export function releaseStructuralEditingLock(): void {
+  structuralEditingCount = Math.max(0, structuralEditingCount - 1);
 }
 
 // 表格方向键导航的调试日志，仅在显式开启 floatboat:markdown-debug 标记后输出。
@@ -442,13 +456,13 @@ export class EditableTableWidget extends WidgetType {
       if (editingLocks[lock]) return;
       editingLocks[lock] = true;
       self.editing = true;
-      tableEditingCount++;
+      acquireStructuralEditingLock();
     }
 
     function releaseEditingLock(lock: keyof typeof editingLocks): void {
       if (!editingLocks[lock]) return;
       editingLocks[lock] = false;
-      tableEditingCount = Math.max(0, tableEditingCount - 1);
+      releaseStructuralEditingLock();
       self.editing = hasEditingLocks();
     }
 
