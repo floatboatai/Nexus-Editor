@@ -241,6 +241,63 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("matches a fuzzy subsequence that exact search would miss", () => {
+    expect(findSearchMatches("alpha", "apa")).toEqual([]);
+
+    const matches = findSearchMatches("alpha", "apa", { fuzzy: true });
+    expect(matches).toHaveLength(1);
+    expect(matches[0].from).toBe(0);
+    expect(matches[0].to).toBe(5);
+    expect(matches[0].text).toBe("alpha");
+    expect(typeof matches[0].score).toBe("number");
+  });
+
+  it("returns no fuzzy match when characters are out of order", () => {
+    expect(findSearchMatches("alpha", "pal", { fuzzy: true })).toEqual([]);
+  });
+
+  it("keeps fuzzy matches in document order across lines", () => {
+    const matches = findSearchMatches("alpha\nbeta\ngamma", "a", { fuzzy: true });
+
+    expect(matches.map((match) => match.from)).toEqual([0, 9, 12]);
+  });
+
+  it("respects case sensitivity in fuzzy mode", () => {
+    expect(findSearchMatches("Alpha", "alpha", { fuzzy: true, caseSensitive: true })).toEqual([]);
+
+    const matches = findSearchMatches("Alpha", "alpha", { fuzzy: true });
+    expect(matches).toHaveLength(1);
+    expect(matches[0].text).toBe("Alpha");
+  });
+
+  it("treats fuzzy query characters literally instead of as regex", () => {
+    const literal = findSearchMatches("a.c", "a.c", { fuzzy: true });
+    expect(literal).toHaveLength(1);
+    expect(literal[0].text).toBe("a.c");
+
+    expect(findSearchMatches("abc", ".", { fuzzy: true })).toEqual([]);
+  });
+
+  it("returns an empty array for an empty fuzzy query", () => {
+    expect(findSearchMatches("alpha", "", { fuzzy: true })).toEqual([]);
+  });
+
+  it("scores a contiguous fuzzy match higher than a scattered one", () => {
+    const matches = findSearchMatches("abc\naxbxc", "abc", { fuzzy: true });
+    expect(matches).toHaveLength(2);
+
+    const ranked = [...matches].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    expect(ranked[0].text).toBe("abc");
+    expect(ranked[1].text).toBe("axbxc");
+    expect(ranked[0].score ?? 0).toBeGreaterThan(ranked[1].score ?? 0);
+  });
+
+  it("does not attach a score to exact matches", () => {
+    const matches = findSearchMatches("hello", "hello");
+    expect(matches).toHaveLength(1);
+    expect(matches[0].score).toBeUndefined();
+  });
+
   it("creates a search plugin descriptor", () => {
     const plugin = createSearchPlugin();
 

@@ -21,12 +21,25 @@ export interface SearchMatch {
   from: number;
   to: number;
   text: string;
+  /**
+   * Relevance score for fuzzy matches. Higher is a better match. Only
+   * present when `SearchOptions.fuzzy` is enabled; exact, regex, and
+   * whole-word matches leave this undefined.
+   */
+  score?: number;
 }
 
 export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  /**
+   * Match each line as a fuzzy subsequence of the query instead of an
+   * exact/regex substring. Query characters are always treated literally
+   * (never as regex), and `regexp` / `wholeWord` are ignored while fuzzy
+   * is enabled. Only affects `findSearchMatches`; replace is unchanged.
+   */
+  fuzzy?: boolean;
 }
 
 export interface SearchHistoryStorage {
@@ -250,6 +263,95 @@ function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp 
   }
 }
 
+// Fuzzy matching runs per line: each line is a candidate the same way a
+// command palette treats each entry. Scoring lives here so a match's
+// `from`/`to` stays bounded to one line instead of letting a subsequence
+// span the whole document. Reward signals (contiguous runs, word starts,
+// a leading hit) sit far enough apart that one strong signal outranks an
+// accumulation of weaker ones, and gaps apply a small penalty.
+const FUZZY_SCORE_CONSECUTIVE = 8;
+const FUZZY_SCORE_WORD_START = 6;
+const FUZZY_SCORE_LEADING = 4;
+const FUZZY_PENALTY_GAP = 1;
+
+function isWordChar(char: string | undefined): boolean {
+  return char !== undefined && /[A-Za-z0-9]/.test(char);
+}
+
+interface FuzzyLineMatch {
+  from: number;
+  to: number;
+  score: number;
+}
+
+// Greedy left-most subsequence match of `query` within a single line.
+// Returns the covering range (first..last matched character) and a score,
+// or null when the line does not contain every query character in order.
+// Both arguments are expected to be pre-normalized for case.
+function matchFuzzyLine(line: string, query: string): FuzzyLineMatch | null {
+  let queryIndex = 0;
+  let firstMatch = -1;
+  let lastMatch = -1;
+  let score = 0;
+
+  for (let i = 0; i < line.length && queryIndex < query.length; i++) {
+    if (line[i] !== query[queryIndex]) continue;
+
+    if (firstMatch < 0) {
+      firstMatch = i;
+      if (i === 0) score += FUZZY_SCORE_LEADING;
+    } else {
+      const gap = i - lastMatch - 1;
+      if (gap === 0) {
+        score += FUZZY_SCORE_CONSECUTIVE;
+      } else {
+        score -= gap * FUZZY_PENALTY_GAP;
+      }
+    }
+
+    if (!isWordChar(line[i - 1]) && isWordChar(line[i])) {
+      score += FUZZY_SCORE_WORD_START;
+    }
+
+    lastMatch = i;
+    queryIndex++;
+  }
+
+  if (queryIndex < query.length) {
+    return null;
+  }
+
+  return { from: firstMatch, to: lastMatch + 1, score };
+}
+
+function findFuzzyMatches(doc: string, query: string, options: SearchOptions): SearchMatch[] {
+  const caseSensitive = options.caseSensitive ?? false;
+  const needle = caseSensitive ? query : query.toLowerCase();
+  const matches: SearchMatch[] = [];
+
+  let lineStart = 0;
+  for (const rawLine of doc.split("\n")) {
+    const line = caseSensitive ? rawLine : rawLine.toLowerCase();
+    const hit = matchFuzzyLine(line, needle);
+
+    if (hit) {
+      const from = lineStart + hit.from;
+      const to = lineStart + hit.to;
+      matches.push({
+        from,
+        to,
+        text: doc.slice(from, to),
+        score: hit.score
+      });
+    }
+
+    // Advance past the line plus the "\n" removed by split.
+    lineStart += rawLine.length + 1;
+  }
+
+  return matches;
+}
+
 export function findSearchMatches(
   doc: string,
   query: string,
@@ -257,6 +359,10 @@ export function findSearchMatches(
 ): SearchMatch[] {
   if (!query) {
     return [];
+  }
+
+  if (options.fuzzy) {
+    return findFuzzyMatches(doc, query, options);
   }
 
   const pattern = buildSearchPattern(query, options);
