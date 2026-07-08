@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createEditor } from "@floatboat/nexus-core";
+import { createGfmPreset } from "../../preset-gfm/src/index";
 import {
   createSearchPlugin,
   findSearchMatches,
@@ -7,6 +8,56 @@ import {
 } from "../src/index";
 
 const HISTORY_KEY = "nexus:test-search-history";
+const TABLE_SEARCH_MATCH_HIGHLIGHT = "nexus-table-search-match";
+const TABLE_SEARCH_SELECTED_HIGHLIGHT = "nexus-table-search-selected";
+
+class FakeHighlight {
+  readonly ranges: Range[];
+
+  constructor(...ranges: Range[]) {
+    this.ranges = ranges;
+  }
+}
+
+function installCssHighlightMock() {
+  const win = window as unknown as Window & {
+    CSS?: { highlights?: Map<string, FakeHighlight> };
+    Highlight?: typeof FakeHighlight;
+  };
+  const previousCss = win.CSS;
+  const previousHighlight = win.Highlight;
+  const registry = new Map<string, FakeHighlight>();
+
+  Object.defineProperty(win, "CSS", {
+    configurable: true,
+    value: {
+      ...(previousCss ?? {}),
+      highlights: registry
+    }
+  });
+  Object.defineProperty(win, "Highlight", {
+    configurable: true,
+    value: FakeHighlight
+  });
+
+  return {
+    registry,
+    restore() {
+      Object.defineProperty(win, "CSS", {
+        configurable: true,
+        value: previousCss
+      });
+      Object.defineProperty(win, "Highlight", {
+        configurable: true,
+        value: previousHighlight
+      });
+    }
+  };
+}
+
+function readHighlightText(highlight: FakeHighlight | undefined): string {
+  return highlight?.ranges.map((range) => range.toString()).join("") ?? "";
+}
 
 function createEmptyRect(): DOMRect {
   return {
@@ -245,7 +296,40 @@ describe("@floatboat/nexus-plugin-search", () => {
     const plugin = createSearchPlugin();
 
     expect(plugin.name).toBe("plugin-search");
-    expect(plugin.cmExtensions).toHaveLength(3);
+    expect(plugin.cmExtensions).toHaveLength(4);
+  });
+
+  it("highlights rendered table cell matches through CSS Highlight ranges", () => {
+    const highlightSupport = installCssHighlightMock();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({
+      container,
+      initialValue: [
+        "| Name | Status |",
+        "| --- | --- |",
+        "| SearchNeedle070 | Todo |",
+        "| Other | Done |"
+      ].join("\n"),
+      livePreview: true,
+      plugins: [createGfmPreset(), createSearchPlugin()]
+    });
+
+    try {
+      const input = openSearchPanel(container);
+
+      submitSearch(input, "SearchNeedle070");
+
+      expect(readHighlightText(highlightSupport.registry.get(TABLE_SEARCH_SELECTED_HIGHLIGHT))).toBe(
+        "SearchNeedle070"
+      );
+      expect(readHighlightText(highlightSupport.registry.get(TABLE_SEARCH_MATCH_HIGHLIGHT))).toBe("");
+      expect(container.querySelector(".nexus-table-wrapper")?.textContent).toContain("SearchNeedle070");
+    } finally {
+      editor.destroy();
+      container.remove();
+      highlightSupport.restore();
+    }
   });
 
   it("opens a data-test-id annotated search panel from the editor keymap", () => {

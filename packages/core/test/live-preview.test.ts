@@ -28,6 +28,13 @@ function requireEditorView(view: EditorView | null): EditorView {
   return view;
 }
 
+async function blurCellOutsideTable(cell: HTMLElement): Promise<void> {
+  const activeElementSpy = vi.spyOn(document, "activeElement", "get").mockReturnValue(document.body);
+  cell.dispatchEvent(new Event("blur"));
+  await Promise.resolve();
+  activeElementSpy.mockRestore();
+}
+
 describe("live preview", () => {
   // ── Inline formatting ──
   // Note: inline markers are hidden when cursor is on a DIFFERENT line (line-level detection).
@@ -623,6 +630,203 @@ describe("live preview", () => {
     container.remove();
   });
 
+  it("moves the editor selection to the focused table cell source", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let capturedView: EditorView | null = null;
+    const captureView = ViewPlugin.fromClass(
+      class {
+        constructor(readonly view: EditorView) {
+          capturedView = view;
+        }
+      }
+    );
+    const source = "| A | B |\n| --- | --- |\n| 1 | 222 |";
+    const editor = createEditor({
+      container,
+      initialValue: source,
+      livePreview: true,
+      plugins: [createGfmPreset(), { name: "capture-view", cmExtensions: [captureView] }]
+    });
+    const view = requireEditorView(capturedView);
+    editor.setSelection(source.length);
+
+    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    expect(cell).not.toBeUndefined();
+
+    cell?.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 80,
+      clientY: 40
+    }));
+    document.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 0,
+      clientX: 80,
+      clientY: 40
+    }));
+
+    expect(cell?.contentEditable).toBe("true");
+    expect(view.state.selection.main.anchor).toBe(source.indexOf("222"));
+
+    editor.destroy();
+    container.remove();
+  });
+
+  it("keeps the focused table cell DOM stable while typing and commits on blur", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| 1 | 222 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    expect(cell).not.toBeUndefined();
+
+    cell?.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 80,
+      clientY: 40
+    }));
+    document.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 0,
+      clientX: 80,
+      clientY: 40
+    }));
+
+    expect(cell?.contentEditable).toBe("true");
+    const documentInputSpy = vi.fn();
+    document.addEventListener("input", documentInputSpy);
+    cell!.textContent = "2223";
+    cell!.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    document.removeEventListener("input", documentInputSpy);
+
+    const currentCell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    expect(cell?.isConnected).toBe(true);
+    expect(currentCell).toBe(cell);
+    expect(cell?.contentEditable).toBe("true");
+    expect(documentInputSpy).not.toHaveBeenCalled();
+    expect(editor.getDocument()).toContain("| 1 | 222 |");
+    expect(editor.getDocument()).not.toContain("| 1 | 2223 |");
+
+    await blurCellOutsideTable(cell!);
+
+    expect(editor.getDocument()).toContain("| 1 | 2223 |");
+
+    editor.destroy();
+    container.remove();
+  });
+
+  it("commits table cell IME composition only after compositionend", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n|  | aa |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    expect(cell).not.toBeUndefined();
+
+    cell?.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 80,
+      clientY: 40
+    }));
+    document.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 0,
+      clientX: 80,
+      clientY: 40
+    }));
+
+    expect(cell?.contentEditable).toBe("true");
+    cell!.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, cancelable: true, data: "" }));
+    cell!.textContent = "n";
+    cell!.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      cancelable: true,
+      data: "n",
+      inputType: "insertCompositionText",
+      isComposing: true
+    }));
+
+    expect(editor.getDocument()).toContain("|  | aa |");
+    expect(editor.getDocument()).not.toContain("| n | aa |");
+
+    cell!.textContent = "你好";
+    cell!.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, cancelable: true, data: "你好" }));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+    expect(cell?.isConnected).toBe(true);
+    expect(cell?.contentEditable).toBe("true");
+    expect(editor.getDocument()).toContain("|  | aa |");
+    expect(editor.getDocument()).not.toContain("| 你好 | aa |");
+
+    await blurCellOutsideTable(cell!);
+
+    expect(editor.getDocument()).toContain("| 你好 | aa |");
+
+    editor.destroy();
+    container.remove();
+  });
+
+  it("does not let a blurred table cell steal focus from the next active cell", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let capturedView: EditorView | null = null;
+    const captureView = ViewPlugin.fromClass(
+      class {
+        constructor(readonly view: EditorView) {
+          capturedView = view;
+        }
+      }
+    );
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |",
+      livePreview: true,
+      plugins: [createGfmPreset(), { name: "capture-view", cmExtensions: [captureView] }]
+    });
+
+    const rows = Array.from(container.querySelectorAll<HTMLElement>("tr")).filter((row) =>
+      row.querySelector(".nexus-cell")
+    );
+    const firstCell = rows[1]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const nextCell = rows[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    expect(firstCell).not.toBeUndefined();
+    expect(nextCell).not.toBeUndefined();
+
+    const view = requireEditorView(capturedView);
+    const dispatchSpy = vi.spyOn(view, "dispatch");
+    const activeElementSpy = vi.spyOn(document, "activeElement", "get").mockReturnValue(nextCell!);
+
+    firstCell!.textContent = "9";
+    firstCell!.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    firstCell!.dispatchEvent(new Event("blur"));
+    await Promise.resolve();
+
+    expect(dispatchSpy).not.toHaveBeenCalled();
+    expect(editor.getDocument()).not.toContain("| 9 | 2 |");
+
+    activeElementSpy.mockRestore();
+    dispatchSpy.mockRestore();
+    editor.destroy();
+    container.remove();
+  });
+
   it("moves between table cells with up/down arrow keys", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -862,6 +1066,197 @@ describe("live preview", () => {
     expect(cell?.contentEditable).not.toBe("true");
     expect(document.getSelection()?.toString()).toBe("Alpha");
     document.getSelection()?.removeAllRanges();
+    editor.destroy();
+    container.remove();
+  });
+
+  it("preserves partial native text selection in a table cell after mouseup", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| Creator | Segment |\n| --- | --- |\n| Kevin Stratvert | P1 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    expect(cell).not.toBeUndefined();
+    const text = cell!.firstChild;
+    expect(text?.textContent).toBe("Kevin Stratvert");
+
+    const originalCaretRangeFromPoint = document.caretRangeFromPoint;
+    Object.defineProperty(document, "caretRangeFromPoint", {
+      configurable: true,
+      value: (x: number) => {
+        const range = document.createRange();
+        range.setStart(text!, x < 30 ? 0 : 5);
+        range.collapse(true);
+        return range;
+      },
+    });
+
+    cell?.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 12,
+      clientY: 15
+    }));
+    document.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 72,
+      clientY: 15
+    }));
+    document.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 0,
+      clientX: 72,
+      clientY: 15
+    }));
+
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(document.getSelection()?.toString()).toBe("Kevin");
+
+    const wholeCellRange = document.createRange();
+    wholeCellRange.setStart(cell!, 0);
+    wholeCellRange.setEnd(cell!, cell!.childNodes.length);
+    document.getSelection()?.removeAllRanges();
+    document.getSelection()?.addRange(wholeCellRange);
+    document.dispatchEvent(new Event("selectionchange"));
+
+    expect(cell?.contentEditable).not.toBe("true");
+    expect(document.getSelection()?.toString()).toBe("Kevin");
+    expect(document.getSelection()?.toString()).not.toBe("Kevin Stratvert");
+
+    Object.defineProperty(document, "caretRangeFromPoint", {
+      configurable: true,
+      value: originalCaretRangeFromPoint,
+    });
+    document.getSelection()?.removeAllRanges();
+    editor.destroy();
+    container.remove();
+  });
+
+  it("restores partial table cell text selection when caret hit testing misses", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| Creator | Segment |\n| --- | --- |\n| Kevin Stratvert | P1 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    expect(cell).not.toBeUndefined();
+    const text = cell!.firstChild;
+    expect(text?.textContent).toBe("Kevin Stratvert");
+
+    const originalCaretRangeFromPoint = document.caretRangeFromPoint;
+    Object.defineProperty(document, "caretRangeFromPoint", {
+      configurable: true,
+      value: () => null,
+    });
+
+    cell?.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 12,
+      clientY: 15
+    }));
+    document.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 72,
+      clientY: 15
+    }));
+
+    const partialRange = document.createRange();
+    partialRange.setStart(text!, 0);
+    partialRange.setEnd(text!, 5);
+    document.getSelection()?.removeAllRanges();
+    document.getSelection()?.addRange(partialRange);
+
+    document.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 0,
+      clientX: 72,
+      clientY: 15
+    }));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+    const outside = document.createElement("span");
+    outside.textContent = "outside";
+    document.body.appendChild(outside);
+    const outsideRange = document.createRange();
+    outsideRange.setStart(outside.firstChild!, 0);
+    outsideRange.setEnd(outside.firstChild!, 3);
+    document.getSelection()?.removeAllRanges();
+    document.getSelection()?.addRange(outsideRange);
+    document.dispatchEvent(new Event("selectionchange"));
+
+    const wholeCellRange = document.createRange();
+    wholeCellRange.setStart(cell!, 0);
+    wholeCellRange.setEnd(cell!, cell!.childNodes.length);
+    document.getSelection()?.removeAllRanges();
+    document.getSelection()?.addRange(wholeCellRange);
+    document.dispatchEvent(new Event("selectionchange"));
+
+    expect(document.getSelection()?.toString()).toBe("Kevin");
+
+    Object.defineProperty(document, "caretRangeFromPoint", {
+      configurable: true,
+      value: originalCaretRangeFromPoint,
+    });
+    document.getSelection()?.removeAllRanges();
+    editor.destroy();
+    container.remove();
+    outside.remove();
+  });
+
+  it("keeps same-cell drags from activating whole-cell editing when hit testing misses", () => {
+    document.getSelection()?.removeAllRanges();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| Floatboat | 2 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    expect(cell).not.toBeUndefined();
+
+    cell?.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 12,
+      clientY: 15
+    }));
+    document.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 72,
+      clientY: 15
+    }));
+    document.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 0,
+      clientX: 72,
+      clientY: 15
+    }));
+
+    expect(cell?.contentEditable).not.toBe("true");
+    expect(cell?.style.background).not.toContain("124, 108, 250");
+
     editor.destroy();
     container.remove();
   });

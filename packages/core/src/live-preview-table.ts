@@ -51,7 +51,34 @@ const tableColumnWidths = new Map<string, number[]>();
 
 const ROW_GRIP_WIDTH = 16;
 const MIN_COLUMN_WIDTH = 48;
+const TABLE_WRAPPER_VERTICAL_PADDING = 16;
+const TABLE_BASE_ROW_HEIGHT = 32;
+const TABLE_EXTRA_LINE_HEIGHT = 20;
+const TABLE_ESTIMATE_UNITS_PER_LINE = 34;
+const TABLE_MAX_ESTIMATED_ROW_HEIGHT = 240;
 const renderedSourceOffsets = new WeakMap<Node, { start: number; end: number }>();
+
+function lineStartOffset(lines: string[], lineIdx: number, tableFrom: number): number {
+  let offset = tableFrom;
+  for (let i = 0; i < lineIdx; i++) offset += lines[i].length + 1;
+  return offset;
+}
+
+function sourceOffsetForCell(lines: string[], lineIdx: number, colIdx: number, tableFrom: number): number {
+  const line = lines[lineIdx] ?? "";
+  const lineStart = lineStartOffset(lines, lineIdx, tableFrom);
+  let pipeCount = 0;
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] !== "|") continue;
+    if (pipeCount === colIdx) {
+      let offset = i + 1;
+      while (offset < line.length && /\s/.test(line[offset]) && line[offset] !== "|") offset++;
+      return lineStart + offset;
+    }
+    pipeCount++;
+  }
+  return lineStart;
+}
 
 function getNodeSourceOffsets(node: any, tableFrom: number, rawSourceStart: number, inlineCode = false): { start: number; end: number } | null {
   const startOffset = node?.position?.start?.offset;
@@ -86,20 +113,19 @@ function findLastMappedSourceOffset(node: Node): number | null {
 }
 
 function rawSourceOffsetFromCaret(container: Node, offset: number): number | null {
-  const own = renderedSourceOffsets.get(container);
-  if (own) return Math.max(own.start, Math.min(own.start + offset, own.end));
-  const children = Array.from(container.childNodes);
-  if (offset > 0) {
-    const previous = children[offset - 1];
-    if (previous) {
-      const mapped = findLastMappedSourceOffset(previous);
-      if (mapped !== null) return mapped;
+  // Walk up the parent chain looking for the nearest registered source
+  // range. The click-time Text returned by caretPositionFromPoint is the
+  // same Text we register (it has no child nodes), so the lookup almost
+  // always hits on the first iteration. The fallback walk guards against
+  // rare cases where the click lands on a wrapper Element whose inner
+  // Text has not been registered (caller may drill down before calling).
+  let cur: Node | null = container;
+  while (cur) {
+    const own = renderedSourceOffsets.get(cur);
+    if (own) {
+      return Math.max(own.start, Math.min(own.start + offset, own.end));
     }
-  }
-  const next = children[offset];
-  if (next) {
-    const mapped = findFirstMappedSourceOffset(next);
-    if (mapped !== null) return mapped;
+    cur = cur.parentNode;
   }
   return null;
 }
@@ -110,6 +136,61 @@ function rawSourceOffsetFromPoint(td: HTMLElement, event: MouseEvent): number | 
     caretRangeFromPoint?: (x: number, y: number) => Range | null;
   };
   const position = doc.caretPositionFromPoint?.(event.clientX, event.clientY);
+  // [Fix-A] Sub-rect hit-testing is only needed when the browser API returns
+  // a non-Text offsetNode (an inline wrapper like <strong>, <em>, <del>,
+  // <a>, <code>). For those cases a left-half click used to collapse to the
+  // mapped start offset of the inner Text (raw offset 2 for **重点菜单**).
+  //
+  // When the API already returns a Text node we trust caretPos directly:
+  // browsers measure the exact character boundary. Sub-rect hit-testing on
+  // a Text node is less accurate for CJK / monospace / inline boxes because
+  // Text rect.width is the glyph union, not per-glyph, so frac-based
+  // rounding loses precision. The sub-rect path is therefore gated on the
+  // API having returned a non-Text node.
+  const apiTextHit = position?.offsetNode && position.offsetNode.nodeType === 3
+    && td.contains(position.offsetNode);
+  if (!apiTextHit) {
+    const texts = collectTextNodes(td);
+    if (texts.length > 0) {
+      let bestText: Text | null = null;
+      let bestOffset = 0;
+      let bestScore = Infinity;
+      for (const tn of texts) {
+        // jsdom: raw Text nodes don't have getBoundingClientRect (only
+        // Element / Range do). Fall back to the parent Element's rect,
+        // which is the best approximation available in a test env.
+        let rect: DOMRect | undefined;
+        try {
+          const fn = (tn as unknown as { getBoundingClientRect?: () => DOMRect }).getBoundingClientRect;
+          rect = typeof fn === "function" ? fn.call(tn) : undefined;
+        } catch {
+          rect = undefined;
+        }
+        if (!rect || rect.width === 0) {
+          const parent = tn.parentElement;
+          if (parent && typeof parent.getBoundingClientRect === "function") {
+            rect = parent.getBoundingClientRect();
+          }
+        }
+        if (!rect || rect.width === 0) continue;
+        if (event.clientY < rect.top || event.clientY > rect.bottom) continue;
+        let frac = (event.clientX - rect.left) / rect.width;
+        frac = Math.max(0, Math.min(1, frac));
+        const len = tn.textContent?.length ?? 0;
+        const clampedOffset = Math.max(0, Math.min(len, Math.round(frac * len)));
+        const visibleCenter = rect.left + frac * rect.width;
+        const score = Math.abs(event.clientX - visibleCenter);
+        if (score < bestScore) {
+          bestScore = score;
+          bestText = tn;
+          bestOffset = clampedOffset;
+        }
+      }
+      if (bestText) {
+        return rawSourceOffsetFromCaret(bestText, bestOffset);
+      }
+    }
+  }
   if (position && td.contains(position.offsetNode)) {
     return rawSourceOffsetFromCaret(position.offsetNode, position.offset);
   }
@@ -121,8 +202,20 @@ function rawSourceOffsetFromPoint(td: HTMLElement, event: MouseEvent): number | 
 }
 
 function placeRawSourceCaret(td: HTMLElement, rawOffset: number): void {
-  const text = td.firstChild;
-  if (!text || text.nodeType !== Node.TEXT_NODE) return;
+  // Walk the subtree for the first text node instead of using `td.firstChild`.
+  // When the cell renders inline markup the `firstChild` is an element, not a
+  // text node:
+  //   - `**重点菜单**` → `<strong>重点菜单</strong>` → firstChild = <strong>
+  //   - `[**重点菜单**](url)` → `<a><strong>...</strong></a>` → firstChild = <a>
+  //   - `*斜体菜单*` → `<em>...</em>` → firstChild = <em>
+  // The previous implementation bailed out the moment `firstChild.nodeType` was
+  // not TEXT_NODE, which left the caret stuck at the cell origin and surfaced
+  // as "clicking in the middle of a Chinese cell jumps the caret to the start".
+  // The TreeWalker finds the first descendant text node regardless of how deep
+  // the markup nesting goes, so we always have a concrete anchor.
+  const walker = td.ownerDocument.createTreeWalker(td, NodeFilter.SHOW_TEXT);
+  const text = walker.nextNode() as Text | null;
+  if (!text) return;
   const offset = Math.max(0, Math.min(rawOffset, text.textContent?.length ?? 0));
   const range = td.ownerDocument.createRange();
   range.setStart(text, offset);
@@ -130,6 +223,65 @@ function placeRawSourceCaret(td: HTMLElement, rawOffset: number): void {
   const selection = td.ownerDocument.getSelection();
   selection?.removeAllRanges();
   selection?.addRange(range);
+}
+
+function collectTextNodes(root: Node): Text[] {
+  const nodes: Text[] = [];
+  const visit = (node: Node): void => {
+    node.childNodes.forEach((child) => {
+      if (child.nodeType === Node.TEXT_NODE) {
+        nodes.push(child as Text);
+      } else {
+        visit(child);
+      }
+    });
+  };
+  visit(root);
+  return nodes;
+}
+
+function textPointForRawSourceOffset(cell: HTMLElement, rawOffset: number): { node: Text; offset: number } | null {
+  const textNodes = collectTextNodes(cell);
+  let sawMappedNode = false;
+  for (const text of textNodes) {
+    const mapped = renderedSourceOffsets.get(text);
+    if (!mapped) continue;
+    sawMappedNode = true;
+    if (rawOffset >= mapped.start && rawOffset <= mapped.end) {
+      return {
+        node: text,
+        offset: Math.max(0, Math.min(rawOffset - mapped.start, text.textContent?.length ?? 0)),
+      };
+    }
+  }
+
+  if (sawMappedNode) return null;
+
+  let remaining = Math.max(0, rawOffset);
+  for (const text of textNodes) {
+    const length = text.textContent?.length ?? 0;
+    if (remaining <= length) return { node: text, offset: remaining };
+    remaining -= length;
+  }
+  const last = textNodes[textNodes.length - 1];
+  return last ? { node: last, offset: last.textContent?.length ?? 0 } : null;
+}
+
+function selectRawSourceRange(td: HTMLElement, from: number, to: number): boolean {
+  if (from === to) return false;
+  const start = Math.min(from, to);
+  const end = Math.max(from, to);
+  const startPoint = textPointForRawSourceOffset(td, start);
+  const endPoint = textPointForRawSourceOffset(td, end);
+  if (!startPoint || !endPoint) return false;
+
+  const range = td.ownerDocument.createRange();
+  range.setStart(startPoint.node, startPoint.offset);
+  range.setEnd(endPoint.node, endPoint.offset);
+  const selection = td.ownerDocument.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  return true;
 }
 
 function extractCellText(cell: any): string {
@@ -142,6 +294,35 @@ function extractCellText(cell: any): string {
       return "";
     })
     .join("");
+}
+
+function visualLength(text: string): number {
+  let length = 0;
+  for (const char of text) {
+    length += /[\u2e80-\u9fff\uff00-\uffef]/u.test(char) ? 2 : 1;
+  }
+  return length;
+}
+
+function estimateCellLineCount(cellSource: string): number {
+  const normalized = cellSource.replace(/<br\s*\/?>/gi, "\n");
+  return Math.max(
+    1,
+    ...normalized.split("\n").map((line) => Math.ceil(visualLength(line.trim()) / TABLE_ESTIMATE_UNITS_PER_LINE))
+  );
+}
+
+function estimateTableHeight(source: string): number {
+  let height = TABLE_WRAPPER_VERTICAL_PADDING;
+  for (const line of source.split("\n")) {
+    if (SEPARATOR_RE.test(line)) continue;
+    const parts = line.split("|");
+    const cells = parts.length > 2 ? parts.slice(1, -1) : parts;
+    const lineCount = Math.max(1, ...cells.map(estimateCellLineCount));
+    const rowHeight = TABLE_BASE_ROW_HEIGHT + (lineCount - 1) * TABLE_EXTRA_LINE_HEIGHT;
+    height += Math.min(TABLE_MAX_ESTIMATED_ROW_HEIGHT, rowHeight);
+  }
+  return height;
 }
 
 /**
@@ -300,6 +481,15 @@ const SELECT_BG = "rgba(124, 108, 250, 0.12)";
 const SELECT_BORDER = "var(--nexus-accent)";
 const DRAG_HIGHLIGHT_BG = "rgba(124, 108, 250, 0.08)";
 const TEXT_SELECTION_DRAG_THRESHOLD_PX = 3;
+const NATIVE_TEXT_SELECTION_RESTORE_WINDOW_MS = 220;
+
+interface PendingNativeTextSelection {
+  cell: HTMLElement;
+  from: number;
+  to: number;
+  expectedText: string;
+  expiresAt: number;
+}
 
 export class EditableTableWidget extends WidgetType {
   private editing = false;
@@ -326,9 +516,9 @@ export class EditableTableWidget extends WidgetType {
   }
 
   get estimatedHeight(): number {
-    const rows = this.node.children?.length ?? 1;
-    // rows × ~32px (cell padding + text) + 16px wrapper padding (8px top + 8px bottom)
-    return rows * 32 + 16;
+    // 长表格里大量中文/链接会换行，固定 32px/行会严重低估高度。
+    // 底部单元格编辑后 CM6 可能按低估 heightmap 把 widget 判出 viewport，导致 TD 被卸载失焦。
+    return estimateTableHeight(this.source);
   }
 
   private dispatch(newSource: string): void {
@@ -411,6 +601,7 @@ export class EditableTableWidget extends WidgetType {
     const sourceLines = this.source.split("\n");
     const dataLineIndices: number[] = [];
     for (let i = 0; i < sourceLines.length; i++) if (!SEPARATOR_RE.test(sourceLines[i])) dataLineIndices.push(i);
+    const dirtyRows = new Map<number, HTMLElement>();
 
     // State
     let selectedCol = -1;
@@ -432,10 +623,15 @@ export class EditableTableWidget extends WidgetType {
       focus: false,
       range: false,
       drag: false,
+      nativeSelection: false,
     };
+    let pendingNativeTextSelection: PendingNativeTextSelection | null = null;
+    let pendingNativeTextSelectionTimer: number | null = null;
+    let pendingNativeTextSelectionTimerWindow: Window | null = null;
+    let selectionChangeDocument: Document | null = null;
 
     function hasEditingLocks(): boolean {
-      return editingLocks.focus || editingLocks.range || editingLocks.drag;
+      return editingLocks.focus || editingLocks.range || editingLocks.drag || editingLocks.nativeSelection;
     }
 
     function acquireEditingLock(lock: keyof typeof editingLocks): void {
@@ -456,6 +652,112 @@ export class EditableTableWidget extends WidgetType {
       releaseEditingLock("focus");
       releaseEditingLock("range");
       releaseEditingLock("drag");
+      clearPendingNativeTextSelection();
+      if (selectionChangeDocument) {
+        selectionChangeDocument.removeEventListener("selectionchange", onDocumentSelectionChange);
+        selectionChangeDocument = null;
+      }
+    };
+
+    const rememberDirtyRow = (lineIdx: number | undefined, row: HTMLElement): void => {
+      if (lineIdx === undefined) return;
+      dirtyRows.set(lineIdx, row);
+    };
+
+    const findRenderedRowForSourceLine = (lineIdx: number): HTMLElement | null => {
+      const ownerDocument = wrapper.ownerDocument;
+      const selector = `.nexus-table-wrapper tr[data-source-line-idx="${lineIdx}"]`;
+      return Array.from(ownerDocument.querySelectorAll<HTMLElement>(selector)).find((row) => {
+        const rect = row.getBoundingClientRect();
+        return row.isConnected && rect.width > 0 && rect.height > 0;
+      }) ?? null;
+    };
+
+    const restoreRowScrollPosition = (lineIdx: number, row: HTMLElement): void => {
+      const v = self.viewRef.current;
+      if (!v) return;
+      const scroller = v.scrollDOM;
+      const ownerWindow = wrapper.ownerDocument.defaultView ?? window;
+      const beforeTop = row.getBoundingClientRect().top;
+      const beforeScrollTop = scroller.scrollTop;
+
+      const restore = (): void => {
+        if (!scroller.isConnected) return;
+        const nextRow = findRenderedRowForSourceLine(lineIdx);
+        if (!nextRow) {
+          scroller.scrollTop = beforeScrollTop;
+          return;
+        }
+        const nextTop = nextRow.getBoundingClientRect().top;
+        scroller.scrollTop += nextTop - beforeTop;
+      };
+
+      ownerWindow.requestAnimationFrame(() => {
+        restore();
+        ownerWindow.requestAnimationFrame(restore);
+      });
+    };
+
+    const syncEditorSelectionToCell = (lineIdx: number | undefined, colIdx: number): void => {
+      const v = self.viewRef.current;
+      if (!v || lineIdx === undefined) return;
+      const anchor = sourceOffsetForCell(sourceLines, lineIdx, colIdx, self.tableFrom);
+      const current = v.state.selection.main;
+      if (current.anchor === anchor && current.head === anchor) return;
+      try {
+        v.dispatch({ selection: { anchor, head: anchor } });
+      } catch {
+        // View may be gone while the widget is being destroyed.
+      }
+    };
+
+    const buildSourceLineFromRow = (row: HTMLElement): string => {
+      const vals: string[] = [];
+      row.querySelectorAll<HTMLElement>(".nexus-cell").forEach((el) => {
+        // dataset.source 是单元格 Markdown 源文本的权威值；未触碰的富文本单元格
+        // 仍可能显示链接/加粗 DOM，不能用 textContent 反推源码。
+        vals.push(el.dataset.source ?? el.textContent ?? "");
+      });
+      return "| " + vals.join(" | ") + " |";
+    };
+
+    const syncDirtyRowsToDocument = (): boolean => {
+      const v = self.viewRef.current;
+      if (!v || dirtyRows.size === 0) return false;
+
+      const nextSourceLines = sourceLines.slice();
+      let changed = false;
+      let firstChangedLineIdx: number | null = null;
+      let firstChangedRow: HTMLElement | null = null;
+      dirtyRows.forEach((row, lineIdx) => {
+        const newLine = buildSourceLineFromRow(row);
+        if (newLine === nextSourceLines[lineIdx]) return;
+        nextSourceLines[lineIdx] = newLine;
+        firstChangedLineIdx ??= lineIdx;
+        firstChangedRow ??= row;
+        changed = true;
+      });
+      dirtyRows.clear();
+      if (!changed) return false;
+
+      const anchorLineIdx = firstChangedLineIdx ?? 0;
+      const anchor = lineStartOffset(sourceLines, anchorLineIdx, self.tableFrom);
+      if (firstChangedRow) restoreRowScrollPosition(anchorLineIdx, firstChangedRow);
+      v.dispatch({
+        changes: {
+          from: self.tableFrom,
+          to: self.tableFrom + self.source.length,
+          insert: nextSourceLines.join("\n")
+        },
+        selection: { anchor, head: anchor }
+      });
+      v.requestMeasure();
+      return true;
+    };
+
+    const hasActiveCellInWrapper = (): boolean => {
+      const active = wrapper.ownerDocument.activeElement;
+      return active instanceof HTMLElement && active !== wrapper && wrapper.contains(active) && active.classList.contains("nexus-cell");
     };
 
     function blurActiveCellForDrag(): void {
@@ -474,6 +776,8 @@ export class EditableTableWidget extends WidgetType {
     // untracked height per table → cumulative click-drift below every table.
     wrapper.style.cssText =
       "display:inline-block;position:relative;padding:8px 0;user-select:text;-webkit-user-select:text;";
+    selectionChangeDocument = wrapper.ownerDocument;
+    selectionChangeDocument.addEventListener("selectionchange", onDocumentSelectionChange);
 
     // ── Table ──
     const table = document.createElement("table");
@@ -742,6 +1046,117 @@ export class EditableTableWidget extends WidgetType {
 
     function clearNativeTextSelection(): void {
       table.ownerDocument.getSelection()?.removeAllRanges();
+    }
+
+    function clearPendingNativeTextSelection(): void {
+      if (pendingNativeTextSelectionTimer !== null && pendingNativeTextSelectionTimerWindow) {
+        pendingNativeTextSelectionTimerWindow.clearTimeout(pendingNativeTextSelectionTimer);
+      }
+      pendingNativeTextSelectionTimer = null;
+      pendingNativeTextSelectionTimerWindow = null;
+      pendingNativeTextSelection = null;
+      releaseEditingLock("nativeSelection");
+    }
+
+    function selectionTouchesCell(range: Range, cell: HTMLElement): boolean {
+      return (
+        range.startContainer === cell ||
+        range.endContainer === cell ||
+        cell.contains(range.startContainer) ||
+        cell.contains(range.endContainer) ||
+        cell.contains(range.commonAncestorContainer)
+      );
+    }
+
+    function selectionMatchesRawSourceRange(cell: HTMLElement, from: number, to: number): boolean {
+      const selection = cell.ownerDocument.getSelection();
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false;
+      const range = selection.getRangeAt(0);
+      if (!selectionTouchesCell(range, cell)) return false;
+      const actualFrom = rawSourceOffsetFromCaret(range.startContainer, range.startOffset);
+      const actualTo = rawSourceOffsetFromCaret(range.endContainer, range.endOffset);
+      if (actualFrom === null || actualTo === null) return false;
+      return Math.min(actualFrom, actualTo) === from && Math.max(actualFrom, actualTo) === to;
+    }
+
+    function rawSourceRangeFromNativeSelection(cell: HTMLElement): { from: number; to: number } | null {
+      const selection = cell.ownerDocument.getSelection();
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
+      const range = selection.getRangeAt(0);
+      if (!selectionTouchesCell(range, cell)) return null;
+      const from = rawSourceOffsetFromCaret(range.startContainer, range.startOffset);
+      const to = rawSourceOffsetFromCaret(range.endContainer, range.endOffset);
+      if (from === null || to === null || from === to) return null;
+      return { from: Math.min(from, to), to: Math.max(from, to) };
+    }
+
+    function restorePendingNativeTextSelection(): void {
+      const pending = pendingNativeTextSelection;
+      if (!pending) return;
+      if (!pending.cell.isConnected || Date.now() > pending.expiresAt) {
+        clearPendingNativeTextSelection();
+        return;
+      }
+      if (selectionMatchesRawSourceRange(pending.cell, pending.from, pending.to)) return;
+
+      const selection = pending.cell.ownerDocument.getSelection();
+      let shouldRestore = !selection || selection.rangeCount === 0 || selection.isCollapsed;
+      if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        if (!selectionTouchesCell(range, pending.cell)) {
+          return;
+        }
+        const selectedText = selection.toString();
+        const cellText = pending.cell.textContent ?? "";
+        shouldRestore =
+          shouldRestore ||
+          selectedText !== pending.expectedText ||
+          (cellText !== "" && selectedText === cellText && pending.expectedText !== cellText);
+      }
+
+      if (!shouldRestore) return;
+      selectRawSourceRange(pending.cell, pending.from, pending.to);
+    }
+
+    function armPendingNativeTextSelection(cell: HTMLElement, from: number, to: number): boolean {
+      if (from === to) return false;
+      const start = Math.min(from, to);
+      const end = Math.max(from, to);
+      const sourceText = cell.dataset.source ?? cell.textContent ?? "";
+      const ownerWindow = cell.ownerDocument.defaultView ?? window;
+      if (pendingNativeTextSelectionTimer !== null && pendingNativeTextSelectionTimerWindow) {
+        pendingNativeTextSelectionTimerWindow.clearTimeout(pendingNativeTextSelectionTimer);
+      }
+      pendingNativeTextSelection = {
+        cell,
+        from: start,
+        to: end,
+        expectedText: sourceText.slice(start, end),
+        expiresAt: Date.now() + NATIVE_TEXT_SELECTION_RESTORE_WINDOW_MS,
+      };
+      acquireEditingLock("nativeSelection");
+      pendingNativeTextSelectionTimerWindow = ownerWindow;
+      pendingNativeTextSelectionTimer = ownerWindow.setTimeout(
+        clearPendingNativeTextSelection,
+        NATIVE_TEXT_SELECTION_RESTORE_WINDOW_MS
+      );
+      return true;
+    }
+
+    function scheduleNativeTextSelectionRestoreChecks(cell: HTMLElement): void {
+      const ownerWindow = cell.ownerDocument.defaultView ?? window;
+      const restore = (): void => {
+        if (!cell.isConnected) return;
+        restorePendingNativeTextSelection();
+      };
+      ownerWindow.setTimeout(restore, 0);
+      ownerWindow.requestAnimationFrame?.(restore);
+      ownerWindow.setTimeout(restore, 32);
+      ownerWindow.setTimeout(restore, 96);
+    }
+
+    function onDocumentSelectionChange(): void {
+      restorePendingNativeTextSelection();
     }
 
     function serializeRangeSelection(range: { r1: number; c1: number; r2: number; c2: number }): string {
@@ -1145,6 +1560,7 @@ export class EditableTableWidget extends WidgetType {
       const tr = document.createElement("tr");
       const astCells = "children" in astRow && Array.isArray(astRow.children) ? astRow.children : [];
       const sourceLineIdx = dataLineIndices[rowIdx];
+      if (sourceLineIdx !== undefined) tr.dataset.sourceLineIdx = String(sourceLineIdx);
       const curRowIdx = rowIdx;
 
       // Row grip
@@ -1210,6 +1626,8 @@ export class EditableTableWidget extends WidgetType {
           }
         }
         td.dataset.source = rawSource;
+        td.dataset.sourceFrom = String(self.tableFrom + rawSourceStart);
+        td.dataset.sourceTo = String(self.tableFrom + rawSourceStart + rawSource.length);
         if (astCell && Array.isArray(astCell.children) && astCell.children.length > 0) {
           renderCellRich(td, astCell, self.tableFrom, rawSourceStart);
         } else {
@@ -1263,6 +1681,8 @@ export class EditableTableWidget extends WidgetType {
         const cellCol = colIdx;
         let cellMouseMoved = false;
         let cellTextSelectionDrag = false;
+        let cellComposing = false;
+        let compositionSourceQueued = false;
 
         const enterRawEditingMode = (): void => {
           // Pin THIS cell to its currently rendered width before swapping
@@ -1282,12 +1702,30 @@ export class EditableTableWidget extends WidgetType {
           // text was usually shorter than the raw markdown).
           td.style.wordBreak = "break-all";
           td.style.whiteSpace = "pre-wrap";
+          // [Fix-B] Idempotent mode swap. Enter is called from two paths
+          // (activateCellEditing at the click site and the focus event
+          // listener). After the first call the cell already holds a
+          // single Text node matching td.dataset.source. Re-running
+          // `td.textContent = ...` would tear down any range that was
+          // just placed by placeRawSourceCaret, so guard the destructive
+          // swap: if the DOM is already in raw-text mode, leave it alone.
+          const src = td.dataset.source ?? "";
+          const first = td.firstChild;
+          if (
+            first?.nodeType === Node.TEXT_NODE &&
+            (first as Text).data === src &&
+            td.contentEditable === "true"
+          ) {
+            return;
+          }
           // Swap rendered rich DOM for the raw markdown source so the user
           // edits the actual `[text](url)` text instead of just "text".
-          td.textContent = td.dataset.source ?? "";
+          td.textContent = src;
         };
 
         const activateCellEditing = (): void => {
+          acquireEditingLock("focus");
+          syncEditorSelectionToCell(sourceLineIdx, cellCol);
           if (td.contentEditable !== "true") {
             td.contentEditable = "true";
           }
@@ -1305,6 +1743,7 @@ export class EditableTableWidget extends WidgetType {
           const startY = e.clientY;
           cellMouseMoved = false;
           cellTextSelectionDrag = false;
+          clearPendingNativeTextSelection();
           clearSelection();
 
           // Prepare range selection but don't render until mouse moves to a different cell
@@ -1325,33 +1764,112 @@ export class EditableTableWidget extends WidgetType {
               renderRangeSelection();
               return;
             }
-            if (target && Math.hypot(me.clientX - startX, me.clientY - startY) > TEXT_SELECTION_DRAG_THRESHOLD_PX) {
+            if (Math.hypot(me.clientX - startX, me.clientY - startY) > TEXT_SELECTION_DRAG_THRESHOLD_PX) {
               cellTextSelectionDrag = true;
             }
           };
-          const onCellMouseUp = (): void => {
+          const onCellMouseUp = (ue: MouseEvent): void => {
             document.removeEventListener("mousemove", onCellMouseMove);
             document.removeEventListener("mouseup", onCellMouseUp);
             cellMouseDown = false;
             isRangeSelecting = false;
+            const dragDistance = Math.hypot(ue.clientX - startX, ue.clientY - startY);
+            const rawSelectionEndOffset = rawSourceOffsetFromPoint(td, ue);
+            if (
+              !cellMouseMoved &&
+              dragDistance > TEXT_SELECTION_DRAG_THRESHOLD_PX
+            ) {
+              cellTextSelectionDrag = true;
+            }
+
+            const preserveRawDragSelection = (): boolean => {
+              if (
+                rawCaretOffset === null ||
+                rawSelectionEndOffset === null ||
+                rawCaretOffset === rawSelectionEndOffset
+              ) {
+                return false;
+              }
+              return selectRawSourceRange(td, rawCaretOffset, rawSelectionEndOffset);
+            };
+
+            const stabilizeNativeTextSelection = (): void => {
+              const armRange = (range: { from: number; to: number }): void => {
+                armPendingNativeTextSelection(td, range.from, range.to);
+                scheduleNativeTextSelectionRestoreChecks(td);
+              };
+              const hitTestRange =
+                rawCaretOffset !== null &&
+                rawSelectionEndOffset !== null &&
+                rawCaretOffset !== rawSelectionEndOffset
+                  ? {
+                      from: Math.min(rawCaretOffset, rawSelectionEndOffset),
+                      to: Math.max(rawCaretOffset, rawSelectionEndOffset),
+                    }
+                  : null;
+              const currentNativeRange = rawSourceRangeFromNativeSelection(td) ?? hitTestRange;
+              if (currentNativeRange) {
+                armRange(currentNativeRange);
+                return;
+              }
+
+              const ownerWindow = td.ownerDocument.defaultView ?? window;
+              if (
+                rawCaretOffset === null ||
+                rawSelectionEndOffset === null ||
+                rawCaretOffset === rawSelectionEndOffset
+              ) {
+                ownerWindow.setTimeout(() => {
+                  if (!td.isConnected) return;
+                  const deferredNativeRange = rawSourceRangeFromNativeSelection(td);
+                  if (deferredNativeRange) {
+                    armRange(deferredNativeRange);
+                    return;
+                  }
+                  preserveRawDragSelection();
+                }, 0);
+                return;
+              }
+              ownerWindow.setTimeout(() => {
+                if (!td.isConnected) return;
+                preserveRawDragSelection();
+              }, 0);
+            };
+
+            const activateAfterNativeSelectionSettles = (): void => {
+              const run = (): void => {
+                if (!td.isConnected) return;
+                if (hasNativeTextSelectionInCell(td)) {
+                  return;
+                }
+                activateCellEditing();
+                if (rawCaretOffset !== null) {
+                  placeRawSourceCaret(td, rawCaretOffset);
+                  window.setTimeout(() => {
+                    if (td.contentEditable === "true") {
+                      placeRawSourceCaret(td, rawCaretOffset);
+                    }
+                  }, 0);
+                }
+              };
+              if (dragDistance > 0) {
+                const ownerWindow = td.ownerDocument.defaultView ?? window;
+                ownerWindow.setTimeout(run, 0);
+                return;
+              }
+              run();
+            };
 
             const range = getNormalizedRange();
             if (cellTextSelectionDrag || hasNativeTextSelectionInCell(td)) {
               clearRangeSelection();
+              stabilizeNativeTextSelection();
               return;
             }
             if (!cellMouseMoved || (range && range.r1 === range.r2 && range.c1 === range.c2)) {
               // Single cell click — activate editing
               clearRangeSelection();
-              activateCellEditing();
-              if (rawCaretOffset !== null) {
-                placeRawSourceCaret(td, rawCaretOffset);
-                window.setTimeout(() => {
-                  if (td.contentEditable === "true") {
-                    placeRawSourceCaret(td, rawCaretOffset);
-                  }
-                }, 0);
-              }
+              activateAfterNativeSelectionSettles();
             } else {
               // Multi-cell range selected — keep range visible, focus wrapper for key events
               rangeActive = true;
@@ -1364,6 +1882,7 @@ export class EditableTableWidget extends WidgetType {
 
         td.addEventListener("focus", () => {
           acquireEditingLock("focus");
+          syncEditorSelectionToCell(sourceLineIdx, cellCol);
           clearRangeSelection();
           enterRawEditingMode();
         });
@@ -1393,7 +1912,10 @@ export class EditableTableWidget extends WidgetType {
           //    the StateField rebuild. If the next click lands inside
           //    another swallowing widget, no transaction fires, and the
           //    cell stays in raw-source mode.
-          if (astCell && Array.isArray(astCell.children) && astCell.children.length > 0) {
+          const cellChanged = (td.dataset.source ?? "") !== rawSource;
+          if (cellChanged) {
+            td.textContent = td.dataset.source ?? "";
+          } else if (astCell && Array.isArray(astCell.children) && astCell.children.length > 0) {
             renderCellRich(td, astCell, self.tableFrom, rawSourceStart);
           } else {
             td.textContent = td.dataset.source ?? "";
@@ -1410,6 +1932,16 @@ export class EditableTableWidget extends WidgetType {
               tableNavDebug("blur-dispatch:skipped (navigating)");
               return;
             }
+            // 鼠标从一个单元格切到另一个单元格时，旧单元格的 blur 微任务会晚于
+            // 新单元格 focus 执行。此时再派发 CM selection 会把焦点抢回编辑器源码区。
+            if (hasActiveCellInWrapper()) {
+              tableNavDebug("blur-dispatch:skipped (cell-active)", { active: describeActiveCell() });
+              return;
+            }
+            if (syncDirtyRowsToDocument()) {
+              tableNavDebug("blur-dispatch:committed", { active: describeActiveCell() });
+              return;
+            }
             const v = self.viewRef.current;
             if (!v) return;
             const sel = v.state.selection.main;
@@ -1422,26 +1954,54 @@ export class EditableTableWidget extends WidgetType {
           });
         });
 
-        td.addEventListener("input", () => {
-          const v = self.viewRef.current;
-          if (!v || sourceLineIdx === undefined) return;
-          // The currently edited cell holds the user's in-progress text; sync
-          // its dataset.source so we read a coherent set of values below.
+        const rememberCellSourceEdit = (): void => {
+          if (sourceLineIdx === undefined) return;
           td.dataset.source = td.textContent ?? "";
-          const vals: string[] = [];
-          tr.querySelectorAll<HTMLElement>(".nexus-cell").forEach((el) => {
-            // Use dataset.source as the authoritative source for every cell.
-            // Untouched cells still display rich DOM (links, bold) — reading
-            // their textContent would strip URLs and lose inline markdown.
-            vals.push(el.dataset.source ?? el.textContent ?? "");
-          });
-          const newLine = "| " + vals.join(" | ") + " |";
-          let off = self.tableFrom;
-          for (let i = 0; i < sourceLineIdx; i++) off += sourceLines[i].length + 1;
-          const end = off + sourceLines[sourceLineIdx].length;
-          sourceLines[sourceLineIdx] = newLine;
-          v.dispatch({ changes: { from: off, to: end, insert: newLine } });
-        });
+          rememberDirtyRow(sourceLineIdx, tr);
+        };
+
+        const queueCompositionSourceSnapshot = (): void => {
+          if (compositionSourceQueued) return;
+          compositionSourceQueued = true;
+          window.setTimeout(() => {
+            compositionSourceQueued = false;
+            if (cellComposing) return;
+            rememberCellSourceEdit();
+          }, 0);
+        };
+
+        td.addEventListener("beforeinput", (event) => {
+          event.stopPropagation();
+        }, true);
+
+        td.addEventListener("compositionstart", (event) => {
+          event.stopPropagation();
+          cellComposing = true;
+          acquireEditingLock("focus");
+        }, true);
+
+        td.addEventListener("compositionupdate", (event) => {
+          event.stopPropagation();
+        }, true);
+
+        td.addEventListener("compositionend", (event) => {
+          event.stopPropagation();
+          cellComposing = false;
+          // 浏览器会在 compositionend 前后把候选词提交进 contentEditable。
+          // 延后一拍读取 TD，只更新待提交源码，避免输入阶段重绘长表格导致失焦。
+          queueCompositionSourceSnapshot();
+        }, true);
+
+        td.addEventListener("input", (event) => {
+          event.stopPropagation();
+          const inputEvent = event as InputEvent;
+          if (cellComposing || inputEvent.isComposing || inputEvent.inputType === "insertCompositionText") {
+            return;
+          }
+          // 不在每个字符输入时 dispatch 到 CM6。长表格重算 heightmap 会让当前
+          // widget 被判出 viewport，表现为拼音只剩首字母、焦点掉到 BODY。
+          rememberCellSourceEdit();
+        }, true);
 
         td.addEventListener("keydown", (e) => {
           if (e.key === "Tab") {
@@ -1586,6 +2146,7 @@ export class EditableTableWidget extends WidgetType {
     const onDocMouseDown = (e: MouseEvent): void => {
       if (!wrapper.isConnected) { document.removeEventListener("mousedown", onDocMouseDown); return; }
       if (!wrapper.contains(e.target as Node)) {
+        clearPendingNativeTextSelection();
         clearSelection();
         clearRangeSelection();
       }

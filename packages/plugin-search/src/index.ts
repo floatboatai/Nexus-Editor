@@ -13,7 +13,14 @@ import {
   selectMatches,
   setSearchQuery
 } from "@codemirror/search";
-import { keymap, runScopeHandlers, type EditorView, type Panel, type ViewUpdate } from "@codemirror/view";
+import {
+  keymap,
+  runScopeHandlers,
+  ViewPlugin,
+  type EditorView,
+  type Panel,
+  type ViewUpdate
+} from "@codemirror/view";
 
 import type { NexusPlugin } from "@floatboat/nexus-core";
 
@@ -95,8 +102,186 @@ const DEFAULT_LABELS: SearchPluginLabels = {
 
 const DEFAULT_SEARCH_HISTORY_KEY = "nexus.search.history";
 const DEFAULT_SEARCH_HISTORY_MAX_ENTRIES = 20;
+const TABLE_SEARCH_MATCH_HIGHLIGHT = "nexus-table-search-match";
+const TABLE_SEARCH_SELECTED_HIGHLIGHT = "nexus-table-search-selected";
+const TABLE_SEARCH_CELL_SELECTOR = ".nexus-table-wrapper .nexus-cell";
+const TABLE_SEARCH_STYLE_ID = "nexus-table-search-highlight-style";
 
 type SearchHistoryDirection = "previous" | "next";
+
+type CssHighlightRegistry = {
+  set(name: string, highlight: unknown): void;
+  delete(name: string): boolean;
+};
+
+type HighlightConstructor = new (...ranges: Range[]) => unknown;
+
+function getCssHighlightSupport(doc: Document):
+  | {
+      registry: CssHighlightRegistry;
+      Highlight: HighlightConstructor;
+    }
+  | null {
+  const win = doc.defaultView as
+    | (Window & {
+        CSS?: { highlights?: CssHighlightRegistry };
+        Highlight?: HighlightConstructor;
+      })
+    | null;
+  const registry = win?.CSS?.highlights;
+  const HighlightCtor = win?.Highlight;
+
+  if (!registry || typeof registry.set !== "function" || typeof registry.delete !== "function") {
+    return null;
+  }
+  if (typeof HighlightCtor !== "function") {
+    return null;
+  }
+
+  return { registry, Highlight: HighlightCtor };
+}
+
+function ensureTableSearchHighlightStyles(doc: Document): void {
+  if (doc.getElementById(TABLE_SEARCH_STYLE_ID)) return;
+
+  const style = doc.createElement("style");
+  style.id = TABLE_SEARCH_STYLE_ID;
+  style.textContent = `
+::highlight(${TABLE_SEARCH_MATCH_HIGHLIGHT}) {
+  background-color: rgba(255, 214, 10, 0.38);
+  color: inherit;
+}
+::highlight(${TABLE_SEARCH_SELECTED_HIGHLIGHT}) {
+  background-color: rgba(255, 177, 0, 0.68);
+  color: inherit;
+}
+`;
+  doc.head.appendChild(style);
+}
+
+function createTextRanges(root: Element, from: number, to: number): Range[] {
+  if (from >= to) return [];
+
+  const doc = root.ownerDocument;
+  const ranges: Range[] = [];
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let offset = 0;
+
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    const text = node.textContent ?? "";
+    const nextOffset = offset + text.length;
+    const startsBeforeMatchEnd = offset < to;
+    const endsAfterMatchStart = nextOffset > from;
+
+    if (text.length > 0 && startsBeforeMatchEnd && endsAfterMatchStart) {
+      const range = doc.createRange();
+      range.setStart(node, Math.max(0, from - offset));
+      range.setEnd(node, Math.min(text.length, to - offset));
+      ranges.push(range);
+    }
+
+    offset = nextOffset;
+    if (offset >= to) break;
+  }
+
+  return ranges;
+}
+
+function readNumericDatasetValue(element: HTMLElement, key: string): number | null {
+  const value = element.dataset[key];
+  if (!value) return null;
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isSelectedSearchMatch(cell: HTMLElement, match: SearchMatch, selectionFrom: number, selectionTo: number): boolean {
+  const sourceFrom = readNumericDatasetValue(cell, "sourceFrom");
+  if (sourceFrom === null) return false;
+
+  const matchFrom = sourceFrom + match.from;
+  const matchTo = sourceFrom + match.to;
+  return matchFrom === selectionFrom && matchTo === selectionTo;
+}
+
+function clearTableSearchHighlights(doc: Document): void {
+  const support = getCssHighlightSupport(doc);
+  support?.registry.delete(TABLE_SEARCH_MATCH_HIGHLIGHT);
+  support?.registry.delete(TABLE_SEARCH_SELECTED_HIGHLIGHT);
+}
+
+function syncTableSearchHighlights(view: EditorView): void {
+  const doc = view.dom.ownerDocument;
+  const support = getCssHighlightSupport(doc);
+  if (!support) return;
+
+  ensureTableSearchHighlightStyles(doc);
+
+  const query = getSearchQuery(view.state);
+  if (!query.search) {
+    clearTableSearchHighlights(doc);
+    return;
+  }
+
+  const selection = view.state.selection.main;
+  const selectionFrom = Math.min(selection.anchor, selection.head);
+  const selectionTo = Math.max(selection.anchor, selection.head);
+  const matchRanges: Range[] = [];
+  const selectedRanges: Range[] = [];
+
+  view.dom.querySelectorAll<HTMLElement>(TABLE_SEARCH_CELL_SELECTOR).forEach((cell) => {
+    if (cell.isContentEditable) return;
+
+    const matches = findSearchMatches(cell.textContent ?? "", query.search, {
+      caseSensitive: query.caseSensitive,
+      regexp: query.regexp,
+      wholeWord: query.wholeWord
+    });
+
+    for (const match of matches) {
+      const ranges = createTextRanges(cell, match.from, match.to);
+      if (isSelectedSearchMatch(cell, match, selectionFrom, selectionTo)) {
+        selectedRanges.push(...ranges);
+      } else {
+        matchRanges.push(...ranges);
+      }
+    }
+  });
+
+  if (matchRanges.length > 0) {
+    support.registry.set(TABLE_SEARCH_MATCH_HIGHLIGHT, new support.Highlight(...matchRanges));
+  } else {
+    support.registry.delete(TABLE_SEARCH_MATCH_HIGHLIGHT);
+  }
+
+  if (selectedRanges.length > 0) {
+    support.registry.set(TABLE_SEARCH_SELECTED_HIGHLIGHT, new support.Highlight(...selectedRanges));
+  } else {
+    support.registry.delete(TABLE_SEARCH_SELECTED_HIGHLIGHT);
+  }
+}
+
+const tableSearchHighlightPlugin = ViewPlugin.fromClass(
+  class {
+    constructor(private readonly view: EditorView) {
+      syncTableSearchHighlights(view);
+    }
+
+    update(update: ViewUpdate): void {
+      const searchQueryChanged = update.transactions.some((transaction) =>
+        transaction.effects.some((effect) => effect.is(setSearchQuery))
+      );
+      if (update.docChanged || update.selectionSet || update.viewportChanged || searchQueryChanged) {
+        syncTableSearchHighlights(update.view);
+      }
+    }
+
+    destroy(): void {
+      clearTableSearchHighlights(this.view.dom.ownerDocument);
+    }
+  }
+);
 
 function resolveMaxEntries(maxEntries: number | undefined): number {
   if (maxEntries === undefined || !Number.isFinite(maxEntries)) {
@@ -758,7 +943,8 @@ export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlug
       literal: true,
       createPanel: (view) => new NexusSearchPanel(view, options.top ?? true, options.labels, history)
     }),
-    keymap.of(searchKeymap)
+    keymap.of(searchKeymap),
+    tableSearchHighlightPlugin
   ];
 
   if (options.highlightSelectionMatches ?? true) {
