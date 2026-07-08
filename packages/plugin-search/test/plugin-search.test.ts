@@ -166,6 +166,11 @@ function pressInputArrow(input: HTMLInputElement, key: "ArrowUp" | "ArrowDown"):
   return event;
 }
 
+function setCheckbox(input: HTMLInputElement, checked: boolean): void {
+  input.checked = checked;
+  input.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+}
+
 describe("@floatboat/nexus-plugin-search", () => {
   it("finds all case-insensitive matches in a document", () => {
     expect(findSearchMatches("Hello hello HELLO", "hello")).toEqual([
@@ -241,6 +246,26 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("supports fuzzy search with ordered subsequence matching", () => {
+    expect(findSearchMatches("Nexus Editor", "nxs", { fuzzy: true })).toEqual([
+      { from: 0, to: 5, text: "Nexus" }
+    ]);
+  });
+
+  it("supports case-sensitive fuzzy search", () => {
+    expect(findSearchMatches("Nexus nxs NXS", "NXS", { fuzzy: true, caseSensitive: true })).toEqual([
+      { from: 10, to: 13, text: "NXS" }
+    ]);
+  });
+
+  it("does not return fuzzy matches when characters appear out of order", () => {
+    expect(findSearchMatches("acb", "abc", { fuzzy: true })).toEqual([]);
+  });
+
+  it("does not replace in fuzzy mode", () => {
+    expect(replaceAllMatches("Nexus Editor", "nxs", "match", { fuzzy: true })).toBe("Nexus Editor");
+  });
+
   it("creates a search plugin descriptor", () => {
     const plugin = createSearchPlugin();
 
@@ -294,6 +319,7 @@ describe("@floatboat/nexus-plugin-search", () => {
     expect(input?.placeholder).toBe("查找");
     const nextButton = container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-next"]');
     const nextTooltip = container.querySelector<HTMLElement>('[data-test-id="markdown-search-next-tooltip"]');
+    const fuzzyField = container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-fuzzy-toggle"]');
     const replaceToggle = container.querySelector<HTMLButtonElement>(
       '[data-test-id="markdown-search-toggle-replace"]'
     );
@@ -310,6 +336,8 @@ describe("@floatboat/nexus-plugin-search", () => {
     expect(nextTooltip?.getAttribute("aria-label")).toBe("下一个");
     expect(nextTooltip?.dataset.tooltip).toBe("下一个");
     expect(nextTooltip?.textContent).toBe("下一个");
+    expect(fuzzyField).not.toBeNull();
+    expect(fuzzyField?.checked).toBe(false);
     expect(container.querySelector('[data-test-id="markdown-search-find-row"]')).not.toBeNull();
     expect(replaceToggle?.getAttribute("aria-expanded")).toBe("false");
     expect(replaceToggle?.getAttribute("aria-label")).toBe("Show replace");
@@ -379,6 +407,89 @@ describe("@floatboat/nexus-plugin-search", () => {
     const selection = editor.getSelection();
     expect(Math.min(selection.anchor, selection.head)).toBe(6);
     expect(Math.max(selection.anchor, selection.head)).toBe(10);
+
+    editor.destroy();
+    container.remove();
+  });
+
+  it("navigates to fuzzy matches when fuzzy mode is enabled", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({
+      container,
+      initialValue: "Nexus Editor",
+      plugins: [createSearchPlugin()]
+    });
+
+    const input = openSearchPanel(container);
+    const fuzzyField = container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-fuzzy-toggle"]');
+    expect(fuzzyField).not.toBeNull();
+
+    setCheckbox(fuzzyField!, true);
+    submitSearch(input, "nxs");
+
+    const selection = editor.getSelection();
+    expect(Math.min(selection.anchor, selection.head)).toBe(0);
+    expect(Math.max(selection.anchor, selection.head)).toBe(5);
+
+    editor.destroy();
+    container.remove();
+  });
+
+  it("makes fuzzy mode mutually exclusive with regexp and whole-word", () => {
+    const harness = setupSearchPanel();
+    const fuzzyField = harness.container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-fuzzy-toggle"]');
+    const regexpField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-regexp-toggle"]'
+    );
+    const wholeWordField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-word-toggle"]'
+    );
+    expect(fuzzyField).not.toBeNull();
+    expect(regexpField).not.toBeNull();
+    expect(wholeWordField).not.toBeNull();
+
+    setCheckbox(fuzzyField!, true);
+    expect(fuzzyField!.checked).toBe(true);
+    expect(regexpField!.checked).toBe(false);
+    expect(wholeWordField!.checked).toBe(false);
+
+    setCheckbox(regexpField!, true);
+    expect(fuzzyField!.checked).toBe(false);
+    expect(regexpField!.checked).toBe(true);
+
+    setCheckbox(fuzzyField!, true);
+    expect(regexpField!.checked).toBe(false);
+
+    setCheckbox(wholeWordField!, true);
+    expect(fuzzyField!.checked).toBe(false);
+    expect(wholeWordField!.checked).toBe(true);
+
+    harness.destroy();
+  });
+
+  it("disables select-all and replace controls in fuzzy mode", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({
+      container,
+      initialValue: "Nexus docs\nNexus notes",
+      plugins: [createSearchPlugin()]
+    });
+    const input = openSearchPanel(container);
+    const fuzzyField = container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-fuzzy-toggle"]');
+    const selectAllButton = container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-all"]');
+    const replaceToggle = container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-toggle-replace"]');
+    expect(fuzzyField).not.toBeNull();
+    expect(selectAllButton).not.toBeNull();
+    expect(replaceToggle).not.toBeNull();
+
+    setCheckbox(fuzzyField!, true);
+    input.value = "nxs";
+    input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    expect(selectAllButton?.disabled).toBe(true);
+    expect(replaceToggle?.disabled).toBe(true);
+    expect(editor.getSelections().ranges).toEqual([{ anchor: 0, head: 0 }]);
 
     editor.destroy();
     container.remove();
