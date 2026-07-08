@@ -27,6 +27,7 @@ export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  fuzzy?: boolean;
 }
 
 export interface SearchHistoryStorage {
@@ -72,6 +73,7 @@ export interface SearchPluginLabels {
   matchCase: string;
   regexp: string;
   byWord: string;
+  fuzzy: string;
   replaceNext: string;
   replaceAll: string;
   close: string;
@@ -88,6 +90,7 @@ const DEFAULT_LABELS: SearchPluginLabels = {
   matchCase: "Match case",
   regexp: "Regexp",
   byWord: "By word",
+  fuzzy: "Fuzzy",
   replaceNext: "Replace",
   replaceAll: "Replace all",
   close: "Close"
@@ -232,6 +235,65 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function isWordBoundary(doc: string, from: number, to: number): boolean {
+  const before = from > 0 ? doc[from - 1] : "";
+  const after = to < doc.length ? doc[to] : "";
+  return !/\w/.test(before) && !/\w/.test(after);
+}
+
+function findFuzzyWindow(source: string, query: string, start: number): { from: number; to: number } | null {
+  let queryIndex = 0;
+  let end = -1;
+
+  for (let index = start; index < source.length; index++) {
+    if (source[index] !== query[queryIndex]) continue;
+
+    queryIndex += 1;
+    if (queryIndex === query.length) {
+      end = index;
+      break;
+    }
+  }
+
+  if (end < 0) return null;
+
+  queryIndex = query.length - 1;
+  let from = end;
+  for (let index = end; index >= start; index--) {
+    if (source[index] !== query[queryIndex]) continue;
+
+    from = index;
+    queryIndex -= 1;
+    if (queryIndex < 0) break;
+  }
+
+  return { from, to: end + 1 };
+}
+
+function findFuzzySearchMatches(doc: string, query: string, options: SearchOptions): SearchMatch[] {
+  const source = options.caseSensitive ? doc : doc.toLowerCase();
+  const needle = options.caseSensitive ? query : query.toLowerCase();
+  const matches: SearchMatch[] = [];
+  let cursor = 0;
+
+  while (cursor < source.length) {
+    const window = findFuzzyWindow(source, needle, cursor);
+    if (!window) break;
+
+    if (!options.wholeWord || isWordBoundary(doc, window.from, window.to)) {
+      matches.push({
+        from: window.from,
+        to: window.to,
+        text: doc.slice(window.from, window.to)
+      });
+    }
+
+    cursor = Math.max(window.to, cursor + 1);
+  }
+
+  return matches;
+}
+
 function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp | null {
   const flags = options.caseSensitive ? "g" : "gi";
 
@@ -257,6 +319,10 @@ export function findSearchMatches(
 ): SearchMatch[] {
   if (!query) {
     return [];
+  }
+
+  if (options.fuzzy) {
+    return findFuzzySearchMatches(doc, query, options);
   }
 
   const pattern = buildSearchPattern(query, options);
@@ -287,6 +353,16 @@ export function replaceAllMatches(
 ): string {
   if (!query) {
     return doc;
+  }
+
+  if (options.fuzzy) {
+    const matches = findSearchMatches(doc, query, options);
+    let nextDoc = doc;
+    for (let index = matches.length - 1; index >= 0; index--) {
+      const match = matches[index];
+      nextDoc = `${nextDoc.slice(0, match.from)}${replacement}${nextDoc.slice(match.to)}`;
+    }
+    return nextDoc;
   }
 
   const pattern = buildSearchPattern(query, options);
@@ -321,6 +397,7 @@ function resolveLabels(view: EditorView, labels: Partial<SearchPluginLabels> | u
     matchCase: resolveLabel(view, labels, "matchCase", DEFAULT_LABELS.matchCase),
     regexp: resolveLabel(view, labels, "regexp", DEFAULT_LABELS.regexp),
     byWord: resolveLabel(view, labels, "byWord", DEFAULT_LABELS.byWord),
+    fuzzy: resolveLabel(view, labels, "fuzzy", DEFAULT_LABELS.fuzzy),
     replaceNext: resolveLabel(view, labels, "replaceNext", DEFAULT_LABELS.replaceNext),
     replaceAll: resolveLabel(view, labels, "replaceAll", DEFAULT_LABELS.replaceAll),
     close: resolveLabel(view, labels, "close", DEFAULT_LABELS.close)
@@ -500,6 +577,7 @@ class NexusSearchPanel implements Panel {
   private readonly caseField: HTMLInputElement;
   private readonly regexpField: HTMLInputElement;
   private readonly wholeWordField: HTMLInputElement;
+  private readonly fuzzyField: HTMLInputElement;
   private readonly labels: SearchPluginLabels;
   private readonly history: SearchHistoryController;
   private readonly replaceRow?: HTMLDivElement;
@@ -534,6 +612,17 @@ class NexusSearchPanel implements Panel {
     this.caseField = this.createCheckbox("markdown-search-case-toggle", "case", this.query.caseSensitive);
     this.regexpField = this.createCheckbox("markdown-search-regexp-toggle", "re", this.query.regexp);
     this.wholeWordField = this.createCheckbox("markdown-search-word-toggle", "word", this.query.wholeWord);
+    this.fuzzyField = this.createCheckbox("markdown-search-fuzzy-toggle", "fuzzy", false);
+    this.regexpField.addEventListener("change", () => {
+      if (!this.regexpField.checked) return;
+      this.fuzzyField.checked = false;
+      this.commit();
+    });
+    this.fuzzyField.addEventListener("change", () => {
+      if (!this.fuzzyField.checked) return;
+      this.regexpField.checked = false;
+      this.commit();
+    });
 
     this.dom = document.createElement("div");
     this.dom.className = "cm-search nexus-search-panel";
@@ -555,13 +644,13 @@ class NexusSearchPanel implements Panel {
     navigationGroup.className = "nexus-search-button-group";
     navigationGroup.append(
       createIconButton("markdown-search-prev", "prev", resolvedLabels.previous, "previous", () =>
-        this.submitSearch(() => findPrevious(view))
+        this.submitSearch(() => (this.fuzzyField.checked ? this.selectFuzzyMatch("previous") : findPrevious(view)))
       ),
       createIconButton("markdown-search-next", "next", resolvedLabels.next, "next", () =>
-        this.submitSearch(() => findNext(view))
+        this.submitSearch(() => (this.fuzzyField.checked ? this.selectFuzzyMatch("next") : findNext(view)))
       ),
       createIconButton("markdown-search-all", "select", resolvedLabels.all, "all", () =>
-        this.submitSearch(() => selectMatches(view))
+        this.submitSearch(() => (this.fuzzyField.checked ? this.selectAllFuzzyMatches() : selectMatches(view)))
       )
     );
 
@@ -570,6 +659,7 @@ class NexusSearchPanel implements Panel {
       createLabel(this.caseField, resolvedLabels.matchCase),
       createLabel(this.regexpField, resolvedLabels.regexp),
       createLabel(this.wholeWordField, resolvedLabels.byWord),
+      createLabel(this.fuzzyField, resolvedLabels.fuzzy),
       navigationGroup
     ];
     if (this.replaceToggle) {
@@ -588,14 +678,14 @@ class NexusSearchPanel implements Panel {
       replaceRow.append(
         this.replaceField,
         createIconButton("markdown-search-replace", "replace", resolvedLabels.replaceNext, "replace", () =>
-          replaceNext(view)
+          this.fuzzyField.checked ? this.replaceNextFuzzyMatch() : replaceNext(view)
         ),
         createIconButton(
           "markdown-search-replace-all",
           "replaceAll",
           resolvedLabels.replaceAll,
           "replaceAll",
-          () => replaceAll(view)
+          () => (this.fuzzyField.checked ? this.replaceAllFuzzyMatches() : replaceAll(view))
         )
       );
       this.setReplaceExpanded(false);
@@ -684,6 +774,80 @@ class NexusSearchPanel implements Panel {
     runSearchCommand();
   }
 
+  private fuzzyOptions(): SearchOptions {
+    return {
+      caseSensitive: this.caseField.checked,
+      wholeWord: this.wholeWordField.checked,
+      fuzzy: true
+    };
+  }
+
+  private getFuzzyMatches(): SearchMatch[] {
+    return findSearchMatches(this.view.state.doc.toString(), this.searchField.value, this.fuzzyOptions());
+  }
+
+  private selectFuzzyMatch(direction: "next" | "previous"): void {
+    const matches = this.getFuzzyMatches();
+    if (matches.length === 0) return;
+
+    const selection = this.view.state.selection.main;
+    const cursor =
+      direction === "next" ? Math.max(selection.anchor, selection.head) : Math.min(selection.anchor, selection.head);
+    const match =
+      direction === "next"
+        ? matches.find((candidate) => candidate.from >= cursor) ?? matches[0]
+        : [...matches].reverse().find((candidate) => candidate.to <= cursor) ?? matches[matches.length - 1];
+
+    this.selectMatch(match);
+  }
+
+  private selectAllFuzzyMatches(): void {
+    const matches = this.getFuzzyMatches();
+    if (matches.length === 0) return;
+
+    this.selectMatch(matches[0]);
+  }
+
+  private replaceNextFuzzyMatch(): void {
+    const matches = this.getFuzzyMatches();
+    if (matches.length === 0) return;
+
+    const selection = this.view.state.selection.main;
+    const from = Math.min(selection.anchor, selection.head);
+    const to = Math.max(selection.anchor, selection.head);
+    const selectedMatch = matches.find((match) => match.from === from && match.to === to);
+    const match = selectedMatch ?? matches.find((candidate) => candidate.from >= to) ?? matches[0];
+    const replacement = this.replaceField.value;
+
+    this.view.dispatch({
+      changes: { from: match.from, to: match.to, insert: replacement },
+      selection: { anchor: match.from, head: match.from + replacement.length },
+      scrollIntoView: true
+    });
+    this.view.focus();
+  }
+
+  private replaceAllFuzzyMatches(): void {
+    const doc = this.view.state.doc.toString();
+    const nextDoc = replaceAllMatches(doc, this.searchField.value, this.replaceField.value, this.fuzzyOptions());
+    if (nextDoc === doc) return;
+
+    this.view.dispatch({
+      changes: { from: 0, to: doc.length, insert: nextDoc },
+      selection: { anchor: 0 },
+      scrollIntoView: true
+    });
+    this.view.focus();
+  }
+
+  private selectMatch(match: SearchMatch): void {
+    this.view.dispatch({
+      selection: { anchor: match.from, head: match.to },
+      scrollIntoView: true
+    });
+    this.view.focus();
+  }
+
   private setReplaceExpanded(expanded: boolean, focusReplace = false): void {
     if (!this.replaceRow || !this.replaceToggle) return;
 
@@ -711,14 +875,20 @@ class NexusSearchPanel implements Panel {
 
     if (event.key === "Enter" && event.target === this.searchField) {
       event.preventDefault();
-      this.submitSearch(() => (event.shiftKey ? findPrevious : findNext)(this.view));
+      this.submitSearch(() =>
+        this.fuzzyField.checked ? this.selectFuzzyMatch(event.shiftKey ? "previous" : "next") : (event.shiftKey ? findPrevious : findNext)(this.view)
+      );
       return;
     }
 
     if (event.key === "Enter" && event.target === this.replaceField) {
       event.preventDefault();
       this.commit();
-      replaceNext(this.view);
+      if (this.fuzzyField.checked) {
+        this.replaceNextFuzzyMatch();
+      } else {
+        replaceNext(this.view);
+      }
     }
   }
 

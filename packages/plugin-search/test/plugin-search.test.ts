@@ -241,6 +241,35 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("supports fuzzy subsequence search", () => {
+    expect(findSearchMatches("Hello hillo", "hlo", { fuzzy: true })).toEqual([
+      { from: 0, to: 5, text: "Hello" },
+      { from: 6, to: 11, text: "hillo" }
+    ]);
+  });
+
+  it("supports case-sensitive fuzzy search", () => {
+    expect(findSearchMatches("Hello hello", "hlo", { fuzzy: true, caseSensitive: true })).toEqual([
+      { from: 6, to: 11, text: "hello" }
+    ]);
+  });
+
+  it("supports whole-word fuzzy search", () => {
+    expect(findSearchMatches("helloWorld hello world", "hlo", { fuzzy: true, wholeWord: true })).toEqual([
+      { from: 11, to: 16, text: "hello" }
+    ]);
+  });
+
+  it("replaces all fuzzy matches in reverse document order", () => {
+    expect(replaceAllMatches("Hello hillo", "hlo", "X", { fuzzy: true })).toBe("X X");
+  });
+
+  it("prefers fuzzy matching over regex compilation when both options are provided", () => {
+    expect(findSearchMatches("hello", "hlo", { fuzzy: true, regexp: true })).toEqual([
+      { from: 0, to: 5, text: "hello" }
+    ]);
+  });
+
   it("creates a search plugin descriptor", () => {
     const plugin = createSearchPlugin();
 
@@ -301,6 +330,7 @@ describe("@floatboat/nexus-plugin-search", () => {
       '[data-test-id="markdown-search-toggle-replace-tooltip"]'
     );
     const replaceRow = container.querySelector<HTMLDivElement>('[data-test-id="markdown-search-replace-row"]');
+    const fuzzyField = container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-fuzzy-toggle"]');
     expect(nextButton?.textContent).toBe("");
     expect(nextButton?.title).toBe("");
     expect(nextButton?.getAttribute("aria-label")).toBe("下一个");
@@ -311,6 +341,7 @@ describe("@floatboat/nexus-plugin-search", () => {
     expect(nextTooltip?.dataset.tooltip).toBe("下一个");
     expect(nextTooltip?.textContent).toBe("下一个");
     expect(container.querySelector('[data-test-id="markdown-search-find-row"]')).not.toBeNull();
+    expect(fuzzyField).not.toBeNull();
     expect(replaceToggle?.getAttribute("aria-expanded")).toBe("false");
     expect(replaceToggle?.getAttribute("aria-label")).toBe("Show replace");
     expect(replaceToggle?.getAttribute("aria-controls")).toBe(replaceRow?.id);
@@ -382,6 +413,70 @@ describe("@floatboat/nexus-plugin-search", () => {
 
     editor.destroy();
     container.remove();
+  });
+
+  it("navigates fuzzy matches from the search panel", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({
+      container,
+      initialValue: "Hello hillo",
+      plugins: [createSearchPlugin()]
+    });
+
+    const input = openSearchPanel(container);
+    const fuzzyField = container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-fuzzy-toggle"]');
+    expect(fuzzyField).not.toBeNull();
+
+    fuzzyField!.checked = true;
+    fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    submitSearch(input, "hlo");
+
+    let selection = editor.getSelection();
+    expect(Math.min(selection.anchor, selection.head)).toBe(0);
+    expect(Math.max(selection.anchor, selection.head)).toBe(5);
+
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        code: "Enter",
+        bubbles: true,
+        cancelable: true
+      })
+    );
+
+    selection = editor.getSelection();
+    expect(Math.min(selection.anchor, selection.head)).toBe(6);
+    expect(Math.max(selection.anchor, selection.head)).toBe(11);
+
+    editor.destroy();
+    container.remove();
+  });
+
+  it("keeps fuzzy and regexp search modes mutually exclusive", () => {
+    const harness = setupSearchPanel();
+    const regexpField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-regexp-toggle"]'
+    );
+    const fuzzyField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
+    );
+    expect(regexpField).not.toBeNull();
+    expect(fuzzyField).not.toBeNull();
+
+    regexpField!.checked = true;
+    regexpField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    fuzzyField!.checked = true;
+    fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    expect(regexpField!.checked).toBe(false);
+    expect(fuzzyField!.checked).toBe(true);
+
+    regexpField!.checked = true;
+    regexpField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    expect(regexpField!.checked).toBe(true);
+    expect(fuzzyField!.checked).toBe(false);
+
+    harness.destroy();
   });
 
   it("keeps existing Enter navigation when search history is disabled", () => {
