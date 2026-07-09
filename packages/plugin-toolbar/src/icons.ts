@@ -174,3 +174,9 @@ export function iconHorizontalRule(): HTMLElement {
     `<line x1="2" y1="9" x2="16" y2="9"/>`
   );
 }
+export const iconClearFormat = () => {
+  const el = document.createElement("span");
+  el.textContent = "T×";
+  el.style.fontSize = "14px";
+  return el;
+};

@@ -17,6 +17,7 @@ import {
   insertImage,
   applyTextColor,
   applyHighlight,
+  clearAllFormat,
 } from "./formatting";
 import {
   iconUndo,
@@ -38,6 +39,7 @@ import {
   iconHighlight,
   iconImage,
   iconFullscreen,
+  iconClearFormat, // 新增
 } from "./icons";
 
 export interface ToolbarButton {
@@ -177,6 +179,13 @@ function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
       buttons: [
         { id: "text-color", title: "Text color", icon: iconTextColor, action: () => {} },
         { id: "highlight", title: "Highlight", icon: iconHighlight, action: () => {} },
+        // 直接追加到同组末尾，不要新建大括号分组
+    {
+      id: "clear-format",
+      title: "Clear all text format",
+      icon: iconClearFormat, // 换成专属图标
+      action: (editor) => clearAllFormat(editor),
+    },
       ],
     },
     {

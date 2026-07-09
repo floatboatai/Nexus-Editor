@@ -208,3 +208,16 @@ export function insertHorizontalRule(editor: EditorAPI): boolean {
   editor.setSelection(anchor + hr.length);
   return true;
 }
+export function clearAllFormat(editor: EditorAPI) {
+  if (!editor) return;
+
+  // 获取全文与选中区间
+  const doc = editor.getDocument();
+  const { anchor, head } = editor.getSelection();
+  const start = Math.min(anchor, head);
+  const end = Math.max(anchor, head);
+  const selectedText = doc.slice(start, end);
+
+  // 直接替换选中内容为纯文本，剥离所有Markdown/富文本标记
+  editor.replaceRange(start, end, selectedText.replace(/[*_`#~=]/g, ""));
+}
