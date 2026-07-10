@@ -12,6 +12,7 @@ export interface EditorSettings {
   indentGuides: boolean;
   lineNumbers: boolean;
   livePreview: boolean;
+  splitPreview: boolean;
 }
 
 const STORAGE_KEY = "nexus-editor-settings";
@@ -28,6 +29,7 @@ export function defaultSettings(): EditorSettings {
     indentGuides: false,
     lineNumbers: true,
     livePreview: true,
+    splitPreview: false,
   };
 }
 
@@ -274,6 +276,7 @@ export function createSettingsPanel(settings: EditorSettings, onChange: OnChange
   body.appendChild(row("Indent guides", "Show indentation guide lines", createToggle(s.indentGuides, (v) => { s.indentGuides = v; emit(); })));
   body.appendChild(row("Content max width", "Limit line width for readability (e.g. 720px)", createTextInput(s.contentMaxWidth, "e.g. 720px", (v) => { s.contentMaxWidth = v; emit(); })));
   body.appendChild(row("Text direction", "Left-to-right or right-to-left", createSelect(["ltr", "rtl"], s.direction, (v) => { s.direction = v as "ltr" | "rtl"; emit(); })));
+  body.appendChild(row("Split preview", "Show a synced, read-only rendered preview pane", createToggle(s.splitPreview, (v) => { s.splitPreview = v; emit(); })));
 
   // -- Font section --
   body.appendChild(sectionTitle("Font"));

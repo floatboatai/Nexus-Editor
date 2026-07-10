@@ -1,4 +1,5 @@
 export { createEditor } from "./editor";
+export { renderPreviewHtml } from "./live-preview-to-html";
 export { markdownAutoPair } from "./markdown-autopair";
 export { markdownFold, markdownFoldService } from "./markdown-fold";
 export { markdownKeymap, handleMarkdownEnter } from "./markdown-keymap";
@@ -47,6 +48,7 @@ export type {
   NexusPlugin,
   ParseResult,
   ParserLike,
+  ScrollPayload,
   SelectionRangeJSON,
   SelectionState,
   SlashCommandDef,
