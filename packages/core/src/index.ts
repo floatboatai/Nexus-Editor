@@ -54,5 +54,17 @@ export type {
   SetDocumentOptions,
   TocEntry,
   WidgetDefinition,
-  WidgetRenderContext
+  WidgetLifecycleHooks,
+  WidgetRenderContext,
 } from "./types";
+export type { WidgetContext, WidgetMeasureRequest } from "./widget-context";
+export { EditorWidget } from "./widget-base";
+export type { WidgetLifecycle, WidgetLockReason } from "./widget-base";
+export {
+  isWidgetEditing,
+  acquireWidgetEditingLock,
+  releaseWidgetEditingLock,
+  widgetEditingState,
+  getWidgetEditingCount,
+} from "./widget-state";
+export type { WidgetInteractionState } from "./widget-state";

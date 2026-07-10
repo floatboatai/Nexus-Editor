@@ -6,10 +6,12 @@ import {
   StateField,
   type Transaction,
 } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
+import { Decoration, type DecorationSet, EditorView, ViewPlugin } from "@codemirror/view";
 import type { Content, Parent, Root } from "mdast";
 
 import type { ParserLike, WidgetDefinition, WidgetRenderContext } from "./types";
+import { EditorWidget } from "./widget-base";
+import type { WidgetContext } from "./widget-context";
 
 const COMPOSITION_REDECORATE_DELAY_MS = 60;
 
@@ -95,7 +97,9 @@ function collectWidgetRanges(
   return ranges.sort((a, b) => a.from - b.from);
 }
 
-class NexusWidget extends WidgetType {
+class NexusWidget extends EditorWidget {
+  private _sourceChanged = false;
+
   constructor(
     private definition: WidgetDefinition,
     private node: Content,
@@ -107,7 +111,8 @@ class NexusWidget extends WidgetType {
     super();
   }
 
-  eq(other: NexusWidget): boolean {
+  /** @override — compare by definition identity + position + source. */
+  protected eqKey(other: NexusWidget): boolean {
     return (
       other.definition === this.definition &&
       other.from === this.from &&
@@ -116,8 +121,38 @@ class NexusWidget extends WidgetType {
     );
   }
 
-  toDOM(): HTMLElement {
-    const ctx: WidgetRenderContext = {
+  /** @override */
+  protected buildDOM(): HTMLElement {
+    // Capture the widget instance so arrow functions below can access it
+    // without `this` being shadowed by the ctx object literal.
+    const widget = this;
+
+    const ctx: WidgetContext = {
+      view: widget.viewRef.current!,
+      from: widget.from,
+      to: widget.to,
+      dispatch: (changes) => {
+        const v = widget.viewRef.current;
+        if (!v) return;
+        v.dispatch({
+          changes: { from: changes.from, to: changes.to, insert: changes.insert },
+        });
+      },
+      isCursorInside: () => {
+        const v = widget.viewRef.current;
+        if (!v) return false;
+        const sel = v.state.selection.main;
+        const anchor = Math.min(sel.anchor, sel.head);
+        const head = Math.max(sel.anchor, sel.head);
+        return anchor < widget.to && widget.from < head;
+      },
+      requestMeasure<T>(req: { read(view: EditorView): T; write?(value: T, view: EditorView): void }) {
+        widget.viewRef.current?.requestMeasure(req);
+      },
+    };
+
+    // Build legacy WidgetRenderContext for backward compat
+    const legacyCtx: WidgetRenderContext = {
       from: this.from,
       to: this.to,
       setSelection: (anchor, head) => {
@@ -133,17 +168,30 @@ class NexusWidget extends WidgetType {
         this.viewRef.current?.focus();
       },
     };
-    const el = this.definition.render(this.node, this.source, ctx);
+
+    // Store ctx for lifecycle hooks
+    this.ctx = ctx;
+
+    const el = this.definition.render(this.node, this.source, legacyCtx);
     el.setAttribute("data-nexus-widget", this.definition.nodeType);
+
+    // Call lifecycle.didMount if provided
+    this.definition.lifecycle?.didMount?.(ctx);
+
     return el;
   }
 
-  destroy(dom: HTMLElement): void {
-    this.definition.destroy?.(dom);
+  /** @override */
+  didMount(ctx: WidgetContext): void {
+    // Already called in buildDOM for backward compat; noop here.
   }
 
-  ignoreEvent(): boolean {
-    return this.definition.ignoreEvents === true;
+  /** @override */
+  willDestroy(ctx: WidgetContext): void {
+    // Call new lifecycle hook first
+    this.definition.lifecycle?.willDestroy?.(ctx);
+    // Fall back to legacy destroy callback
+    this.definition.destroy?.(this.dom!);
   }
 }
 
