@@ -166,6 +166,38 @@ function pressInputArrow(input: HTMLInputElement, key: "ArrowUp" | "ArrowDown"):
   return event;
 }
 
+function setFuzzySearchEnabled(container: HTMLElement, enabled: boolean): HTMLInputElement {
+  const checkbox = container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-fuzzy-toggle"]');
+  expect(checkbox).not.toBeNull();
+  if (checkbox!.checked !== enabled) {
+    checkbox!.checked = enabled;
+    checkbox!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+  }
+  return checkbox!;
+}
+
+function setupFuzzySearchPanel(initialValue = "function call") {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const editor = createEditor({
+    container,
+    initialValue,
+    plugins: [createSearchPlugin()]
+  });
+  const input = openSearchPanel(container);
+  setFuzzySearchEnabled(container, true);
+
+  return {
+    editor,
+    container,
+    input,
+    destroy() {
+      editor.destroy();
+      container.remove();
+    }
+  };
+}
+
 describe("@floatboat/nexus-plugin-search", () => {
   it("finds all case-insensitive matches in a document", () => {
     expect(findSearchMatches("Hello hello HELLO", "hello")).toEqual([
@@ -239,6 +271,72 @@ describe("@floatboat/nexus-plugin-search", () => {
     expect(findSearchMatches("cat cats concatenate", "cat|dog", { regexp: true, wholeWord: true })).toEqual([
       { from: 0, to: 3, text: "cat" }
     ]);
+  });
+
+  it("supports fuzzy subsequence search", () => {
+    expect(findSearchMatches("function call", "fc", { fuzzy: true })).toEqual([
+      { from: 0, to: 4, text: "func" }
+    ]);
+  });
+
+  it("replaces deduplicated fuzzy matches in one pass", () => {
+    expect(replaceAllMatches("alpha beta", "ab", "X", { fuzzy: true })).toBe("Xeta");
+  });
+
+  it("navigates to the top-ranked fuzzy match from the search panel", () => {
+    const harness = setupFuzzySearchPanel("function call");
+
+    submitSearch(harness.input, "fc");
+
+    const selection = harness.editor.getSelection();
+    expect(Math.min(selection.anchor, selection.head)).toBe(0);
+    expect(harness.editor.getDocument().slice(selection.anchor, selection.head)).toBe("func");
+
+    harness.destroy();
+  });
+
+  it("mutually excludes fuzzy and regexp toggles in the search panel", () => {
+    const harness = setupSearchPanel();
+    const fuzzy = harness.container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-fuzzy-toggle"]');
+    const regexp = harness.container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-regexp-toggle"]');
+    expect(fuzzy).not.toBeNull();
+    expect(regexp).not.toBeNull();
+
+    setFuzzySearchEnabled(harness.container, true);
+    expect(fuzzy!.checked).toBe(true);
+    expect(regexp!.checked).toBe(false);
+
+    regexp!.checked = true;
+    regexp!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    expect(fuzzy!.checked).toBe(false);
+    expect(regexp!.checked).toBe(true);
+
+    harness.destroy();
+  });
+
+  it("cycles fuzzy find-next across deduplicated matches in the editor", () => {
+    const harness = setupFuzzySearchPanel("func\nfunc");
+
+    submitSearch(harness.input, "fc");
+
+    let selection = harness.editor.getSelection();
+    expect(harness.editor.getDocument().slice(selection.anchor, selection.head)).toBe("func");
+    expect(Math.min(selection.anchor, selection.head)).toBe(0);
+
+    harness.input.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        code: "Enter",
+        bubbles: true,
+        cancelable: true
+      })
+    );
+
+    selection = harness.editor.getSelection();
+    expect(harness.editor.getDocument().slice(selection.anchor, selection.head)).toBe("func");
+    expect(Math.min(selection.anchor, selection.head)).toBe(5);
+
+    harness.destroy();
   });
 
   it("creates a search plugin descriptor", () => {
