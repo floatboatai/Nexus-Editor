@@ -55,6 +55,28 @@ function createWindow(): void {
     mainWindow?.show();
   });
 
+  // Editor links open via window.open — without a handler Electron spawns a
+  // bare child BrowserWindow (no nav bar, full node-less renderer) instead of
+  // the user's browser. Route web links to the system browser and deny
+  // everything else (file:, custom schemes) from opening windows.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) {
+      void shell.openExternal(url);
+    }
+    return { action: "deny" };
+  });
+
+  // Same policy for in-place navigation (e.g. <a href> without target):
+  // reloads of the current page (vite full-reload in dev, Ctrl+R in prod)
+  // stay allowed, anything else must not navigate the editor window away.
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (url === mainWindow?.webContents.getURL()) return;
+    event.preventDefault();
+    if (/^https?:/i.test(url)) {
+      void shell.openExternal(url);
+    }
+  });
+
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {
     mainWindow.loadURL(devUrl);
