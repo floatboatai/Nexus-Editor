@@ -23,6 +23,8 @@ function isLivePreviewNode(node: Content): node is LivePreviewNode {
     node.type === "emphasis" ||
     node.type === "heading" ||
     node.type === "html" ||
+    // images come from this AST walk (never a text scan) so that image
+    // syntax inside code spans and fenced blocks stays literal
     node.type === "image" ||
     node.type === "inlineCode" ||
     node.type === "link" ||
@@ -141,11 +143,6 @@ export function collectLivePreviewRanges(
   const ranges: LivePreviewRange[] = [];
   const wikiLinkSpans = scanWikiLinks(doc).map((link) => [link.from, link.to] as [number, number]);
 
-  // Images are emitted by the AST walk like every other inline node. They must
-  // NOT come from a document-wide regex scan: only the AST knows whether
-  // `![alt](url)` sits in prose (render it) or inside a code span / fenced
-  // block (literal text), and only the parser resolves CommonMark URL edge
-  // cases such as balanced parentheses in the destination.
   visit(ast, doc, selection, ranges, wikiLinkSpans);
 
   return ranges.sort((left, right) => left.from - right.from);

@@ -313,7 +313,15 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
       // Lezer Link: contains LinkMark `[`, label content, LinkMark `]`,
       // optional `(URL "title")`. We pull URL via child name.
       const url = findChildByName(node, "URL");
-      const urlText = url ? readSlice(source, url.from, url.to) : readSlice(source, node.from, node.to).replace(/^<|>$/g, "");
+      // Autolinks ARE their URL, so the node text is the right fallback. A
+      // full Link with no URL child (reference-style `[x][ref]`, empty
+      // `[x]()`) has no inline destination — falling back to the node text
+      // would leak raw markdown into hrefs and tooltips downstream.
+      const urlText = url
+        ? readSlice(source, url.from, url.to)
+        : node.name === "Link"
+          ? ""
+          : readSlice(source, node.from, node.to).replace(/^<|>$/g, "");
       // Walk children between the first `[` and the matching `]` and
       // recursively adapt nested inline nodes (Image, StrongEmphasis,
       // Emphasis, InlineCode, etc.) so things like
@@ -361,11 +369,12 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
     case "Image": {
       const url = findChildByName(node, "URL");
       const urlText = url ? readSlice(source, url.from, url.to) : "";
-      // Title is delimited by "…", '…' or (…) per CommonMark — strip one
-      // matching pair so consumers get the bare text (e.g. for tooltips).
+      // LinkTitle spans its delimiters — lezer only emits well-formed
+      // "…", '…' or (…) pairs — so strip the outer pair to give consumers
+      // the bare text (e.g. for tooltips).
       const titleNode = findChildByName(node, "LinkTitle");
       const titleText = titleNode
-        ? readSlice(source, titleNode.from, titleNode.to).replace(/^(["'(])([\s\S]*)(["')])$/, "$2")
+        ? readSlice(source, titleNode.from, titleNode.to).replace(/^["'(]([\s\S]*)["')]$/, "$1")
         : null;
       // Image label sits between `![` and `]` — same structure as Link.
       let alt = "";

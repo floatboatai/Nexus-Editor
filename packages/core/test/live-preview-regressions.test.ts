@@ -289,6 +289,42 @@ describe("live preview regressions", () => {
     editor.destroy();
   });
 
+  // The image may sit deeper than the label's top level — `[*![a](i)*](u)`
+  // wraps it in emphasis. A direct-children-only check fell back to the
+  // marker-arithmetic path, which splits at the FIRST "](" and produced the
+  // same garbage label/URL the widget branch exists to prevent.
+  it("renders a linked image whose label nests the image inside emphasis", () => {
+    const container = document.createElement("div");
+    const doc = "Intro\n\n[*![logo](https://example.com/l.png)* extra](https://example.com)\n\nend";
+    const editor = createEditor({ container, initialValue: doc, livePreview: true });
+
+    editor.setSelection(0);
+    const linkEl = container.querySelector("[data-link-url]");
+    expect(linkEl?.getAttribute("data-link-url")).toBe("https://example.com");
+    expect(linkEl?.querySelector("[data-live-preview-image]")?.getAttribute("data-live-preview-image")).toBe(
+      "https://example.com/l.png"
+    );
+    expect(linkEl?.textContent).toContain("extra");
+    expect(container.textContent).not.toContain("![logo");
+    editor.destroy();
+  });
+
+  // Reference-style links have no inline destination. The adapter used to
+  // fall back to the whole node source, so `[![a](i)][ref]` rendered a
+  // "clickable" image whose data-link-url and hover tooltip were the raw
+  // markdown itself.
+  it("renders a reference-style linked image without a fake destination", () => {
+    const container = document.createElement("div");
+    const doc = "Intro\n\n[![logo](https://example.com/l.png)][badge]\n\n[badge]: https://example.com\n\nend";
+    const editor = createEditor({ container, initialValue: doc, livePreview: true });
+
+    editor.setSelection(0);
+    expect(container.querySelector("[data-live-preview-image]")).not.toBeNull();
+    expect(container.querySelector("[data-link-url]")).toBeNull();
+    expect(container.textContent).not.toContain("[![logo");
+    editor.destroy();
+  });
+
   // Code contexts are literal text: the document-wide image regex used to
   // inject real image widgets into fenced code blocks and inline code.
   it("keeps image syntax literal inside fenced code and inline code", () => {

@@ -1028,6 +1028,48 @@ function getInlineMarkerStyle(nodeType: string, source: string): InlineMarkerSty
   }
 }
 
+/**
+ * Whether a link label contains an image at any depth — `[![a](i)](u)` but
+ * also `[*![a](i)*](u)`, where the image sits inside emphasis/strong/delete.
+ * Depth matters: the marker-arithmetic path splits at the FIRST `](`, which
+ * lands inside the nested image regardless of how deeply it is wrapped.
+ */
+function linkLabelContainsImage(children: Link["children"]): boolean {
+  return children.some(
+    (child) =>
+      child.type === "image" ||
+      ("children" in child &&
+        Array.isArray(child.children) &&
+        linkLabelContainsImage(child.children as Link["children"]))
+  );
+}
+
+/**
+ * Render a link label's nodes into `parent`: images become widgets, wrapper
+ * nodes (emphasis/strong/delete) are flattened so a nested image still
+ * renders, and anything else falls back to its raw source text.
+ */
+function appendLinkLabel(
+  parent: HTMLElement,
+  children: Link["children"],
+  doc: string,
+  renderers: NormalizedLivePreviewConfig["renderers"]
+): void {
+  for (const child of children) {
+    const childFrom = child.position?.start.offset;
+    const childTo = child.position?.end.offset;
+    if (child.type === "image" && child.url && typeof childFrom === "number" && typeof childTo === "number") {
+      parent.appendChild(
+        renderLivePreviewNode(child, doc.slice(childFrom, childTo), renderers, childFrom, childTo)
+      );
+    } else if ("children" in child && Array.isArray(child.children)) {
+      appendLinkLabel(parent, child.children as Link["children"], doc, renderers);
+    } else if (typeof childFrom === "number" && typeof childTo === "number") {
+      parent.appendChild(document.createTextNode(doc.slice(childFrom, childTo)));
+    }
+  }
+}
+
 interface BuildContext {
   /** Optional pre-computed Lezer mdast snapshot (avoids re-parsing on cursor-only updates). */
   ast?: Root;
@@ -1144,8 +1186,7 @@ function buildDecorations(
       }
     } else if (range.node.type === "link" && !config.renderers.link) {
       const linkNode = range.node as Link;
-      const hasImageLabel = linkNode.children.some((child) => child.type === "image");
-      if (hasImageLabel) {
+      if (linkLabelContainsImage(linkNode.children)) {
         // Linked image `[![alt](img)](url)` — the label is not text, so the
         // marker-length arithmetic below (indexOf "](" ) would split inside
         // the nested image. Render the label's images as a clickable widget
@@ -1161,26 +1202,18 @@ function buildDecorations(
         const linkedImageKey = `linkimg:${range.from}-${range.to}:${cursorOnLink ? "in" : "out"}:${range.source}`;
         const buildLinkedImage = (): HTMLElement => {
           const wrapper = document.createElement("span");
-          wrapper.setAttribute("data-link-url", linkNode.url);
-          wrapper.style.cursor = "pointer";
-          for (const child of linkNode.children) {
-            const childFrom = child.position?.start.offset;
-            const childTo = child.position?.end.offset;
-            if (typeof childFrom !== "number" || typeof childTo !== "number") continue;
-            const childSource = doc.slice(childFrom, childTo);
-            if (child.type === "image" && child.url) {
-              wrapper.appendChild(
-                renderLivePreviewNode(child, childSource, config.renderers, childFrom, childTo)
-              );
-            } else {
-              wrapper.appendChild(document.createTextNode(childSource));
-            }
+          appendLinkLabel(wrapper, linkNode.children, doc, config.renderers);
+          // Reference-style labels (`[![a](i)][ref]`) have no inline
+          // destination — render the image but don't pretend to navigate.
+          if (linkNode.url) {
+            wrapper.setAttribute("data-link-url", linkNode.url);
+            wrapper.style.cursor = "pointer";
+            // The widget navigates on click, so the destination outranks any
+            // image-level tooltip a renderer set inside the label (browsers
+            // resolve hover from the innermost titled element).
+            wrapper.title = linkNode.url;
+            wrapper.querySelectorAll("img").forEach((img) => { img.title = linkNode.url; });
           }
-          // The widget navigates on click, so the destination outranks any
-          // image-level tooltip a renderer set inside the label (browsers
-          // resolve hover from the innermost titled element).
-          wrapper.title = linkNode.url;
-          wrapper.querySelectorAll("img").forEach((img) => { img.title = linkNode.url; });
           return wrapper;
         };
         // swallowEvents must stay false: CM6 skips ALL domEventHandlers —
