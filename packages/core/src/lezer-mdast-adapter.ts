@@ -361,6 +361,12 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
     case "Image": {
       const url = findChildByName(node, "URL");
       const urlText = url ? readSlice(source, url.from, url.to) : "";
+      // Title is delimited by "…", '…' or (…) per CommonMark — strip one
+      // matching pair so consumers get the bare text (e.g. for tooltips).
+      const titleNode = findChildByName(node, "LinkTitle");
+      const titleText = titleNode
+        ? readSlice(source, titleNode.from, titleNode.to).replace(/^(["'(])([\s\S]*)(["')])$/, "$2")
+        : null;
       // Image label sits between `![` and `]` — same structure as Link.
       let alt = "";
       const first = node.firstChild;
@@ -380,7 +386,7 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
         type: "image",
         url: urlText,
         alt,
-        title: null,
+        title: titleText,
         position: position(node.from, node.to),
       };
       return out;

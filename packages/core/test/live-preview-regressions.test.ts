@@ -243,4 +243,77 @@ describe("live preview regressions", () => {
     expect(container.textContent).not.toContain("![alt]");
     editor.destroy();
   });
+
+  // Linked images `[![alt](img)](url)` — e.g. README CI badges. The old
+  // regex-driven image scan emitted a replace decoration nested inside the
+  // link's replace decoration, and the link's marker arithmetic split at the
+  // FIRST `](` (inside the nested image), so the label rendered as garbage
+  // like `![logo` with a fragment URL.
+  it("renders a linked image as a clickable image widget", () => {
+    const container = document.createElement("div");
+    const doc = "Intro\n\n[![logo](https://example.com/l.png)](https://example.com)\n\nend";
+    const editor = createEditor({
+      container,
+      initialValue: doc,
+      livePreview: true
+    });
+
+    editor.setSelection(0);
+    const linkEl = container.querySelector("[data-link-url]");
+    expect(linkEl?.getAttribute("data-link-url")).toBe("https://example.com");
+    const img = linkEl?.querySelector("[data-live-preview-image]");
+    expect(img?.getAttribute("data-live-preview-image")).toBe("https://example.com/l.png");
+    // No half-parsed label text may leak through.
+    expect(container.textContent).not.toContain("![logo");
+
+    // Cursor inside the link → raw source visible for editing. The nested
+    // image's own cursor-in behavior may interleave a preview widget, so
+    // assert the raw pieces rather than one contiguous string.
+    editor.setSelection(doc.indexOf("logo"));
+    expect(container.textContent).toContain("[![logo](https://example.com/l.png)");
+    expect(container.textContent).toContain("](https://example.com)");
+
+    // Cursor back out → widget again.
+    editor.setSelection(0);
+    expect(container.querySelector("[data-link-url]")).not.toBeNull();
+    expect(container.textContent).not.toContain("![logo");
+    editor.destroy();
+  });
+
+  // Code contexts are literal text: the document-wide image regex used to
+  // inject real image widgets into fenced code blocks and inline code.
+  it("keeps image syntax literal inside fenced code and inline code", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "```\n![alt](https://example.com/a.png)\n```\n\nUse `![x](https://example.com/b.png)` inline\n\nend",
+      livePreview: true
+    });
+
+    editor.setSelection(editor.getDocument().length);
+    expect(container.querySelector("[data-live-preview-image]")).toBeNull();
+    const text = container.textContent ?? "";
+    expect(text).toContain("![alt](https://example.com/a.png)");
+    expect(text).toContain("![x](https://example.com/b.png)");
+    editor.destroy();
+  });
+
+  // CommonMark allows balanced parentheses in destinations; the old regex
+  // stopped at the first `)`, truncating the URL and leaving a stray `)`.
+  it("renders image URLs containing balanced parentheses in full", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Intro\n\n![Wiki](https://en.wikipedia.org/wiki/Foo_(bar))\n\nend",
+      livePreview: true
+    });
+
+    editor.setSelection(0);
+    const widget = container.querySelector("[data-live-preview-image]");
+    expect(widget?.getAttribute("data-live-preview-image")).toBe(
+      "https://en.wikipedia.org/wiki/Foo_(bar)"
+    );
+    expect(container.textContent).not.toContain(")");
+    editor.destroy();
+  });
 });

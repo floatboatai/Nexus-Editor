@@ -59,4 +59,61 @@ describe("live preview ranges", () => {
 
     expect(ranges.map((range) => range.node.type)).toEqual(["table", "heading"]);
   });
+
+  it("does not emit image ranges for image syntax inside code contexts", () => {
+    const doc = "```\n![alt](https://example.com/a.png)\n```\n\nUse `![x](https://example.com/b.png)` inline";
+    const ranges = collectLivePreviewRanges(
+      lezerStringToMdast(doc),
+      doc,
+      [EditorSelection.cursor(doc.length)]
+    );
+
+    expect(ranges.some((range) => range.node.type === "image")).toBe(false);
+  });
+
+  it("keeps balanced parentheses in image URLs and preserves the title", () => {
+    const doc = '![Wiki](https://en.wikipedia.org/wiki/Foo_(bar) "Disambiguation")';
+    const ranges = collectLivePreviewRanges(
+      lezerStringToMdast(doc),
+      doc,
+      [EditorSelection.cursor(0)]
+    );
+
+    const image = ranges.find((range) => range.node.type === "image");
+    expect(image).toBeDefined();
+    expect(image?.node).toMatchObject({
+      url: "https://en.wikipedia.org/wiki/Foo_(bar)",
+      title: "Disambiguation"
+    });
+    expect(image?.to).toBe(doc.length);
+  });
+
+  it("emits the link and its nested image for a linked image", () => {
+    const doc = "[![logo](https://example.com/l.png)](https://example.com)";
+    const ranges = collectLivePreviewRanges(
+      lezerStringToMdast(doc),
+      doc,
+      [EditorSelection.cursor(0)]
+    );
+
+    expect(ranges.map((range) => range.node.type)).toEqual(["link", "image"]);
+    const [link, image] = ranges;
+    expect(link.from).toBe(0);
+    expect(link.to).toBe(doc.length);
+    expect((link.node as { url: string }).url).toBe("https://example.com");
+    expect((image.node as { url: string }).url).toBe("https://example.com/l.png");
+    expect(image.from).toBeGreaterThan(link.from);
+    expect(image.to).toBeLessThan(link.to);
+  });
+
+  it("leaves reference-style images without an inline URL as raw text", () => {
+    const doc = "![alt][logo]\n\n[logo]: https://example.com/l.png";
+    const ranges = collectLivePreviewRanges(
+      lezerStringToMdast(doc),
+      doc,
+      [EditorSelection.cursor(0)]
+    );
+
+    expect(ranges.some((range) => range.node.type === "image")).toBe(false);
+  });
 });

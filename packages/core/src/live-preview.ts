@@ -1,7 +1,7 @@
 import { type EditorState, RangeSet, RangeSetBuilder, StateEffect, StateField, type Extension, type Range, type SelectionRange, type Transaction } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import { ensureSyntaxTree } from "@codemirror/language";
-import type { Code, FootnoteDefinition, FootnoteReference, Heading, Html, List, Root, Table } from "mdast";
+import type { Code, FootnoteDefinition, FootnoteReference, Heading, Html, Link, List, Root, Table } from "mdast";
 
 import type { CodeHighlightToken } from "./types";
 import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
@@ -1143,6 +1143,45 @@ function buildDecorations(
         );
       }
     } else if (range.node.type === "link" && !config.renderers.link) {
+      const linkNode = range.node as Link;
+      const hasImageLabel = linkNode.children.some((child) => child.type === "image");
+      if (hasImageLabel) {
+        // Linked image `[![alt](img)](url)` — the label is not text, so the
+        // marker-length arithmetic below (indexOf "](" ) would split inside
+        // the nested image. Render the label's images as a clickable widget
+        // instead, and claim the whole span so the child image ranges don't
+        // emit a second, overlapping replace decoration.
+        const cursorOnLink = selectionIntersects(range.from, range.to, selection, true);
+        if (cursorOnLink) continue;
+        parentSpans.push([range.from, range.to]);
+        const linkedImageKey = `linkimg:${range.from}-${range.to}:${range.source}`;
+        const buildLinkedImage = (): HTMLElement => {
+          const wrapper = document.createElement("span");
+          wrapper.setAttribute("data-link-url", linkNode.url);
+          wrapper.style.cursor = "pointer";
+          wrapper.title = linkNode.url;
+          for (const child of linkNode.children) {
+            const childFrom = child.position?.start.offset;
+            const childTo = child.position?.end.offset;
+            if (typeof childFrom !== "number" || typeof childTo !== "number") continue;
+            const childSource = doc.slice(childFrom, childTo);
+            if (child.type === "image" && child.url) {
+              wrapper.appendChild(
+                renderLivePreviewNode(child, childSource, config.renderers, childFrom, childTo)
+              );
+            } else {
+              wrapper.appendChild(document.createTextNode(childSource));
+            }
+          }
+          return wrapper;
+        };
+        decos.push(
+          Decoration.replace({
+            widget: createWidget(buildLinkedImage, true, undefined, linkedImageKey),
+          }).range(range.from, range.to)
+        );
+        continue;
+      }
       const inlineStyle = getInlineMarkerStyle("link", range.source);
       if (inlineStyle) {
         const { openLen, closeLen, style, attrs } = inlineStyle;

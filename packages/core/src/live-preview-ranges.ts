@@ -23,6 +23,7 @@ function isLivePreviewNode(node: Content): node is LivePreviewNode {
     node.type === "emphasis" ||
     node.type === "heading" ||
     node.type === "html" ||
+    node.type === "image" ||
     node.type === "inlineCode" ||
     node.type === "link" ||
     node.type === "strong" ||
@@ -67,34 +68,6 @@ export function selectionOnSameLine(
   });
 }
 
-function collectImageRanges(
-  doc: string,
-  selection: readonly SelectionRange[]
-): LivePreviewRange[] {
-  const ranges: LivePreviewRange[] = [];
-  const pattern = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g;
-
-  for (const match of doc.matchAll(pattern)) {
-    const from = match.index ?? 0;
-    const source = match[0];
-    const to = from + source.length;
-
-    ranges.push({
-      from,
-      to,
-      source,
-      node: {
-        type: "image",
-        alt: match[1] || null,
-        url: match[2],
-        title: match[3] || null
-      }
-    });
-  }
-
-  return ranges;
-}
-
 function isInsideWikiLink(from: number, to: number, wikiLinkSpans: readonly [number, number][]): boolean {
   return wikiLinkSpans.some(([wikiFrom, wikiTo]) => from >= wikiFrom && to <= wikiTo);
 }
@@ -122,6 +95,10 @@ function visit(
 
     if (typeof from === "number" && typeof to === "number" && isLivePreviewNode(child)) {
       if (shouldSkipInsideWikiLink(child, from, to, wikiLinkSpans)) continue;
+
+      // Reference-style images (![alt][label]) carry no inline URL — leave
+      // them as raw text rather than emitting a widget with an empty src.
+      if (child.type === "image" && !child.url) continue;
 
       if (child.type === "table") {
         ranges.push({ from, to, node: child, source: doc.slice(from, to) });
@@ -164,8 +141,12 @@ export function collectLivePreviewRanges(
   const ranges: LivePreviewRange[] = [];
   const wikiLinkSpans = scanWikiLinks(doc).map((link) => [link.from, link.to] as [number, number]);
 
+  // Images are emitted by the AST walk like every other inline node. They must
+  // NOT come from a document-wide regex scan: only the AST knows whether
+  // `![alt](url)` sits in prose (render it) or inside a code span / fenced
+  // block (literal text), and only the parser resolves CommonMark URL edge
+  // cases such as balanced parentheses in the destination.
   visit(ast, doc, selection, ranges, wikiLinkSpans);
-  ranges.push(...collectImageRanges(doc, selection));
 
   return ranges.sort((left, right) => left.from - right.from);
 }
