@@ -1151,10 +1151,14 @@ function buildDecorations(
         // the nested image. Render the label's images as a clickable widget
         // instead, and claim the whole span so the child image ranges don't
         // emit a second, overlapping replace decoration.
-        const cursorOnLink = selectionIntersects(range.from, range.to, selection, true);
-        if (cursorOnLink) continue;
+        //
+        // Cursor-aware like standalone images: cursor out → replace widget;
+        // cursor in → raw source stays editable AND the preview renders as a
+        // block widget right below, so pasting a badge line (cursor lands at
+        // its end) shows the result immediately.
         parentSpans.push([range.from, range.to]);
-        const linkedImageKey = `linkimg:${range.from}-${range.to}:${range.source}`;
+        const cursorOnLink = selectionIntersects(range.from, range.to, selection, true);
+        const linkedImageKey = `linkimg:${range.from}-${range.to}:${cursorOnLink ? "in" : "out"}:${range.source}`;
         const buildLinkedImage = (): HTMLElement => {
           const wrapper = document.createElement("span");
           wrapper.setAttribute("data-link-url", linkNode.url);
@@ -1175,11 +1179,21 @@ function buildDecorations(
           }
           return wrapper;
         };
-        decos.push(
-          Decoration.replace({
-            widget: createWidget(buildLinkedImage, true, undefined, linkedImageKey),
-          }).range(range.from, range.to)
-        );
+        if (!cursorOnLink) {
+          decos.push(
+            Decoration.replace({
+              widget: createWidget(buildLinkedImage, true, undefined, linkedImageKey),
+            }).range(range.from, range.to)
+          );
+        } else {
+          decos.push(
+            Decoration.widget({
+              widget: createWidget(buildLinkedImage, true, undefined, linkedImageKey),
+              block: true,
+              side: 1,
+            }).range(range.to)
+          );
+        }
         continue;
       }
       const inlineStyle = getInlineMarkerStyle("link", range.source);

@@ -266,12 +266,18 @@ describe("live preview regressions", () => {
     // No half-parsed label text may leak through.
     expect(container.textContent).not.toContain("![logo");
 
-    // Cursor inside the link → raw source visible for editing. The nested
-    // image's own cursor-in behavior may interleave a preview widget, so
-    // assert the raw pieces rather than one contiguous string.
+    // Cursor inside the link → raw source visible for editing AND the
+    // preview rendered alongside (same contract as standalone images), so
+    // pasting a badge line shows the result without moving the cursor.
     editor.setSelection(doc.indexOf("logo"));
-    expect(container.textContent).toContain("[![logo](https://example.com/l.png)");
-    expect(container.textContent).toContain("](https://example.com)");
+    expect(container.textContent).toContain("[![logo](https://example.com/l.png)](https://example.com)");
+    const editModePreview = container.querySelector("[data-link-url]");
+    expect(editModePreview?.querySelector("[data-live-preview-image]")).not.toBeNull();
+
+    // Cursor at the very end of the link (where it lands right after a
+    // paste) also counts as "on the link" — preview must still be visible.
+    editor.setSelection(doc.indexOf("\n\nend"));
+    expect(container.querySelector("[data-live-preview-image]")).not.toBeNull();
 
     // Cursor back out → widget again.
     editor.setSelection(0);
