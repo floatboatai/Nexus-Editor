@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createHistoryPlugin } from "../../plugin-history/src/index";
 import { createEditor } from "../src/index";
@@ -278,14 +278,82 @@ describe("live preview regressions", () => {
     expect(editModePreview?.querySelector("[data-live-preview-image]")).not.toBeNull();
 
     // Cursor at the very end of the link (where it lands right after a
-    // paste) also counts as "on the link" — preview must still be visible.
+    // paste) also counts as "on the link" — preview must still be visible,
+    // and exactly ONE: the child image range must not add its own preview
+    // on top of the link's (parentSpans suppression).
     editor.setSelection(doc.indexOf("\n\nend"));
-    expect(container.querySelector("[data-live-preview-image]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-live-preview-image]").length).toBe(1);
 
     // Cursor back out → widget again.
     editor.setSelection(0);
     expect(container.querySelector("[data-link-url]")).not.toBeNull();
     expect(container.textContent).not.toContain("![logo");
+    editor.destroy();
+  });
+
+  // Navigation runs through a CM6 domEventHandler, and CM6 skips ALL of
+  // those for events inside widgets whose ignoreEvent() returns true. The
+  // rendered DOM is byte-identical either way, so only a dispatched event
+  // catches a regression back to a swallowing widget.
+  it("mousedown on a linked-image widget opens the destination", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const doc = "Intro\n\n[![logo](https://example.com/l.png)](https://example.com)\n\nend";
+    const editor = createEditor({ container, initialValue: doc, livePreview: true });
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+
+    editor.setSelection(0);
+    const img = container.querySelector("[data-link-url] img");
+    expect(img).not.toBeNull();
+    img?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+    expect(open).toHaveBeenCalledWith("https://example.com", "_blank", "noopener");
+
+    open.mockRestore();
+    editor.destroy();
+    container.remove();
+  });
+
+  // data-link-url is authored document content — non-web schemes must be
+  // consumed without reaching window.open, and scheme-less GFM autolink
+  // literals must not be opened as relative paths.
+  it("filters link destinations by scheme before opening", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const doc = "Intro\n\n[run](javascript:alert(1)) and www.example.com\n\nend";
+    const editor = createEditor({ container, initialValue: doc, livePreview: true });
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+
+    editor.setSelection(0);
+    const links = Array.from(container.querySelectorAll("[data-link-url]"));
+    const jsLink = links.find((el) => el.getAttribute("data-link-url")?.startsWith("javascript:"));
+    expect(jsLink).toBeDefined();
+    jsLink?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+    expect(open).not.toHaveBeenCalled();
+
+    const wwwLink = links.find((el) => el.getAttribute("data-link-url") === "www.example.com");
+    expect(wwwLink).toBeDefined();
+    wwwLink?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+    expect(open).toHaveBeenCalledWith("https://www.example.com", "_blank", "noopener");
+
+    open.mockRestore();
+    editor.destroy();
+    container.remove();
+  });
+
+  // Labels mixing text and several images must render every image inside a
+  // single navigable widget (the untested else-branch of the label walk).
+  it("renders a mixed text-and-images label as one clickable widget", () => {
+    const container = document.createElement("div");
+    const doc =
+      "Intro\n\n[pre ![a](https://example.com/1.png) mid ![b](https://example.com/2.png)](https://example.com)\n\nend";
+    const editor = createEditor({ container, initialValue: doc, livePreview: true });
+
+    editor.setSelection(0);
+    const linkEl = container.querySelector("[data-link-url]");
+    expect(linkEl?.getAttribute("data-link-url")).toBe("https://example.com");
+    expect(linkEl?.querySelectorAll("[data-live-preview-image]").length).toBe(2);
+    expect(linkEl?.textContent).toContain("pre");
+    expect(linkEl?.textContent).toContain("mid");
     editor.destroy();
   });
 
@@ -358,7 +426,9 @@ describe("live preview regressions", () => {
     expect(widget?.getAttribute("data-live-preview-image")).toBe(
       "https://en.wikipedia.org/wiki/Foo_(bar)"
     );
-    expect(container.textContent).not.toContain(")");
+    // The truncated match used to leave the final ")" behind as stray
+    // document text on the image's line.
+    expect(widget?.closest(".cm-line")?.textContent).not.toContain(")");
     editor.destroy();
   });
 });

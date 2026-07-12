@@ -88,6 +88,31 @@ describe("live preview ranges", () => {
     expect(image?.to).toBe(doc.length);
   });
 
+  it("strips every CommonMark title delimiter form", () => {
+    const cases: Array<[string, string | null]> = [
+      ['![a](https://example.com/i.png "double")', "double"],
+      ["![a](https://example.com/i.png 'single')", "single"],
+      ["![a](https://example.com/i.png (paren))", "paren"],
+      ["![a](https://example.com/i.png)", null]
+    ];
+    for (const [doc, title] of cases) {
+      const ranges = collectLivePreviewRanges(lezerStringToMdast(doc), doc, [EditorSelection.cursor(0)]);
+      const image = ranges.find((range) => range.node.type === "image");
+      expect(image?.node).toMatchObject({ title });
+    }
+  });
+
+  it("does not emit image ranges for image syntax inside raw HTML blocks", () => {
+    const doc = "<div>\n![alt](https://example.com/a.png)\n</div>";
+    const ranges = collectLivePreviewRanges(
+      lezerStringToMdast(doc),
+      doc,
+      [EditorSelection.cursor(doc.length)]
+    );
+
+    expect(ranges.some((range) => range.node.type === "image")).toBe(false);
+  });
+
   it("emits the link and its nested image for a linked image", () => {
     const doc = "[![logo](https://example.com/l.png)](https://example.com)";
     const ranges = collectLivePreviewRanges(
@@ -96,14 +121,28 @@ describe("live preview ranges", () => {
       [EditorSelection.cursor(0)]
     );
 
+    // The child image range is intentionally still emitted — buildDecorations
+    // suppresses it via parentSpans when the link renders as one widget.
     expect(ranges.map((range) => range.node.type)).toEqual(["link", "image"]);
     const [link, image] = ranges;
     expect(link.from).toBe(0);
     expect(link.to).toBe(doc.length);
-    expect((link.node as { url: string }).url).toBe("https://example.com");
-    expect((image.node as { url: string }).url).toBe("https://example.com/l.png");
+    expect(link.node).toMatchObject({ url: "https://example.com" });
+    expect(image.node).toMatchObject({ url: "https://example.com/l.png" });
     expect(image.from).toBeGreaterThan(link.from);
     expect(image.to).toBeLessThan(link.to);
+  });
+
+  it("emits an empty url for reference-style links instead of raw source", () => {
+    const doc = "[![logo](https://example.com/l.png)][badge]\n\n[badge]: https://example.com";
+    const ranges = collectLivePreviewRanges(
+      lezerStringToMdast(doc),
+      doc,
+      [EditorSelection.cursor(0)]
+    );
+
+    const link = ranges.find((range) => range.node.type === "link");
+    expect(link?.node).toMatchObject({ url: "" });
   });
 
   it("leaves reference-style images without an inline URL as raw text", () => {
