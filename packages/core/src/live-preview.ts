@@ -1163,7 +1163,6 @@ function buildDecorations(
           const wrapper = document.createElement("span");
           wrapper.setAttribute("data-link-url", linkNode.url);
           wrapper.style.cursor = "pointer";
-          wrapper.title = linkNode.url;
           for (const child of linkNode.children) {
             const childFrom = child.position?.start.offset;
             const childTo = child.position?.end.offset;
@@ -1177,18 +1176,28 @@ function buildDecorations(
               wrapper.appendChild(document.createTextNode(childSource));
             }
           }
+          // The widget navigates on click, so the destination outranks any
+          // image-level tooltip a renderer set inside the label (browsers
+          // resolve hover from the innermost titled element).
+          wrapper.title = linkNode.url;
+          wrapper.querySelectorAll("img").forEach((img) => { img.title = linkNode.url; });
           return wrapper;
         };
+        // swallowEvents must stay false: CM6 skips ALL domEventHandlers —
+        // including the [data-link-url] navigation handler — for events
+        // inside widgets whose ignoreEvent() returns true. Interactive
+        // chrome inside custom image renderers protects itself by stopping
+        // propagation (same contract as the code-copy button).
         if (!cursorOnLink) {
           decos.push(
             Decoration.replace({
-              widget: createWidget(buildLinkedImage, true, undefined, linkedImageKey),
+              widget: createWidget(buildLinkedImage, false, undefined, linkedImageKey),
             }).range(range.from, range.to)
           );
         } else {
           decos.push(
             Decoration.widget({
-              widget: createWidget(buildLinkedImage, true, undefined, linkedImageKey),
+              widget: createWidget(buildLinkedImage, false, undefined, linkedImageKey),
               block: true,
               side: 1,
             }).range(range.to)

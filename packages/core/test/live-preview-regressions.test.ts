@@ -263,6 +263,9 @@ describe("live preview regressions", () => {
     expect(linkEl?.getAttribute("data-link-url")).toBe("https://example.com");
     const img = linkEl?.querySelector("[data-live-preview-image]");
     expect(img?.getAttribute("data-live-preview-image")).toBe("https://example.com/l.png");
+    // Hovering must reveal the destination, including on the <img> itself.
+    expect(linkEl?.getAttribute("title")).toBe("https://example.com");
+    expect(linkEl?.querySelector("img")?.title).toBe("https://example.com");
     // No half-parsed label text may leak through.
     expect(container.textContent).not.toContain("![logo");
 
