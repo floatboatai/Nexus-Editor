@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from "electron";
+
+import { externalTarget, isSamePageReload } from "./link-policy";
 import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promises";
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
@@ -57,24 +59,21 @@ function createWindow(): void {
 
   // Editor links open via window.open — without a handler Electron spawns a
   // bare child BrowserWindow (no nav bar, full node-less renderer) instead of
-  // the user's browser. Route web links to the system browser and deny
+  // the user's browser. Route web/mail links to the system browser and deny
   // everything else (file:, custom schemes) from opening windows.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/i.test(url)) {
-      void shell.openExternal(url);
-    }
+    const target = externalTarget(url);
+    if (target) void shell.openExternal(target);
     return { action: "deny" };
   });
 
-  // Same policy for in-place navigation (e.g. <a href> without target):
-  // reloads of the current page (vite full-reload in dev, Ctrl+R in prod)
-  // stay allowed, anything else must not navigate the editor window away.
+  // Same policy for in-place navigation (e.g. <a href> without target),
+  // so stray links cannot replace the editor page.
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (url === mainWindow?.webContents.getURL()) return;
+    if (isSamePageReload(url, mainWindow?.webContents.getURL() ?? "")) return;
     event.preventDefault();
-    if (/^https?:/i.test(url)) {
-      void shell.openExternal(url);
-    }
+    const target = externalTarget(url);
+    if (target) void shell.openExternal(target);
   });
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;
