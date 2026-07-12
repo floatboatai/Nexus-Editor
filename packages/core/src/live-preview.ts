@@ -1558,8 +1558,16 @@ export function createLivePreviewExtension(
         return true;
       }
 
-      // External links: open in new tab
-      window.open(url, "_blank", "noopener");
+      // External links: open in new tab. data-link-url is authored document
+      // content, so only web and mail schemes may reach window.open —
+      // javascript:/file:/custom schemes are consumed without navigating.
+      // GFM autolink literals (www.example.com) carry no scheme; give them
+      // one instead of letting window.open treat them as relative paths.
+      if (/^(https?:|mailto:)/i.test(url)) {
+        window.open(url, "_blank", "noopener");
+      } else if (/^www\./i.test(url)) {
+        window.open(`https://${url}`, "_blank", "noopener");
+      }
       return true;
     }
   });
