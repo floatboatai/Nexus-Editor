@@ -1,12 +1,26 @@
-import { EditorView, WidgetType, runScopeHandlers } from "@codemirror/view";
+import { EditorView, runScopeHandlers } from "@codemirror/view";
 import type { Table } from "mdast";
 
 import type { LivePreviewLabels } from "./types";
+import { EditorWidget } from "./widget-base";
+import { acquireWidgetEditingLock, isWidgetEditing, releaseWidgetEditingLock } from "./widget-state";
 
-let tableEditingCount = 0;
+// ── Backward-compatible re-exports (delegate to shared widget-state) ──
 
+/** @deprecated Use {@link isWidgetEditing} from `./widget-state` instead. */
 export function isTableEditing(): boolean {
-  return tableEditingCount > 0;
+  return isWidgetEditing();
+}
+
+// Internal helpers for the table widget's lock management.
+// These call directly into the widget-state module counter rather than
+// going through EditorWidget.acquireLock/releaseLock because the table
+// widget hasn't been migrated to EditorWidget yet (Phase 2).
+function acquireTableEditingLock(): void {
+  acquireWidgetEditingLock();
+}
+function releaseTableEditingLock(): void {
+  releaseWidgetEditingLock();
 }
 
 // 表格方向键导航的调试日志，仅在显式开启 floatboat:markdown-debug 标记后输出。
@@ -301,8 +315,7 @@ const SELECT_BORDER = "var(--nexus-accent)";
 const DRAG_HIGHLIGHT_BG = "rgba(124, 108, 250, 0.08)";
 const TEXT_SELECTION_DRAG_THRESHOLD_PX = 3;
 
-export class EditableTableWidget extends WidgetType {
-  private editing = false;
+export class EditableTableWidget extends EditorWidget {
   private cleanupEditingLocks: (() => void) | null = null;
 
   constructor(
@@ -313,16 +326,17 @@ export class EditableTableWidget extends WidgetType {
     private labels: Required<LivePreviewLabels>
   ) { super(); }
 
-  eq(other: EditableTableWidget): boolean {
-    if (this.editing) return true;
+  /** @override — compare by source text when idle. */
+  protected eqKey(other: EditableTableWidget): boolean {
     return this.source === other.source;
   }
 
   ignoreEvent(): boolean { return true; }
 
-  destroy(): void {
+  destroy(dom: HTMLElement): void {
     this.cleanupEditingLocks?.();
     this.cleanupEditingLocks = null;
+    super.destroy(dom);
   }
 
   get estimatedHeight(): number {
@@ -395,7 +409,13 @@ export class EditableTableWidget extends WidgetType {
     this.dispatch(lines.join("\n"));
   }
 
-  toDOM(): HTMLElement {
+  protected buildDOM(): HTMLElement {
+    // Not used — toDOM() is fully custom. The base class requires this
+    // to be implemented; it's never called because toDOM() is overridden.
+    throw new Error("EditableTableWidget uses toDOM() directly, not buildDOM()");
+  }
+
+  toDOM(view: EditorView): HTMLElement {
     const self = this;
     const rows = this.node.children ?? [];
     // Normalise irregular markdown tables: if some rows have more cells than
@@ -428,28 +448,16 @@ export class EditableTableWidget extends WidgetType {
     let draggingRow = -1;   // which row is being dragged
     let dropTargetCol = -1;
     let dropTargetRow = -1;
-    const editingLocks = {
-      focus: false,
-      range: false,
-      drag: false,
-    };
+    // ── Editing lock helpers (delegate to EditorWidget base class) ──
+    // Lock reasons: "focus" (cell contentEditable), "range" (multi-cell selection),
+    // "drag" (column/row reorder and column resize).
 
-    function hasEditingLocks(): boolean {
-      return editingLocks.focus || editingLocks.range || editingLocks.drag;
+    function acquireEditingLock(lock: string): void {
+      self.acquireLock(lock);
     }
 
-    function acquireEditingLock(lock: keyof typeof editingLocks): void {
-      if (editingLocks[lock]) return;
-      editingLocks[lock] = true;
-      self.editing = true;
-      tableEditingCount++;
-    }
-
-    function releaseEditingLock(lock: keyof typeof editingLocks): void {
-      if (!editingLocks[lock]) return;
-      editingLocks[lock] = false;
-      tableEditingCount = Math.max(0, tableEditingCount - 1);
-      self.editing = hasEditingLocks();
+    function releaseEditingLock(lock: string): void {
+      self.releaseLock(lock);
     }
 
     this.cleanupEditingLocks = () => {
@@ -581,7 +589,7 @@ export class EditableTableWidget extends WidgetType {
     const checkSelection = (): void => {
       if (!wrapper.isConnected) return;
       const v = self.viewRef.current;
-      if (v && !self.editing) {
+      if (v && !self.isActive()) {
         // Multi-cursor: any range fully covering the table counts as
         // "table selected"; the cell-range only clears when every cursor
         // has left the table span.

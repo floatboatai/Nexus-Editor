@@ -11,6 +11,7 @@ import { createLivePreviewDiagnostics } from "./live-preview-diag";
 import { collectLivePreviewRanges, selectionIntersects, selectionOnSameLine } from "./live-preview-ranges";
 import { renderLivePreviewNode } from "./live-preview-renderers";
 import { EditableTableWidget, isTableEditing } from "./live-preview-table";
+import { isWidgetEditing } from "./widget-state";
 import type {
   LivePreviewConfig,
   LivePreviewLabels,
@@ -1348,7 +1349,7 @@ export function createLivePreviewExtension(
       return build(state, state.selection.ranges, false);
     },
     update(decos: DecorationSet, tr: Transaction) {
-      if (isTableEditing()) {
+      if (isWidgetEditing()) {
         return tr.docChanged ? decos.map(tr.changes) : decos;
       }
       if (tr.effects.some((effect) => effect.is(rebuildForCompositionStart))) {

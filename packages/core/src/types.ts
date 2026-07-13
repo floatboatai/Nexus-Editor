@@ -319,11 +319,45 @@ export interface WidgetRenderContext {
   focus: () => void;
 }
 
+/**
+ * Lifecycle hooks that plugin widgets can implement. Called by the
+ * standardized {@link EditorWidget} infrastructure.
+ */
+export interface WidgetLifecycleHooks {
+  /** Called once after the widget's DOM is created and attached. */
+  didMount?(ctx: import("./widget-context").WidgetContext): void;
+  /** Called before the widget's DOM is about to be recreated. */
+  willUpdate?(ctx: import("./widget-context").WidgetContext): void;
+  /** Called after the widget's DOM was recreated due to a source change. */
+  didUpdate?(ctx: import("./widget-context").WidgetContext): void;
+  /** Called before the widget is destroyed. Replace for the legacy `destroy` callback. */
+  willDestroy?(ctx: import("./widget-context").WidgetContext): void;
+  /** Called when the CM6 cursor enters this widget's document range. */
+  activate?(ctx: import("./widget-context").WidgetContext): void;
+  /** Called when the CM6 cursor leaves this widget's document range. */
+  deactivate?(ctx: import("./widget-context").WidgetContext): void;
+}
+
 export interface WidgetDefinition {
   nodeType: string;
   match?: (node: any) => boolean;
   render: (node: any, source: string, ctx?: WidgetRenderContext) => HTMLElement;
+  /**
+   * Optional lifecycle hooks. When provided, these are preferred over the
+   * legacy {@link destroy} callback.
+   */
+  lifecycle?: WidgetLifecycleHooks;
+  /**
+   * @deprecated Use {@link WidgetLifecycleHooks.willDestroy} instead.
+   * Called when the widget DOM is removed. Still supported for backward
+   * compatibility; will be removed in a future major version.
+   */
   destroy?: (element: HTMLElement) => void;
+  /**
+   * Optional unique identifier for this widget definition. Used for
+   * debugging and interaction-state tracking.
+   */
+  id?: string;
   /**
    * Whether the widget replaces a block-level range (occupies its own line)
    * or an inline range (sits inside surrounding text). Defaults to `true`

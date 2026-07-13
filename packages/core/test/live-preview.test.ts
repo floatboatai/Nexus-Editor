@@ -866,6 +866,296 @@ describe("live preview", () => {
     container.remove();
   });
 
+  it("copies selected column text to clipboard when column grip is clicked then Ctrl+C", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B | C |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n| 4 | 5 | 6 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    // Click the column grip for the second column (index 1) to select it
+    const colGrips = container.querySelectorAll<HTMLElement>(".nexus-col-grip");
+    expect(colGrips.length).toBeGreaterThanOrEqual(2);
+    colGrips[1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    // Now Ctrl+C should copy the entire column
+    const copied: Record<string, string> = {};
+    const copyEvent = new Event("copy", { bubbles: true, cancelable: true });
+    Object.defineProperty(copyEvent, "clipboardData", {
+      configurable: true,
+      value: {
+        setData: (type: string, value: string) => {
+          copied[type] = value;
+        },
+      },
+    });
+    container.querySelector<HTMLElement>(".nexus-table-wrapper")?.dispatchEvent(copyEvent);
+
+    expect(copyEvent.defaultPrevented).toBe(true);
+    // Column copy: all rows, single column, tab-separated (but single col = just the values per line)
+    expect(copied["text/plain"]).toBe("B\n2\n5");
+    editor.destroy();
+    container.remove();
+  });
+
+  it("copies selected row text to clipboard when row grip is clicked then Ctrl+C", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    // Click the row grip for the first data row.
+    // rowGrips[0] is the header <th> (no click handler), rowGrips[1] is the first data row <td>.
+    const rowGrips = container.querySelectorAll<HTMLElement>(".nexus-row-grip");
+    expect(rowGrips.length).toBeGreaterThanOrEqual(2);
+    rowGrips[1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    const copied: Record<string, string> = {};
+    const copyEvent = new Event("copy", { bubbles: true, cancelable: true });
+    Object.defineProperty(copyEvent, "clipboardData", {
+      configurable: true,
+      value: {
+        setData: (type: string, value: string) => {
+          copied[type] = value;
+        },
+      },
+    });
+    container.querySelector<HTMLElement>(".nexus-table-wrapper")?.dispatchEvent(copyEvent);
+
+    expect(copyEvent.defaultPrevented).toBe(true);
+    expect(copied["text/plain"]).toBe("1\t2");
+    editor.destroy();
+    container.remove();
+  });
+
+  it("does not intercept copy event when no range, column, or row is selected", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    // No selection active — copy should fall through to browser default
+    const copyEvent = new Event("copy", { bubbles: true, cancelable: true });
+    container.querySelector<HTMLElement>(".nexus-table-wrapper")?.dispatchEvent(copyEvent);
+
+    expect(copyEvent.defaultPrevented).toBe(false);
+    editor.destroy();
+    container.remove();
+  });
+
+  it("serializes multi-row multi-column range with tabs and newlines", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B | C |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n| 4 | 5 | 6 |\n| 7 | 8 | 9 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const dataRows = Array.from(container.querySelectorAll<HTMLElement>("tr")).filter(
+      (row) => row.querySelector(".nexus-cell")
+    );
+    const cells = dataRows.flatMap((row) => Array.from(row.querySelectorAll<HTMLElement>(".nexus-cell")));
+    // cells layout: [A,B,C, 1,2,3, 4,5,6, 7,8,9]
+    const firstCell = cells[1]; // B (header, col 1)
+    const lastCell = cells[7];  // 5 (row 2 data, col 1)
+
+    firstCell.getBoundingClientRect = () => ({
+      x: 50, y: 0, left: 50, top: 0, right: 100, bottom: 30, width: 50, height: 30, toJSON: () => ({})
+    });
+    lastCell.getBoundingClientRect = () => ({
+      x: 100, y: 30, left: 100, top: 30, right: 150, bottom: 60, width: 50, height: 30, toJSON: () => ({})
+    });
+
+    firstCell.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true, cancelable: true, button: 0, clientX: 75, clientY: 15
+    }));
+    document.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true, button: 0, clientX: 125, clientY: 45
+    }));
+    document.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true, button: 0, clientX: 125, clientY: 45
+    }));
+
+    const copied: Record<string, string> = {};
+    const copyEvent = new Event("copy", { bubbles: true, cancelable: true });
+    Object.defineProperty(copyEvent, "clipboardData", {
+      configurable: true,
+      value: {
+        setData: (type: string, value: string) => {
+          copied[type] = value;
+        },
+      },
+    });
+    container.querySelector<HTMLElement>(".nexus-table-wrapper")?.dispatchEvent(copyEvent);
+
+    expect(copyEvent.defaultPrevented).toBe(true);
+    // Range: rows 0-2 (header + 2 data rows), cols 1-1 (single col B)
+    // But header cells are also included in the range
+    // Rows: header (A,B,C), row2 (1,2,3), row3 (4,5,6) → cols 1 only
+    expect(copied["text/plain"]).toBe("B\n2\n5");
+    editor.destroy();
+    container.remove();
+  });
+
+  it("allows native text selection inside table cell with inline formatting (bold/link)", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| **bold text** here | [link](https://x.com) extra |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const cells = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell");
+    const boldCell = cells?.[0];
+    const linkCell = cells?.[1];
+    expect(boldCell).not.toBeUndefined();
+    expect(linkCell).not.toBeUndefined();
+
+    // Bold cell: native text selection should work without entering edit mode
+    boldCell!.getBoundingClientRect = () => ({
+      x: 0, y: 0, left: 0, top: 0, right: 160, bottom: 30, width: 160, height: 30, toJSON: () => ({})
+    });
+
+    const strongEl = boldCell!.querySelector("strong");
+    expect(strongEl).not.toBeNull();
+    const boldTextNode = strongEl!.firstChild;
+    expect(boldTextNode?.textContent).toBe("bold text");
+
+    boldCell!.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true, cancelable: true, button: 0, clientX: 12, clientY: 15
+    }));
+    document.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true, cancelable: true, button: 0, clientX: 72, clientY: 15
+    }));
+
+    const range = document.createRange();
+    range.setStart(boldTextNode!, 0);
+    range.setEnd(boldTextNode!, 4);
+    document.getSelection()?.removeAllRanges();
+    document.getSelection()?.addRange(range);
+
+    document.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true, button: 0, clientX: 72, clientY: 15
+    }));
+
+    expect(boldCell?.contentEditable).not.toBe("true");
+    expect(document.getSelection()?.toString()).toBe("bold");
+    document.getSelection()?.removeAllRanges();
+
+    // Link cell: native text selection should also work
+    linkCell!.getBoundingClientRect = () => ({
+      x: 160, y: 0, left: 160, top: 0, right: 320, bottom: 30, width: 160, height: 30, toJSON: () => ({})
+    });
+
+    const linkAnchor = linkCell!.querySelector("a");
+    expect(linkAnchor).not.toBeNull();
+    const linkTextNode = linkAnchor!.firstChild;
+    expect(linkTextNode?.textContent).toBe("link");
+
+    linkCell!.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true, cancelable: true, button: 0, clientX: 172, clientY: 15
+    }));
+    document.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true, cancelable: true, button: 0, clientX: 220, clientY: 15
+    }));
+
+    const range2 = document.createRange();
+    range2.setStart(linkTextNode!, 0);
+    range2.setEnd(linkTextNode!, 4);
+    document.getSelection()?.removeAllRanges();
+    document.getSelection()?.addRange(range2);
+
+    document.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true, button: 0, clientX: 220, clientY: 15
+    }));
+
+    expect(linkCell?.contentEditable).not.toBe("true");
+    expect(document.getSelection()?.toString()).toBe("link");
+    document.getSelection()?.removeAllRanges();
+    editor.destroy();
+    container.remove();
+  });
+
+  it("clears native text selection and switches to range selection when drag crosses cell boundary", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| Alpha Beta Gamma | 2 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const cells = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell");
+    const firstCell = cells?.[0];
+    const secondCell = cells?.[1];
+    expect(firstCell).not.toBeUndefined();
+    expect(secondCell).not.toBeUndefined();
+
+    firstCell!.getBoundingClientRect = () => ({
+      x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 30, width: 100, height: 30, toJSON: () => ({})
+    });
+    secondCell!.getBoundingClientRect = () => ({
+      x: 100, y: 0, left: 100, top: 0, right: 160, bottom: 30, width: 60, height: 30, toJSON: () => ({})
+    });
+
+    // Start dragging within the first cell
+    firstCell!.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true, cancelable: true, button: 0, clientX: 25, clientY: 15
+    }));
+    // First move within the same cell — still text selection territory
+    document.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true, cancelable: true, button: 0, clientX: 75, clientY: 15
+    }));
+
+    // Now move to the second cell — this should switch to range selection
+    document.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true, cancelable: true, button: 0, clientX: 130, clientY: 15
+    }));
+    document.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true, button: 0, clientX: 130, clientY: 15
+    }));
+
+    // Both cells should be in range selection (not edit mode)
+    expect(firstCell?.contentEditable).not.toBe("true");
+    expect(secondCell?.contentEditable).not.toBe("true");
+    expect(firstCell?.style.background).toContain("124, 108, 250");
+    expect(secondCell?.style.background).toContain("124, 108, 250");
+
+    // Copy should work on the range
+    const copied: Record<string, string> = {};
+    const copyEvent = new Event("copy", { bubbles: true, cancelable: true });
+    Object.defineProperty(copyEvent, "clipboardData", {
+      configurable: true,
+      value: {
+        setData: (type: string, value: string) => {
+          copied[type] = value;
+        },
+      },
+    });
+    container.querySelector<HTMLElement>(".nexus-table-wrapper")?.dispatchEvent(copyEvent);
+
+    expect(copyEvent.defaultPrevented).toBe(true);
+    expect(copied["text/plain"]).toBe("Alpha Beta Gamma\t2");
+    editor.destroy();
+    container.remove();
+  });
+
   it("renders inline markdown links inside table cells as <a> elements", () => {
     const container = document.createElement("div");
     const editor = createEditor({
