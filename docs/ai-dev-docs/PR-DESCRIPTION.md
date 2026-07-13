@@ -90,6 +90,25 @@ M  docs/ROADMAP.zh.md                          (1 line: planned → in-progress)
 
 对 1000 行、每行平均 80 字符的文档、单字符 query，per-line DP 跑 1000 次约 10ms（Node 22）。对长行（> 500 字符）会变慢；生产环境建议配合 `minScoreRatio` 提前过滤或加防抖。性能基准将在后续单独提案中提供（`add-missing-features` 4.2 已规划）。
 
+## Manual verification
+
+本 PR 不改 UI（`createSearchPlugin` 未触及，search panel 行为不变），按 CONTRIBUTING §4 不需要在 electron-demo 手动跑。验证方式：
+
+1. **单元测试**：30 个新测试覆盖 fuzzy 算法、集成点、向后兼容、边界
+2. **端到端冒烟**（在构建产物上跑）：
+
+```bash
+$ node -e "
+const { findSearchMatches, replaceAllMatches } = require('./packages/plugin-search/dist/index.js');
+console.log(findSearchMatches('hello world', 'hw', { fuzzy: true }));
+console.log(replaceAllMatches('hello world', 'hw', 'FOO', { fuzzy: true }));
+"
+# → [ { from: 0, to: 7, text: 'hello w' } ]
+# → FOOorld
+```
+
+如果 maintainer 想要在 search panel UI 里加 fuzzy 开关（这是合理的 follow-up），需要单独 PR + UI 改动走 `add-missing-features` 之外的提案流程。
+
 ## Notes
 
 - 不引入新运行时依赖
