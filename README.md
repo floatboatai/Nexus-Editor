@@ -137,6 +137,25 @@ const editor = createEditor({
 ```
 </details>
 
+<details>
+<summary><b>Web Component</b> — any framework, or none</summary>
+
+```html
+<script type="module">
+  import { defineNexusEditor } from "@floatboat/nexus-wc";
+
+  defineNexusEditor(); // registers <nexus-editor>, no import side effects
+
+  const el = document.querySelector("nexus-editor");
+  el.addEventListener("nexus-change", (e) => console.log(e.detail.markdown));
+</script>
+
+<nexus-editor value="# Hello" live-preview></nexus-editor>
+```
+
+Attributes cover scalar config (`value`, `readonly`, `tab-size`, …); rich config (`plugins`, `theme`, …) is set as properties. See [`packages/wc`](./packages/wc/README.md).
+</details>
+
 ### 3. New here? Read this first
 
 > **🐣 Things we wish someone had told us when we started**
@@ -165,13 +184,14 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 ## 📦 Packages
 
 <details>
-<summary><b>Full package list (11 packages)</b> — click to expand</summary>
+<summary><b>Full package list (12 packages)</b> — click to expand</summary>
 
 | Package | Description |
 |---|---|
 | `@floatboat/nexus-core` | Editor engine — CM6 state, AST pipeline, live preview, events, widget API |
 | `@floatboat/nexus-react` | React binding — `useEditor` hook and `<Editor />` component |
 | `@floatboat/nexus-vue` | Vue 3 binding — `useEditor` composable |
+| `@floatboat/nexus-wc` | Web Component — `<nexus-editor>` custom element for framework-free hosts |
 | `@floatboat/nexus-preset-gfm` | GitHub Flavored Markdown preset (tables, strikethrough, task lists) |
 | `@floatboat/nexus-plugin-history` | Undo/redo with `Ctrl+Z` / `Ctrl+Shift+Z` |
 | `@floatboat/nexus-plugin-search` | Search and replace helpers |

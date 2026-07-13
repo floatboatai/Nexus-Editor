@@ -137,6 +137,25 @@ const editor = createEditor({
 ```
 </details>
 
+<details>
+<summary><b>Web Component</b> —— 任意框架，或不用框架</summary>
+
+```html
+<script type="module">
+  import { defineNexusEditor } from "@floatboat/nexus-wc";
+
+  defineNexusEditor(); // 注册 <nexus-editor>，import 本身无副作用
+
+  const el = document.querySelector("nexus-editor");
+  el.addEventListener("nexus-change", (e) => console.log(e.detail.markdown));
+</script>
+
+<nexus-editor value="# 你好" live-preview></nexus-editor>
+```
+
+标量配置走 attribute（`value`、`readonly`、`tab-size` 等）；对象配置（`plugins`、`theme` 等）走 property。详见 [`packages/wc`](./packages/wc/README.md)。
+</details>
+
 ### 3. 新手必读
 
 > **🐣 我们当初要是有人告诉就好了的几件事**
@@ -165,13 +184,14 @@ pnpm dev:electron-demo
 ## 📦 包列表
 
 <details>
-<summary><b>完整包列表（11 个包）</b> —— 点击展开</summary>
+<summary><b>完整包列表（12 个包）</b> —— 点击展开</summary>
 
 | 包名 | 说明 |
 |---|---|
 | `@floatboat/nexus-core` | 编辑器引擎 —— CM6 状态机、AST 管道、实时预览、事件系统、Widget API |
 | `@floatboat/nexus-react` | React 绑定 —— `useEditor` Hook 与 `<Editor />` 组件 |
 | `@floatboat/nexus-vue` | Vue 3 绑定 —— `useEditor` 组合式函数 |
+| `@floatboat/nexus-wc` | Web Component —— 面向无框架宿主的 `<nexus-editor>` 自定义元素 |
 | `@floatboat/nexus-preset-gfm` | GitHub Flavored Markdown 预设（表格、删除线、任务列表） |
 | `@floatboat/nexus-plugin-history` | 撤销/重做，支持 `Ctrl+Z` / `Ctrl+Shift+Z` |
 | `@floatboat/nexus-plugin-search` | 搜索替换辅助函数 |

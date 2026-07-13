@@ -15,7 +15,7 @@
 | `packages/core` | 核心编辑器（CodeMirror 6 内核、live-preview、AST） |
 | `packages/preset-gfm` | GFM 默认预设 |
 | `packages/plugin-*` | 各功能插件（history / search / slash / toolbar / math / vim / wordcount） |
-| `packages/react`、`packages/vue` | 框架 SDK |
+| `packages/react`、`packages/vue`、`packages/wc` | 框架 SDK（React / Vue / Web Component） |
 | `apps/electron-demo` | 桌面端 demo / 集成测试场 |
 | `openspec/` | 规格驱动（proposal / specs / archive） |
 | `docs/ROADMAP.md` | 当前 roadmap 与 owner 分布 |
@@ -46,6 +46,7 @@
   | `core` | `packages/core` |
   | `react` | `packages/react` |
   | `vue` | `packages/vue` |
+  | `wc` | `packages/wc` |
   | `gfm` | `packages/preset-gfm` |
   | `history` / `search` / `slash` / `toolbar` / `math` / `vim` / `wordcount` | 对应 `plugin-*` |
   | `electron` | `apps/electron-demo` |

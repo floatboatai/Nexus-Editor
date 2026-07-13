@@ -254,6 +254,12 @@ importers:
         specifier: ^3.5.22
         version: 3.5.32(typescript@5.9.3)
 
+  packages/wc:
+    dependencies:
+      '@floatboat/nexus-core':
+        specifier: workspace:*
+        version: link:../core
+
 packages:
 
   7zip-bin@5.2.0:
