@@ -888,3 +888,68 @@ describe("@floatboat/nexus-plugin-search", () => {
     container.remove();
   });
 });
+
+describe("findSearchMatches with fuzzy option", () => {
+  it("matches subsequences when fuzzy is enabled", () => {
+    // "h"(0) "e"(1) "l"(2) "l"(3) "o"(4) " "(5) "w"(6) "o"(7) "r"(8) "l"(9) "d"(10)
+    // "hw" matches positions [0, 6] → slice(0, 7) = "hello w".
+    const matches = findSearchMatches("hello world", "hw", { fuzzy: true });
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.text).toBe("hello w");
+    expect(matches[0]?.from).toBe(0);
+    expect(matches[0]?.to).toBe(7);
+  });
+
+  it("is case-insensitive by default in fuzzy mode", () => {
+    const matches = findSearchMatches("Hello World", "hw", { fuzzy: true });
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.text.toLowerCase()).toBe("hello w");
+  });
+
+  it("respects caseSensitive=true in fuzzy mode", () => {
+    const matches = findSearchMatches("Hello World", "HW", { fuzzy: true, caseSensitive: true });
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.text).toBe("Hello W");
+  });
+
+  it("returns matches in document order across multiple lines", () => {
+    const doc = "alpha\nbeta\ngamma";
+    const matches = findSearchMatches(doc, "al", { fuzzy: true });
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.text).toBe("al");
+  });
+
+  it("returns no matches for an empty query", () => {
+    expect(findSearchMatches("hello", "", { fuzzy: true })).toEqual([]);
+  });
+
+  it("falls back to regex when fuzzy is not enabled", () => {
+    // Regex (default) requires consecutive characters.
+    const matches = findSearchMatches("hello world", "hw");
+    expect(matches).toEqual([]);
+  });
+
+  it("forwards minScoreRatio to the fuzzy scorer", () => {
+    const matches = findSearchMatches("a very long line with no chance to match well here", "hw", {
+      fuzzy: true,
+      minScoreRatio: 1
+    });
+    expect(matches).toEqual([]);
+  });
+});
+
+describe("replaceAllMatches with fuzzy option", () => {
+  it("replaces every fuzzy match", () => {
+    const out = replaceAllMatches("hello world", "hw", "FOO", { fuzzy: true });
+    expect(out).toBe("FOOorld");
+  });
+
+  it("is a no-op when the query is empty", () => {
+    expect(replaceAllMatches("hello", "", "X", { fuzzy: true })).toBe("hello");
+  });
+
+  it("falls back to regex replacement when fuzzy is not enabled", () => {
+    const out = replaceAllMatches("hello hello", "hello", "hi");
+    expect(out).toBe("hi hi");
+  });
+});

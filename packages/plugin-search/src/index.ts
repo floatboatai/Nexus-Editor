@@ -25,16 +25,25 @@ import {
 
 import type { NexusPlugin } from "@floatboat/nexus-core";
 
+import { fuzzyFindAll, fuzzyReplaceAll, type FuzzyMatch, type FuzzyMatchOptions } from "./fuzzy";
+
 export interface SearchMatch {
   from: number;
   to: number;
   text: string;
 }
 
-export interface SearchOptions {
+export interface SearchOptions extends FuzzyMatchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  /**
+   * Enable fuzzy (subsequence) matching. When true, `regexp` and
+   * `wholeWord` are ignored and matches are scored by character
+   * proximity, word-boundary bonus, and camelCase transitions.
+   * Defaults to false.
+   */
+  fuzzy?: boolean;
 }
 
 export interface SearchHistoryStorage {
@@ -650,6 +659,14 @@ export function findSearchMatches(
     return [];
   }
 
+  if (options.fuzzy) {
+    return fuzzyFindAll(doc, query, options).map((match: FuzzyMatch) => ({
+      from: match.from,
+      to: match.to,
+      text: match.text
+    }));
+  }
+
   const pattern = buildSearchPattern(query, options);
   if (!pattern) {
     return [];
@@ -678,6 +695,10 @@ export function replaceAllMatches(
 ): string {
   if (!query) {
     return doc;
+  }
+
+  if (options.fuzzy) {
+    return fuzzyReplaceAll(doc, query, replacement, options);
   }
 
   const pattern = buildSearchPattern(query, options);
