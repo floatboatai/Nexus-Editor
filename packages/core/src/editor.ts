@@ -1,9 +1,17 @@
-import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
+import {
+  Annotation,
+  EditorSelection,
+  EditorState,
+  StateEffect,
+  StateField,
+  type ChangeDesc,
+} from "@codemirror/state";
 
 // Annotation attached to dispatches that load content programmatically (e.g.
 // setDocument from file open) so updateListener can skip the user-edit path —
 // no onChange emission, no AST reparse for the onChange pipeline.
 const silentDocChange = Annotation.define<boolean>();
+
 import { EditorView, keymap, dropCursor, lineNumbers, type Direction } from "@codemirror/view";
 import { indentWithTab, undo as cmUndo, redo as cmRedo } from "@codemirror/commands";
 import { closeBrackets } from "@codemirror/autocomplete";
@@ -41,6 +49,79 @@ import type {
   TocEntry,
 } from "./types";
 import { createWidgetExtension } from "./widget-extension";
+
+interface PendingAssetRange {
+  from: number;
+  to: number;
+  touched: boolean;
+}
+
+interface PendingAssetInsertion {
+  id: number;
+  ranges: readonly PendingAssetRange[];
+  mainIndex: number;
+}
+
+function pendingAssetRangeTouched(range: PendingAssetRange, changes: ChangeDesc): boolean {
+  let touched = range.touched;
+  changes.iterChangedRanges((from, to) => {
+    if (from === to) {
+      touched ||= from > range.from && from < range.to;
+    } else {
+      touched ||= from < range.to && to > range.from;
+    }
+  }, true);
+  return touched;
+}
+
+const addPendingAssetInsertion = StateEffect.define<PendingAssetInsertion>();
+const removePendingAssetInsertion = StateEffect.define<number>();
+const clearPendingAssetInsertions = StateEffect.define<null>();
+
+const pendingAssetInsertions = StateField.define<ReadonlyMap<number, PendingAssetInsertion>>({
+  create: () => new Map(),
+  update(entries, transaction) {
+    let next = entries;
+
+    if (transaction.docChanged && entries.size > 0) {
+      const mapped = new Map<number, PendingAssetInsertion>();
+      for (const entry of entries.values()) {
+        const ranges = entry.ranges.map((range): PendingAssetRange => {
+          if (range.from === range.to) {
+            const position = transaction.changes.mapPos(range.from, -1);
+            return { from: position, to: position, touched: range.touched };
+          }
+
+          const from = transaction.changes.mapPos(range.from, 1);
+          const to = transaction.changes.mapPos(range.to, -1);
+          return {
+            from,
+            to: Math.max(from, to),
+            touched: pendingAssetRangeTouched(range, transaction.changes),
+          };
+        });
+        mapped.set(entry.id, { ...entry, ranges });
+      }
+      next = mapped;
+    }
+
+    for (const effect of transaction.effects) {
+      if (effect.is(clearPendingAssetInsertions)) {
+        next = new Map();
+      } else if (effect.is(addPendingAssetInsertion)) {
+        const updated = new Map(next);
+        updated.set(effect.value.id, effect.value);
+        next = updated;
+      } else if (effect.is(removePendingAssetInsertion)) {
+        const updated = new Map(next);
+        updated.delete(effect.value);
+        next = updated;
+      }
+    }
+
+    return next;
+  },
+});
 
 const FLOATBOAT_MARKDOWN_DEBUG_STORAGE_KEY = "floatboat:markdown-debug";
 const COMPOSITION_FLUSH_DELAY_MS = 60;
@@ -287,6 +368,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
   let parseTimer: ReturnType<typeof setTimeout> | undefined;
   let compositionFlushTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingCompositionMarkdown: string | null = null;
+  let nextAssetInsertionId = 0;
   // 组合输入（IME）状态与被推迟的文档回灌。组合输入进行中调用 setDocument 会被
   // 推迟到 compositionend 再应用，避免整文档替换打断输入法、丢失合成中文字、视口跳顶。
   let composing = false;
@@ -430,6 +512,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
         to: view.state.doc.length,
         insert: next
       },
+      effects: clearPendingAssetInsertions.of(null),
       annotations: silent ? silentDocChange.of(true) : undefined,
       ...(selection ? { selection } : {}),
     };
@@ -478,23 +561,81 @@ export function createEditor(config: EditorConfig): EditorAPI {
   }
 
   // 默认资源兜底：粘贴 / 拖拽进来的图片或文件依次走宿主上传管线并插入 markdown 引用。
-  function insertUploadedAssets(files: File[]): void {
+  function insertUploadedAssets(
+    files: File[],
+    target: { ranges: readonly { from: number; to: number }[]; mainIndex: number }
+  ): void {
     const upload = config.onAssetUpload;
-    if (!upload || destroyed || files.length === 0) return;
+    if (!upload || config.readOnly || destroyed || files.length === 0) return;
+    const id = nextAssetInsertionId++;
+    view.dispatch({
+      effects: addPendingAssetInsertion.of({
+        id,
+        mainIndex: target.mainIndex,
+        ranges: target.ranges.map((range) => ({ ...range, touched: false })),
+      }),
+    });
+
     void (async () => {
+      const markdownParts: string[] = [];
       for (const file of files) {
-        let url: string | null = null;
+        if (destroyed || !view.state.field(pendingAssetInsertions).has(id)) break;
         try {
-          url = await upload(file);
+          const url = await upload(file);
+          if (!url) continue;
+          const isImage = file.type.startsWith("image/");
+          const label = file.name || (isImage ? "image" : "file");
+          markdownParts.push(isImage ? `![${label}](${url})` : `[${label}](${url})`);
         } catch {
-          url = null;
+          // 单个文件失败不影响同批次中的其它文件。
         }
-        if (!url || destroyed) continue;
-        const isImage = file.type.startsWith("image/");
-        const label = file.name || (isImage ? "image" : "file");
-        const markdown = isImage ? `![${label}](${url})` : `[${label}](${url})`;
-        view.dispatch(view.state.replaceSelection(markdown));
       }
+
+      if (destroyed || config.readOnly) return;
+      const pending = view.state.field(pendingAssetInsertions).get(id);
+      if (!pending) return;
+
+      const markdown = markdownParts.join("");
+      if (!markdown) {
+        view.dispatch({ effects: removePendingAssetInsertion.of(id) });
+        return;
+      }
+
+      const selection = view.state.selection;
+      const ownsSelection =
+        selection.mainIndex === pending.mainIndex &&
+        selection.ranges.length === pending.ranges.length &&
+        pending.ranges.every(
+          (range, index) =>
+            !range.touched &&
+            selection.ranges[index].from === range.from &&
+            selection.ranges[index].to === range.to
+        );
+      const changes = view.state.changes(
+        pending.ranges.map((range) => ({
+          from: range.from,
+          to: range.touched ? range.from : range.to,
+          insert: markdown,
+        }))
+      );
+      view.dispatch({
+        changes,
+        effects: removePendingAssetInsertion.of(id),
+        ...(ownsSelection
+          ? {
+              selection: EditorSelection.create(
+                pending.ranges.map((range) =>
+                  EditorSelection.cursor(
+                    range.from === range.to
+                      ? changes.mapPos(range.from, 1)
+                      : changes.mapPos(range.to, -1)
+                  )
+                ),
+                pending.mainIndex
+              ),
+            }
+          : {}),
+      });
     })();
   }
 
@@ -545,6 +686,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
     state: EditorState.create({
       doc: config.initialValue ?? "",
       extensions: [
+        pendingAssetInsertions,
         EditorView.domEventHandlers({
           focus() {
             setFocused(true);
@@ -679,12 +821,16 @@ export function createEditor(config: EditorConfig): EditorAPI {
               return true;
             }
             // 默认兜底：剪贴板里有图片 / 文件时走资源上传；纯文本粘贴交回 CodeMirror。
-            if (!config.onAssetUpload || destroyed) return false;
+            if (!config.onAssetUpload || config.readOnly || destroyed) return false;
             const files = collectFilesFromDataTransfer(event.clipboardData);
             if (files.length === 0) return false;
 
             event.preventDefault();
-            insertUploadedAssets(files);
+            const selection = view.state.selection;
+            insertUploadedAssets(files, {
+              ranges: selection.ranges.map((range) => ({ from: range.from, to: range.to })),
+              mainIndex: selection.mainIndex,
+            });
             return true;
           },
           drop(event) {
@@ -692,12 +838,19 @@ export function createEditor(config: EditorConfig): EditorAPI {
               event.preventDefault();
               return true;
             }
-            if (!config.onAssetUpload || destroyed) return false;
+            if (!config.onAssetUpload || config.readOnly || destroyed) return false;
             const files = collectFilesFromDataTransfer(event.dataTransfer);
             if (files.length === 0) return false;
 
             event.preventDefault();
-            insertUploadedAssets(files);
+            let position: number | null = null;
+            try {
+              position = view.posAtCoords({ x: event.clientX, y: event.clientY });
+            } catch {
+              position = null;
+            }
+            const target = position ?? view.state.selection.main.head;
+            insertUploadedAssets(files, { ranges: [{ from: target, to: target }], mainIndex: 0 });
             return true;
           },
           keydown(event) {
@@ -810,6 +963,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
       // 组合输入（IME）进行中：整文档替换会打断输入法、丢失合成中文字并把视口重置到顶部。
       // 推迟到 compositionend 再应用，只保留最后一次请求。
       if (composing || view.composing || view.compositionStarted) {
+        view.dispatch({ effects: clearPendingAssetInsertions.of(null) });
         pendingDocumentLoad = { next, opts };
         debugNexus("setDocument-deferred-composing", {
           silent: opts?.silent === true,
