@@ -1,4 +1,5 @@
 export { createEditor } from "./editor";
+export { lezerStringToMdast as parseMarkdownToAst } from "./lezer-mdast-adapter";
 export { markdownAutoPair } from "./markdown-autopair";
 export { markdownFold, markdownFoldService } from "./markdown-fold";
 export { markdownKeymap, handleMarkdownEnter } from "./markdown-keymap";
@@ -37,6 +38,10 @@ export type {
   EditorEventHandler,
   EditorEventHandlers,
   EditorEventMap,
+  ExportHTMLOptions,
+  ExportHTMLResult,
+  ExportHTMLSourceMapEntry,
+  EditorLineBlock,
   EditorSelectionRange,
   LivePreviewConfig,
   LivePreviewLabels,

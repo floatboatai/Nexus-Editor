@@ -11,6 +11,7 @@ import { createLivePreviewDiagnostics } from "./live-preview-diag";
 import { collectLivePreviewRanges, selectionIntersects, selectionOnSameLine } from "./live-preview-ranges";
 import { renderLivePreviewNode } from "./live-preview-renderers";
 import { EditableTableWidget, isTableEditing } from "./live-preview-table";
+import { defaultSanitizeHtml, isHtmlComment } from "./html-sanitizer";
 import type {
   LivePreviewConfig,
   LivePreviewLabels,
@@ -575,36 +576,6 @@ function buildListDecorations(
       }
     }
   }
-}
-
-/**
- * True when the HTML block is purely an HTML comment (`<!-- … -->`), possibly
- * with surrounding whitespace. Such blocks have no rendered output, so they
- * must be shown as visible text rather than injected via innerHTML.
- */
-function isHtmlComment(raw: string): boolean {
-  return /^\s*<!--[\s\S]*-->\s*$/.test(raw);
-}
-
-// Tags that an embedded HTML block can safely render via innerHTML. We
-// strip `<script>`, `<iframe>`, `<object>`, `<embed>`, on*=… handler
-// attributes, and javascript: URLs to keep authored Markdown from
-// turning into an arbitrary code execution vector when previewed.
-// The list intentionally allows enough structural / styling tags for
-// real authoring (`<details>`, `<summary>`, `<div style>`, etc.) — it's
-// not meant as a full sanitiser, hosts that need stronger guarantees
-// can plug their own via `LivePreviewConfig.htmlSanitizer`.
-function defaultSanitizeHtml(rawHtml: string): string {
-  let html = rawHtml;
-  // Remove dangerous element bodies entirely (open tag through close tag).
-  html = html.replace(/<\s*(script|iframe|object|embed|style)\b[\s\S]*?<\/\s*\1\s*>/gi, "");
-  // Remove orphan dangerous self-closing tags.
-  html = html.replace(/<\s*(script|iframe|object|embed|style)\b[^>]*\/?>/gi, "");
-  // Strip inline event handlers: `onclick="…"` / `onload='…'` / onfoo=bareword.
-  html = html.replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-  // Strip `javascript:` URLs in href / src attributes.
-  html = html.replace(/(href|src|xlink:href)\s*=\s*(['"])\s*javascript:[^'"]*\2/gi, '$1=$2#$2');
-  return html;
 }
 
 function buildHtmlDecorations(

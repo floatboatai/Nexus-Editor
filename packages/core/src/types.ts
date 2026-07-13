@@ -157,6 +157,32 @@ export interface TocEntry {
   to: number;
 }
 
+export interface ExportHTMLOptions {
+  /**
+   * Include `data-source-*` attributes in the emitted HTML and return the
+   * corresponding block-level source map. Used by split-preview scroll sync.
+   */
+  sourceMap?: boolean;
+}
+
+export interface ExportHTMLSourceMapEntry {
+  /** One-based source line when available; 0 when only an offset is known. */
+  line: number;
+  /** Absolute source offset of the rendered block. */
+  offset: number;
+  /** One-based end line when available. */
+  endLine?: number;
+  /** Absolute source end offset when available. */
+  endOffset?: number;
+  /** Markdown/mdast block type, e.g. heading, paragraph, list, code. */
+  type: string;
+}
+
+export interface ExportHTMLResult {
+  html: string;
+  sourceMap: ExportHTMLSourceMapEntry[];
+}
+
 export interface EditorSelectionRange {
   anchor: number;
   head: number;
@@ -188,6 +214,8 @@ export interface EditorAPI {
   getAst(): Root;
   getTableOfContents(): TocEntry[];
   exportHTML(): string;
+  exportHTML(options: ExportHTMLOptions & { sourceMap: true }): ExportHTMLResult;
+  exportHTML(options?: ExportHTMLOptions): string | ExportHTMLResult;
   setTheme(theme: import("./theme").NexusTheme): void;
   getSelection(): { anchor: number; head: number };
   /** All selection ranges plus the main-range index. Single-range editors return one entry. */
@@ -197,6 +225,22 @@ export interface EditorAPI {
   getSlashCommands(): SlashCommandDef[];
   uploadAsset(file: File): Promise<string | null>;
   setSelection(anchor: number, head?: number): void;
+  /** Current vertical scroll offset of the editor viewport. */
+  getScrollTop(): number;
+  /** Set the editor viewport scroll offset without changing selection or focus. */
+  setScrollTop(top: number): void;
+  /** Maximum vertical scroll offset of the editor viewport. */
+  getScrollMax(): number;
+  /** The actual CodeMirror scroll element used by the editor viewport. */
+  getScrollElement(): HTMLElement | null;
+  /** Return the document offset at the start of a one-based line number. */
+  getPositionAtLine(line: number): number | null;
+  /** Return the one-based line number containing the document offset. */
+  getLineNumberAtPosition(pos: number): number;
+  /** Return the editor line block that contains the offset. Coordinates match scrollTop. */
+  getLineBlockAtPosition(pos: number): EditorLineBlock | null;
+  /** Return the editor line block at a document-height coordinate. Coordinates match scrollTop. */
+  getLineBlockAtHeight(height: number): EditorLineBlock | null;
   /**
    * Replace the selection with the given ranges. `mainIndex` defaults to the
    * last range (CodeMirror's latest-added-is-main convention). Multiple
@@ -275,6 +319,14 @@ export interface EditorAPI {
    */
   getPosAtDOM(node: HTMLElement): number | null;
   getDocumentStats(): { characters: number; words: number; lines: number };
+}
+
+export interface EditorLineBlock {
+  from: number;
+  to: number;
+  top: number;
+  bottom: number;
+  height: number;
 }
 
 export interface SlashCommandDef {
