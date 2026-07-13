@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createHistoryPlugin } from "../../plugin-history/src/index";
 import { createEditor } from "../src/index";
@@ -241,6 +241,194 @@ describe("live preview regressions", () => {
     const widgetBack = container.querySelector("[data-live-preview-image]");
     expect(widgetBack).not.toBeNull();
     expect(container.textContent).not.toContain("![alt]");
+    editor.destroy();
+  });
+
+  // Linked images `[![alt](img)](url)` — e.g. README CI badges. The old
+  // regex-driven image scan emitted a replace decoration nested inside the
+  // link's replace decoration, and the link's marker arithmetic split at the
+  // FIRST `](` (inside the nested image), so the label rendered as garbage
+  // like `![logo` with a fragment URL.
+  it("renders a linked image as a clickable image widget", () => {
+    const container = document.createElement("div");
+    const doc = "Intro\n\n[![logo](https://example.com/l.png)](https://example.com)\n\nend";
+    const editor = createEditor({
+      container,
+      initialValue: doc,
+      livePreview: true
+    });
+
+    editor.setSelection(0);
+    const linkEl = container.querySelector("[data-link-url]");
+    expect(linkEl?.getAttribute("data-link-url")).toBe("https://example.com");
+    const img = linkEl?.querySelector("[data-live-preview-image]");
+    expect(img?.getAttribute("data-live-preview-image")).toBe("https://example.com/l.png");
+    // Hovering must reveal the destination, including on the <img> itself.
+    expect(linkEl?.getAttribute("title")).toBe("https://example.com");
+    expect(linkEl?.querySelector("img")?.title).toBe("https://example.com");
+    // No half-parsed label text may leak through.
+    expect(container.textContent).not.toContain("![logo");
+
+    // Cursor inside the link → raw source visible for editing AND the
+    // preview rendered alongside (same contract as standalone images), so
+    // pasting a badge line shows the result without moving the cursor.
+    editor.setSelection(doc.indexOf("logo"));
+    expect(container.textContent).toContain("[![logo](https://example.com/l.png)](https://example.com)");
+    const editModePreview = container.querySelector("[data-link-url]");
+    expect(editModePreview?.querySelector("[data-live-preview-image]")).not.toBeNull();
+
+    // Cursor at the very end of the link (where it lands right after a
+    // paste) also counts as "on the link" — preview must still be visible,
+    // and exactly ONE: the child image range must not add its own preview
+    // on top of the link's (parentSpans suppression).
+    editor.setSelection(doc.indexOf("\n\nend"));
+    expect(container.querySelectorAll("[data-live-preview-image]").length).toBe(1);
+
+    // Cursor back out → widget again.
+    editor.setSelection(0);
+    expect(container.querySelector("[data-link-url]")).not.toBeNull();
+    expect(container.textContent).not.toContain("![logo");
+    editor.destroy();
+  });
+
+  // Navigation runs through a CM6 domEventHandler, and CM6 skips ALL of
+  // those for events inside widgets whose ignoreEvent() returns true. The
+  // rendered DOM is byte-identical either way, so only a dispatched event
+  // catches a regression back to a swallowing widget.
+  it("mousedown on a linked-image widget opens the destination", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const doc = "Intro\n\n[![logo](https://example.com/l.png)](https://example.com)\n\nend";
+    const editor = createEditor({ container, initialValue: doc, livePreview: true });
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+
+    editor.setSelection(0);
+    const img = container.querySelector("[data-link-url] img");
+    expect(img).not.toBeNull();
+    img?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+    expect(open).toHaveBeenCalledWith("https://example.com", "_blank", "noopener");
+
+    open.mockRestore();
+    editor.destroy();
+    container.remove();
+  });
+
+  // data-link-url is authored document content — non-web schemes must be
+  // consumed without reaching window.open, and scheme-less GFM autolink
+  // literals must not be opened as relative paths.
+  it("filters link destinations by scheme before opening", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const doc = "Intro\n\n[run](javascript:alert(1)) and www.example.com\n\nend";
+    const editor = createEditor({ container, initialValue: doc, livePreview: true });
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+
+    editor.setSelection(0);
+    const links = Array.from(container.querySelectorAll("[data-link-url]"));
+    const jsLink = links.find((el) => el.getAttribute("data-link-url")?.startsWith("javascript:"));
+    expect(jsLink).toBeDefined();
+    jsLink?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+    expect(open).not.toHaveBeenCalled();
+
+    const wwwLink = links.find((el) => el.getAttribute("data-link-url") === "www.example.com");
+    expect(wwwLink).toBeDefined();
+    wwwLink?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+    expect(open).toHaveBeenCalledWith("https://www.example.com", "_blank", "noopener");
+
+    open.mockRestore();
+    editor.destroy();
+    container.remove();
+  });
+
+  // Labels mixing text and several images must render every image inside a
+  // single navigable widget (the untested else-branch of the label walk).
+  it("renders a mixed text-and-images label as one clickable widget", () => {
+    const container = document.createElement("div");
+    const doc =
+      "Intro\n\n[pre ![a](https://example.com/1.png) mid ![b](https://example.com/2.png)](https://example.com)\n\nend";
+    const editor = createEditor({ container, initialValue: doc, livePreview: true });
+
+    editor.setSelection(0);
+    const linkEl = container.querySelector("[data-link-url]");
+    expect(linkEl?.getAttribute("data-link-url")).toBe("https://example.com");
+    expect(linkEl?.querySelectorAll("[data-live-preview-image]").length).toBe(2);
+    expect(linkEl?.textContent).toContain("pre");
+    expect(linkEl?.textContent).toContain("mid");
+    editor.destroy();
+  });
+
+  // The image may sit deeper than the label's top level — `[*![a](i)*](u)`
+  // wraps it in emphasis. A direct-children-only check fell back to the
+  // marker-arithmetic path, which splits at the FIRST "](" and produced the
+  // same garbage label/URL the widget branch exists to prevent.
+  it("renders a linked image whose label nests the image inside emphasis", () => {
+    const container = document.createElement("div");
+    const doc = "Intro\n\n[*![logo](https://example.com/l.png)* extra](https://example.com)\n\nend";
+    const editor = createEditor({ container, initialValue: doc, livePreview: true });
+
+    editor.setSelection(0);
+    const linkEl = container.querySelector("[data-link-url]");
+    expect(linkEl?.getAttribute("data-link-url")).toBe("https://example.com");
+    expect(linkEl?.querySelector("[data-live-preview-image]")?.getAttribute("data-live-preview-image")).toBe(
+      "https://example.com/l.png"
+    );
+    expect(linkEl?.textContent).toContain("extra");
+    expect(container.textContent).not.toContain("![logo");
+    editor.destroy();
+  });
+
+  // Reference-style links have no inline destination. The adapter used to
+  // fall back to the whole node source, so `[![a](i)][ref]` rendered a
+  // "clickable" image whose data-link-url and hover tooltip were the raw
+  // markdown itself.
+  it("renders a reference-style linked image without a fake destination", () => {
+    const container = document.createElement("div");
+    const doc = "Intro\n\n[![logo](https://example.com/l.png)][badge]\n\n[badge]: https://example.com\n\nend";
+    const editor = createEditor({ container, initialValue: doc, livePreview: true });
+
+    editor.setSelection(0);
+    expect(container.querySelector("[data-live-preview-image]")).not.toBeNull();
+    expect(container.querySelector("[data-link-url]")).toBeNull();
+    expect(container.textContent).not.toContain("[![logo");
+    editor.destroy();
+  });
+
+  // Code contexts are literal text: the document-wide image regex used to
+  // inject real image widgets into fenced code blocks and inline code.
+  it("keeps image syntax literal inside fenced code and inline code", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "```\n![alt](https://example.com/a.png)\n```\n\nUse `![x](https://example.com/b.png)` inline\n\nend",
+      livePreview: true
+    });
+
+    editor.setSelection(editor.getDocument().length);
+    expect(container.querySelector("[data-live-preview-image]")).toBeNull();
+    const text = container.textContent ?? "";
+    expect(text).toContain("![alt](https://example.com/a.png)");
+    expect(text).toContain("![x](https://example.com/b.png)");
+    editor.destroy();
+  });
+
+  // CommonMark allows balanced parentheses in destinations; the old regex
+  // stopped at the first `)`, truncating the URL and leaving a stray `)`.
+  it("renders image URLs containing balanced parentheses in full", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Intro\n\n![Wiki](https://en.wikipedia.org/wiki/Foo_(bar))\n\nend",
+      livePreview: true
+    });
+
+    editor.setSelection(0);
+    const widget = container.querySelector("[data-live-preview-image]");
+    expect(widget?.getAttribute("data-live-preview-image")).toBe(
+      "https://en.wikipedia.org/wiki/Foo_(bar)"
+    );
+    // The truncated match used to leave the final ")" behind as stray
+    // document text on the image's line.
+    expect(widget?.closest(".cm-line")?.textContent).not.toContain(")");
     editor.destroy();
   });
 });

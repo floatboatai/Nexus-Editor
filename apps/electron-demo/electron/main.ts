@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from "electron";
+
+import { externalTarget, isSamePageReload } from "./link-policy";
 import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promises";
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
@@ -53,6 +55,25 @@ function createWindow(): void {
 
   mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
+  });
+
+  // Editor links open via window.open — without a handler Electron spawns a
+  // bare child BrowserWindow (no nav bar, full node-less renderer) instead of
+  // the user's browser. Route web/mail links to the system browser and deny
+  // everything else (file:, custom schemes) from opening windows.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    const target = externalTarget(url);
+    if (target) void shell.openExternal(target);
+    return { action: "deny" };
+  });
+
+  // Same policy for in-place navigation (e.g. <a href> without target),
+  // so stray links cannot replace the editor page.
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (isSamePageReload(url, mainWindow?.webContents.getURL() ?? "")) return;
+    event.preventDefault();
+    const target = externalTarget(url);
+    if (target) void shell.openExternal(target);
   });
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;

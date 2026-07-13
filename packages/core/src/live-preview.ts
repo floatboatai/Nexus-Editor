@@ -1,7 +1,7 @@
 import { type EditorState, RangeSet, RangeSetBuilder, StateEffect, StateField, type Extension, type Range, type SelectionRange, type Transaction } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import { ensureSyntaxTree } from "@codemirror/language";
-import type { Code, FootnoteDefinition, FootnoteReference, Heading, Html, List, Root, Table } from "mdast";
+import type { Code, FootnoteDefinition, FootnoteReference, Heading, Html, Link, List, Root, Table } from "mdast";
 
 import type { CodeHighlightToken } from "./types";
 import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
@@ -1028,6 +1028,48 @@ function getInlineMarkerStyle(nodeType: string, source: string): InlineMarkerSty
   }
 }
 
+/**
+ * Whether a link label contains an image at any depth — `[![a](i)](u)` but
+ * also `[*![a](i)*](u)`, where the image sits inside emphasis/strong/delete.
+ * Depth matters: the marker-arithmetic path splits at the FIRST `](`, which
+ * lands inside the nested image regardless of how deeply it is wrapped.
+ */
+function linkLabelContainsImage(children: Link["children"]): boolean {
+  return children.some(
+    (child) =>
+      child.type === "image" ||
+      ("children" in child &&
+        Array.isArray(child.children) &&
+        linkLabelContainsImage(child.children as Link["children"]))
+  );
+}
+
+/**
+ * Render a link label's nodes into `parent`: images become widgets, wrapper
+ * nodes (emphasis/strong/delete) are flattened so a nested image still
+ * renders, and anything else falls back to its raw source text.
+ */
+function appendLinkLabel(
+  parent: HTMLElement,
+  children: Link["children"],
+  doc: string,
+  renderers: NormalizedLivePreviewConfig["renderers"]
+): void {
+  for (const child of children) {
+    const childFrom = child.position?.start.offset;
+    const childTo = child.position?.end.offset;
+    if (child.type === "image" && child.url && typeof childFrom === "number" && typeof childTo === "number") {
+      parent.appendChild(
+        renderLivePreviewNode(child, doc.slice(childFrom, childTo), renderers, childFrom, childTo)
+      );
+    } else if ("children" in child && Array.isArray(child.children)) {
+      appendLinkLabel(parent, child.children as Link["children"], doc, renderers);
+    } else if (typeof childFrom === "number" && typeof childTo === "number") {
+      parent.appendChild(document.createTextNode(doc.slice(childFrom, childTo)));
+    }
+  }
+}
+
 interface BuildContext {
   /** Optional pre-computed Lezer mdast snapshot (avoids re-parsing on cursor-only updates). */
   ast?: Root;
@@ -1143,6 +1185,59 @@ function buildDecorations(
         );
       }
     } else if (range.node.type === "link" && !config.renderers.link) {
+      const linkNode = range.node as Link;
+      if (linkLabelContainsImage(linkNode.children)) {
+        // Linked image `[![alt](img)](url)` — the label is not text, so the
+        // marker-length arithmetic below (indexOf "](" ) would split inside
+        // the nested image. Render the label's images as a clickable widget
+        // instead, and claim the whole span so the child image ranges don't
+        // emit a second, overlapping replace decoration.
+        //
+        // Cursor-aware like standalone images: cursor out → replace widget;
+        // cursor in → raw source stays editable AND the preview renders as a
+        // block widget right below, so pasting a badge line (cursor lands at
+        // its end) shows the result immediately.
+        parentSpans.push([range.from, range.to]);
+        const cursorOnLink = selectionIntersects(range.from, range.to, selection, true);
+        const linkedImageKey = `linkimg:${range.from}-${range.to}:${cursorOnLink ? "in" : "out"}:${range.source}`;
+        const buildLinkedImage = (): HTMLElement => {
+          const wrapper = document.createElement("span");
+          appendLinkLabel(wrapper, linkNode.children, doc, config.renderers);
+          // Reference-style labels (`[![a](i)][ref]`) have no inline
+          // destination — render the image but don't pretend to navigate.
+          if (linkNode.url) {
+            wrapper.setAttribute("data-link-url", linkNode.url);
+            wrapper.style.cursor = "pointer";
+            // The widget navigates on click, so the destination outranks any
+            // image-level tooltip a renderer set inside the label (browsers
+            // resolve hover from the innermost titled element).
+            wrapper.title = linkNode.url;
+            wrapper.querySelectorAll("img").forEach((img) => { img.title = linkNode.url; });
+          }
+          return wrapper;
+        };
+        // swallowEvents must stay false: CM6 skips ALL domEventHandlers —
+        // including the [data-link-url] navigation handler — for events
+        // inside widgets whose ignoreEvent() returns true. Interactive
+        // chrome inside custom image renderers protects itself by stopping
+        // propagation (same contract as the code-copy button).
+        if (!cursorOnLink) {
+          decos.push(
+            Decoration.replace({
+              widget: createWidget(buildLinkedImage, false, undefined, linkedImageKey),
+            }).range(range.from, range.to)
+          );
+        } else {
+          decos.push(
+            Decoration.widget({
+              widget: createWidget(buildLinkedImage, false, undefined, linkedImageKey),
+              block: true,
+              side: 1,
+            }).range(range.to)
+          );
+        }
+        continue;
+      }
       const inlineStyle = getInlineMarkerStyle("link", range.source);
       if (inlineStyle) {
         const { openLen, closeLen, style, attrs } = inlineStyle;
@@ -1463,8 +1558,16 @@ export function createLivePreviewExtension(
         return true;
       }
 
-      // External links: open in new tab
-      window.open(url, "_blank", "noopener");
+      // External links: open in new tab. data-link-url is authored document
+      // content, so only web and mail schemes may reach window.open —
+      // javascript:/file:/custom schemes are consumed without navigating.
+      // GFM autolink literals (www.example.com) carry no scheme; give them
+      // one instead of letting window.open treat them as relative paths.
+      if (/^(https?:|mailto:)/i.test(url)) {
+        window.open(url, "_blank", "noopener");
+      } else if (/^www\./i.test(url)) {
+        window.open(`https://${url}`, "_blank", "noopener");
+      }
       return true;
     }
   });
