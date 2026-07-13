@@ -1,20 +1,19 @@
-// Fuzzy search implementation for plugin-search.
+// plugin-search 的模糊搜索实现。
 //
-// Strategy: per-line dynamic programming on (j, i) where needle[j]
-// matches text[i]. The score at (j, i) is the maximum over p < i of
-// (score at (j-1, p) + transition cost from p to i). The terminal
-// cell with the highest score in the last needle row wins.
+// 策略：按行动态规划。dp[j][i] 表示 needle[0..j] 在 haystack[0..i] 处
+// 匹配结束时的最高分，其值取 dp[j-1][p]（p < i）的最大值加上从 p 到 i
+// 的转移代价。needle 最后一行的最高分即为最佳匹配。
 //
-// Scoring model:
-//   - BASE_BONUS per matched character
-//   - CONSECUTIVE_BONUS when consecutive
-//   - WORD_START_BONUS for matches following a non-word char
-//   - CAMEL_CASE_BONUS for lowercase->uppercase transitions
-//   - SHORT_JUMP_BONUS / LONG_JUMP_PENALTY by jump distance
-//   - MISMATCH_PENALTY for any non-consecutive match
+// 评分模型：
+//   - BASE_BONUS 每个匹配字符的基础分
+//   - CONSECUTIVE_BONUS 连续匹配加分
+//   - WORD_START_BONUS 词首匹配加分（前一个字符非 word char）
+//   - CAMEL_CASE_BONUS camelCase 边界加分（小写→大写）
+//   - SHORT_JUMP_BONUS / LONG_JUMP_PENALTY 按跳跃距离加减分
+//   - MISMATCH_PENALTY 任意非连续跳跃的固定扣分
 //
-// Complexity: O(nLen * L^2) per line, where L is the line length.
-// The function is single-line, so callers split the document first.
+// 复杂度：每行 O(nLen * L^2)，L 为行长度。函数只处理单行，
+// 调用方需先把文档按行拆分。
 
 export interface FuzzyMatch {
   /** Start index (inclusive) of the match in the text. */
@@ -80,17 +79,16 @@ function bestMatchInLine(
   if (nLen === 0) return null;
   if (haystack.length < nLen) return null;
 
-  // dp[j][i] = best score for matching needle[0..j] ending at haystack[i],
-  // plus the previous matched haystack position (for path recovery).
+  // dp[j][i] = needle[0..j] 匹配到 haystack[i] 处结束时的最高分，
+  // 同时存 prev 指针用于回溯。
   const L = haystack.length;
   const dp: MatchCell[][] = [];
   for (let j = 0; j < nLen; j++) {
     dp.push(new Array<MatchCell>(L).fill(NEG_INF_CELL));
   }
 
-  // Initialize j=0 row: each haystack position i where needle[0] matches
-  // is a candidate start. Word-start bonus applies at line start and
-  // after any non-word character.
+  // 初始化 j=0 行：needle 第一个字符出现的每个位置都是候选起点。
+  // 词首加分应用于行首或前一个字符为非 word char 的情况。
   let anyMatch = false;
   for (let i = 0; i < L; i++) {
     if (haystack[i] !== needle[0]) continue;
@@ -101,7 +99,7 @@ function bestMatchInLine(
   }
   if (!anyMatch) return null;
 
-  // Fill remaining rows.
+  // 填充后续行。
   for (let j = 1; j < nLen; j++) {
     const target = needle[j];
     for (let i = j; i < L; i++) {
@@ -142,7 +140,7 @@ function bestMatchInLine(
     }
   }
 
-  // Find best terminal cell in the last row.
+  // 在最后一行找最高分的终止 cell。
   const lastRow = dp[nLen - 1];
   let bestScore = Number.NEGATIVE_INFINITY;
   let bestEnd = -1;
@@ -154,7 +152,7 @@ function bestMatchInLine(
   }
   if (bestEnd === -1) return null;
 
-  // Backtrack positions.
+  // 回溯位置。
   const positions: number[] = new Array(nLen);
   let curEnd = bestEnd;
   for (let j = nLen - 1; j >= 0; j--) {
