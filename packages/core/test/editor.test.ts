@@ -644,7 +644,27 @@ function makePasteEvent(clipboardData: Record<string, unknown>): Event {
   return event;
 }
 
+function makeDropEvent(dataTransfer: Record<string, unknown>, clientX = 0, clientY = 0): Event {
+  const event = new Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperties(event, {
+    dataTransfer: { configurable: true, value: dataTransfer },
+    clientX: { configurable: true, value: clientX },
+    clientY: { configurable: true, value: clientY },
+  });
+  return event;
+}
+
 const flushMicrotasks = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 describe("createEditor — composition-safe setDocument", () => {
   it("reports composition state via isComposing()", () => {
@@ -866,6 +886,383 @@ describe("createEditor — DOM event hook layer", () => {
     expect(uploads).toEqual([file]);
     expect(editor.getDocument()).toContain("![shot.png](assets/shot.png)");
     editor.destroy();
+  });
+
+  it("keeps a pending asset paste at its mapped anchor without stealing a moved cursor", async () => {
+    const container = document.createElement("div");
+    const upload = createDeferred<string | null>();
+    let capturedView: EditorView | null = null;
+    const editor = createEditor({
+      container,
+      initialValue: "AB",
+      onAssetUpload: () => upload.promise,
+      plugins: [{ name: "capture", cmExtensions: [captureViewPlugin((view) => (capturedView = view))] }],
+    });
+    const view = requireEditorView(capturedView);
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+
+    editor.setSelection(1);
+    const file = new File(["img"], "x.png", { type: "image/png" });
+    content.dispatchEvent(makePasteEvent({ files: [file], items: [] }));
+    view.dispatch({ changes: { from: 0, insert: "X" }, selection: { anchor: 3 } });
+
+    upload.resolve("assets/x.png");
+    await flushMicrotasks();
+
+    expect(editor.getDocument()).toBe("XA![x.png](assets/x.png)B");
+    expect(editor.getSelection()).toEqual({ anchor: editor.getDocument().length, head: editor.getDocument().length });
+    editor.destroy();
+  });
+
+  it("replaces an untouched selection when its pending asset upload completes", async () => {
+    const container = document.createElement("div");
+    const upload = createDeferred<string | null>();
+    const editor = createEditor({
+      container,
+      initialValue: "abc",
+      onAssetUpload: () => upload.promise,
+    });
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+
+    editor.setSelection(1, 2);
+    const file = new File(["img"], "x.png", { type: "image/png" });
+    content.dispatchEvent(makePasteEvent({ files: [file], items: [] }));
+    upload.resolve("assets/x.png");
+    await flushMicrotasks();
+
+    expect(editor.getDocument()).toBe("a![x.png](assets/x.png)c");
+    expect(editor.getSelection()).toEqual({ anchor: 23, head: 23 });
+    editor.destroy();
+  });
+
+  it("does not overwrite a selection edited while its asset upload is pending", async () => {
+    const container = document.createElement("div");
+    const upload = createDeferred<string | null>();
+    let capturedView: EditorView | null = null;
+    const editor = createEditor({
+      container,
+      initialValue: "abc",
+      onAssetUpload: () => upload.promise,
+      plugins: [{ name: "capture", cmExtensions: [captureViewPlugin((view) => (capturedView = view))] }],
+    });
+    const view = requireEditorView(capturedView);
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+
+    editor.setSelection(1, 2);
+    const file = new File(["img"], "x.png", { type: "image/png" });
+    content.dispatchEvent(makePasteEvent({ files: [file], items: [] }));
+    view.dispatch({ changes: { from: 1, to: 2, insert: "X" }, selection: { anchor: 2 } });
+
+    upload.resolve("assets/x.png");
+    await flushMicrotasks();
+
+    expect(editor.getDocument()).toBe("a![x.png](assets/x.png)Xc");
+    editor.destroy();
+  });
+
+  it.each([
+    { boundary: "start", position: 1, expected: "aX![x.png](assets/x.png)c" },
+    { boundary: "end", position: 2, expected: "a![x.png](assets/x.png)Xc" },
+  ])(
+    "keeps an edit at the selection $boundary boundary outside the pending asset replacement",
+    async ({ position, expected }) => {
+      const container = document.createElement("div");
+      const upload = createDeferred<string | null>();
+      let capturedView: EditorView | null = null;
+      const editor = createEditor({
+        container,
+        initialValue: "abc",
+        onAssetUpload: () => upload.promise,
+        plugins: [{ name: "capture", cmExtensions: [captureViewPlugin((view) => (capturedView = view))] }],
+      });
+      const view = requireEditorView(capturedView);
+      const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+
+      editor.setSelection(1, 2);
+      const file = new File(["img"], "x.png", { type: "image/png" });
+      content.dispatchEvent(makePasteEvent({ files: [file], items: [] }));
+      view.dispatch({ changes: { from: position, insert: "X" }, selection: { anchor: position + 1 } });
+
+      upload.resolve("assets/x.png");
+      await flushMicrotasks();
+
+      expect(editor.getDocument()).toBe(expected);
+      editor.destroy();
+    }
+  );
+
+  it("preserves every initiating selection when a pending asset paste completes", async () => {
+    const container = document.createElement("div");
+    const upload = createDeferred<string | null>();
+    const editor = createEditor({
+      container,
+      initialValue: "AB",
+      multiCursor: true,
+      onAssetUpload: () => upload.promise,
+    });
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+    const markdown = "![x.png](assets/x.png)";
+
+    editor.setSelections([{ anchor: 0 }, { anchor: 2 }], 1);
+    const file = new File(["img"], "x.png", { type: "image/png" });
+    content.dispatchEvent(makePasteEvent({ files: [file], items: [] }));
+    upload.resolve("assets/x.png");
+    await flushMicrotasks();
+
+    expect(editor.getDocument()).toBe(`${markdown}AB${markdown}`);
+    expect(editor.getSelections()).toEqual({
+      ranges: [
+        { anchor: markdown.length, head: markdown.length },
+        { anchor: markdown.length * 2 + 2, head: markdown.length * 2 + 2 },
+      ],
+      mainIndex: 1,
+    });
+    editor.destroy();
+  });
+
+  it("inserts a dropped asset at the pointer-derived document position", async () => {
+    const container = document.createElement("div");
+    const upload = createDeferred<string | null>();
+    let capturedView: EditorView | null = null;
+    const editor = createEditor({
+      container,
+      initialValue: "AB",
+      onAssetUpload: () => upload.promise,
+      plugins: [{ name: "capture", cmExtensions: [captureViewPlugin((view) => (capturedView = view))] }],
+    });
+    const view = requireEditorView(capturedView);
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+    const posAtCoords = vi.spyOn(view, "posAtCoords").mockReturnValue(1);
+
+    editor.setSelection(2);
+    const file = new File(["img"], "drop.png", { type: "image/png" });
+    const event = makeDropEvent({ files: [file], items: [] }, 12, 34);
+    content.dispatchEvent(event);
+    upload.resolve("assets/drop.png");
+    await flushMicrotasks();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(posAtCoords).toHaveBeenCalledWith({ x: 12, y: 34 });
+    expect(editor.getDocument()).toBe("A![drop.png](assets/drop.png)B");
+
+    posAtCoords.mockReturnValue(null);
+    editor.setSelection(0);
+    const fallbackFile = new File(["img"], "fallback.png", { type: "image/png" });
+    content.dispatchEvent(makeDropEvent({ files: [fallbackFile], items: [] }));
+    await flushMicrotasks();
+
+    expect(editor.getDocument()).toBe(
+      "![fallback.png](assets/drop.png)A![drop.png](assets/drop.png)B"
+    );
+    editor.destroy();
+  });
+
+  it("uploads a file batch serially and commits it as one undoable document change", async () => {
+    const container = document.createElement("div");
+    const firstUpload = createDeferred<string | null>();
+    const secondUpload = createDeferred<string | null>();
+    const firstFile = new File(["one"], "one.png", { type: "image/png" });
+    const secondFile = new File(["two"], "two.pdf", { type: "application/pdf" });
+    const uploads: File[] = [];
+    let documentChanges = 0;
+    const editor = createEditor({
+      container,
+      initialValue: "A",
+      onAssetUpload(file) {
+        uploads.push(file);
+        return file === firstFile ? firstUpload.promise : secondUpload.promise;
+      },
+      plugins: [
+        createHistoryPlugin(),
+        {
+          name: "count-document-changes",
+          cmExtensions: [
+            EditorView.updateListener.of((update) => {
+              if (update.docChanged) documentChanges += 1;
+            }),
+          ],
+        },
+      ],
+    });
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+
+    editor.setSelection(1);
+    content.dispatchEvent(makePasteEvent({ files: [firstFile, secondFile], items: [] }));
+    expect(uploads).toEqual([firstFile]);
+
+    firstUpload.resolve("assets/one.png");
+    await flushMicrotasks();
+    expect(uploads).toEqual([firstFile, secondFile]);
+    expect(editor.getDocument()).toBe("A");
+
+    secondUpload.resolve("assets/two.pdf");
+    await flushMicrotasks();
+    expect(editor.getDocument()).toBe("A![one.png](assets/one.png)[two.pdf](assets/two.pdf)");
+    expect(documentChanges).toBe(1);
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("A");
+    editor.destroy();
+  });
+
+  it("isolates individual upload failures and skips a batch when every upload fails", async () => {
+    const partialContainer = document.createElement("div");
+    const failedFile = new File(["bad"], "bad.png", { type: "image/png" });
+    const goodFile = new File(["good"], "good.pdf", { type: "application/pdf" });
+    const partialEditor = createEditor({
+      container: partialContainer,
+      initialValue: "A",
+      onAssetUpload: (file) =>
+        file === failedFile ? Promise.reject(new Error("upload failed")) : Promise.resolve("assets/good.pdf"),
+    });
+    const partialContent = partialContainer.querySelector("[contenteditable='true']") as HTMLElement;
+
+    partialEditor.setSelection(1);
+    partialContent.dispatchEvent(makePasteEvent({ files: [failedFile, goodFile], items: [] }));
+    await flushMicrotasks();
+    expect(partialEditor.getDocument()).toBe("A[good.pdf](assets/good.pdf)");
+    partialEditor.destroy();
+
+    const failedContainer = document.createElement("div");
+    const failedEditor = createEditor({
+      container: failedContainer,
+      initialValue: "unchanged",
+      onAssetUpload: () => Promise.reject(new Error("upload failed")),
+    });
+    const failedContent = failedContainer.querySelector("[contenteditable='true']") as HTMLElement;
+
+    failedContent.dispatchEvent(makePasteEvent({ files: [failedFile], items: [] }));
+    await flushMicrotasks();
+    expect(failedEditor.getDocument()).toBe("unchanged");
+    failedEditor.destroy();
+  });
+
+  it("maps concurrent asset batches independently when they resolve out of order", async () => {
+    const container = document.createElement("div");
+    const firstUpload = createDeferred<string | null>();
+    const secondUpload = createDeferred<string | null>();
+    const firstFile = new File(["one"], "one.png", { type: "image/png" });
+    const secondFile = new File(["two"], "two.png", { type: "image/png" });
+    const editor = createEditor({
+      container,
+      initialValue: "AB",
+      onAssetUpload: (file) => (file === firstFile ? firstUpload.promise : secondUpload.promise),
+    });
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+
+    editor.setSelection(1);
+    content.dispatchEvent(makePasteEvent({ files: [firstFile], items: [] }));
+    editor.setSelection(0);
+    content.dispatchEvent(makePasteEvent({ files: [secondFile], items: [] }));
+
+    secondUpload.resolve("assets/two.png");
+    await flushMicrotasks();
+    firstUpload.resolve("assets/one.png");
+    await flushMicrotasks();
+
+    expect(editor.getDocument()).toBe(
+      "![two.png](assets/two.png)A![one.png](assets/one.png)B"
+    );
+    editor.destroy();
+  });
+
+  it("discards a pending asset result after the document is replaced", async () => {
+    const container = document.createElement("div");
+    const upload = createDeferred<string | null>();
+    const editor = createEditor({
+      container,
+      initialValue: "old",
+      onAssetUpload: () => upload.promise,
+    });
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+
+    content.dispatchEvent(
+      makePasteEvent({ files: [new File(["img"], "x.png", { type: "image/png" })], items: [] })
+    );
+    editor.setDocument("new");
+    upload.resolve("assets/x.png");
+    await flushMicrotasks();
+
+    expect(editor.getDocument()).toBe("new");
+    editor.destroy();
+  });
+
+  it("discards a pending asset result when setDocument is deferred by composition", async () => {
+    const container = document.createElement("div");
+    const upload = createDeferred<string | null>();
+    let capturedView: EditorView | null = null;
+    const editor = createEditor({
+      container,
+      initialValue: "old",
+      onAssetUpload: () => upload.promise,
+      plugins: [{ name: "capture", cmExtensions: [captureViewPlugin((view) => (capturedView = view))] }],
+    });
+    const view = requireEditorView(capturedView);
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+
+    content.dispatchEvent(
+      makePasteEvent({ files: [new File(["img"], "x.png", { type: "image/png" })], items: [] })
+    );
+    view.contentDOM.dispatchEvent(new Event("compositionstart", { bubbles: true }));
+    editor.setDocument("new");
+    upload.resolve("assets/x.png");
+    await flushMicrotasks();
+
+    expect(editor.getDocument()).toBe("old");
+    view.contentDOM.dispatchEvent(new Event("compositionend", { bubbles: true }));
+    expect(editor.getDocument()).toBe("new");
+    editor.destroy();
+  });
+
+  it("does not start the default asset pipeline in a read-only editor", () => {
+    const container = document.createElement("div");
+    const uploads: File[] = [];
+    const editor = createEditor({
+      container,
+      readOnly: true,
+      onAssetUpload(file) {
+        uploads.push(file);
+        return Promise.resolve("assets/x.png");
+      },
+    });
+    const content = container.querySelector(".cm-content") as HTMLElement;
+    const event = makePasteEvent({
+      files: [new File(["img"], "x.png", { type: "image/png" })],
+      items: [],
+    });
+
+    content.dispatchEvent(event);
+
+    expect(uploads).toEqual([]);
+    expect(editor.getDocument()).toBe("");
+    editor.destroy();
+  });
+
+  it("does not dispatch a pending asset result after the editor is destroyed", async () => {
+    const container = document.createElement("div");
+    const upload = createDeferred<string | null>();
+    const firstFile = new File(["first"], "first.png", { type: "image/png" });
+    const secondFile = new File(["second"], "second.png", { type: "image/png" });
+    const uploads: File[] = [];
+    let capturedView: EditorView | null = null;
+    const editor = createEditor({
+      container,
+      onAssetUpload(file) {
+        uploads.push(file);
+        return upload.promise;
+      },
+      plugins: [{ name: "capture", cmExtensions: [captureViewPlugin((view) => (capturedView = view))] }],
+    });
+    const view = requireEditorView(capturedView);
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+
+    content.dispatchEvent(makePasteEvent({ files: [firstFile, secondFile], items: [] }));
+    editor.destroy();
+    const dispatch = vi.spyOn(view, "dispatch");
+    upload.resolve("assets/first.png");
+    await flushMicrotasks();
+
+    expect(uploads).toEqual([firstFile]);
+    expect(dispatch).not.toHaveBeenCalled();
   });
 
   it("does not route plain-text paste through the asset pipeline", () => {
