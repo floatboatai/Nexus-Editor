@@ -1,4 +1,9 @@
 import { lightTheme, darkTheme, type NexusTheme } from "@floatboat/nexus-core";
+import {
+  languagePreference,
+  messages,
+  type LanguagePreference,
+} from "./i18n";
 
 export interface EditorSettings {
   /** "light" | "dark" */
@@ -126,6 +131,7 @@ interface SettingsPanelResult {
 }
 
 type OnChange = (settings: EditorSettings) => void;
+type OnLanguageChange = (preference: LanguagePreference) => boolean;
 
 function createToggle(value: boolean, onChange: (v: boolean) => void): HTMLElement {
   const btn = document.createElement("button");
@@ -152,7 +158,12 @@ function createToggle(value: boolean, onChange: (v: boolean) => void): HTMLEleme
   return btn;
 }
 
-function createSelect(options: string[], value: string, onChange: (v: string) => void): HTMLElement {
+function createSelect(
+  options: string[],
+  labels: Record<string, string>,
+  value: string,
+  onChange: (v: string) => void
+): HTMLSelectElement {
   const sel = document.createElement("select");
   sel.style.cssText = `
     padding: 4px 8px; border-radius: 6px; font-size: 13px;
@@ -164,7 +175,7 @@ function createSelect(options: string[], value: string, onChange: (v: string) =>
   for (const opt of options) {
     const o = document.createElement("option");
     o.value = opt;
-    o.textContent = opt;
+    o.textContent = labels[opt];
     if (opt === value) o.selected = true;
     sel.appendChild(o);
   }
@@ -241,7 +252,11 @@ function sectionTitle(text: string): HTMLElement {
   return el;
 }
 
-export function createSettingsPanel(settings: EditorSettings, onChange: OnChange): SettingsPanelResult {
+export function createSettingsPanel(
+  settings: EditorSettings,
+  onChange: OnChange,
+  onLanguageChange: OnLanguageChange
+): SettingsPanelResult {
   const backdrop = document.createElement("div");
   backdrop.style.cssText = PANEL_STYLES;
 
@@ -252,11 +267,11 @@ export function createSettingsPanel(settings: EditorSettings, onChange: OnChange
   const header = document.createElement("div");
   header.style.cssText = HEADER_STYLES;
   const titleEl = document.createElement("span");
-  titleEl.textContent = "Settings";
+  titleEl.textContent = messages.settings.title;
   const closeBtn = document.createElement("button");
   closeBtn.style.cssText = CLOSE_BTN_STYLES;
   closeBtn.innerHTML = "&times;";
-  closeBtn.title = "Close";
+  closeBtn.title = messages.settings.close;
   header.append(titleEl, closeBtn);
 
   // Body
@@ -267,23 +282,60 @@ export function createSettingsPanel(settings: EditorSettings, onChange: OnChange
   const emit = () => { saveSettings(s); onChange(s); };
 
   // -- Display section --
-  body.appendChild(sectionTitle("Display"));
-  body.appendChild(row("Color scheme", "Light or dark theme", createSelect(["light", "dark"], s.colorScheme, (v) => { s.colorScheme = v as "light" | "dark"; emit(); })));
-  body.appendChild(row("Line numbers", "Show line numbers in the gutter", createToggle(s.lineNumbers, (v) => { s.lineNumbers = v; emit(); })));
-  body.appendChild(row("Live preview", "Render markdown in real-time", createToggle(s.livePreview, (v) => { s.livePreview = v; emit(); })));
-  body.appendChild(row("Indent guides", "Show indentation guide lines", createToggle(s.indentGuides, (v) => { s.indentGuides = v; emit(); })));
-  body.appendChild(row("Content max width", "Limit line width for readability (e.g. 720px)", createTextInput(s.contentMaxWidth, "e.g. 720px", (v) => { s.contentMaxWidth = v; emit(); })));
-  body.appendChild(row("Text direction", "Left-to-right or right-to-left", createSelect(["ltr", "rtl"], s.direction, (v) => { s.direction = v as "ltr" | "rtl"; emit(); })));
+  body.appendChild(sectionTitle(messages.settings.display));
+  const languageSelect = createSelect(
+    ["system", "zh", "en"],
+    {
+      system: messages.settings.languageSystem,
+      zh: messages.settings.languageChinese,
+      en: messages.settings.languageEnglish,
+    },
+    languagePreference,
+    (value) => {
+      if (!onLanguageChange(value as LanguagePreference)) {
+        languageSelect.value = languagePreference;
+      }
+    }
+  );
+  body.appendChild(row(
+    messages.settings.language,
+    messages.settings.languageDescription,
+    languageSelect
+  ));
+  body.appendChild(row(
+    messages.settings.colorScheme,
+    messages.settings.colorSchemeDescription,
+    createSelect(
+      ["light", "dark"],
+      { light: messages.settings.light, dark: messages.settings.dark },
+      s.colorScheme,
+      (v) => { s.colorScheme = v as "light" | "dark"; emit(); }
+    )
+  ));
+  body.appendChild(row(messages.settings.lineNumbers, messages.settings.lineNumbersDescription, createToggle(s.lineNumbers, (v) => { s.lineNumbers = v; emit(); })));
+  body.appendChild(row(messages.settings.livePreview, messages.settings.livePreviewDescription, createToggle(s.livePreview, (v) => { s.livePreview = v; emit(); })));
+  body.appendChild(row(messages.settings.indentGuides, messages.settings.indentGuidesDescription, createToggle(s.indentGuides, (v) => { s.indentGuides = v; emit(); })));
+  body.appendChild(row(messages.settings.contentMaxWidth, messages.settings.contentMaxWidthDescription, createTextInput(s.contentMaxWidth, messages.settings.contentMaxWidthPlaceholder, (v) => { s.contentMaxWidth = v; emit(); })));
+  body.appendChild(row(
+    messages.settings.textDirection,
+    messages.settings.textDirectionDescription,
+    createSelect(
+      ["ltr", "rtl"],
+      { ltr: messages.settings.leftToRight, rtl: messages.settings.rightToLeft },
+      s.direction,
+      (v) => { s.direction = v as "ltr" | "rtl"; emit(); }
+    )
+  ));
 
   // -- Font section --
-  body.appendChild(sectionTitle("Font"));
-  body.appendChild(row("Font size", "Editor text size in pixels", createNumberInput(s.fontSize, 10, 28, 1, (v) => { s.fontSize = v; emit(); })));
-  body.appendChild(row("Body font", "Font for prose content", createTextInput(s.fontFamily, "system-ui, sans-serif", (v) => { s.fontFamily = v; emit(); })));
-  body.appendChild(row("Code font", "Monospace font for code blocks", createTextInput(s.fontFamilyMono, "ui-monospace, monospace", (v) => { s.fontFamilyMono = v; emit(); })));
+  body.appendChild(sectionTitle(messages.settings.font));
+  body.appendChild(row(messages.settings.fontSize, messages.settings.fontSizeDescription, createNumberInput(s.fontSize, 10, 28, 1, (v) => { s.fontSize = v; emit(); })));
+  body.appendChild(row(messages.settings.bodyFont, messages.settings.bodyFontDescription, createTextInput(s.fontFamily, "system-ui, sans-serif", (v) => { s.fontFamily = v; emit(); })));
+  body.appendChild(row(messages.settings.codeFont, messages.settings.codeFontDescription, createTextInput(s.fontFamilyMono, "ui-monospace, monospace", (v) => { s.fontFamilyMono = v; emit(); })));
 
   // -- Behavior section --
-  body.appendChild(sectionTitle("Behavior"));
-  body.appendChild(row("Tab size", "Number of spaces per tab", createNumberInput(s.tabSize, 1, 8, 1, (v) => { s.tabSize = v; emit(); })));
+  body.appendChild(sectionTitle(messages.settings.behavior));
+  body.appendChild(row(messages.settings.tabSize, messages.settings.tabSizeDescription, createNumberInput(s.tabSize, 1, 8, 1, (v) => { s.tabSize = v; emit(); })));
 
   dialog.append(header, body);
   backdrop.appendChild(dialog);
