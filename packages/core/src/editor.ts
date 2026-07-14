@@ -15,6 +15,7 @@ import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 
 import { EventEmitter } from "./event-emitter";
+import { rehypeSourceMap } from "./html-source-map";
 import { createLivePreviewExtension } from "./live-preview";
 import { flushPendingTableEdits } from "./live-preview-table";
 import { createMarkdownLanguageSupport } from "./lezer-markdown";
@@ -35,6 +36,7 @@ import type {
   EditorEventHandler,
   EditorEventMap,
   EditorSelectionRange,
+  ExportHTMLOptions,
   NexusPlugin,
   ParserLike,
   SetDocumentOptions,
@@ -130,14 +132,18 @@ function lezerAstFromAnywhere(
   return lezerStringToMdast(fallbackMarkdown);
 }
 
-function markdownToHtml(markdown: string, plugins: NexusPlugin[]): string {
+function markdownToHtml(markdown: string, plugins: NexusPlugin[], sourceMap = false): string {
   const processor = unified().use(remarkParse);
   for (const plugin of plugins) {
     for (const rp of plugin.remarkPlugins ?? []) {
       processor.use(rp);
     }
   }
-  processor.use(remarkRehype).use(rehypeStringify);
+  processor.use(remarkRehype);
+  if (sourceMap) {
+    processor.use(rehypeSourceMap);
+  }
+  processor.use(rehypeStringify);
   return String(processor.processSync(markdown));
 }
 
@@ -728,6 +734,21 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // / silent setDocument can read the live incremental Lezer tree.
   viewRef.current = view;
 
+  // Scroll events live on CM6's scroll container, not on contentDOM where
+  // domEventHandlers attach — listen directly. Removed in destroy() (the
+  // node itself also goes away with view.destroy(), this keeps it explicit).
+  const handleScroll = () => {
+    if (!destroyed) emitter.emit("scroll");
+  };
+  view.scrollDOM.addEventListener("scroll", handleScroll, { passive: true });
+
+  // Height-space y (0 = top of document) of the viewport's visible top edge.
+  // documentTop is the document start in screen coordinates, so subtracting
+  // it from the scroller's screen top converts between the two spaces.
+  function viewportTopInDocSpace(): number {
+    return view.scrollDOM.getBoundingClientRect().top - view.documentTop;
+  }
+
   api = {
     getDocument() {
       return view.state.doc.toString();
@@ -738,8 +759,8 @@ export function createEditor(config: EditorConfig): EditorAPI {
     getTableOfContents() {
       return extractToc(currentAst);
     },
-    exportHTML() {
-      return markdownToHtml(view.state.doc.toString(), plugins);
+    exportHTML(options?: ExportHTMLOptions) {
+      return markdownToHtml(view.state.doc.toString(), plugins, options?.sourceMap === true);
     },
     setTheme(theme: NexusTheme) {
       if (destroyed) return;
@@ -914,6 +935,31 @@ export function createEditor(config: EditorConfig): EditorAPI {
         return null;
       }
     },
+    getScrollAnchor() {
+      if (destroyed) return 0;
+      const top = viewportTopInDocSpace();
+      // lineBlockAtHeight tolerates out-of-range heights (clamps to the
+      // first/last block) and works off estimated heights for unmeasured
+      // content, so this is safe during initial layout.
+      const block = view.lineBlockAtHeight(top);
+      const progress = block.height > 0
+        ? Math.max(0, Math.min(1, (top - block.top) / block.height))
+        : 0;
+      return Math.round(block.from + progress * (block.to - block.from));
+    },
+    scrollToAnchor(offset) {
+      if (destroyed) return;
+      const pos = clampPosition(offset, view.state.doc.length);
+      const block = view.lineBlockAt(pos);
+      const progress = block.to > block.from ? (pos - block.from) / (block.to - block.from) : 0;
+      const targetTop = block.top + progress * block.height;
+      const delta = targetTop - viewportTopInDocSpace();
+      // Skip sub-pixel writes: scrollTop assignments fire scroll events even
+      // when the value barely moves, which would echo through scroll-sync.
+      if (Math.abs(delta) > 1) {
+        view.scrollDOM.scrollTop += delta;
+      }
+    },
     getDocumentStats() {
       const doc = view.state.doc.toString();
       const characters = doc.length;
@@ -962,6 +1008,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
       pendingCompositionMarkdown = null;
       pendingDocumentLoad = null;
       composing = false;
+      view.scrollDOM.removeEventListener("scroll", handleScroll);
       emitter.clear();
       try {
         view.destroy();

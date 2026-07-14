@@ -99,11 +99,23 @@ const VAR_MAP: Partial<Record<keyof NexusTheme, string>> = {
   hlVariable: "--nexus-hl-variable",
 };
 
-function themeToEditorTheme(theme: NexusTheme): Extension {
+/**
+ * Map a theme's color tokens to their `--nexus-*` CSS custom properties.
+ * The editor applies these to its own DOM, so they do NOT cascade to
+ * sibling elements — hosts rendering themed UI outside the editor (e.g. a
+ * preview pane) should apply this map to their own root instead of
+ * hand-copying variable names.
+ */
+export function themeToCssVars(theme: NexusTheme): Record<string, string> {
   const vars: Record<string, string> = {};
   for (const [key, cssVar] of Object.entries(VAR_MAP)) {
     vars[cssVar] = theme[key as keyof NexusTheme] as string;
   }
+  return vars;
+}
+
+function themeToEditorTheme(theme: NexusTheme): Extension {
+  const vars = themeToCssVars(theme);
 
   const fontSize = (theme.fontSize ?? 15) + "px";
   const fontFamily = theme.fontFamily ?? "system-ui, -apple-system, BlinkMacSystemFont, sans-serif";

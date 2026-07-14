@@ -1,6 +1,7 @@
 import { createState, type AppState } from "./state";
 import { createEditorShell, type EditorShell } from "./editor-shell";
-import { loadSettings, createSettingsPanel, type EditorSettings } from "./settings";
+import { loadSettings, saveSettings, createSettingsPanel, type EditorSettings } from "./settings";
+import { createPreviewPane, type PreviewPane } from "./preview-pane";
 import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
 import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
@@ -13,6 +14,7 @@ installLongTaskWatch(50);
 const state: AppState = createState();
 let settings: EditorSettings = loadSettings();
 let shell: EditorShell;
+let preview: PreviewPane;
 let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
@@ -71,6 +73,12 @@ function createAppToolbar(): HTMLElement {
   searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
 
+  const splitPreviewBtn = document.createElement("button");
+  splitPreviewBtn.textContent = "◨";
+  splitPreviewBtn.title = "Toggle split preview";
+  splitPreviewBtn.style.fontSize = "14px";
+  splitPreviewBtn.addEventListener("click", toggleSplitPreview);
+
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "\u2699"; // ⚙
   settingsBtn.title = "Settings";
@@ -86,6 +94,7 @@ function createAppToolbar(): HTMLElement {
     vaultToggleBtn,
     outlineBtn,
     backlinksBtn,
+    splitPreviewBtn,
     searchBtn,
     settingsBtn
   );
@@ -129,6 +138,9 @@ async function handleOpen(): Promise<void> {
     state.filePath = result.path;
     state.activeFile = result.path;
     shell.loadDocument(result.content);
+    // Silent document loads skip the change event — refresh the preview
+    // pane explicitly (no-op while it's hidden).
+    preview.render();
     vault.setActiveFile(result.path);
     backlinks.refresh();
   } catch (err) {
@@ -178,6 +190,8 @@ function handleSettings(): void {
   createSettingsPanel(settings, (next) => {
     settings = next;
     shell.applySettings(settings);
+    preview.applySettings(settings);
+    preview.setVisible(settings.splitPreview);
   });
 }
 
@@ -202,6 +216,14 @@ function toggleBacklinks(): void {
   togglePanel(backlinks.element, () => backlinks.refresh());
 }
 
+function toggleSplitPreview(): void {
+  settings = { ...settings, splitPreview: !settings.splitPreview };
+  // Persist so the toolbar toggle and the settings-panel toggle agree on
+  // the next launch, whichever was used last.
+  saveSettings(settings);
+  preview.setVisible(settings.splitPreview);
+}
+
 async function handleVaultFileOpen(filePath: string): Promise<void> {
   const total = perfStart("open-file", { filePath });
   try {
@@ -218,6 +240,9 @@ async function handleVaultFileOpen(filePath: string): Promise<void> {
     const load = perfStart("open-file.loadDocument");
     shell.loadDocument(result.content);
     perfEnd(load);
+
+    // Silent load — no change event fires, refresh the preview explicitly.
+    preview.render();
 
     const setActive = perfStart("open-file.vault.setActiveFile");
     vault.setActiveFile(result.path);
@@ -376,6 +401,8 @@ function boot(): void {
     },
   });
 
+  preview = createPreviewPane({ editor: shell.editor, settings });
+
   vault = createVaultPanel({
     onOpenFile: (filePath) => {
       void handleVaultFileOpen(filePath);
@@ -407,8 +434,16 @@ function boot(): void {
     getActiveFile: () => state.activeFile,
   });
 
-  editorColumn.append(searchBar.element, editorContainer);
+  // Editor and preview share a horizontal split inside the editor column;
+  // the preview half collapses entirely while hidden.
+  const editorSplit = document.createElement("div");
+  editorSplit.className = "editor-split";
+  editorSplit.append(editorContainer, preview.element);
+
+  editorColumn.append(searchBar.element, editorSplit);
   mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
+
+  preview.setVisible(settings.splitPreview);
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {

@@ -19,7 +19,21 @@ export {
   type SlashStateOptions,
   type SlashStateResult,
 } from "./slash-state";
-export { lightTheme, darkTheme, type NexusTheme } from "./theme";
+export {
+  collectScrollSyncAnchors,
+  createScrollSync,
+  previewTopToSourceOffset,
+  sourceOffsetToPreviewTop,
+  type ScrollSync,
+  type ScrollSyncAnchor,
+  type ScrollSyncOptions,
+} from "./scroll-sync";
+export {
+  rehypeSourceMap,
+  SOURCE_MAP_FROM_ATTR,
+  SOURCE_MAP_TO_ATTR,
+} from "./html-source-map";
+export { lightTheme, darkTheme, themeToCssVars, type NexusTheme } from "./theme";
 export {
   scanWikiLinks,
   createWikilinksExtension,
@@ -38,6 +52,7 @@ export type {
   EditorEventHandlers,
   EditorEventMap,
   EditorSelectionRange,
+  ExportHTMLOptions,
   LivePreviewConfig,
   LivePreviewLabels,
   LivePreviewNode,
