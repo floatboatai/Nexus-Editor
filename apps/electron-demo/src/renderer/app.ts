@@ -6,6 +6,7 @@ import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
+import { createQuickOpen, type QuickOpen } from "./quick-open";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
 
 installLongTaskWatch(50);
@@ -17,6 +18,7 @@ let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+let quickOpen: QuickOpen;
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
@@ -71,6 +73,12 @@ function createAppToolbar(): HTMLElement {
   searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
 
+  const quickOpenBtn = document.createElement("button");
+  quickOpenBtn.textContent = "📄"; // 📄
+  quickOpenBtn.title = "Quick open file (Ctrl+P)";
+  quickOpenBtn.style.fontSize = "14px";
+  quickOpenBtn.addEventListener("click", () => quickOpen.open());
+
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "\u2699"; // ⚙
   settingsBtn.title = "Settings";
@@ -86,6 +94,7 @@ function createAppToolbar(): HTMLElement {
     vaultToggleBtn,
     outlineBtn,
     backlinksBtn,
+    quickOpenBtn,
     searchBtn,
     settingsBtn
   );
@@ -406,9 +415,15 @@ function boot(): void {
     onOpenFile: (filePath) => void handleVaultFileOpen(filePath),
     getActiveFile: () => state.activeFile,
   });
+  quickOpen = createQuickOpen({
+    getFiles: () => linkIndex.getAllFiles(),
+    getVaultPath: () => state.vaultPath,
+    onOpenFile: (filePath) => void handleVaultFileOpen(filePath),
+  });
 
   editorColumn.append(searchBar.element, editorContainer);
   mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
+  root.append(quickOpen.element);
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {
@@ -419,6 +434,10 @@ function boot(): void {
     if ((e.ctrlKey || e.metaKey) && e.key === "f") {
       e.preventDefault();
       searchBar.open();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === "p") {
+      e.preventDefault();
+      quickOpen.open();
     }
   });
 
