@@ -1,5 +1,5 @@
 import path from "node:path";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
@@ -19,6 +19,13 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    setupFiles: ["./vitest.setup.ts"]
+    setupFiles: ["./vitest.setup.ts"],
+    // e2e/**/*.e2e.test.ts spawns a real packaged Electron app via
+    // playwright-core (see apps/electron-demo/vitest.e2e.config.ts) — it
+    // needs a prior build and a display, so it must stay out of the default
+    // fast/hermetic `pnpm test` run. Vitest's `exclude` replaces the
+    // built-in defaults rather than extending them, hence spreading them
+    // back in here.
+    exclude: [...configDefaults.exclude, "**/e2e/**"]
   }
 });

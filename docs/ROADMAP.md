@@ -81,7 +81,7 @@ This document maps every planned feature to **package ownership / priority / sta
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
 | 24 | TypeScript type coverage | repo-wide | P0 | in-progress | No | Ongoing; new code enforces strict |
-| 25 | End-to-end testing | repo infra | P1 | planned | No | Candidate: Playwright against electron-demo |
+| 25 | End-to-end testing | repo infra | P1 | done | No | Playwright (`playwright-core` + `_electron`) drives the packaged electron-demo build; `pnpm --filter @floatboat/nexus-electron-demo test:e2e` after `build`. Kept out of default `pnpm test` (separate `vitest.e2e.config.ts`) since it needs a build + display. Initial coverage: app launch, live-preview rendering, task checkbox toggle — more scenarios (vault/file IO, multi-cursor, etc.) are natural follow-ups. |
 | 26 | CI/CD pipeline polish | `.github/workflows` | P1 | in-progress | No | PR check / CI and publish workflow exist; missing e2e gate |
 | 28 | Markdown-aware word / reading-time stats | new `plugin-wordcount` | P1 | done | Yes | Walks editor AST (no double parse) + CJK-first + ARIA status bar — see `openspec/changes/add-plugin-wordcount` |
 
