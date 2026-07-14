@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeSlashes, joinPath } from "../src/renderer/path-utils";
+import { normalizeSlashes, joinPath, isPathInside } from "../src/renderer/path-utils";
 
 describe("normalizeSlashes", () => {
   it("returns path unchanged when already using forward slashes", () => {
@@ -66,5 +66,34 @@ describe("joinPath", () => {
 
   it("handles Windows-style paths as segments", () => {
     expect(joinPath("foo\\bar", "baz")).toBe("foo/bar/baz");
+  });
+});
+
+describe("isPathInside", () => {
+  it("returns true when the target equals the base path", () => {
+    expect(isPathInside("/vault", "/vault")).toBe(true);
+  });
+
+  it("returns true when the target is inside the base path", () => {
+    expect(isPathInside("/vault", "/vault/folder/note.md")).toBe(true);
+  });
+
+  it("ignores trailing slashes on base and target paths", () => {
+    expect(isPathInside("/vault/", "/vault/folder/")).toBe(true);
+    expect(isPathInside("/vault/", "/vault/")).toBe(true);
+  });
+
+  it("normalizes Windows backslashes before comparing", () => {
+    expect(isPathInside("C:\\vault", "C:\\vault\\folder\\note.md")).toBe(true);
+  });
+
+  it("returns false for sibling-prefix paths", () => {
+    expect(isPathInside("/vault", "/vault2/file.md")).toBe(false);
+    expect(isPathInside("C:\\vault", "C:\\vault2\\file.md")).toBe(false);
+  });
+
+  it("treats root as containing absolute descendant paths", () => {
+    expect(isPathInside("/", "/vault/file.md")).toBe(true);
+    expect(isPathInside("/", "/")).toBe(true);
   });
 });
