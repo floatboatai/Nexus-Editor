@@ -13,21 +13,6 @@ import {
 import { resolveInitialDocument, shouldSyncControlledDocument } from "./controlled-document";
 import type { UseEditorConfig, UseEditorResult } from "./types";
 
-function buildCreateConfig(
-  container: HTMLDivElement,
-  config: UseEditorConfig,
-  onDocChange: (doc: string, ast: Root) => void
-) {
-  const { modelValue, initialValue, onChange, onReady, ...rest } = config;
-
-  return {
-    container,
-    ...rest,
-    initialValue: resolveInitialDocument(modelValue, initialValue),
-    onChange: onDocChange
-  };
-}
-
 export function useEditor(config: MaybeRefOrGetter<UseEditorConfig>): UseEditorResult {
   const containerRef = ref<HTMLDivElement | null>(null);
   const editor = shallowRef<ReturnType<typeof createEditor> | null>(null);
@@ -35,6 +20,37 @@ export function useEditor(config: MaybeRefOrGetter<UseEditorConfig>): UseEditorR
   const syncRevision = ref(0);
 
   const resolveConfig = () => toValue(config);
+
+  const buildCreateConfig = (
+    container: HTMLDivElement,
+    cfg: UseEditorConfig,
+    onDocChange: (doc: string, ast: Root) => void
+  ) => {
+    const { modelValue, initialValue, onChange, onReady, onFocus, onBlur, onAssetUpload, ...rest } = cfg;
+
+    const handleFocus = () => {
+      resolveConfig().onFocus?.();
+    };
+
+    const handleBlur = () => {
+      resolveConfig().onBlur?.();
+    };
+
+    const handleAssetUpload = (file: File): Promise<string | null> => {
+      const fn = resolveConfig().onAssetUpload;
+      return fn ? fn(file) : Promise.resolve(null);
+    };
+
+    return {
+      container,
+      ...rest,
+      initialValue: resolveInitialDocument(modelValue, initialValue),
+      onChange: onDocChange,
+      onFocus: handleFocus,
+      onBlur: handleBlur,
+      onAssetUpload: handleAssetUpload
+    };
+  };
 
   onMounted(() => {
     if (!containerRef.value || editor.value) {

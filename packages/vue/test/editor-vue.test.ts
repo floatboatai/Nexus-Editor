@@ -262,4 +262,141 @@ describe("@floatboat/nexus-vue", () => {
       expect(wrapper.element.querySelector(".cm-line")?.textContent).toBe("uncontrolled");
     });
   });
+
+  it("calls the latest onFocus after config updates", async () => {
+    const onFocus1 = vi.fn();
+    const onFocus2 = vi.fn();
+    let editorApi: any = null;
+
+    const configRef = ref({
+      initialValue: "focus-test",
+      onFocus: onFocus1
+    });
+
+    const Harness = defineComponent({
+      setup() {
+        const { containerRef, editor } = useEditor(() => configRef.value);
+        onMounted(() => {
+          editorApi = editor.value;
+        });
+        return () => h("div", { ref: containerRef });
+      }
+    });
+
+    mount(Harness);
+    await nextTick();
+    await vi.waitFor(() => {
+      expect(editorApi).not.toBeNull();
+    });
+
+    editorApi.focus();
+    expect(onFocus1).toHaveBeenCalledOnce();
+    expect(onFocus2).not.toHaveBeenCalled();
+
+    editorApi.blur();
+    onFocus1.mockClear();
+    configRef.value = {
+      initialValue: "focus-test",
+      onFocus: onFocus2
+    };
+    await nextTick();
+
+    editorApi.focus();
+    expect(onFocus1).not.toHaveBeenCalled();
+    expect(onFocus2).toHaveBeenCalledOnce();
+  });
+
+  it("calls the latest onBlur after config updates", async () => {
+    const onBlur1 = vi.fn();
+    const onBlur2 = vi.fn();
+    let editorApi: any = null;
+
+    const configRef = ref({
+      initialValue: "blur-test",
+      onBlur: onBlur1
+    });
+
+    const Harness = defineComponent({
+      setup() {
+        const { containerRef, editor } = useEditor(() => configRef.value);
+        onMounted(() => {
+          editorApi = editor.value;
+        });
+        return () => h("div", { ref: containerRef });
+      }
+    });
+
+    mount(Harness);
+    await nextTick();
+    await vi.waitFor(() => {
+      expect(editorApi).not.toBeNull();
+    });
+
+    editorApi.focus();
+    editorApi.blur();
+    expect(onBlur1).toHaveBeenCalledOnce();
+    expect(onBlur2).not.toHaveBeenCalled();
+
+    editorApi.focus();
+    onBlur1.mockClear();
+    configRef.value = {
+      initialValue: "blur-test",
+      onBlur: onBlur2
+    };
+    await nextTick();
+
+    editorApi.blur();
+    expect(onBlur1).not.toHaveBeenCalled();
+    expect(onBlur2).toHaveBeenCalledOnce();
+  });
+
+  it("calls the latest onAssetUpload after config updates", async () => {
+    const onAssetUpload1 = vi.fn().mockResolvedValue("https://example.com/1.png");
+    const onAssetUpload2 = vi.fn().mockResolvedValue("https://example.com/2.png");
+    let editorApi: any = null;
+
+    const configRef = ref({
+      initialValue: "upload-test",
+      onAssetUpload: onAssetUpload1
+    });
+
+    const Harness = defineComponent({
+      setup() {
+        const { containerRef, editor } = useEditor(() => configRef.value);
+        onMounted(() => {
+          editorApi = editor.value;
+        });
+        return () => h("div", { ref: containerRef });
+      }
+    });
+
+    mount(Harness);
+    await nextTick();
+    await vi.waitFor(() => {
+      expect(editorApi).not.toBeNull();
+    });
+
+    const file1 = new File(["test content 1"], "test1.png", { type: "image/png" });
+    const result1 = await editorApi.uploadAsset(file1);
+
+    expect(result1).toBe("https://example.com/1.png");
+    expect(onAssetUpload1).toHaveBeenCalledOnce();
+    expect(onAssetUpload1).toHaveBeenCalledWith(file1);
+    expect(onAssetUpload2).not.toHaveBeenCalled();
+
+    onAssetUpload1.mockClear();
+    configRef.value = {
+      initialValue: "upload-test",
+      onAssetUpload: onAssetUpload2
+    };
+    await nextTick();
+
+    const file2 = new File(["test content 2"], "test2.png", { type: "image/png" });
+    const result2 = await editorApi.uploadAsset(file2);
+
+    expect(result2).toBe("https://example.com/2.png");
+    expect(onAssetUpload1).not.toHaveBeenCalled();
+    expect(onAssetUpload2).toHaveBeenCalledOnce();
+    expect(onAssetUpload2).toHaveBeenCalledWith(file2);
+  });
 });
