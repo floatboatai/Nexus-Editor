@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { createEditor } from "@floatboat/nexus-core";
+import { createEditor, type EditorAPI } from "@floatboat/nexus-core";
 import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
 import {
+  applyHighlight,
+  applyTextColor,
   toggleBold,
+  toggleBlockquote,
+  toggleStrikethrough,
   toggleItalic,
   toggleInlineCode,
+  insertCodeBlock,
+  insertHorizontalRule,
+  insertImage,
   insertLink,
   toggleHeading,
   toggleOrderedList,
@@ -493,6 +500,132 @@ describe("createToolbarUI", () => {
 
     toolbar.destroy();
     editor.destroy();
+  });
+});
+
+describe("toolbar formatting commands — atomic undo", () => {
+  function expectSingleUndoStep(options: {
+    initialValue: string;
+    select?: [number, number?];
+    run: (editor: EditorAPI) => boolean;
+    expected: string;
+  }) {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: options.initialValue,
+      plugins: [createHistoryPlugin()],
+    });
+
+    const [anchor, head] = options.select ?? [0];
+    editor.setSelection(anchor, head);
+
+    expect(options.run(editor)).toBe(true);
+    expect(editor.getDocument()).toBe(options.expected);
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe(options.initialValue);
+    expect(editor.undo()).toBe(false);
+    editor.destroy();
+  }
+
+  it("wraps and unwraps inline formatting in one undo step", () => {
+    expectSingleUndoStep({
+      initialValue: "hello world",
+      select: [6, 11],
+      run: toggleBold,
+      expected: "hello **world**",
+    });
+
+    expectSingleUndoStep({
+      initialValue: "hello **world**",
+      select: [8, 13],
+      run: toggleBold,
+      expected: "hello world",
+    });
+
+    expectSingleUndoStep({
+      initialValue: "hello world",
+      select: [6, 11],
+      run: toggleItalic,
+      expected: "hello *world*",
+    });
+
+    expectSingleUndoStep({
+      initialValue: "hello world",
+      select: [6, 11],
+      run: toggleStrikethrough,
+      expected: "hello ~~world~~",
+    });
+
+    expectSingleUndoStep({
+      initialValue: "hello world",
+      select: [6, 11],
+      run: toggleInlineCode,
+      expected: "hello `world`",
+    });
+  });
+
+  it("inserts inline templates in one undo step", () => {
+    expectSingleUndoStep({
+      initialValue: "click here",
+      select: [6, 10],
+      run: insertLink,
+      expected: "click [here](url)",
+    });
+
+    expectSingleUndoStep({
+      initialValue: "photo",
+      select: [0, 5],
+      run: insertImage,
+      expected: "![photo](url)",
+    });
+  });
+
+  it("updates line and block formatting in one undo step", () => {
+    expectSingleUndoStep({
+      initialValue: "Title",
+      select: [2],
+      run: (editor) => toggleHeading(editor, 2),
+      expected: "## Title",
+    });
+
+    expectSingleUndoStep({
+      initialValue: "quote",
+      select: [2],
+      run: toggleBlockquote,
+      expected: "> quote",
+    });
+
+    expectSingleUndoStep({
+      initialValue: "hello",
+      select: [0, 5],
+      run: insertCodeBlock,
+      expected: "```\nhello\n```",
+    });
+
+    expectSingleUndoStep({
+      initialValue: "",
+      select: [0],
+      run: insertHorizontalRule,
+      expected: "---\n",
+    });
+  });
+
+  it("applies HTML color wrappers in one undo step", () => {
+    expectSingleUndoStep({
+      initialValue: "hello",
+      select: [0, 5],
+      run: (editor) => applyTextColor(editor, "#f00"),
+      expected: '<span style="color:#f00">hello</span>',
+    });
+
+    expectSingleUndoStep({
+      initialValue: "hello",
+      select: [0, 5],
+      run: (editor) => applyHighlight(editor, "#ff0"),
+      expected: '<mark style="background:#ff0">hello</mark>',
+    });
   });
 });
 
