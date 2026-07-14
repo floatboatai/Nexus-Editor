@@ -61,4 +61,45 @@ describe("@floatboat/nexus-plugin-history", () => {
     expect(editor.getDocument()).toBe("next");
     editor.destroy();
   });
+
+  it("groups multiple changes into a single undo step with groupChanges", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "hello world",
+      plugins: [createHistoryPlugin()]
+    });
+
+    // Group two changes together
+    editor.groupChanges(() => {
+      editor.replaceRange(0, 5, "hey");
+      // After first replace: "hey world" (length 9)
+      editor.replaceRange(4, 9, "earth");
+    });
+    expect(editor.getDocument()).toBe("hey earth");
+
+    // One undo should revert the entire group back to initial
+    editor.undo();
+    expect(editor.getDocument()).toBe("hello world");
+
+    // Redo should restore the grouped result
+    editor.redo();
+    expect(editor.getDocument()).toBe("hey earth");
+
+    editor.destroy();
+  });
+
+  it("accepts newGroupDelay option", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "test",
+      plugins: [createHistoryPlugin({ newGroupDelay: 100 })]
+    });
+
+    editor.setDocument("modified");
+    editor.undo();
+    expect(editor.getDocument()).toBe("test");
+    editor.destroy();
+  });
 });

@@ -6,6 +6,7 @@ import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
+import { createPreviewPanel, type PreviewPanel } from "./preview-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
 
 installLongTaskWatch(50);
@@ -17,6 +18,7 @@ let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+let preview: PreviewPanel;
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
@@ -65,6 +67,12 @@ function createAppToolbar(): HTMLElement {
   backlinksBtn.style.fontSize = "14px";
   backlinksBtn.addEventListener("click", toggleBacklinks);
 
+  const previewBtn = document.createElement("button");
+  previewBtn.textContent = "\u25A8"; // ▨
+  previewBtn.title = "Toggle split preview";
+  previewBtn.style.fontSize = "14px";
+  previewBtn.addEventListener("click", togglePreview);
+
   const searchBtn = document.createElement("button");
   searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
   searchBtn.title = "Search (Ctrl+F)";
@@ -86,6 +94,7 @@ function createAppToolbar(): HTMLElement {
     vaultToggleBtn,
     outlineBtn,
     backlinksBtn,
+    previewBtn,
     searchBtn,
     settingsBtn
   );
@@ -131,6 +140,7 @@ async function handleOpen(): Promise<void> {
     shell.loadDocument(result.content);
     vault.setActiveFile(result.path);
     backlinks.refresh();
+    preview.refresh();
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
   }
@@ -202,6 +212,10 @@ function toggleBacklinks(): void {
   togglePanel(backlinks.element, () => backlinks.refresh());
 }
 
+function togglePreview(): void {
+  preview.toggle();
+}
+
 async function handleVaultFileOpen(filePath: string): Promise<void> {
   const total = perfStart("open-file", { filePath });
   try {
@@ -226,6 +240,8 @@ async function handleVaultFileOpen(filePath: string): Promise<void> {
     const bl = perfStart("open-file.backlinks.refresh");
     backlinks.refresh();
     perfEnd(bl);
+
+    preview.refresh();
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
   }
@@ -407,8 +423,19 @@ function boot(): void {
     getActiveFile: () => state.activeFile,
   });
 
+  preview = createPreviewPanel({
+    editor: shell.editor,
+    onToggle(visible) {
+      if (visible) {
+        editorColumn.classList.add("split-mode");
+      } else {
+        editorColumn.classList.remove("split-mode");
+      }
+    },
+  });
+
   editorColumn.append(searchBar.element, editorContainer);
-  mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
+  mainArea.append(vault.element, editorColumn, preview.element, outline.element, backlinks.element);
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {

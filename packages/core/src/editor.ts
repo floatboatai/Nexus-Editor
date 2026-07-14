@@ -1,11 +1,11 @@
-import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
+import { Annotation, EditorSelection, EditorState, StateEffect, Transaction } from "@codemirror/state";
 
 // Annotation attached to dispatches that load content programmatically (e.g.
 // setDocument from file open) so updateListener can skip the user-edit path —
 // no onChange emission, no AST reparse for the onChange pipeline.
 const silentDocChange = Annotation.define<boolean>();
 import { EditorView, keymap, dropCursor, lineNumbers, type Direction } from "@codemirror/view";
-import { indentWithTab, undo as cmUndo, redo as cmRedo } from "@codemirror/commands";
+import { indentWithTab, undo as cmUndo, redo as cmRedo, isolateHistory } from "@codemirror/commands";
 import { closeBrackets } from "@codemirror/autocomplete";
 import type { Root } from "mdast";
 import type { Heading } from "mdast";
@@ -15,6 +15,7 @@ import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 
 import { EventEmitter } from "./event-emitter";
+import { createPluginBus } from "./plugin-bus";
 import { createLivePreviewExtension } from "./live-preview";
 import { flushPendingTableEdits } from "./live-preview-table";
 import { createMarkdownLanguageSupport } from "./lezer-markdown";
@@ -131,15 +132,27 @@ function lezerAstFromAnywhere(
 }
 
 function markdownToHtml(markdown: string, plugins: NexusPlugin[]): string {
-  const processor = unified().use(remarkParse);
-  for (const plugin of plugins) {
-    for (const rp of plugin.remarkPlugins ?? []) {
-      processor.use(rp);
+  // Cache the processor so we don't pay ~100ms setup cost per call.
+  // The plugins array reference is stable for the lifetime of the editor.
+  if (!htmlProcessorCache || htmlProcessorCache.plugins !== plugins) {
+    const processor = unified().use(remarkParse);
+    for (const plugin of plugins) {
+      for (const rp of plugin.remarkPlugins ?? []) {
+        if (Array.isArray(rp)) {
+          processor.use(rp[0], ...rp.slice(1));
+        } else {
+          processor.use(rp);
+        }
+      }
     }
+    processor.use(remarkRehype, { allowDangerousHtml: true }).use(rehypeStringify, { allowDangerousHtml: true });
+    processor.freeze();
+    htmlProcessorCache = { plugins, processor: processor as any };
   }
-  processor.use(remarkRehype).use(rehypeStringify);
-  return String(processor.processSync(markdown));
+  return String(htmlProcessorCache!.processor.processSync(markdown));
 }
+
+let htmlProcessorCache: { plugins: NexusPlugin[]; processor: any } | null = null;
 
 function extractToc(ast: Root): TocEntry[] {
   const entries: TocEntry[] = [];
@@ -196,7 +209,11 @@ function createParser(plugins: NexusPlugin[]): ParserLike {
   const processor = unified().use(remarkParse);
   for (const plugin of plugins) {
     for (const remarkPlugin of plugin.remarkPlugins ?? []) {
-      processor.use(remarkPlugin);
+      if (Array.isArray(remarkPlugin)) {
+        (processor.use as any)(remarkPlugin[0], ...remarkPlugin.slice(1));
+      } else {
+        processor.use(remarkPlugin);
+      }
     }
   }
   processor.freeze();
@@ -220,7 +237,11 @@ function createTransformProcessor(plugins: NexusPlugin[]): { runSync(tree: Root)
   const processor = unified();
   for (const plugin of plugins) {
     for (const remarkPlugin of plugin.remarkPlugins ?? []) {
-      processor.use(remarkPlugin);
+      if (Array.isArray(remarkPlugin)) {
+        (processor.use as any)(remarkPlugin[0], ...remarkPlugin.slice(1));
+      } else {
+        processor.use(remarkPlugin);
+      }
       attached++;
     }
   }
@@ -578,6 +599,15 @@ export function createEditor(config: EditorConfig): EditorAPI {
             }
             flushCompositionChange(view, "compositionend");
             return false;
+          },
+          scroll(_event, view) {
+            const scrollDOM = view.scrollDOM;
+            const scrollTop = scrollDOM.scrollTop;
+            const scrollHeight = scrollDOM.scrollHeight - scrollDOM.clientHeight;
+            const fraction = scrollHeight <= 0 ? 0 : Math.min(1, Math.max(0, scrollTop / scrollHeight));
+            const topLine = view.state.doc.lineAt(view.lineBlockAtHeight(scrollTop).from).number;
+            emitter.emit("scrollChange", { fraction, topLine });
+            return false;
           }
         }),
         EditorView.updateListener.of((update) => {
@@ -728,6 +758,8 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // / silent setDocument can read the live incremental Lezer tree.
   viewRef.current = view;
 
+  const pluginBus = createPluginBus();
+
   api = {
     getDocument() {
       return view.state.doc.toString();
@@ -852,6 +884,53 @@ export function createEditor(config: EditorConfig): EditorAPI {
       if (destroyed) return false;
       return cmRedo(view);
     },
+    groupChanges(fn: () => void) {
+      if (destroyed) return;
+      // Snapshot the document state before the callback.
+      const startDoc = view.state.doc.toString();
+
+      // Run the callback — individual dispatches happen normally
+      // but we suppress their history entries via addToHistory=false.
+      // We achieve this by wrapping each dispatch with the annotation.
+      const origDispatch = view.dispatch.bind(view);
+      (view as any).dispatch = function(...args: any[]) {
+        // For TransactionSpec objects, inject addToHistory=false
+        if (args.length === 1 && typeof args[0] === "object" && args[0] !== null && !('state' in args[0])) {
+          const spec = args[0];
+          if (!spec.annotations) {
+            spec.annotations = Transaction.addToHistory.of(false);
+          } else if (Array.isArray(spec.annotations)) {
+            spec.annotations = [...spec.annotations, Transaction.addToHistory.of(false)];
+          } else {
+            spec.annotations = [spec.annotations, Transaction.addToHistory.of(false)];
+          }
+        }
+        return origDispatch(...args);
+      };
+
+      try {
+        fn();
+      } finally {
+        view.dispatch = origDispatch;
+      }
+
+      const endDoc = view.state.doc.toString();
+      const endSelection = view.state.selection;
+      if (endDoc === startDoc) return;
+
+      // Revert to startDoc without history
+      origDispatch.call(view, {
+        changes: { from: 0, to: view.state.doc.length, insert: startDoc },
+        annotations: Transaction.addToHistory.of(false)
+      });
+
+      // Apply the combined change as a single history entry
+      origDispatch.call(view, {
+        changes: { from: 0, to: view.state.doc.length, insert: endDoc },
+        selection: endSelection,
+        annotations: isolateHistory.of("full")
+      });
+    },
     focus() {
       if (destroyed) {
         return;
@@ -906,6 +985,21 @@ export function createEditor(config: EditorConfig): EditorAPI {
         return null;
       }
     },
+    getScrollFraction() {
+      if (destroyed) return 0;
+      const scrollDOM = view.scrollDOM;
+      const scrollTop = scrollDOM.scrollTop;
+      const scrollHeight = scrollDOM.scrollHeight - scrollDOM.clientHeight;
+      if (scrollHeight <= 0) return 0;
+      return Math.min(1, Math.max(0, scrollTop / scrollHeight));
+    },
+    scrollToFraction(fraction: number) {
+      if (destroyed) return;
+      const clamped = Math.min(1, Math.max(0, fraction));
+      const scrollDOM = view.scrollDOM;
+      const scrollHeight = scrollDOM.scrollHeight - scrollDOM.clientHeight;
+      scrollDOM.scrollTop = clamped * scrollHeight;
+    },
     getPosAtDOM(node) {
       if (destroyed) return null;
       try {
@@ -920,6 +1014,44 @@ export function createEditor(config: EditorConfig): EditorAPI {
       const words = doc.trim() === "" ? 0 : doc.trim().split(/\s+/).length;
       const lines = view.state.doc.lines;
       return { characters, words, lines };
+    },
+    bus: pluginBus,
+    getKeybindings() {
+      const bindings: Array<{ id: string; key: string; label?: string }> = [];
+      for (const plugin of plugins) {
+        if (plugin.commands) {
+          for (const cmd of plugin.commands) {
+            if (cmd.hotkey) {
+              bindings.push({ id: cmd.id, key: cmd.hotkey, label: cmd.label });
+            }
+          }
+        }
+        if (plugin.shortcuts) {
+          for (let i = 0; i < plugin.shortcuts.length; i++) {
+            const s = plugin.shortcuts[i];
+            bindings.push({ id: `${plugin.name}:shortcut:${i}`, key: s.key });
+          }
+        }
+      }
+      return bindings;
+    },
+    setKeybinding(id: string, _key: string) {
+      // Find the command with this id and update its hotkey
+      for (const plugin of plugins) {
+        if (plugin.commands) {
+          const cmd = plugin.commands.find((c) => c.id === id);
+          if (cmd) {
+            cmd.hotkey = _key;
+            return true;
+          }
+        }
+      }
+      return false;
+    },
+    resetKeybinding(_id: string) {
+      // Keybinding reset requires storing original defaults — currently a no-op
+      // that returns false. Full implementation would need a default registry.
+      return false;
     },
     destroy() {
       if (destroyed || destroying) return;
@@ -975,6 +1107,17 @@ export function createEditor(config: EditorConfig): EditorAPI {
       if (hasError) throw firstError;
     }
   };
+
+  // Invoke plugin setup hooks now that the API is ready
+  for (const plugin of plugins) {
+    if (plugin.setup) {
+      try {
+        plugin.setup(api);
+      } catch (err) {
+        console.error(`[nexus] Plugin "${plugin.name}" setup error:`, err);
+      }
+    }
+  }
 
   return api;
 }

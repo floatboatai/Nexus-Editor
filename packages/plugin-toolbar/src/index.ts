@@ -12,6 +12,8 @@ import {
 export { toggleBlockquote, toggleOrderedList, toggleUnorderedList, insertCodeBlock, insertImage, insertHorizontalRule, applyTextColor, applyHighlight } from "./formatting";
 export { createToolbarUI } from "./toolbar-ui";
 export { colorDecorationExtension } from "./color-decoration";
+export { showEmojiPicker, EMOJI_DATA, type EmojiCategory } from "./emoji-picker";
+export { showTableTool, generateMarkdownTable } from "./table-tool";
 export type { ToolbarUI, ToolbarUIOptions, ToolbarButton, ToolbarGroup } from "./toolbar-ui";
 
 export function toggleWrap(editor: EditorAPI, marker: string): boolean {
