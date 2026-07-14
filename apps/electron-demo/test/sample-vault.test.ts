@@ -9,6 +9,10 @@ const VAULT_ROOT = path.resolve(__dirname, "../sample-vault");
 const SUPPORTED = new Set([".md", ".markdown", ".txt"]);
 const SKIP_DIRS = new Set(["node_modules", ".git"]);
 
+function vaultPath(...parts: string[]): string {
+  return normalizeSlashes(path.join(VAULT_ROOT, ...parts));
+}
+
 async function collect(dir: string, acc: string[]): Promise<void> {
   const entries = await readdir(dir, { withFileTypes: true });
   for (const e of entries) {
@@ -53,7 +57,7 @@ describe("sample-vault fixture — end-to-end wiki-link behavior", () => {
 
   it("every note links back to index.md (hub topology)", async () => {
     const idx = await buildIndex();
-    const hub = path.join(VAULT_ROOT, "index.md");
+    const hub = vaultPath("index.md");
     const hits = idx.getBacklinks(hub);
     const sources = new Set(hits.map((h) => normalizeSlashes(path.relative(VAULT_ROOT, h.sourcePath))));
     // README is documentation, not a note that must link in; every *other*
@@ -77,25 +81,25 @@ describe("sample-vault fixture — end-to-end wiki-link behavior", () => {
 
   it("[[AI]] from Daily resolves to Topics/AI.md (globally unique basename)", async () => {
     const idx = await buildIndex();
-    const daily = path.join(VAULT_ROOT, "Daily/2026-04-20.md");
-    expect(idx.resolve("AI", daily)).toBe(normalizeSlashes(path.join(VAULT_ROOT, "Topics/AI.md")));
+    const daily = vaultPath("Daily/2026-04-20.md");
+    expect(idx.resolve("AI", daily)).toBe(vaultPath("Topics/AI.md"));
   });
 
   it("[[Meeting]] from work/Inbox.md resolves to work/Meeting.md (same-dir wins)", async () => {
     const idx = await buildIndex();
-    const inbox = path.join(VAULT_ROOT, "work/Inbox.md");
-    expect(idx.resolve("Meeting", inbox)).toBe(normalizeSlashes(path.join(VAULT_ROOT, "work/Meeting.md")));
+    const inbox = vaultPath("work/Inbox.md");
+    expect(idx.resolve("Meeting", inbox)).toBe(vaultPath("work/Meeting.md"));
   });
 
   it("[[Meeting]] from personal/Diary.md resolves to personal/Meeting.md (symmetric)", async () => {
     const idx = await buildIndex();
-    const diary = path.join(VAULT_ROOT, "personal/Diary.md");
-    expect(idx.resolve("Meeting", diary)).toBe(normalizeSlashes(path.join(VAULT_ROOT, "personal/Meeting.md")));
+    const diary = vaultPath("personal/Diary.md");
+    expect(idx.resolve("Meeting", diary)).toBe(vaultPath("personal/Meeting.md"));
   });
 
   it("[[Ghost Note]] in ghost-demo.md is unresolved (creates-on-click scenario)", async () => {
     const idx = await buildIndex();
-    const ghost = path.join(VAULT_ROOT, "ghost-demo.md");
+    const ghost = vaultPath("ghost-demo.md");
     expect(idx.resolve("Ghost Note", ghost)).toBeNull();
     expect(idx.resolve("NonExistent", ghost)).toBeNull();
   });
@@ -104,7 +108,7 @@ describe("sample-vault fixture — end-to-end wiki-link behavior", () => {
     const idx = await buildIndex();
     // NotALink should not be resolvable via any rule — it must never appear
     // as a valid target because the scanner skipped it.
-    expect(idx.resolve("NotALink", path.join(VAULT_ROOT, "ghost-demo.md"))).toBeNull();
+    expect(idx.resolve("NotALink", vaultPath("ghost-demo.md"))).toBeNull();
     // And no file's forward edges include a "NotALink" target.
     for (const source of idx.getAllFiles()) {
       const hits = idx.getBacklinks(source);
@@ -144,7 +148,7 @@ describe("sample-vault fixture — end-to-end wiki-link behavior", () => {
 
   it("Testing.md shows linked backlinks from current sample-vault references", async () => {
     const idx = await buildIndex();
-    const testingPath = path.join(VAULT_ROOT, "Topics/Testing.md");
+    const testingPath = vaultPath("Topics/Testing.md");
     const linked = idx.getBacklinks(testingPath).map((m) => normalizeSlashes(path.relative(VAULT_ROOT, m.sourcePath)));
     expect(linked.length).toBeGreaterThan(0);
     expect(linked).toContain(normalizeSlashes("Projects/Nexus-Editor.md"));
@@ -152,7 +156,7 @@ describe("sample-vault fixture — end-to-end wiki-link behavior", () => {
 
   it("Bob.md has an unlinked mention in Alice.md (plain text 'Bob' outside brackets)", async () => {
     const idx = await buildIndex();
-    const bob = path.join(VAULT_ROOT, "People/Bob.md");
+    const bob = vaultPath("People/Bob.md");
     const mentions = idx.getUnlinkedMentions(bob);
     const sources = mentions.map((m) => normalizeSlashes(path.relative(VAULT_ROOT, m.sourcePath)));
     expect(sources).toContain(normalizeSlashes("People/Alice.md"));
@@ -160,7 +164,7 @@ describe("sample-vault fixture — end-to-end wiki-link behavior", () => {
 
   it("AI.md has an unlinked mention in Alice.md and Daily/2026-04-20.md has a linked one", async () => {
     const idx = await buildIndex();
-    const ai = path.join(VAULT_ROOT, "Topics/AI.md");
+    const ai = vaultPath("Topics/AI.md");
     const unlinked = idx.getUnlinkedMentions(ai).map((m) => normalizeSlashes(path.relative(VAULT_ROOT, m.sourcePath)));
     const linked = idx.getBacklinks(ai).map((m) => normalizeSlashes(path.relative(VAULT_ROOT, m.sourcePath)));
     expect(unlinked).toContain(normalizeSlashes("People/Alice.md")); // plain text "AI" in Alice.md
@@ -169,12 +173,12 @@ describe("sample-vault fixture — end-to-end wiki-link behavior", () => {
 
   it("v2-shaped anchors in Ideas.md resolve to the underlying file, not ghosts", async () => {
     const idx = await buildIndex();
-    const ideas = path.join(VAULT_ROOT, "Projects/Ideas.md");
+    const ideas = vaultPath("Projects/Ideas.md");
     expect(idx.resolve("Projects/Nexus-Editor#Context", ideas)).toBe(
-      normalizeSlashes(path.join(VAULT_ROOT, "Projects/Nexus-Editor.md"))
+      vaultPath("Projects/Nexus-Editor.md")
     );
     expect(idx.resolve("Projects/Nexus-Editor^some-block", ideas)).toBe(
-      normalizeSlashes(path.join(VAULT_ROOT, "Projects/Nexus-Editor.md"))
+      vaultPath("Projects/Nexus-Editor.md")
     );
   });
 
