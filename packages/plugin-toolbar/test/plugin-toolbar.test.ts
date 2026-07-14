@@ -606,3 +606,66 @@ describe("toggleUnorderedList — atomic undo", () => {
     editor.destroy();
   });
 });
+
+describe("toggleBold — atomic undo", () => {
+  it("bold toggle → single undo fully restores document", () => {
+    const container = document.createElement("div");
+    const original = "hello world";
+    const editor = createEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
+
+    editor.setSelection(6, 11);
+    toggleBold(editor);
+    expect(editor.getDocument()).toBe("hello **world**");
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe(original);
+    expect(editor.undo()).toBe(false);
+    editor.destroy();
+  });
+
+  it("bold toggle → undo → redo recovers bold state in one step", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world", plugins: [createHistoryPlugin()] });
+
+    editor.setSelection(6, 11);
+    toggleBold(editor);
+    editor.undo();
+    expect(editor.redo()).toBe(true);
+    expect(editor.getDocument()).toBe("hello **world**");
+    editor.destroy();
+  });
+});
+
+describe("insertLink — atomic undo", () => {
+  it("insert link → single undo fully restores document", () => {
+    const container = document.createElement("div");
+    const original = "click here";
+    const editor = createEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
+
+    editor.setSelection(6, 10);
+    insertLink(editor);
+    expect(editor.getDocument()).toBe("click [here](url)");
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe(original);
+    expect(editor.undo()).toBe(false);
+    editor.destroy();
+  });
+});
+
+describe("toggleHeading — atomic undo", () => {
+  it("heading toggle → single undo fully restores document", () => {
+    const container = document.createElement("div");
+    const original = "Title";
+    const editor = createEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
+
+    editor.setSelection(2);
+    toggleHeading(editor, 2);
+    expect(editor.getDocument()).toBe("## Title");
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe(original);
+    expect(editor.undo()).toBe(false);
+    editor.destroy();
+  });
+});
