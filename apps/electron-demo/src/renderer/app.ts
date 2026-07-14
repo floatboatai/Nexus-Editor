@@ -6,6 +6,13 @@ import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
+import {
+  language,
+  languagePreference,
+  messages,
+  saveLanguagePreference,
+  type LanguagePreference,
+} from "./i18n";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
 
 installLongTaskWatch(50);
@@ -26,22 +33,22 @@ function createAppToolbar(): HTMLElement {
   toolbar.className = "toolbar";
 
   const vaultBtn = document.createElement("button");
-  vaultBtn.textContent = "Vault";
-  vaultBtn.title = "Open a folder as a vault";
+  vaultBtn.textContent = messages.toolbar.vault;
+  vaultBtn.title = messages.toolbar.vaultTitle;
   vaultBtn.addEventListener("click", () => {
     void vault.promptPickVault();
   });
 
   const openBtn = document.createElement("button");
-  openBtn.textContent = "Open";
+  openBtn.textContent = messages.toolbar.open;
   openBtn.addEventListener("click", handleOpen);
 
   const saveBtn = document.createElement("button");
-  saveBtn.textContent = "Save";
+  saveBtn.textContent = messages.toolbar.save;
   saveBtn.addEventListener("click", handleSave);
 
   const saveAsBtn = document.createElement("button");
-  saveAsBtn.textContent = "Save As";
+  saveAsBtn.textContent = messages.toolbar.saveAs;
   saveAsBtn.addEventListener("click", handleSaveAs);
 
   const spacer = document.createElement("div");
@@ -49,31 +56,31 @@ function createAppToolbar(): HTMLElement {
 
   const vaultToggleBtn = document.createElement("button");
   vaultToggleBtn.textContent = "\uD83D\uDCD1"; // 📑
-  vaultToggleBtn.title = "Toggle vault panel";
+  vaultToggleBtn.title = messages.toolbar.toggleVault;
   vaultToggleBtn.style.fontSize = "14px";
   vaultToggleBtn.addEventListener("click", toggleVault);
 
   const outlineBtn = document.createElement("button");
   outlineBtn.textContent = "\u2630"; // ☰
-  outlineBtn.title = "Toggle outline";
+  outlineBtn.title = messages.toolbar.toggleOutline;
   outlineBtn.style.fontSize = "14px";
   outlineBtn.addEventListener("click", toggleOutline);
 
   const backlinksBtn = document.createElement("button");
   backlinksBtn.textContent = "\uD83D\uDD17"; // 🔗
-  backlinksBtn.title = "Toggle backlinks panel";
+  backlinksBtn.title = messages.toolbar.toggleBacklinks;
   backlinksBtn.style.fontSize = "14px";
   backlinksBtn.addEventListener("click", toggleBacklinks);
 
   const searchBtn = document.createElement("button");
   searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
-  searchBtn.title = "Search (Ctrl+F)";
+  searchBtn.title = messages.toolbar.search;
   searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
 
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "\u2699"; // ⚙
-  settingsBtn.title = "Settings";
+  settingsBtn.title = messages.toolbar.settings;
   settingsBtn.style.fontSize = "16px";
   settingsBtn.addEventListener("click", handleSettings);
 
@@ -103,20 +110,20 @@ function renderStatus(): void {
   const el = document.getElementById("status-line");
   if (!el) return;
 
-  const pathLabel = state.activeFile ?? state.filePath ?? "Untitled";
-  const dirtyMark = state.dirty ? " [modified]" : "";
+  const pathLabel = state.activeFile ?? state.filePath ?? messages.status.untitled;
+  const dirtyMark = state.dirty ? ` [${messages.status.modified}]` : "";
   const stats = shell?.editor.getDocumentStats();
-  const statsText = stats ? ` | ${stats.words} words, ${stats.lines} lines` : "";
+  const statsText = stats ? ` | ${messages.status.stats(stats.words, stats.lines)}` : "";
   const vaultLabel = state.vaultPath
-    ? ` | Vault: ${state.vaultPath.split(/[\\/]/).pop()}`
+    ? ` | ${messages.status.vault}: ${state.vaultPath.split(/[\\/]/).pop()}`
     : "";
-  const errorText = state.error ? ` — Error: ${state.error}` : "";
+  const errorText = state.error ? ` — ${messages.status.error}: ${state.error}` : "";
   el.textContent = `${pathLabel}${dirtyMark}${statsText}${vaultLabel}${errorText}`;
 }
 
 async function confirmDiscardIfDirty(): Promise<boolean> {
   if (!state.dirty) return true;
-  return window.confirm("You have unsaved changes. Discard them and switch files?");
+  return window.confirm(messages.confirmDiscard);
 }
 
 async function handleOpen(): Promise<void> {
@@ -178,6 +185,12 @@ function handleSettings(): void {
   createSettingsPanel(settings, (next) => {
     settings = next;
     shell.applySettings(settings);
+  }, (preference: LanguagePreference) => {
+    if (preference === languagePreference) return true;
+    if (state.dirty && !window.confirm(messages.confirmLanguageChange)) return false;
+    saveLanguagePreference(preference);
+    window.location.reload();
+    return true;
   });
 }
 
@@ -299,7 +312,7 @@ async function handleWikilinkNavigate(target: string, opts: { unresolved: boolea
       return;
     }
     if (!state.vaultPath) {
-      state.error = "Open a vault before following wiki links.";
+      state.error = messages.openVaultBeforeWikiLink;
       renderStatus();
       return;
     }
@@ -342,6 +355,8 @@ async function tryRestoreLastVault(): Promise<void> {
 
 function boot(): void {
   const bootScope = perfStart("boot");
+  document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+  document.title = messages.appTitle;
   const root = document.getElementById("app");
   if (!root) throw new Error("Missing #app element");
 

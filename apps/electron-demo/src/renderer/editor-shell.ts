@@ -1,8 +1,10 @@
 import {
   createEditor,
   createWikilinksPlugin,
+  enLocale,
   type EditorAPI,
   type LivePreviewRenderContext,
+  zhLocale,
 } from "@floatboat/nexus-core";
 import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
@@ -15,6 +17,12 @@ import {
   type WordCountPlugin
 } from "@floatboat/nexus-plugin-wordcount";
 import type { AppState } from "./state";
+import {
+  language,
+  messages,
+  searchPluginLabels,
+  wordCountLabels,
+} from "./i18n";
 import { type EditorSettings, settingsToTheme } from "./settings";
 
 // Parse Obsidian-style size specifier from the alt text: `alt|width` or
@@ -116,7 +124,34 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   // the editor container's footer. Bound to the editor instance via
   // `attachWordCountPlugin` once `createEditor` returns.
   const wordcount = createWordCountPlugin({
-    statusBar: { container, classPrefix: "nexus-wordcount" },
+    statusBar: {
+      container,
+      classPrefix: "nexus-wordcount",
+      labels: wordCountLabels,
+      locale: language === "zh" ? "zh-CN" : "en",
+    },
+  });
+
+  const toolbarPlugin = createToolbarPlugin();
+  const slashLabels: Record<string, readonly [string, string]> = {
+    h1: messages.slashCommands.h1,
+    h2: messages.slashCommands.h2,
+    h3: messages.slashCommands.h3,
+    bold: messages.slashCommands.bold,
+    italic: messages.slashCommands.italic,
+    strikethrough: messages.slashCommands.strikethrough,
+    "inline-code": messages.slashCommands.inlineCode,
+    "code-block": messages.slashCommands.codeBlock,
+    blockquote: messages.slashCommands.blockquote,
+    ulist: messages.slashCommands.ulist,
+    olist: messages.slashCommands.olist,
+    link: messages.slashCommands.link,
+    image: messages.slashCommands.image,
+    hr: messages.slashCommands.hr,
+  };
+  toolbarPlugin.slashCommands = toolbarPlugin.slashCommands?.map((command) => {
+    const [title, description] = slashLabels[command.id];
+    return { ...command, title, description };
   });
 
   // No more parser worker. Live-preview drives off `syntaxTree(state)` from
@@ -139,8 +174,8 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     plugins: [
       createGfmPreset(),
       createHistoryPlugin(),
-      createToolbarPlugin(),
-      createSearchPlugin(),
+      toolbarPlugin,
+      createSearchPlugin({ labels: searchPluginLabels }),
       wikilinksPlugin,
       wordcount,
     ],
@@ -181,8 +216,8 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
               // Top-right action: jump cursor to image source.
               const srcBtn = document.createElement("button");
               srcBtn.type = "button";
-              srcBtn.title = "View source";
-              srcBtn.setAttribute("aria-label", "View image markdown source");
+              srcBtn.title = messages.editor.viewSource;
+              srcBtn.setAttribute("aria-label", messages.editor.viewImageSource);
               srcBtn.textContent = "</>";
               srcBtn.style.cssText = [
                 "position:absolute",
@@ -218,7 +253,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
               // Bottom-right resize handle — drag to resize; on mouseup writes
               // back `|width` into the image's alt in markdown.
               const resizeDot = document.createElement("span");
-              resizeDot.title = "Drag to resize";
+              resizeDot.title = messages.editor.dragToResize;
               resizeDot.style.cssText = [
                 "position:absolute",
                 "bottom:2px",
@@ -299,7 +334,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
 
               img.addEventListener("error", () => {
                 const err = document.createElement("span");
-                err.textContent = `⚠ image not found: ${node.url}`;
+                err.textContent = messages.editor.imageNotFound(node.url);
                 err.style.cssText =
                   "display:block;padding:8px 12px;font-size:12px;color:var(--nexus-hl-deletion,#c33);" +
                   "font-family:monospace;background:var(--nexus-bg-subtle);border-radius:4px;";
@@ -315,6 +350,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
         }
       : false,
     theme: settingsToTheme(settings),
+    locale: language === "zh" ? zhLocale : enLocale,
     tabSize: settings.tabSize,
     direction: settings.direction,
     indentGuides: settings.indentGuides,
@@ -333,6 +369,32 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   editorRef.current = editor;
 
   const toolbar = createToolbarUI(editor);
+  const toolbarLabels: Record<string, string> = {
+    undo: messages.toolbarActions.undo,
+    redo: messages.toolbarActions.redo,
+    link: messages.toolbarActions.link,
+    h2: messages.toolbarActions.h2,
+    h3: messages.toolbarActions.h3,
+    "heading-menu": messages.toolbarActions.headingMenu,
+    bold: messages.toolbarActions.bold,
+    italic: messages.toolbarActions.italic,
+    strikethrough: messages.toolbarActions.strikethrough,
+    underline: messages.toolbarActions.underline,
+    "inline-code": messages.toolbarActions.inlineCode,
+    blockquote: messages.toolbarActions.blockquote,
+    "code-block": messages.toolbarActions.codeBlock,
+    "ordered-list": messages.toolbarActions.orderedList,
+    "unordered-list": messages.toolbarActions.unorderedList,
+    "text-color": messages.toolbarActions.textColor,
+    highlight: messages.toolbarActions.highlight,
+    image: messages.toolbarActions.image,
+    fullscreen: messages.toolbarActions.fullscreen,
+  };
+  toolbar.element.querySelectorAll<HTMLButtonElement>("[data-toolbar-action]").forEach((button) => {
+    const label = toolbarLabels[button.dataset.toolbarAction!];
+    button.dataset.toolbarTooltip = label;
+    button.setAttribute("aria-label", label);
+  });
   container.insertBefore(toolbar.element, container.firstChild);
 
   // The slash menu owns its own DOM root mounted on document.body so
