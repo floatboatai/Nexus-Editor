@@ -56,6 +56,38 @@ export function settingsToTheme(settings: EditorSettings): NexusTheme {
   };
 }
 
+const ROOT_THEME_VARS: Partial<Record<keyof NexusTheme, string>> = {
+  bg: "--nexus-bg",
+  bgSubtle: "--nexus-bg-subtle",
+  bgMuted: "--nexus-bg-muted",
+  text: "--nexus-text",
+  textMuted: "--nexus-text-muted",
+  textFaint: "--nexus-text-faint",
+  border: "--nexus-border",
+  borderSubtle: "--nexus-border-subtle",
+  accent: "--nexus-accent",
+  tooltipBg: "--nexus-tooltip-bg",
+  tooltipText: "--nexus-tooltip-text",
+  hlKeyword: "--nexus-hl-keyword",
+  hlString: "--nexus-hl-string",
+  hlTitle: "--nexus-hl-title",
+  hlComment: "--nexus-hl-comment",
+  hlNumber: "--nexus-hl-number",
+  hlType: "--nexus-hl-type",
+  hlDeletion: "--nexus-hl-deletion",
+  hlVariable: "--nexus-hl-variable",
+};
+
+export function applyThemeVars(theme: NexusTheme): void {
+  const root = document.documentElement;
+  for (const [key, cssVar] of Object.entries(ROOT_THEME_VARS)) {
+    const value = theme[key as keyof NexusTheme];
+    if (typeof value === "string") {
+      root.style.setProperty(cssVar, value);
+    }
+  }
+}
+
 // ── Settings Panel UI ──
 
 const PANEL_STYLES = `

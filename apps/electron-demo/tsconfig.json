@@ -2,6 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
+    "ignoreDeprecations": "6.0",
     "paths": {
       "@floatboat/nexus-core": ["packages/core/src/index.ts"],
       "@floatboat/nexus-preset-gfm": ["packages/preset-gfm/src/index.ts"],

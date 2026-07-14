@@ -1,6 +1,6 @@
 import { createState, type AppState } from "./state";
 import { createEditorShell, type EditorShell } from "./editor-shell";
-import { loadSettings, createSettingsPanel, type EditorSettings } from "./settings";
+import { loadSettings, createSettingsPanel, settingsToTheme, applyThemeVars, type EditorSettings } from "./settings";
 import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
 import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
@@ -17,6 +17,148 @@ let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+let vaultWrapper: HTMLElement;
+let outlineWrapper: HTMLElement;
+let backlinksWrapper: HTMLElement;
+let leftResizer: HTMLElement & { refresh?: () => void };
+let middleResizer: HTMLElement & { refresh?: () => void };
+let rightResizer: HTMLElement & { refresh?: () => void };
+
+type PanelCollapseSide = "left" | "right";
+
+function createPanelWrapper(panel: HTMLElement, width: number): HTMLElement {
+  const wrapper = document.createElement("div");
+  wrapper.className = "panel-wrapper";
+  wrapper.style.cssText = `
+    display: flex;
+    flex-direction: column;
+    width: ${width}px;
+    min-width: 0;
+    max-width: 640px;
+    overflow: hidden;
+  `;
+  wrapper.append(panel);
+  return wrapper;
+}
+
+function setPanelCollapsed(wrapper: HTMLElement, collapsed: boolean, defaultWidth: number): void {
+  const panel = wrapper.firstElementChild as HTMLElement | null;
+  if (collapsed) {
+    if (!wrapper.dataset.prevWidth) {
+      wrapper.dataset.prevWidth = wrapper.style.width || `${defaultWidth}px`;
+    }
+    wrapper.classList.add("panel-collapsed");
+    wrapper.style.width = "0";
+    wrapper.style.minWidth = "0";
+    wrapper.style.maxWidth = "0";
+    wrapper.style.flexBasis = "0";
+    if (panel) panel.style.display = "none";
+  } else {
+    wrapper.classList.remove("panel-collapsed");
+    wrapper.style.width = wrapper.dataset.prevWidth || `${defaultWidth}px`;
+    wrapper.style.minWidth = "";
+    wrapper.style.maxWidth = "";
+    wrapper.style.flexBasis = "";
+    if (panel) panel.style.display = "";
+  }
+  updateResizerVisibility();
+}
+
+function updateResizerVisibility(): void {
+  const maybeRefresh = (resizer: HTMLElement & { refresh?: () => void } | undefined) => {
+    if (!resizer) return;
+    resizer.refresh?.();
+  };
+
+  maybeRefresh(leftResizer);
+  maybeRefresh(middleResizer);
+  maybeRefresh(rightResizer);
+}
+
+function createPanelResizer(
+  leftPanel: HTMLElement,
+  rightPanel: HTMLElement,
+  options: { side: PanelCollapseSide; toggledPanel: HTMLElement; expandTitle: string; collapseTitle: string; defaultWidth: number }
+): HTMLElement {
+  const { side, toggledPanel, expandTitle, collapseTitle, defaultWidth } = options;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "panel-resizer";
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "panel-collapse-button";
+  button.style.userSelect = "none";
+
+  const isCollapsed = () => toggledPanel.classList.contains("panel-collapsed");
+
+  const updateButton = () => {
+    const collapsed = isCollapsed();
+    button.textContent = side === "left" ? (collapsed ? "⟩" : "⟨") : (collapsed ? "⟨" : "⟩");
+    button.title = collapsed ? expandTitle : collapseTitle;
+  };
+
+  const updateVisibility = () => {
+    wrapper.style.display = leftPanel.classList.contains("panel-collapsed") || rightPanel.classList.contains("panel-collapsed") ? "none" : "flex";
+  };
+
+  wrapper.refresh = () => {
+    updateButton();
+    updateVisibility();
+  };
+
+  updateButton();
+  updateVisibility();
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const collapsed = isCollapsed();
+    setPanelCollapsed(toggledPanel, !collapsed, defaultWidth);
+    updateButton();
+  });
+
+  wrapper.append(button);
+
+  let startX = 0;
+  let leftStart = 0;
+  let rightStart = 0;
+  const minLeft = 120;
+  const minRight = 120;
+
+  const onMouseMove = (event: MouseEvent) => {
+    const delta = event.clientX - startX;
+    const totalWidth = leftStart + rightStart;
+    const newLeftWidth = Math.max(minLeft, Math.min(totalWidth - minRight, leftStart + delta));
+    const newRightWidth = Math.max(minRight, totalWidth - newLeftWidth);
+    leftPanel.style.width = `${newLeftWidth}px`;
+    rightPanel.style.width = `${newRightWidth}px`;
+    if (leftPanel === outlineWrapper || leftPanel === backlinksWrapper) {
+      leftPanel.style.minWidth = "0";
+    }
+    if (rightPanel === outlineWrapper || rightPanel === backlinksWrapper) {
+      rightPanel.style.minWidth = "0";
+    }
+  };
+
+  const onMouseUp = () => {
+    document.removeEventListener("mousemove", onMouseMove);
+    document.removeEventListener("mouseup", onMouseUp);
+  };
+
+  wrapper.addEventListener("mousedown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    startX = event.clientX;
+    leftStart = leftPanel.getBoundingClientRect().width;
+    rightStart = rightPanel.getBoundingClientRect().width;
+    setPanelCollapsed(toggledPanel, false, defaultWidth);
+    updateButton();
+    updateVisibility();
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  });
+
+  return wrapper;
+}
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
@@ -178,28 +320,28 @@ function handleSettings(): void {
   createSettingsPanel(settings, (next) => {
     settings = next;
     shell.applySettings(settings);
+    applyThemeVars(settingsToTheme(settings));
   });
 }
 
-function togglePanel(panel: HTMLElement, onShow?: () => void): void {
-  if (panel.style.display === "none") {
-    panel.style.display = "";
+function togglePanel(wrapper: HTMLElement, defaultWidth: number, onShow?: () => void): void {
+  const collapsed = wrapper.classList.contains("panel-collapsed");
+  setPanelCollapsed(wrapper, !collapsed, defaultWidth);
+  if (collapsed) {
     onShow?.();
-  } else {
-    panel.style.display = "none";
   }
 }
 
 function toggleOutline(): void {
-  togglePanel(outline.element, () => outline.update());
+  togglePanel(outlineWrapper, 220, () => outline.update());
 }
 
 function toggleVault(): void {
-  togglePanel(vault.element);
+  togglePanel(vaultWrapper, 240);
 }
 
 function toggleBacklinks(): void {
-  togglePanel(backlinks.element, () => backlinks.refresh());
+  togglePanel(backlinksWrapper, 280, () => backlinks.refresh());
 }
 
 async function handleVaultFileOpen(filePath: string): Promise<void> {
@@ -359,6 +501,8 @@ function boot(): void {
 
   root.append(appToolbar, mainArea, statusLine);
 
+  applyThemeVars(settingsToTheme(settings));
+
   shell = createEditorShell({
     container: editorContainer,
     state,
@@ -408,11 +552,69 @@ function boot(): void {
   });
 
   editorColumn.append(searchBar.element, editorContainer);
-  mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
+
+  vaultWrapper = createPanelWrapper(vault.element, 240);
+  outlineWrapper = createPanelWrapper(outline.element, 220);
+  backlinksWrapper = createPanelWrapper(backlinks.element, 280);
+
+  const leftResizer = createPanelResizer(vaultWrapper, editorColumn, {
+    side: "left",
+    toggledPanel: vaultWrapper,
+    expandTitle: "Show vault panel",
+    collapseTitle: "Hide vault panel",
+    defaultWidth: 240,
+  });
+
+  const middleResizer = createPanelResizer(editorColumn, outlineWrapper, {
+    side: "right",
+    toggledPanel: outlineWrapper,
+    expandTitle: "Show outline panel",
+    collapseTitle: "Hide outline panel",
+    defaultWidth: 220,
+  });
+
+  const rightResizer = createPanelResizer(outlineWrapper, backlinksWrapper, {
+    side: "right",
+    toggledPanel: backlinksWrapper,
+    expandTitle: "Show backlinks panel",
+    collapseTitle: "Hide backlinks panel",
+    defaultWidth: 280,
+  });
+
+  mainArea.append(vaultWrapper, leftResizer, editorColumn, middleResizer, outlineWrapper, rightResizer, backlinksWrapper);
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {
     void seedLinkIndex();
+  });
+
+  window.nexusDemo.onMenuAction((action) => {
+    if (action === "save") {
+      void handleSave();
+    } else if (action === "saveAs") {
+      void handleSaveAs();
+    } else if (action === "open") {
+      void handleOpen();
+    }
+  });
+
+  window.nexusDemo.onOpenRecentFile(async (filePath) => {
+    try {
+      state.error = null;
+      const result = await window.nexusDemo.openFileAtPath(filePath);
+      if (!result) return;
+
+      state.filePath = result.path;
+      state.activeFile = result.path;
+      shell.loadDocument(result.content);
+      if (state.vaultPath && result.path.startsWith(state.vaultPath)) {
+        vault.setActiveFile(result.path);
+      }
+      backlinks.refresh();
+    } catch (err) {
+      state.error = err instanceof Error ? err.message : String(err);
+    }
+    renderStatus();
   });
 
   document.addEventListener("keydown", (e) => {
