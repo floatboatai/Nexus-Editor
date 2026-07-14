@@ -7,6 +7,8 @@ import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
+import { readAllNoteVaultFiles } from "@floatboat/nexus-core";
+import { createElectronVaultAdapter, type ElectronVaultAdapter } from "./vault-adapter";
 
 installLongTaskWatch(50);
 
@@ -17,6 +19,7 @@ let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+let vaultAdapter: ElectronVaultAdapter;
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
@@ -143,7 +146,7 @@ async function handleSave(): Promise<void> {
     const targetPath = state.activeFile ?? state.filePath;
     if (targetPath) {
       if (state.vaultPath && targetPath.startsWith(state.vaultPath)) {
-        await window.nexusDemo.vault.write(targetPath, state.content);
+        await vaultAdapter.write(vaultAdapter.pathToFileRef(targetPath), state.content);
       } else {
         await window.nexusDemo.saveFile(targetPath, state.content);
       }
@@ -209,18 +212,19 @@ async function handleVaultFileOpen(filePath: string): Promise<void> {
     if (!(await confirmDiscardIfDirty())) return;
 
     const ipc = perfStart("open-file.ipc-read");
-    const result = await window.nexusDemo.vault.read(filePath);
+    const result = await vaultAdapter.read(vaultAdapter.pathToFileRef(filePath));
     perfEnd(ipc, { bytes: result.content.length });
 
-    state.filePath = result.path;
-    state.activeFile = result.path;
+    const resultPath = vaultAdapter.refToPath(result.ref);
+    state.filePath = resultPath;
+    state.activeFile = resultPath;
 
     const load = perfStart("open-file.loadDocument");
     shell.loadDocument(result.content);
     perfEnd(load);
 
     const setActive = perfStart("open-file.vault.setActiveFile");
-    vault.setActiveFile(result.path);
+    vault.setActiveFile(resultPath);
     perfEnd(setActive);
 
     const bl = perfStart("open-file.backlinks.refresh");
@@ -245,8 +249,21 @@ async function seedLinkIndex(): Promise<void> {
   const myToken = ++seedToken;
   const total = perfStart("seed-link-index");
   try {
+    if (!state.vaultPath) {
+      perfEnd(total, { skipped: true });
+      return;
+    }
     const ipc = perfStart("seed-link-index.ipc-readAll");
-    const files = await window.nexusDemo.vault.readAll();
+    const vaultFiles = await readAllNoteVaultFiles(vaultAdapter, {
+      root: vaultAdapter.rootRef(state.vaultPath),
+      onError(error, ref) {
+        console.warn("readAllNoteVaultFiles skipped:", vaultAdapter.refToPath(ref), error);
+      },
+    });
+    const files = vaultFiles.map((file) => ({
+      path: vaultAdapter.refToPath(file.ref),
+      content: file.content,
+    }));
     const totalBytes = files.reduce((n, f) => n + f.content.length, 0);
     perfEnd(ipc, { files: files.length, bytes: totalBytes });
 
@@ -314,10 +331,11 @@ async function handleWikilinkNavigate(target: string, opts: { unresolved: boolea
         ? dirname(state.activeFile)
         : state.vaultPath;
     const name = bare.toLowerCase().endsWith(".md") ? bare : `${bare}.md`;
-    const created = await window.nexusDemo.vault.createFile(parent, name);
+    const created = await vaultAdapter.createFile(vaultAdapter.pathToFolderRef(parent), name);
     await vault.refresh();
-    linkIndex.updateFile(created.path, "");
-    await handleVaultFileOpen(created.path);
+    const createdPath = vaultAdapter.refToPath(created);
+    linkIndex.updateFile(createdPath, "");
+    await handleVaultFileOpen(createdPath);
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
     renderStatus();
@@ -326,7 +344,7 @@ async function handleWikilinkNavigate(target: string, opts: { unresolved: boolea
 
 async function tryRestoreLastVault(): Promise<void> {
   try {
-    const last = await window.nexusDemo.vault.getLast();
+    const last = await vaultAdapter.getLast();
     if (last.lastVault) {
       state.vaultPath = last.lastVault;
       await vault.openVault(last.lastVault);
@@ -347,6 +365,7 @@ function boot(): void {
 
   const appToolbar = createAppToolbar();
   const statusLine = createStatusLine();
+  vaultAdapter = createElectronVaultAdapter();
 
   const mainArea = document.createElement("div");
   mainArea.className = "main-area";
@@ -377,6 +396,7 @@ function boot(): void {
   });
 
   vault = createVaultPanel({
+    adapter: vaultAdapter,
     onOpenFile: (filePath) => {
       void handleVaultFileOpen(filePath);
     },
@@ -411,7 +431,7 @@ function boot(): void {
   mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
 
   // External file changes → re-seed the index (cheap for typical vaults).
-  window.nexusDemo.vault.onChanged(() => {
+  vaultAdapter.watch?.(() => {
     void seedLinkIndex();
   });
 

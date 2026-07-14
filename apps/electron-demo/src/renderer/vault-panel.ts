@@ -1,4 +1,8 @@
+import type { NoteVaultNode } from "@floatboat/nexus-core";
+import type { ElectronVaultAdapter } from "./vault-adapter";
+
 export interface VaultPanelCallbacks {
+  adapter: ElectronVaultAdapter;
   onOpenFile(filePath: string): void;
   onError(message: string): void;
   onStatus(message: string): void;
@@ -183,6 +187,7 @@ function fileIcon(): string {
 }
 
 export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
+  const adapter = callbacks.adapter;
   const panel = document.createElement("div");
   panel.className = "nexus-vault-panel";
   panel.style.cssText = PANEL_STYLES;
@@ -235,7 +240,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
   panel.append(header, tree);
 
   let vaultPath: string | null = null;
-  let currentTree: VaultNode[] = [];
+  let currentTree: NoteVaultNode[] = [];
   let activeFile: string | null = null;
   const collapsed = new Set<string>();
   let unsubscribeChanged: (() => void) | null = null;
@@ -248,20 +253,21 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     tree.appendChild(empty);
   }
 
-  function renderNode(node: VaultNode, depth: number, parent: HTMLElement): void {
+  function renderNode(node: NoteVaultNode, depth: number, parent: HTMLElement): void {
+    const nodePath = adapter.refToPath(node.ref);
     const row = document.createElement("div");
     row.style.cssText = ITEM_BASE;
     row.style.paddingLeft = `${8 + depth * 14}px`;
-    row.dataset.path = node.path;
+    row.dataset.path = nodePath;
     row.dataset.kind = node.kind;
 
-    const isActive = node.kind === "file" && activeFile === node.path;
+    const isActive = node.kind === "file" && activeFile === nodePath;
     if (isActive) row.style.cssText = ITEM_BASE + ACTIVE_STYLES;
 
     const icon = document.createElement("span");
     icon.style.cssText = "width: 12px; flex-shrink: 0; color: #888; font-size: 11px;";
-    if (node.kind === "directory") {
-      const open = !collapsed.has(node.path);
+    if (node.kind === "folder") {
+      const open = !collapsed.has(nodePath);
       icon.textContent = folderIcon(open);
     } else {
       icon.textContent = fileIcon();
@@ -282,12 +288,12 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     });
 
     row.addEventListener("click", () => {
-      if (node.kind === "directory") {
-        if (collapsed.has(node.path)) collapsed.delete(node.path);
-        else collapsed.add(node.path);
+      if (node.kind === "folder") {
+        if (collapsed.has(nodePath)) collapsed.delete(nodePath);
+        else collapsed.add(nodePath);
         renderTree();
       } else {
-        callbacks.onOpenFile(node.path);
+        callbacks.onOpenFile(nodePath);
       }
     });
 
@@ -303,7 +309,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
       openNodeContextMenu(e.clientX, e.clientY, node);
     });
 
-    if (node.kind === "directory" && !collapsed.has(node.path) && node.children) {
+    if (node.kind === "folder" && !collapsed.has(nodePath) && node.children) {
       for (const child of node.children) {
         renderNode(child, depth + 1, parent);
       }
@@ -323,7 +329,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     for (const node of currentTree) renderNode(node, 0, tree);
   }
 
-  function beginInlineRename(row: HTMLElement, label: HTMLElement, node: VaultNode): void {
+  function beginInlineRename(row: HTMLElement, label: HTMLElement, node: NoteVaultNode): void {
     const input = document.createElement("input");
     input.type = "text";
     input.value = node.name;
@@ -353,7 +359,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
         return;
       }
       try {
-        await window.nexusDemo.vault.rename(node.path, newName);
+        await adapter.rename(node.ref, newName);
         await refresh();
       } catch (err) {
         callbacks.onError(err instanceof Error ? err.message : String(err));
@@ -373,23 +379,24 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     input.addEventListener("blur", () => finish(true));
   }
 
-  function openNodeContextMenu(x: number, y: number, node: VaultNode): void {
-    const parentDir = node.kind === "directory" ? node.path : node.path.replace(/[\\/][^\\/]+$/, "");
+  function openNodeContextMenu(x: number, y: number, node: NoteVaultNode): void {
+    const nodePath = adapter.refToPath(node.ref);
+    const parentDir = node.kind === "folder" ? nodePath : nodePath.replace(/[\\/][^\\/]+$/, "");
     const items: ContextMenuItem[] = [];
 
-    if (node.kind === "directory") {
+    if (node.kind === "folder") {
       items.push({
         label: "New file here",
-        onClick: () => createFilePrompt(node.path),
+        onClick: () => createFilePrompt(nodePath),
       });
       items.push({
         label: "New folder here",
-        onClick: () => createFolderPrompt(node.path),
+        onClick: () => createFolderPrompt(nodePath),
       });
     } else {
       items.push({
         label: "Open",
-        onClick: () => callbacks.onOpenFile(node.path),
+        onClick: () => callbacks.onOpenFile(nodePath),
       });
       items.push({
         label: "New file in same folder",
@@ -400,7 +407,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     items.push({
       label: "Rename",
       onClick: () => {
-        const row = tree.querySelector<HTMLElement>(`[data-path="${cssEscape(node.path)}"]`);
+        const row = tree.querySelector<HTMLElement>(`[data-path="${cssEscape(nodePath)}"]`);
         const label = row?.querySelector<HTMLElement>("span:last-child");
         if (row && label) beginInlineRename(row, label, node);
       },
@@ -484,9 +491,9 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
       selectExt: true,
       iconChar: fileIcon(),
       onCommit: async (name) => {
-        const result = await window.nexusDemo.vault.createFile(parentDir, name);
+        const result = await adapter.createFile(adapter.pathToFolderRef(parentDir), name);
         await refresh();
-        callbacks.onOpenFile(result.path);
+        callbacks.onOpenFile(adapter.refToPath(result));
       },
     });
   }
@@ -497,19 +504,20 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
       selectExt: false,
       iconChar: folderIcon(true),
       onCommit: async (name) => {
-        await window.nexusDemo.vault.createFolder(parentDir, name);
+        await adapter.createFolder(adapter.pathToFolderRef(parentDir), name);
         await refresh();
       },
     });
   }
 
-  async function deleteNode(node: VaultNode): Promise<void> {
+  async function deleteNode(node: NoteVaultNode): Promise<void> {
+    const nodePath = adapter.refToPath(node.ref);
     // In Electron window.confirm may be a no-op; the context menu entry is
     // destructive-styled and requires an explicit click, so we proceed directly.
     try {
-      await window.nexusDemo.vault.delete(node.path);
+      await adapter.delete(node.ref, { trash: true });
       callbacks.onStatus(`Moved ${node.name} to Trash`);
-      if (node.kind === "file" && activeFile === node.path) {
+      if (node.kind === "file" && activeFile === nodePath) {
         activeFile = null;
       }
       await refresh();
@@ -521,7 +529,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
   async function refresh(): Promise<void> {
     if (!vaultPath) return;
     try {
-      currentTree = await window.nexusDemo.vault.list(vaultPath);
+      currentTree = await adapter.list({ root: adapter.rootRef(vaultPath) });
       renderTree();
     } catch (err) {
       callbacks.onError(err instanceof Error ? err.message : String(err));
@@ -536,17 +544,17 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     collapsed.clear();
 
     if (unsubscribeChanged) unsubscribeChanged();
-    unsubscribeChanged = window.nexusDemo.vault.onChanged(() => {
+    unsubscribeChanged = adapter.watch?.(() => {
       void refresh();
-    });
+    }) ?? null;
 
     await refresh();
-    await window.nexusDemo.vault.setLast(nextPath);
+    await adapter.setLast(nextPath);
   }
 
   async function promptPickVault(): Promise<void> {
     try {
-      const picked = await window.nexusDemo.vault.pick();
+      const picked = await adapter.pick();
       if (!picked) return;
       await openVault(picked.path);
     } catch (err) {

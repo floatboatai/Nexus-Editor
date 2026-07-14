@@ -21,6 +21,31 @@ export {
 } from "./slash-state";
 export { lightTheme, darkTheme, type NexusTheme } from "./theme";
 export {
+  NoteVaultError,
+  createNoteVaultError,
+  flattenNoteVaultNodes,
+  isNoteVaultError,
+  readAllNoteVaultFiles,
+  type AnyNoteVaultRef,
+  type NoteVaultAdapter,
+  type NoteVaultCapabilities,
+  type NoteVaultChangeEvent,
+  type NoteVaultChangeKind,
+  type NoteVaultDeleteOptions,
+  type NoteVaultErrorCode,
+  type NoteVaultErrorDetails,
+  type NoteVaultFile,
+  type NoteVaultFileRef,
+  type NoteVaultFolderRef,
+  type NoteVaultListOptions,
+  type NoteVaultNode,
+  type NoteVaultNodeKind,
+  type NoteVaultReadAllOptions,
+  type NoteVaultRef,
+  type NoteVaultWriteOptions,
+  type NoteVaultWriteResult,
+} from "./storage";
+export {
   scanWikiLinks,
   createWikilinksExtension,
   createWikilinksPlugin,

@@ -1,4 +1,5 @@
 import type { LinkIndex } from "./link-index";
+import type { NoteVaultNode } from "@floatboat/nexus-core";
 
 export interface AppState {
   filePath: string | null;
@@ -6,7 +7,7 @@ export interface AppState {
   dirty: boolean;
   error: string | null;
   vaultPath: string | null;
-  vaultTree: VaultNode[];
+  vaultTree: NoteVaultNode[];
   activeFile: string | null;
   linkIndex: LinkIndex | null;
 }
