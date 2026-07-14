@@ -1,6 +1,7 @@
 import {
   computeSlashState,
   filterSlashCommands,
+  fuzzyScore,
   getSlashMatch,
   type SlashMatch,
   type SlashStateOptions,
@@ -10,7 +11,7 @@ import type { NexusPlugin, SlashCommandDef } from "@floatboat/nexus-core";
 
 export type SlashState = SlashStateResult;
 export type { SlashMatch, SlashStateOptions, SlashStateResult };
-export { filterSlashCommands, getSlashMatch };
+export { filterSlashCommands, fuzzyScore, getSlashMatch };
 
 /**
  * Compute the slash menu state for the given document + caret. Kept as

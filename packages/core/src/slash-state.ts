@@ -36,6 +36,8 @@ const SCORE_KEYWORD_EXACT = 4000;
 const SCORE_TITLE_SUBSTRING = 3000;
 const SCORE_KEYWORD_PREFIX = 2000;
 const SCORE_KEYWORD_SUBSTRING = 1000;
+const SCORE_FUZZY_TITLE = 500;
+const SCORE_FUZZY_KEYWORD = 250;
 
 export function getSlashMatch(doc: string, cursor: number): SlashMatch | null {
   const before = doc.slice(0, cursor);
@@ -60,6 +62,72 @@ export function getSlashMatch(doc: string, cursor: number): SlashMatch | null {
     to: cursor,
     query,
   };
+}
+
+/**
+ * 对目标字符串进行模糊匹配，判断查询字符串的所有字符是否按顺序出现在目标字符串中。
+ *
+ * 返回一个评分（越高越好），如果无法匹配则返回 `null`。
+ *
+ * 算法采用贪心从左到右扫描，为每个查询字符找到最早出现的匹配位置。
+ * 评分规则：
+ *
+ * - **连续匹配加分**（每对连续匹配 +5）—— "ad" 在 "Heading" 中位置相邻（2,3），
+ *   比 "ag" 分散的位置（2,6）得分更高。
+ * - **词边界加分**（+8）—— 匹配字符的前一个字符是空格、连字符、下划线、斜杠或点号时触发。
+ * - **驼峰边界加分**（+6）—— 匹配字符紧跟在「小写→大写」的过渡之后时触发。
+ * - **字符串开头加分**（+10）—— 首个匹配字符出现在位置 0 时触发。
+ *
+ * 原始总分除以目标字符串长度做归一化，使得同样质量的匹配在较短字符串上得分更高。
+ */
+export function fuzzyScore(target: string, query: string): number | null {
+  if (query.length === 0) return 0;
+  if (query.length > target.length) return null;
+
+  const t = target.toLowerCase();
+  const q = query.toLowerCase();
+
+  // 贪心最左匹配：为每个查询字符找到最早出现的位置。
+  // 只要所有查询字符按顺序找到，匹配即为有效——评分加成项本身
+  // 已经偏向更紧凑的匹配序列。
+  const positions: number[] = [];
+  let ti = 0;
+  for (let qi = 0; qi < q.length; qi++) {
+    const found = t.indexOf(q[qi], ti);
+    if (found === -1) return null;
+    positions.push(found);
+    ti = found + 1;
+  }
+
+  let score = 0;
+  for (let i = 0; i < positions.length; i++) {
+    const pos = positions[i];
+    score += 1; // 每个匹配字符的基础分
+
+    if (pos === 0) score += 10; // 字符串开头
+
+    // 词边界（字符前是常见分隔符）
+    if (pos > 0 && /[\s\-_/.]/.test(t[pos - 1])) score += 8;
+
+    // 驼峰边界（小写字母 → 大写字母）
+    if (
+      pos > 0 &&
+      t[pos - 1] >= "a" &&
+      t[pos - 1] <= "z" &&
+      target[pos] >= "A" &&
+      target[pos] <= "Z"
+    ) {
+      score += 6;
+    }
+
+    // 连续字符对加分
+    if (i > 0 && positions[i] === positions[i - 1] + 1) {
+      score += 5;
+    }
+  }
+
+  // 除以目标字符串长度做归一化，使得短字符串在同等匹配质量下排名更靠前
+  return score / t.length;
 }
 
 interface ScoredCommand {
@@ -109,6 +177,18 @@ function scoreCommand(
     const kwIdx = kwLower.indexOf(query);
     if (kwIdx >= 0) {
       return { cmd, score: SCORE_KEYWORD_SUBSTRING, tiebreaker: kwIdx, index };
+    }
+  }
+
+  const fuzzyTitle = fuzzyScore(cmd.title, query);
+  if (fuzzyTitle !== null) {
+    return { cmd, score: SCORE_FUZZY_TITLE, tiebreaker: -fuzzyTitle, index };
+  }
+
+  for (const kw of keywords) {
+    const fuzzyKw = fuzzyScore(kw, query);
+    if (fuzzyKw !== null) {
+      return { cmd, score: SCORE_FUZZY_KEYWORD, tiebreaker: -fuzzyKw, index };
     }
   }
 

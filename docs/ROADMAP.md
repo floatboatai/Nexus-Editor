@@ -25,7 +25,7 @@ This document maps every planned feature to **package ownership / priority / sta
 | 2  | Whole-word matching | `plugin-search` | P1 | done | No | `wholeWord` option via `buildSearchPattern` with `\b` boundaries |
 | 15 | Regex search | `plugin-search` | P1 | done | No | `regexp` option landed alongside whole-word; invalid-regex guarded |
 | 16 | Command / search history | `plugin-search` + `plugin-slash` | P2 | done | Yes | Host-injected storage (no implicit localStorage) — `add-search-query-history` + `add-slash-recent-command-history` |
-| 17 | Fuzzy search | `plugin-search` | P2 | planned | No | Evaluate fzf-like algorithm vs. third-party lib; needs backtracking matcher |
+| 17 | Fuzzy search | `plugin-search` | P2 | done | No | Landed as opt-in fuzzy matching in `filterSlashCommands` via `fuzzyScore()` — greedy leftmost character-sequence matcher with position-based scoring |
 | 3  | Slash command sorting + limit | `plugin-slash` | P0 | done | Yes | Landed alongside the floating menu UI — see `openspec/changes/add-slash-menu-ui` |
 | 27 | Slash command floating menu UI | `plugin-slash` + `electron-demo` | P0 | done | Yes | `createSlashMenuUI(editor, options)` — see `openspec/changes/add-slash-menu-ui` |
 
@@ -36,7 +36,7 @@ This document maps every planned feature to **package ownership / priority / sta
 | 5 | `getSelectedText()` API | `core` | P0 | done | No | Plus atomic `replaceRange()` (single undo entry) — see `openspec/changes/add-selection-api` |
 | 6 | Multi-cursor / multi-selection | `core` | P1 | done | Yes | `openspec/changes/add-core-multi-cursor` — opt-in `multiCursor` config; live-preview reveal + table checks verified by regression tests |
 | 7 | AST enhancement / Markdown extensions | `core` + `preset-gfm` | P2 | planned | Yes | Affects serialization and every AST-dependent plugin |
-| 8 | Undo / redo grouping | `plugin-history` | P1 | planned | No | Coordinate with table's `tableEditingCount`; consolidate competing impls before merge |
+| 8 | Undo / redo grouping | `plugin-history` | P1 | done | No | Coordinates with table's `tableEditingCount` via `ViewPlugin`; batch undo via custom `Mod-z` keymap using `historyField` from `@codemirror/commands` |
 
 ## 4. Plugin System
 

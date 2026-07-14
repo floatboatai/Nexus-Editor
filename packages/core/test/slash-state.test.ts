@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   computeSlashState,
   filterSlashCommands,
+  fuzzyScore,
   getSlashMatch,
 } from "../src/slash-state";
 import type { SlashCommandDef } from "../src/types";
@@ -188,5 +189,211 @@ describe("computeSlashState closed state", () => {
     expect(state.isOpen).toBe(true);
     expect(state.commands).toEqual([]);
     expect(state.query).toBe("zzz");
+  });
+});
+
+// ─── fuzzyScore ─────────────────────────────────────────────────────
+
+describe("fuzzyScore", () => {
+  it("returns 0 for an empty query", () => {
+    expect(fuzzyScore("anything", "")).toBe(0);
+  });
+
+  it("returns null when query is longer than target", () => {
+    expect(fuzzyScore("ab", "abc")).toBeNull();
+  });
+
+  it("matches consecutive characters (exact prefix)", () => {
+    const score = fuzzyScore("Heading", "he");
+    expect(score).not.toBeNull();
+    expect(score!).toBeGreaterThan(10 / 7);
+  });
+
+  it("matches scattered characters in order", () => {
+    // "hd" matches 'h' at 0 and 'd' at 2 in "Heading"
+    const score = fuzzyScore("Heading", "hd");
+    expect(score).not.toBeNull();
+    expect(score!).toBeGreaterThan(0);
+  });
+
+  it("returns null when characters don't appear in order", () => {
+    expect(fuzzyScore("Heading", "dh")).toBeNull(); // 'd' before 'h'
+  });
+
+  it("returns null when a character is missing", () => {
+    expect(fuzzyScore("Heading", "hz")).toBeNull(); // 'z' not in "Heading"
+  });
+
+  it("bonuses consecutive matches over scattered ones", () => {
+    // "ad" appears consecutively at positions 2,3 in "Heading"
+    const consecutive = fuzzyScore("Heading", "ad");
+    // "ag" is scattered (positions 2,6)
+    const scattered = fuzzyScore("Heading", "ag");
+    expect(consecutive).not.toBeNull();
+    expect(scattered).not.toBeNull();
+    expect(consecutive!).toBeGreaterThan(scattered!);
+  });
+
+  it("bonuses word boundary matches", () => {
+    // "odb": 'o' at 1, 'd' at 3, 'b' at 5 (word boundary after space)
+    const withBoundary = fuzzyScore("Code Block", "odb");
+    // "odb" in "codeblock" — 'b' at 4 is camelCase but no word boundary
+    const noBoundary = fuzzyScore("codeblock", "odb");
+    expect(withBoundary).not.toBeNull();
+    expect(noBoundary).not.toBeNull();
+    // Word boundary bonus (+8) > camelCase bonus (+6)
+    expect(withBoundary!).toBeGreaterThan(noBoundary!);
+  });
+
+  it("bonuses start-of-string match", () => {
+    // "Cod" starts at position 0 in "Code Block"
+    const atStart = fuzzyScore("Code Block", "cod");
+    // "Blo" starts at position 5
+    const notAtStart = fuzzyScore("Code Block", "blo");
+    expect(atStart).not.toBeNull();
+    expect(notAtStart).not.toBeNull();
+    expect(atStart!).toBeGreaterThan(notAtStart!);
+  });
+
+  it("normalises by target length (prefers shorter targets)", () => {
+    // Both "abc" and "abcxyz" contain "a" and "b"
+    const shorter = fuzzyScore("ab", "ab");
+    const longer = fuzzyScore("ab-de-extra-text", "ab");
+    expect(shorter).not.toBeNull();
+    expect(longer).not.toBeNull();
+    expect(shorter!).toBeGreaterThan(longer!);
+  });
+
+  it("bonuses camelCase boundaries", () => {
+    // "T" in "TableOfContents" follows a lowercase 'e' (camelCase boundary)
+    const camel = fuzzyScore("TableOfContents", "et"); // 'e' then 'T' at camelCase boundary
+    expect(camel).not.toBeNull();
+    expect(camel!).toBeGreaterThan(0);
+  });
+});
+
+// ─── filterSlashCommands with fuzzy=true ────────────────────────────
+
+describe("filterSlashCommands fuzzy matching", () => {
+  it("finds fuzzy title match when no exact or substring match exists", () => {
+    const list = cmds(
+      { id: "heading", title: "Heading" },
+      { id: "table", title: "Table" },
+    );
+    // "hd" is not a substring of "Heading" but is a fuzzy match
+    expect(filterSlashCommands(list, "hd").map((c) => c.id)).toEqual([
+      "heading",
+    ]);
+  });
+
+  it("ranks exact/stricter matches above fuzzy matches", () => {
+    const list = cmds(
+      { id: "fuzzy-match", title: "SomeToolBar", keywords: [] },
+      { id: "exact-match", title: "Tool", keywords: [] },
+      { id: "prefix-match", title: "ToolBox", keywords: [] },
+    );
+    const result = filterSlashCommands(list, "tool");
+    // "Tool" is exact → "ToolBox" is prefix → "SomeToolBar" is fuzzy
+    expect(result.map((c) => c.id)).toEqual([
+      "exact-match",
+      "prefix-match",
+      "fuzzy-match",
+    ]);
+  });
+
+  it("finds fuzzy keyword match as lower priority", () => {
+    const list = cmds(
+      { id: "h1", title: "Heading 1", keywords: ["header", "title"] },
+      { id: "code", title: "Code Block", keywords: ["script"] },
+    );
+    // "tt" is not a substring of any title, but it fuzzy-matches "title" keyword
+    const result = filterSlashCommands(list, "tt");
+    expect(result.map((c) => c.id)).toEqual(["h1"]);
+  });
+
+  it("ranks fuzzy title above fuzzy keyword", () => {
+    const list = cmds(
+      { id: "kw-only", title: "Zebra", keywords: ["bolt"] },
+      { id: "title-match", title: "Bolt Text", keywords: [] },
+    );
+    // "bol" fuzzy matches "Bolt Text" title AND "bolt" keyword
+    // Fuzzy title tier (500) always ranks above fuzzy keyword tier (250)
+    const result = filterSlashCommands(list, "bol");
+    expect(result.map((c) => c.id)).toEqual(["title-match", "kw-only"]);
+  });
+
+  it("ranks better-quality fuzzy matches above worse ones", () => {
+    const list = cmds(
+      { id: "scattered", title: "Foo Xml Bar", keywords: [] },
+      { id: "compact", title: "FooBar", keywords: [] },
+    );
+    // Both fuzzy-match "fbar", but "FooBar" has consecutive matches and is shorter
+    const result = filterSlashCommands(list, "fbar");
+    expect(result.map((c) => c.id)).toEqual(["compact", "scattered"]);
+  });
+
+  it("fuzzy matches by default without needing an option", () => {
+    const list = cmds(
+      { id: "heading", title: "Heading" },
+    );
+    // Fuzzy always on — "hd" should find "Heading"
+    expect(filterSlashCommands(list, "hd").map(c => c.id)).toEqual(["heading"]);
+  });
+
+  it("fuzzy does NOT override stricter matches", () => {
+    const list = cmds(
+      { id: "h1", title: "Heading 1", keywords: ["title"] },
+      { id: "code", title: "Code Block" },
+    );
+    // "he" is a title-prefix match for "Heading 1"
+    // "Code Block" wouldn't fuzzy-match "he" (no 'e' after 'h')
+    const result = filterSlashCommands(list, "he");
+    expect(result.map(c => c.id)).toEqual(["h1"]);
+  });
+
+  it("fuzzy query that matches nothing returns empty array", () => {
+    const list = cmds(
+      { id: "h1", title: "Heading" },
+      { id: "code", title: "Code" },
+    );
+    expect(filterSlashCommands(list, "xyz")).toEqual([]);
+  });
+
+  it("handles empty command list with fuzzy enabled", () => {
+    expect(filterSlashCommands([], "any")).toEqual([]);
+  });
+});
+
+// ─── computeSlashState (fuzzy always on) ────────────────────────────
+
+describe("computeSlashState", () => {
+  it("fuzzy matches by default", () => {
+    const list = cmds(
+      { id: "heading", title: "Heading" },
+      { id: "table", title: "Table" },
+    );
+    const state = computeSlashState("/hd", 3, list);
+    expect(state.isOpen).toBe(true);
+    expect(state.commands.map((c) => c.id)).toEqual(["heading"]);
+  });
+
+  it("fuzzy matches when no options passed", () => {
+    const list = cmds(
+      { id: "heading", title: "Heading" },
+    );
+    const state = computeSlashState("/hd", 3, list);
+    expect(state.isOpen).toBe(true);
+    expect(state.commands.map((c) => c.id)).toEqual(["heading"]);
+  });
+
+  it("combines fuzzy with limit correctly", () => {
+    const list = cmds(
+      { id: "a", title: "Alpha" },
+      { id: "b", title: "Beta" },
+      { id: "c", title: "Gamma" },
+    );
+    // All three fuzzy-match "a" (single char), limit to 2
+    const state = computeSlashState("/a", 2, list, { limit: 2 });
+    expect(state.commands).toHaveLength(2);
   });
 });

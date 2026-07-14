@@ -58,7 +58,7 @@ menu.destroy();
 
 ## Ranking
 
-`filterSlashCommands(commands, query)` ranks candidates deterministically:
+`filterSlashCommands(commands, query, options?)` ranks candidates deterministically:
 
 1. exact title match
 2. title prefix (shorter title wins)
@@ -66,10 +66,43 @@ menu.destroy();
 4. title substring (earlier offset wins)
 5. keyword prefix
 6. keyword substring
+7. **fuzzy title**
+8. **fuzzy keyword**
 
-Ties break alphabetically by title. Empty queries preserve the original
-registration order so you can curate "most useful first" via plugin
-order.
+Ties break first by quality score, then alphabetically by title, then
+registration index. Empty queries preserve the original registration
+order so you can curate "most useful first" via plugin order.
+
+### Fuzzy matching
+
+Fuzzy matching is **always enabled** by default. Any command whose title
+(or keyword) contains every query character in order becomes a low-priority
+candidate — even when the characters aren't contiguous:
+
+```ts
+// Substring "hd" is not in "Heading", but fuzzy match still finds it.
+filterSlashCommands(commands, "hd");
+// → [{ id: "heading", title: "Heading", ... }]
+```
+
+The fuzzy matcher rewards:
+
+- **Consecutive** character runs — "ad" in "Heading" scores higher
+  than "ag" (positions 2,3 vs 2,6).
+- **Word boundaries** — "b" after a space scores higher than after a
+  letter.
+- **CamelCase boundaries** — "T" in "TableOfContents" scores higher
+  when it follows a lowercase letter.
+- **Start of string** — matching at position 0 gets a bonus.
+- **Shorter targets** — the raw score is divided by target length so
+  compact matches outrank stretched ones.
+
+Use `computeSlashState(doc, cursor, commands, { fuzzy: true })` to
+enable it per-editor, or pass `{ fuzzy: true }` directly to
+`filterSlashCommands` for one-off use.
+
+The raw fuzzy scoring function is exported as `fuzzyScore(target, query)`
+for host-side ranking outside the slash pipeline.
 
 ## Limit
 
@@ -102,7 +135,8 @@ your own keyboard handlers.
 |---|---|
 | `createSlashPlugin(commands)` | Wraps a command list as a `NexusPlugin`. |
 | `createSlashMenuUI(editor, options?)` | Mount a floating menu UI. |
-| `filterSlashCommands(commands, query)` | Rank + filter a command list. |
+| `filterSlashCommands(commands, query, options?)` | Rank + filter a command list. Pass `{ fuzzy: true }` to enable fuzzy matching. |
+| `fuzzyScore(target, query)` | Fuzzy match a query against a target string. Returns a score (higher = better) or `null`. |
 | `getSlashState(doc, cursor, commands, options?)` | Compute the full menu state. Alias of `computeSlashState`. |
 | `getSlashMatch(doc, cursor)` | Detect the current `/query` trigger range. |
 | `SlashMenuUIOptions` | `{ container?, onCommand?, classPrefix?, offset? }` |

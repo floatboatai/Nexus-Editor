@@ -14,6 +14,7 @@ export { enLocale, zhLocale, resolveLocale, type NexusLocale } from "./locale";
 export {
   computeSlashState,
   filterSlashCommands,
+  fuzzyScore,
   getSlashMatch,
   type SlashMatch,
   type SlashStateOptions,
@@ -28,6 +29,7 @@ export {
   type WikilinksOptions,
   type WikiLinkNavigateOptions,
 } from "./wikilinks";
+export { isTableEditing } from "./live-preview-table";
 export type {
   CodeHighlightToken,
   EditorAPI,
