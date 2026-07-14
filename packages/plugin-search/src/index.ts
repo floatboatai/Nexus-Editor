@@ -35,6 +35,11 @@ export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  /**
+   * Match literal queries as an ordered subsequence, allowing characters
+   * between query letters. Ignored when `regexp` is true.
+   */
+  fuzzy?: boolean;
 }
 
 export interface SearchHistoryStorage {
@@ -641,6 +646,66 @@ function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp 
   }
 }
 
+function isWordChar(value: string): boolean {
+  return /[\p{Letter}\p{Number}_]/u.test(value);
+}
+
+function isWholeWordMatch(doc: string, from: number, to: number): boolean {
+  const before = from > 0 ? doc.slice(from - 1, from) : "";
+  const after = to < doc.length ? doc.slice(to, to + 1) : "";
+  return (!before || !isWordChar(before)) && (!after || !isWordChar(after));
+}
+
+function findFuzzyMatchAt(
+  doc: string,
+  source: string,
+  needle: string,
+  start: number,
+): SearchMatch | null {
+  let queryIndex = 0;
+  let to = start;
+
+  while (to < source.length && queryIndex < needle.length) {
+    if (source[to] === needle[queryIndex]) {
+      queryIndex++;
+    }
+    to++;
+  }
+
+  if (queryIndex !== needle.length) return null;
+  return { from: start, to, text: doc.slice(start, to) };
+}
+
+function findFuzzySearchMatches(
+  doc: string,
+  query: string,
+  options: SearchOptions
+): SearchMatch[] {
+  const matches: SearchMatch[] = [];
+  const caseSensitive = options.caseSensitive === true;
+  const source = caseSensitive ? doc : doc.toLowerCase();
+  const needle = caseSensitive ? query : query.toLowerCase();
+  const first = needle[0];
+  let cursor = 0;
+
+  while (cursor < doc.length) {
+    const start = source.indexOf(first, cursor);
+    if (start === -1) break;
+
+    const match = findFuzzyMatchAt(doc, source, needle, start);
+    if (!match) break;
+
+    if (!options.wholeWord || isWholeWordMatch(doc, match.from, match.to)) {
+      matches.push(match);
+      cursor = match.to;
+    } else {
+      cursor = start + 1;
+    }
+  }
+
+  return matches;
+}
+
 export function findSearchMatches(
   doc: string,
   query: string,
@@ -648,6 +713,10 @@ export function findSearchMatches(
 ): SearchMatch[] {
   if (!query) {
     return [];
+  }
+
+  if (options.fuzzy && !options.regexp) {
+    return findFuzzySearchMatches(doc, query, options);
   }
 
   const pattern = buildSearchPattern(query, options);
@@ -678,6 +747,19 @@ export function replaceAllMatches(
 ): string {
   if (!query) {
     return doc;
+  }
+
+  if (options.fuzzy && !options.regexp) {
+    const matches = findFuzzySearchMatches(doc, query, options);
+    if (matches.length === 0) return doc;
+
+    let next = "";
+    let cursor = 0;
+    for (const match of matches) {
+      next += doc.slice(cursor, match.from) + replacement;
+      cursor = match.to;
+    }
+    return next + doc.slice(cursor);
   }
 
   const pattern = buildSearchPattern(query, options);

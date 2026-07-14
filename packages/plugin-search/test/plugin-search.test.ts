@@ -303,6 +303,39 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("supports fuzzy literal search as ordered subsequence matches", () => {
+    expect(findSearchMatches("Nexus note next edit", "ne", { fuzzy: true })).toEqual([
+      { from: 0, to: 2, text: "Ne" },
+      { from: 6, to: 10, text: "note" },
+      { from: 11, to: 13, text: "ne" }
+    ]);
+  });
+
+  it("supports case-sensitive fuzzy search", () => {
+    expect(findSearchMatches("Nexus next NE", "Ne", { fuzzy: true, caseSensitive: true })).toEqual([
+      { from: 0, to: 2, text: "Ne" }
+    ]);
+  });
+
+  it("supports whole-word fuzzy search", () => {
+    expect(findSearchMatches("fb f-b fxb", "fb", { fuzzy: true, wholeWord: true })).toEqual([
+      { from: 0, to: 2, text: "fb" },
+      { from: 3, to: 6, text: "f-b" },
+      { from: 7, to: 10, text: "fxb" }
+    ]);
+    expect(findSearchMatches("prefixfb", "fb", { fuzzy: true, wholeWord: true })).toEqual([]);
+  });
+
+  it("replaces fuzzy matches without overlapping ranges", () => {
+    expect(replaceAllMatches("Nexus note next", "ne", "X", { fuzzy: true })).toBe("Xxus X Xxt");
+  });
+
+  it("keeps regexp search semantics when fuzzy is also set", () => {
+    expect(findSearchMatches("foo123 bar", "\\d+", { fuzzy: true, regexp: true })).toEqual([
+      { from: 3, to: 6, text: "123" }
+    ]);
+  });
+
   it("creates a search plugin descriptor", () => {
     const plugin = createSearchPlugin();
 

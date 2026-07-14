@@ -4,12 +4,12 @@
   "version": "0.0.13",
   "packageManager": "pnpm@9.15.4",
   "scripts": {
-    "build": "pnpm --filter @floatboat/nexus-core build && pnpm --filter @floatboat/nexus-react build && pnpm --filter @floatboat/nexus-vue build && pnpm --filter @floatboat/nexus-preset-gfm build && pnpm --filter @floatboat/nexus-plugin-slash build && pnpm --filter @floatboat/nexus-plugin-history build && pnpm --filter @floatboat/nexus-plugin-search build && pnpm --filter @floatboat/nexus-plugin-toolbar build && pnpm --filter @floatboat/nexus-plugin-math build && pnpm --filter @floatboat/nexus-plugin-vim build && pnpm --filter @floatboat/nexus-plugin-wordcount build",
-    "typecheck": "pnpm -r exec tsc --noEmit",
+    "build": "corepack pnpm --filter \"./packages/**\" --workspace-concurrency=1 build",
+    "typecheck": "corepack pnpm -r exec tsc --noEmit",
     "test": "vitest run",
-    "dev:electron-demo": "pnpm --filter @floatboat/nexus-electron-demo dev",
-    "build:electron-demo": "pnpm --filter @floatboat/nexus-electron-demo build",
-    "publish:packages": "pnpm -r --filter \"./packages/*\" publish --access public --no-git-checks"
+    "dev:electron-demo": "corepack pnpm --filter @floatboat/nexus-electron-demo dev",
+    "build:electron-demo": "corepack pnpm --filter @floatboat/nexus-electron-demo build",
+    "publish:packages": "corepack pnpm -r --filter \"./packages/*\" publish --access public --no-git-checks"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.0",
