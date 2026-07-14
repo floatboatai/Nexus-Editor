@@ -423,11 +423,30 @@ function adaptListItem(source: Source, node: SyntaxNode): ListItem {
       const marker = findChildByName(c, "TaskMarker");
       const m = marker ?? c;
       checked = detectTaskChecked(readSlice(source, m.from, m.to));
-      // Task wraps Paragraph content too — descend so inner blocks are kept.
-      for (let inner = c.firstChild; inner; inner = inner.nextSibling) {
-        if (inner.name === "TaskMarker") continue;
-        const block = adaptBlockChild(source, inner);
-        if (block) children.push(block);
+      // The item's text is NOT a child node of Task — Lezer keeps plain text
+      // implicit in the gaps between nodes, and Task's only structural child
+      // is the TaskMarker itself (plus any inline formatting nodes). Walk
+      // Task as inline content: emitInline emits the gap text as Text nodes
+      // and skips TaskMarker via MARKER_NODE_NAMES. Wrap the result in the
+      // paragraph mdast consumers (and mdast-util-to-hast's task-list
+      // handler) expect a listItem's text to live in.
+      const inline = emitInline(source, c);
+      const first = inline[0];
+      if (first?.type === "text") {
+        // The gap starts right after `[x]` — drop the separating whitespace.
+        const trimmed = first.value.replace(/^[ \t]+/, "");
+        if (first.position && first.position.start.offset !== undefined) {
+          first.position.start.offset += first.value.length - trimmed.length;
+        }
+        first.value = trimmed;
+        if (!trimmed) inline.shift();
+      }
+      if (inline.length > 0) {
+        children.push({
+          type: "paragraph",
+          children: inline,
+          position: position(m.to, c.to),
+        });
       }
       continue;
     }
@@ -473,10 +492,34 @@ function adaptList(source: Source, node: SyntaxNode, ordered: boolean): List {
   };
 }
 
+/**
+ * Parse the delimiter row (`| :-- | :-: | --: |`) into mdast's per-column
+ * alignment. The array's length doubles as the table's column count for
+ * `mdast-util-to-hast`, whose tableRow handler emits exactly `align.length`
+ * cells per row — an empty array makes every row render cell-less.
+ */
+function parseTableAlign(source: Source, delimiter: SyntaxNode): Table["align"] {
+  return tableCellContentRanges(source, delimiter.from, delimiter.to).map(({ from, to }) => {
+    const spec = readSlice(source, from, to);
+    const left = spec.startsWith(":");
+    const right = spec.endsWith(":");
+    if (left && right) return "center";
+    if (right) return "right";
+    if (left) return "left";
+    return null;
+  });
+}
+
 function adaptTable(source: Source, node: SyntaxNode): Table {
   const rows: TableRow[] = [];
+  let align: Table["align"] = [];
   for (let c = node.firstChild; c; c = c.nextSibling) {
-    if (c.name === "TableHeader" || c.name === "TableRow") {
+    if (c.name === "TableDelimiter") {
+      // The full-line `| --- | --- |` row is a direct Table child; the
+      // single-pipe delimiters inside rows are children of TableHeader /
+      // TableRow and never reach this branch.
+      align = parseTableAlign(source, c);
+    } else if (c.name === "TableHeader" || c.name === "TableRow") {
       const cells = adaptTableRowCells(source, c);
       rows.push({
         type: "tableRow",
@@ -485,9 +528,12 @@ function adaptTable(source: Source, node: SyntaxNode): Table {
       });
     }
   }
+  if ((align?.length ?? 0) === 0 && rows.length > 0) {
+    align = rows[0].children.map(() => null);
+  }
   return {
     type: "table",
-    align: [],
+    align,
     children: rows,
     position: position(node.from, node.to),
   };

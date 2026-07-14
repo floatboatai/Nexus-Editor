@@ -1,10 +1,10 @@
-import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
+import { Annotation, EditorSelection, EditorState, type Extension } from "@codemirror/state";
 
 // Annotation attached to dispatches that load content programmatically (e.g.
 // setDocument from file open) so updateListener can skip the user-edit path —
 // no onChange emission, no AST reparse for the onChange pipeline.
 const silentDocChange = Annotation.define<boolean>();
-import { EditorView, keymap, dropCursor, lineNumbers, type Direction } from "@codemirror/view";
+import { EditorView, ViewPlugin, keymap, dropCursor, lineNumbers, type Direction } from "@codemirror/view";
 import { indentWithTab, undo as cmUndo, redo as cmRedo } from "@codemirror/commands";
 import { closeBrackets } from "@codemirror/autocomplete";
 import type { Root } from "mdast";
@@ -227,6 +227,46 @@ function createTransformProcessor(plugins: NexusPlugin[]): { runSync(tree: Root)
   if (attached === 0) return null;
   processor.freeze();
   return { runSync: (tree) => processor.runSync(tree) as Root };
+}
+
+/**
+ * Emits `scroll` (offset + within-block ratio) at most once per animation
+ * frame while the viewport scrolls. Uses CM6's content-space height APIs
+ * (`lineBlockAtHeight`) rather than `posAtCoords`/screen coordinates, so it
+ * needs no viewport rect math and works the same regardless of where the
+ * editor sits on the page.
+ */
+function createScrollTracker(emitter: EventEmitter<EditorEventMap>): Extension {
+  return ViewPlugin.fromClass(
+    class {
+      private rafId: number | null = null;
+
+      constructor(readonly view: EditorView) {
+        view.scrollDOM.addEventListener("scroll", this.onScroll, { passive: true });
+      }
+
+      onScroll = (): void => {
+        if (this.rafId !== null) return;
+        this.rafId = requestAnimationFrame(() => {
+          this.rafId = null;
+          this.emit();
+        });
+      };
+
+      emit(): void {
+        const { view } = this;
+        const scrollTop = Math.max(0, Math.min(view.scrollDOM.scrollTop, view.contentHeight));
+        const block = view.lineBlockAtHeight(scrollTop);
+        const ratio = block.height > 0 ? Math.max(0, Math.min(1, (scrollTop - block.top) / block.height)) : 0;
+        emitter.emit("scroll", { offset: block.from, ratio });
+      }
+
+      destroy(): void {
+        if (this.rafId !== null) cancelAnimationFrame(this.rafId);
+        this.view.scrollDOM.removeEventListener("scroll", this.onScroll);
+      }
+    }
+  );
 }
 
 export function createEditor(config: EditorConfig): EditorAPI {
@@ -708,6 +748,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
             return false;
           },
         }),
+        createScrollTracker(emitter),
         ...createLivePreviewExtension(config.livePreview, {
           addColumn: locale.addColumn,
           addRow: locale.addRow,
@@ -920,6 +961,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
       const words = doc.trim() === "" ? 0 : doc.trim().split(/\s+/).length;
       const lines = view.state.doc.lines;
       return { characters, words, lines };
+    },
+    scrollToOffset(offset, ratio) {
+      if (destroyed) return;
+      const clamped = clampPosition(offset, view.state.doc.length);
+      const block = view.lineBlockAt(clamped);
+      const clampedRatio = ratio === undefined ? 0 : Math.max(0, Math.min(1, ratio));
+      view.scrollDOM.scrollTop = block.top + clampedRatio * block.height;
     },
     destroy() {
       if (destroyed || destroying) return;

@@ -1,0 +1,52 @@
+# Implementation Tasks
+
+## 1. Core — scroll event
+
+- [x] 1.1 Add `scroll: (payload: { offset: number; ratio: number }) => void` to `EditorEventMap` in `packages/core/src/types.ts`, with JSDoc explaining `offset` (doc position at viewport top) and `ratio` (fractional position within that offset's block).
+- [x] 1.2 Implement a `ViewPlugin` (in `editor.ts` or a small new module) listening to `view.scrollDOM`'s native `scroll` event, rAF-throttled, computing `{ offset, ratio }` via `view.lineBlockAtHeight(view.scrollDOM.scrollTop)` (content-space; no screen-coordinate math). Emit through the existing `emitter`.
+- [x] 1.3 Wire the plugin into the `EditorView` extensions list in `editor.ts`.
+- [x] 1.4 Add `scrollToOffset(offset: number, ratio?: number): void` to `EditorAPI` (types + implementation), the write-side counterpart to the `scroll` event: `view.lineBlockAt(offset)` + set `view.scrollDOM.scrollTop`, applying `ratio` within that block when provided.
+
+## 2. Core — preview HTML rendering
+
+- [x] 2.1 New `packages/core/src/live-preview-to-html.ts` exporting `renderPreviewHtml(ast: Root): string`: build a `unified().use(remarkRehype).use(rehypeStringify)` processor (mirroring `createTransformProcessor`'s `runSync(tree)` pattern — no `remark-parse` step), inject `data-offset` from each corresponding mdast node's `position.start.offset` onto block-level hast elements before stringifying.
+- [x] 2.2 Export `renderPreviewHtml` from `packages/core/src/index.ts`.
+
+## 3. Demo — preview panel + scroll wiring
+
+- [x] 3.1 New `apps/electron-demo/src/renderer/preview-panel.ts`, modeled on `outline-panel.ts`: `createPreviewPanel(editor) => { element, update(), destroy() }`. `update()` renders `renderPreviewHtml(editor.getAst())` into the panel; subscribes via `editor.on("change", update)`, unsubscribes in `destroy()`.
+- [x] 3.2 Wire bidirectional scroll sync inside the panel module:
+  - `editor.on("scroll", ({ offset }) => ...)` → find the panel's `[data-offset]` element nearest `offset`, align it to the top of the pane.
+  - Panel's own native `scroll` listener (rAF-throttled) → find the topmost visible `[data-offset]` element, call `editor.scrollToOffset(offset)`.
+  - Guard both directions with an `isSyncingScroll` flag set before a programmatic scroll and cleared on the next `requestAnimationFrame`. (As planned; later widened to two frames during self-review — see 6.2.)
+- [x] 3.3 `app.ts`: mount `preview.element` into `mainArea` (between `editorColumn` and `outline`), add a toolbar toggle button (`togglePreview`/`setPreviewVisible` — a small variant of the shared `togglePanel()` helper, since showing/hiding also needs to read/persist `settings.splitPreview`, which `togglePanel`'s single `onShow` callback can't do), default closed.
+- [x] 3.4 `settings.ts`: add `splitPreview: boolean` (default `false`) to `EditorSettings` and `defaultSettings()`, following the `livePreview` toggle pattern; add a row in the settings panel UI.
+- [x] 3.5 **Found during review, not in the original plan**: `renderPreviewHtml` emits plain `<a href>` elements, and `electron/main.ts` has no `will-navigate` / `setWindowOpenHandler` guard — an unhandled click would navigate the whole `BrowserWindow` away from the app. Intercept clicks on `content`: always `preventDefault()`; Ctrl/Cmd-click opens via `window.open(url, "_blank", "noopener,noreferrer")`, mirroring the existing convention in `live-preview-renderers.ts`'s inline link renderer. New `apps/electron-demo/test/preview-panel.test.ts` (3 cases here; a 4th added later in 6.9) pins plain-click-is-swallowed, modifier-click-opens-externally, and non-link-clicks-are-ignored.
+
+## 4. Tests
+
+- [x] 4.1 New `packages/core/test/scroll-event.test.ts`: scrolling emits `{ offset, ratio }`; rapid scroll events are throttled to at most one emission per animation frame; no handler registered → no observable side effect.
+- [x] 4.2 New `packages/core/test/live-preview-to-html.test.ts`: `data-offset` attributes present and match source node offsets; nested inline formatting (bold/link inside a heading) is preserved (regression guard against the `renderLivePreviewNode` flattening pitfall); `[[Wiki Link]]` is not specially rendered — pins the actual verified behavior (outer brackets literal, inner `[Target]` picked up as an unresolved-shortcut-reference `Link` by the pre-existing adapter quirk — see `design.md`), not the originally-assumed plain-text passthrough.
+- [x] 4.3 `pnpm test`, `pnpm build`, `pnpm typecheck` all green.
+- [x] 4.4 Manual verification in the running electron-demo, done by the human reviewer (agent has no Electron UI automation available). Confirmed working after three follow-up fixes surfaced by hands-on testing, none caught by unit tests since they're real-browser layout behavior jsdom doesn't reproduce:
+  - `preview-panel.ts`: `.nexus-preview-content` needs `position: relative` — the scroll-alignment math reads each rendered element's `offsetTop`, which is relative to the nearest *positioned* ancestor, not the immediate parent; without this it resolved against `<body>` and every computed scroll target was wrong.
+  - `preview-panel.ts`: `.nexus-preview-content` needs `min-height: 0` — the classic flex-column child sizing gotcha (default `min-height: auto` lets a `flex: 1` child grow to its content size instead of clipping to available space), same pattern already handled correctly elsewhere in this app (`.editor-container .cm-editor`) but missed here.
+  - `app.ts` `setPreviewVisible`: showing the panel must set `style.display = "flex"`, not `""` — clearing the inline `display` removes that declaration outright (no external stylesheet rule provides a fallback) rather than restoring the original `flex` value, collapsing the panel to the UA default `display: block` and breaking its internal header/content layout. (Also flagged here: the shared `togglePanel()` helper used by the outline/vault/backlinks panels had the same `style.display = ""` pattern and the same latent bug — initially deferred as a follow-up, then fixed at the source during self-review; see 6.3.)
+
+## 5. Docs
+
+- [x] 5.1 `packages/core/README.md`: document the `scroll` event and `renderPreviewHtml` under the API reference.
+- [x] 5.2 `docs/ROADMAP.md` + `docs/ROADMAP.zh.md`: row #13 → `in-progress`, link `add-sync-scroll-preview`.
+
+## 6. Self-review (structured correctness + cleanup pass, before submitting)
+
+- [x] 6.1 **Correctness**: `scroll`'s `ratio` (fraction within one CM6 source line) and the preview's block-scan `ratio` (fraction within a whole, possibly multi-line, rendered DOM block) were two different units being used interchangeably across the sync's two directions, producing real misalignment for multi-line blocks. Dropped ratio-based sub-block interpolation from both directions — block-top alignment only (`preview-panel.ts`'s `onEditorScroll`/`onPanelScroll`, `editor.ts`'s `scrollToOffset` called with no ratio arg). See `design.md`.
+- [x] 6.2 **Correctness (hardening)**: `isSyncingScroll` now clears two animation frames after a programmatic scroll, not one — closes a plausible timing race where CM6's own internally-throttled scroll echo could arrive after a single-frame guard already cleared.
+- [x] 6.3 **Reuse/altitude**: fixed the shared `togglePanel()` helper (`apps/electron-demo/src/renderer/app.ts`) at the source — takes an explicit show-display value instead of clearing to `""` — rather than working around it only in the new preview panel. Also fixes the outline/vault/backlinks panels, which had the same latent bug.
+- [x] 6.4 **Simplification**: collapsed `findNearestByOffset` / `findTopmostVisible` (same forward-scan-with-fallback logic, different key) into one `findLastAtOrBefore`.
+- [x] 6.5 **Efficiency**: the settings-panel `onChange` was unconditionally re-rendering the preview pane on every field mutation (e.g. dragging the font-size slider), not just when `splitPreview` changed. Now tracks the last-applied value.
+- [x] 6.6 **API polish**: exported `ScrollPayload` from `packages/core/src/types.ts` / `index.ts`, matching the `SelectionState` precedent for `selectionChange`.
+- [x] 6.7 `pnpm test` (531 tests), `pnpm typecheck`, `pnpm build`, `pnpm build:electron-demo` all green after the fixes above.
+- [ ] 6.8 Considered, deliberately not done: centralizing the rAF-throttle boilerplate shared between `editor.ts` and `preview-panel.ts` (new cross-package API surface not worth it for ~5 lines); a main-process `will-navigate` / `setWindowOpenHandler` guard in `electron/main.ts` as defense-in-depth beyond `preview-panel.ts`'s own click interception (more robust, but a separate hardening effort — this change's own preview pane is already safe without it).
+- [x] 6.9 **Found during manual verification (round 2)**: Ctrl/Cmd-clicking the wiki-link adapter's garbage-href link (`href="[Some Note]"`) called `window.open` with a non-absolute string, which the browser resolved relative to the current page's own origin (the Vite dev server in dev) — silently reopening a whole extra copy of the app in a new window instead of doing nothing. `onContentClick` now only calls `window.open` when `new URL(href)` (no base) succeeds and the protocol is `http:`/`https:`; anything else is a no-op, same as a plain click. New test case in `apps/electron-demo/test/preview-panel.test.ts` pins this against the actual wiki-link output. `pnpm test` (532 tests), `pnpm typecheck` green after the fix.
+- [x] 6.10 **Found during manual verification (round 3)**: GFM tables rendered as empty `<tr></tr>` shells and task-list items as bare checkboxes with no text. Both traced (via syntax-tree/mdast probes, not guesswork) to `lezer-mdast-adapter.ts` emitting non-spec mdast: `adaptTable` hardcoded `align: []` (and `mdast-util-to-hast` emits exactly `align.length` cells per row — zero columns = cell-less rows), and `adaptListItem`'s Task branch looked for child nodes when Lezer keeps the item's text implicit in the gap after `TaskMarker`. Fixed both in the adapter (align parsed from the delimiter row with a null-per-column fallback; task text recovered via the existing `emitInline` + wrapped in a paragraph). Scope judgment vs. the deferred wiki-link adapter bug documented in `design.md`. Three new regression tests in `live-preview-to-html.test.ts` (table cells + alignment, task text + checkbox + inline formatting, nested blocks under a task). `pnpm test` (535 tests), `pnpm typecheck` green.

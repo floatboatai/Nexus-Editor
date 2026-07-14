@@ -1,11 +1,12 @@
 import { createState, type AppState } from "./state";
 import { createEditorShell, type EditorShell } from "./editor-shell";
-import { loadSettings, createSettingsPanel, type EditorSettings } from "./settings";
+import { loadSettings, saveSettings, createSettingsPanel, type EditorSettings } from "./settings";
 import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
 import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
+import { createPreviewPanel, type PreviewPanel } from "./preview-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
 
 installLongTaskWatch(50);
@@ -17,6 +18,7 @@ let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+let preview: PreviewPanel;
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
@@ -65,6 +67,12 @@ function createAppToolbar(): HTMLElement {
   backlinksBtn.style.fontSize = "14px";
   backlinksBtn.addEventListener("click", toggleBacklinks);
 
+  const previewBtn = document.createElement("button");
+  previewBtn.textContent = "◧";
+  previewBtn.title = "Toggle split preview (synced scroll)";
+  previewBtn.style.fontSize = "14px";
+  previewBtn.addEventListener("click", togglePreview);
+
   const searchBtn = document.createElement("button");
   searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
   searchBtn.title = "Search (Ctrl+F)";
@@ -86,6 +94,7 @@ function createAppToolbar(): HTMLElement {
     vaultToggleBtn,
     outlineBtn,
     backlinksBtn,
+    previewBtn,
     searchBtn,
     settingsBtn
   );
@@ -175,15 +184,20 @@ async function handleSaveAs(): Promise<void> {
 }
 
 function handleSettings(): void {
+  let lastSplitPreview = settings.splitPreview;
   createSettingsPanel(settings, (next) => {
     settings = next;
     shell.applySettings(settings);
+    if (settings.splitPreview !== lastSplitPreview) {
+      lastSplitPreview = settings.splitPreview;
+      setPreviewVisible(settings.splitPreview);
+    }
   });
 }
 
-function togglePanel(panel: HTMLElement, onShow?: () => void): void {
+function togglePanel(panel: HTMLElement, showDisplay: string, onShow?: () => void): void {
   if (panel.style.display === "none") {
-    panel.style.display = "";
+    panel.style.display = showDisplay;
     onShow?.();
   } else {
     panel.style.display = "none";
@@ -191,15 +205,26 @@ function togglePanel(panel: HTMLElement, onShow?: () => void): void {
 }
 
 function toggleOutline(): void {
-  togglePanel(outline.element, () => outline.update());
+  togglePanel(outline.element, "flex", () => outline.update());
 }
 
 function toggleVault(): void {
-  togglePanel(vault.element);
+  togglePanel(vault.element, "flex");
 }
 
 function toggleBacklinks(): void {
-  togglePanel(backlinks.element, () => backlinks.refresh());
+  togglePanel(backlinks.element, "flex", () => backlinks.refresh());
+}
+
+function setPreviewVisible(visible: boolean): void {
+  preview.element.style.display = visible ? "flex" : "none";
+  if (visible) preview.update();
+}
+function togglePreview(): void {
+  const next = preview.element.style.display === "none";
+  setPreviewVisible(next);
+  settings.splitPreview = next;
+  saveSettings(settings);
 }
 
 async function handleVaultFileOpen(filePath: string): Promise<void> {
@@ -406,9 +431,11 @@ function boot(): void {
     onOpenFile: (filePath) => void handleVaultFileOpen(filePath),
     getActiveFile: () => state.activeFile,
   });
+  preview = createPreviewPanel(shell.editor);
+  setPreviewVisible(settings.splitPreview);
 
   editorColumn.append(searchBar.element, editorContainer);
-  mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
+  mainArea.append(vault.element, editorColumn, preview.element, outline.element, backlinks.element);
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {

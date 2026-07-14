@@ -141,6 +141,12 @@ export interface SelectionState {
   mainIndex: number;
 }
 
+/** Payload for the `scroll` event — see {@link EditorEventMap.scroll}. */
+export interface ScrollPayload {
+  offset: number;
+  ratio: number;
+}
+
 export interface EditorEventMap {
   change: (doc: string, ast: Root) => void;
   focus: () => void;
@@ -148,6 +154,7 @@ export interface EditorEventMap {
   /** `anchor` / `head` describe the main range; `ranges` carries all of them. */
   selectionChange: (selection: { anchor: number; head: number } & SelectionState) => void;
   slashMenuChange: (state: SlashMenuState) => void;
+  scroll: (payload: ScrollPayload) => void;
 }
 
 export interface TocEntry {
@@ -275,6 +282,7 @@ export interface EditorAPI {
    */
   getPosAtDOM(node: HTMLElement): number | null;
   getDocumentStats(): { characters: number; words: number; lines: number };
+  scrollToOffset(offset: number, ratio?: number): void;
 }
 
 export interface SlashCommandDef {
