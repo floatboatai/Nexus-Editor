@@ -71,6 +71,36 @@ editor.on("selectionChange", ({ anchor, head, ranges, mainIndex }) => {
 
 Multiple ranges in `setSelections` require `multiCursor: true` — without the flag CodeMirror collapses the selection to its main range.
 
+## Runtime plugin management
+
+Plugins can be added to and removed from a **live** editor — no recreation, so document content, undo history, selection and scroll position are all preserved:
+
+```ts
+import { createTypewriterPlugin } from "@floatboat/nexus-plugin-typewriter";
+
+editor.addPlugin(createTypewriterPlugin());   // active from the next update
+editor.getPlugins();                          // [{ name, runtime }, ...]
+editor.removePlugin("plugin-typewriter");     // gone — zero residue
+
+editor.on("pluginsChange", (plugins) => {
+  // fired after every successful runtime add / remove with the full list
+});
+```
+
+### Which plugins are hot-pluggable?
+
+Hooks differ in how deep they reach into the editor, so they are classified:
+
+| Hook | Runtime add/remove | Why |
+|---|---|---|
+| `cmExtensions` | ✅ | Maps 1:1 onto a CodeMirror extension; a `Compartment` reconfigure installs and removes it atomically |
+| `shortcuts` | ✅ | Compiles to a keymap extension — same property |
+| `widgets` | ❌ construction-time | Live-preview render pipeline is sealed when the editor is built (safe teardown tracked as roadmap #9) |
+| `remarkPlugins` | ❌ construction-time | Parse/transform processors are built once at construction |
+| `slashCommands` / `commands` / `handlers` | ❌ construction-time | Captured by construction-time closures |
+
+`addPlugin` **throws** (naming the offending hooks) when a plugin declares any construction-time hook — pass those plugins via `createEditor({ plugins })` instead. Duplicate names and destroyed editors throw as well. `removePlugin` only removes runtime-added plugins: construction-time plugins may hold non-removable hooks, so removing half a plugin is refused loudly rather than honored silently.
+
 ## Other config highlights
 
 See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.

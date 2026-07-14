@@ -45,6 +45,7 @@
 | 9  | Widget API 标准化 | `core` | P1 | planned | 是 | 现有 widget 已多次踩坑（见 CLAUDE.md），需先定 spec |
 | 10 | 插件事件总线 | `core` | P2 | planned | 是 | 影响所有现存 plugin-* |
 | 11 | 热加载插件 | `core` | P3 | planned | 是 | 仅 dev 模式，依赖 #9 完成 |
+| 30 | 运行时插件管理（热装 / 热卸） | `core` + 新 `plugin-typewriter` + `electron-demo` | P1 | in-progress | 是 | `openspec/changes/add-runtime-plugin-management` — 基于 Compartment 的 `addPlugin` / `removePlugin` / `getPlugins`，覆盖可热插拔钩子（`cmExtensions` / `shortcuts`）；交付 #11 的非 widget 子集（widget 钩子待 #9 完成后升级） |
 
 ## 5. UI / Preview / 快捷键
 

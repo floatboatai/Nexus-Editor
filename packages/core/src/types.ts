@@ -141,6 +141,17 @@ export interface SelectionState {
   mainIndex: number;
 }
 
+/** One installed plugin as reported by {@link EditorAPI.getPlugins}. */
+export interface InstalledPluginInfo {
+  name: string;
+  /**
+   * True when the plugin was installed via {@link EditorAPI.addPlugin}
+   * (hot-removable), false for plugins passed to `createEditor({ plugins })`
+   * (construction-time, not removable at runtime).
+   */
+  runtime: boolean;
+}
+
 export interface EditorEventMap {
   change: (doc: string, ast: Root) => void;
   focus: () => void;
@@ -148,6 +159,8 @@ export interface EditorEventMap {
   /** `anchor` / `head` describe the main range; `ranges` carries all of them. */
   selectionChange: (selection: { anchor: number; head: number } & SelectionState) => void;
   slashMenuChange: (state: SlashMenuState) => void;
+  /** Fired after every successful runtime `addPlugin` / `removePlugin` with the then-current full plugin list. */
+  pluginsChange: (plugins: InstalledPluginInfo[]) => void;
 }
 
 export interface TocEntry {
@@ -264,6 +277,31 @@ export interface EditorAPI {
    * 避免在合成过程中调用 setDocument 打断输入。
    */
   isComposing(): boolean;
+  /**
+   * Hot-install a plugin into the live editor (no recreation; document, undo
+   * history, selection and scroll are preserved).
+   *
+   * Only plugins whose declared hooks are all hot-pluggable (`cmExtensions`,
+   * `shortcuts`) are accepted. Plugins declaring construction-time hooks
+   * (`widgets`, `remarkPlugins`, `slashCommands`, `commands`, `handlers`)
+   * throw — those hooks are consumed while the editor is being built and
+   * must be passed via `createEditor({ plugins })`.
+   *
+   * Also throws on duplicate plugin names and on destroyed editors. When the
+   * install dispatch itself fails, the registry rolls back and the error is
+   * rethrown — the editor keeps working with its previous plugin set.
+   */
+  addPlugin(plugin: NexusPlugin): void;
+  /**
+   * Hot-uninstall a plugin previously installed with {@link addPlugin}.
+   * Removal is complete: none of the plugin's shortcuts or extensions stay
+   * active. Returns false for unknown names. Throws for construction-time
+   * plugins (their hooks are not runtime-detachable — recreate the editor
+   * instead) and on destroyed editors.
+   */
+  removePlugin(name: string): boolean;
+  /** All installed plugins with their origin (construction-time vs runtime). */
+  getPlugins(): InstalledPluginInfo[];
   destroy(): void;
   on<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
   off<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;

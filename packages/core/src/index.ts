@@ -38,6 +38,7 @@ export type {
   EditorEventHandlers,
   EditorEventMap,
   EditorSelectionRange,
+  InstalledPluginInfo,
   LivePreviewConfig,
   LivePreviewLabels,
   LivePreviewNode,

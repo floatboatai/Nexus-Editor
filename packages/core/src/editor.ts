@@ -24,6 +24,7 @@ import { resolveLocale } from "./locale";
 import { markdownAutoPair } from "./markdown-autopair";
 import { markdownKeymap } from "./markdown-keymap";
 import { multiCursorExtension } from "./multi-cursor";
+import { createRuntimePluginRegistry } from "./runtime-plugins";
 import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { createThemeExtension, lightTheme, type NexusTheme } from "./theme";
 import { computeSlashState } from "./slash-state";
@@ -302,6 +303,17 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // the live EditorState once the view is constructed.
   const viewRef: { current: EditorView | null } = { current: null };
   let api!: EditorAPI;
+
+  // Runtime plugin hot-plugging (see openspec/changes/add-runtime-plugin-management).
+  // The compartment seed joins the static extension list below; addPlugin /
+  // removePlugin reconfigure it at runtime — same mechanism as setTheme.
+  const runtimePlugins = createRuntimePluginRegistry({
+    staticPluginNames: plugins.map((plugin) => plugin.name),
+    staticShortcuts: shortcuts,
+    viewRef,
+    getApi: () => api,
+    onChange: (installed) => emitter.emit("pluginsChange", installed),
+  });
 
   function setFocused(next: boolean) {
     if (destroyed || focused === next) {
@@ -719,7 +731,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
         ...(widgetParser ? createWidgetExtension(widgetParser, widgetDefs) : []),
         ...shortcutExtensions,
         ...commandKeymapExtensions,
-        ...cmExtensions
+        ...cmExtensions,
+        // Empty until addPlugin() is called; runtime plugins therefore sit
+        // after every static extension in precedence.
+        runtimePlugins.extensionSeed
       ]
     })
   });
@@ -872,9 +887,8 @@ export function createEditor(config: EditorConfig): EditorAPI {
       if (destroyed) {
         return false;
       }
-
-      const shortcut = shortcuts.find((entry) => entry.key === key);
-      return shortcut ? shortcut.run(api) : false;
+      const run = runtimePlugins.findShortcut(key);
+      return run ? run(api) : false;
     },
     getCommands() {
       return commands.slice();
@@ -891,6 +905,21 @@ export function createEditor(config: EditorConfig): EditorAPI {
     isComposing() {
       if (destroyed) return false;
       return composing || view.composing || view.compositionStarted;
+    },
+    addPlugin(plugin) {
+      if (destroyed) {
+        throw new Error(`[NexusEditor] addPlugin("${plugin.name}"): editor has been destroyed`);
+      }
+      runtimePlugins.add(plugin);
+    },
+    removePlugin(name) {
+      if (destroyed) {
+        throw new Error(`[NexusEditor] removePlugin("${name}"): editor has been destroyed`);
+      }
+      return runtimePlugins.remove(name);
+    },
+    getPlugins() {
+      return runtimePlugins.list();
     },
     on(event, handler) {
       emitter.on(event, handler);

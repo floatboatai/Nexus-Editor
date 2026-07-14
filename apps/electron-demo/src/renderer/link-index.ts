@@ -1,5 +1,5 @@
 import { scanWikiLinks, type WikiLinkMatch } from "@floatboat/nexus-core";
-import { normalizeSlashes, joinPath } from "./path-utils";
+import { normalizeSlashes, joinPath, basename, dirname } from "./path-utils";
 
 /** Prefer requestIdleCallback for yielding; fall back to a macrotask otherwise. */
 function yieldToIdle(): Promise<void> {
@@ -37,21 +37,9 @@ interface RebuildAsyncOptions {
   isCancelled?: () => boolean;
 }
 
-function basename(p: string): string {
-  const norm = p.replace(/\\/g, "/");
-  const slash = norm.lastIndexOf("/");
-  return slash >= 0 ? norm.slice(slash + 1) : norm;
-}
-
 function stripExt(name: string): string {
   const dot = name.lastIndexOf(".");
   return dot > 0 ? name.slice(0, dot) : name;
-}
-
-function dirname(p: string): string {
-  const norm = p.replace(/\\/g, "/");
-  const slash = norm.lastIndexOf("/");
-  return slash >= 0 ? norm.slice(0, slash) : "";
 }
 
 /**

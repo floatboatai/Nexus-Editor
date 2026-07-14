@@ -60,6 +60,10 @@ export default defineConfig({
         __dirname,
         "../../packages/plugin-wordcount/src/index.ts"
       ),
+      "@floatboat/nexus-plugin-typewriter": path.resolve(
+        __dirname,
+        "../../packages/plugin-typewriter/src/index.ts"
+      ),
     },
   },
   server: {

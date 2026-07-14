@@ -45,6 +45,7 @@ This document maps every planned feature to **package ownership / priority / sta
 | 9  | Widget API standardization | `core` | P1 | planned | Yes | Existing widgets hit many pitfalls (see CLAUDE.md); spec first |
 | 10 | Plugin event bus | `core` | P2 | planned | Yes | Affects every existing `plugin-*` |
 | 11 | Plugin hot-reload | `core` | P3 | planned | Yes | Dev mode only; depends on #9 |
+| 30 | Runtime plugin management (hot add / remove) | `core` + new `plugin-typewriter` + `electron-demo` | P1 | in-progress | Yes | `openspec/changes/add-runtime-plugin-management` — Compartment-backed `addPlugin` / `removePlugin` / `getPlugins` for hot-pluggable hooks (`cmExtensions` / `shortcuts`); delivers the non-widget subset of #11 (widget hooks graduate after #9) |
 
 ## 5. UI / Preview / Keymap
 
