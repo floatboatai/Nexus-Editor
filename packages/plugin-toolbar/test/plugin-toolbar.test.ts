@@ -12,6 +12,10 @@ import {
   toggleUnorderedList,
   createToolbarPlugin,
   createToolbarUI,
+  toggleBlockquote,
+  insertCodeBlock,
+  insertImage,
+  insertHorizontalRule
 } from "../src/index";
 
 describe("toggleBold", () => {
@@ -606,3 +610,102 @@ describe("toggleUnorderedList — atomic undo", () => {
     editor.destroy();
   });
 });
+
+
+describe("toggleBlockquote", () => {
+  it("adds blockquote prefix to current line", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.setSelection(2);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("> hello world");
+    editor.destroy();
+  });
+
+  it("removes blockquote prefix when already present", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "> hello" });
+
+    editor.setSelection(2);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("hello");
+    editor.destroy();
+  });
+
+  it("works with multi-line blockquote", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "> line1\n> line2" });
+
+    editor.setSelection(2);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("line1\n> line2");
+    editor.destroy();
+  });
+});
+
+describe("insertCodeBlock", () => {
+  it("wraps selected text in triple backticks", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.setSelection(6, 11);
+    insertCodeBlock(editor);
+
+    expect(editor.getDocument()).toContain("```");
+    expect(editor.getDocument()).toContain("world");
+    editor.destroy();
+  });
+
+  it("inserts empty code block when nothing is selected", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "text " });
+
+    editor.setSelection(5, 5);
+    insertCodeBlock(editor);
+
+expect(editor.getDocument()).toContain("```\n\n```");
+    editor.destroy();
+  });
+});
+
+describe("insertImage", () => {
+  it("inserts markdown image syntax with selected text as alt", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "my photo" });
+
+    editor.setSelection(3, 8);
+    insertImage(editor);
+
+    expect(editor.getDocument()).toBe("my ![photo](url)");
+    editor.destroy();
+  });
+
+  it("uses default alt text when nothing is selected", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "text " });
+
+    editor.setSelection(5, 5);
+    insertImage(editor);
+
+    expect(editor.getDocument()).toBe("text ![alt text](url)");
+    editor.destroy();
+  });
+});
+
+describe("insertHorizontalRule", () => {
+  it("inserts horizontal rule at cursor position", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello" });
+
+    editor.setSelection(5);
+    insertHorizontalRule(editor);
+
+    expect(editor.getDocument()).toContain("---");
+    editor.destroy();
+  });
+});
+
