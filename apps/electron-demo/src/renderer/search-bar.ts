@@ -104,6 +104,15 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   const countLabel = document.createElement("span");
   countLabel.style.cssText = COUNT_STYLES;
 
+  const fuzzyToggle = document.createElement("input");
+  fuzzyToggle.type = "checkbox";
+  fuzzyToggle.id = "nexus-search-fuzzy";
+  fuzzyToggle.dataset.testId = "nexus-search-fuzzy-toggle";
+  const fuzzyLabel = document.createElement("label");
+  fuzzyLabel.htmlFor = "nexus-search-fuzzy";
+  fuzzyLabel.textContent = "Fuzzy";
+  fuzzyLabel.style.cssText = "font-size:12px;color:var(--nexus-text-muted,#888);cursor:pointer;";
+
   // Close
   const closeBtn = document.createElement("button");
   closeBtn.innerHTML = "&times;";
@@ -113,12 +122,28 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   const spacer = document.createElement("div");
   spacer.style.flex = "1";
 
-  bar.append(findInput, prevBtn, nextBtn, countLabel, replaceInput, replaceBtn, replaceAllBtn, spacer, closeBtn);
+  bar.append(
+    findInput,
+    fuzzyToggle,
+    fuzzyLabel,
+    prevBtn,
+    nextBtn,
+    countLabel,
+    replaceInput,
+    replaceBtn,
+    replaceAllBtn,
+    spacer,
+    closeBtn
+  );
 
   // State
   let matches: Array<{ from: number; to: number }> = [];
   let currentIdx = -1;
   let visible = false;
+
+  function searchOptions() {
+    return { fuzzy: fuzzyToggle.checked };
+  }
 
   function updateMatches() {
     const query = findInput.value;
@@ -129,7 +154,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       return;
     }
     const doc = editor.getDocument();
-    matches = findSearchMatches(doc, query);
+    matches = findSearchMatches(doc, query, searchOptions());
     if (matches.length === 0) {
       currentIdx = -1;
       countLabel.textContent = "0 results";
@@ -178,13 +203,14 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     const query = findInput.value;
     if (!query) return;
     const doc = editor.getDocument();
-    const newDoc = replaceAllMatches(doc, query, replaceInput.value);
+    const newDoc = replaceAllMatches(doc, query, replaceInput.value, searchOptions());
     editor.setDocument(newDoc);
     updateMatches();
   }
 
   // Event handlers
   findInput.addEventListener("input", updateMatches);
+  fuzzyToggle.addEventListener("change", updateMatches);
   findInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.shiftKey ? goPrev() : goNext(); e.preventDefault(); }
     if (e.key === "Escape") { close(); }
