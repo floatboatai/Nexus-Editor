@@ -417,17 +417,20 @@ export function createSlashMenuUI(
   }
 
   function onDocumentPointerDown(e: Event): void {
-    if (destroyed) return;
-    if (!isMenuOpen()) return;
-    const target = e.target as Node | null;
-    if (!target) return;
-    if (root.contains(target)) return;
-    // Anywhere outside the menu (including inside the editor) dismisses.
-    // The editor's own click will then reposition the caret normally;
-    // a subsequent slashMenuChange may reopen the menu if the user
-    // clicked inside a new `/query` token.
-    dismiss();
-  }
+  if (destroyed) return;
+  if (!isMenuOpen()) return;
+
+  // `event.target` is retargeted to the shadow host when an event
+  // crosses a Shadow DOM boundary. The composed path preserves the
+  // original menu nodes, so it works for both light DOM and Shadow DOM.
+  if (e.composedPath().includes(root)) return;
+
+  // Anywhere outside the menu (including inside the editor) dismisses.
+  // The editor's own click will then reposition the caret normally;
+  // a subsequent slashMenuChange may reopen the menu if the user
+  // clicked inside a new `/query` token.
+  dismiss();
+}
 
   function onCompositionStart(): void {
     isComposing = true;

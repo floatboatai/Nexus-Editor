@@ -574,6 +574,50 @@ describe("createSlashMenuUI document interactions", () => {
     expect(h.menu.element.style.display).toBe("block");
   });
 
+  it("keeps menu interactions working when mounted in a shadow root", () => {
+  const run = vi.fn();
+  const host = document.createElement("div");
+  const shadowRoot = host.attachShadow({ mode: "open" });
+  document.body.appendChild(host);
+
+  try {
+    h = setup(
+      [{ id: "h1", title: "Heading 1", run }],
+      { container: shadowRoot }
+    );
+
+    open(h.editor, "");
+
+    expect(h.menu.element.parentNode).toBe(shadowRoot);
+    expect(h.menu.element.style.display).toBe("block");
+
+    const item = items(h.menu)[0];
+
+    item.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+      })
+    );
+
+    expect(h.menu.element.style.display).toBe("block");
+
+    item.dispatchEvent(
+      new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+      })
+    );
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(h.menu.element.style.display).toBe("none");
+  } finally {
+    host.remove();
+  }
+});
+
   it("suppresses keyboard handling during composition", () => {
     const run = vi.fn();
     h = setup([{ id: "h1", title: "Heading 1", run }]);
