@@ -501,8 +501,9 @@ export class LinkIndex {
   }
 
   /**
-   * Rebuild the backward map from scratch. O(E) where E is total outgoing
-   * edges — used only by full `rebuild*` paths.
+   * Rebuild the current backward map from scratch. O(E) where E is total
+   * outgoing edges. Used when file topology changes can affect how existing
+   * wiki links resolve.
    */
   private rebuildBackward(): void {
     this.rebuildBackwardInto(this.currentSnapshot());
