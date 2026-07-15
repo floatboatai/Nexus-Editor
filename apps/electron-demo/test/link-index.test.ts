@@ -75,6 +75,58 @@ describe("LinkIndex.backlinks", () => {
     idx.removeFile("/v/a.md");
     expect(idx.getBacklinks("/v/X.md")).toHaveLength(0);
   });
+
+  it("removes inbound backlinks when the target file is deleted", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "/v/X.md", content: "" },
+      { path: "/v/a.md", content: "[[X]]" },
+    ]);
+
+    idx.removeFile("/v/X.md");
+
+    expect(idx.getBacklinks("/v/X.md")).toEqual([]);
+  });
+
+  it("indexes links that become resolvable when a file is added", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([{ path: "/v/a.md", content: "[[X]]" }]);
+
+    idx.updateFile("/v/X.md", "");
+
+    expect(idx.getBacklinks("/v/X.md").map((hit) => hit.sourcePath)).toEqual(["/v/a.md"]);
+  });
+
+  it("re-resolves links when deleting an ambiguous target", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "/v/work/Meeting.md", content: "" },
+      { path: "/v/personal/Meeting.md", content: "" },
+      { path: "/v/Inbox.md", content: "[[Meeting]]" },
+    ]);
+
+    expect(idx.getBacklinks("/v/work/Meeting.md")).toEqual([]);
+
+    idx.removeFile("/v/personal/Meeting.md");
+
+    expect(idx.getBacklinks("/v/work/Meeting.md").map((hit) => hit.sourcePath)).toEqual([
+      "/v/Inbox.md",
+    ]);
+  });
+
+  it("drops links when adding a duplicate target makes a basename ambiguous", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "/v/work/Meeting.md", content: "" },
+      { path: "/v/Inbox.md", content: "[[Meeting]]" },
+    ]);
+
+    expect(idx.getBacklinks("/v/work/Meeting.md")).toHaveLength(1);
+
+    idx.updateFile("/v/personal/Meeting.md", "");
+
+    expect(idx.getBacklinks("/v/work/Meeting.md")).toEqual([]);
+  });
 });
 
 describe("LinkIndex.getAllNoteNames", () => {

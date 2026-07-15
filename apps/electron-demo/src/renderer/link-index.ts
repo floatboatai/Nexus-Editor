@@ -217,28 +217,51 @@ export class LinkIndex {
     return true;
   }
 
-  /** Incremental update for a single file's contents. */
+  /**
+   * Update a single file's contents.
+   *
+   * Editing an existing file only changes that file's outgoing edges, so the
+   * reverse index can be maintained incrementally. Adding a new file changes
+   * basename uniqueness and may change how existing links resolve; rebuild the
+   * reverse index in that case so those links do not remain stale.
+   */
   updateFile(path: string, content: string): void {
-    this.removeFromBasenames(path);
-    this.indexFile(path, content);
+    const norm = normalizeSlashes(path);
+    const existed = this.contents.has(norm);
+    this.removeFromBasenames(norm);
+    this.indexFile(norm, content);
     this.invalidateUnlinkedCache();
-    // Incremental reverse-index maintenance — only rewrites backward edges
-    // whose `sourcePath` is this file. O(|edges of this file|) instead of
-    // O(|total edges in the vault|). On keystroke-driven updates the previous
-    // behavior scaled with vault size; now it only scales with this file.
-    this.rebuildBackwardFor(normalizeSlashes(path));
+    if (existed) {
+      // Incremental reverse-index maintenance — only rewrites backward edges
+      // whose `sourcePath` is this file. O(|edges of this file|) instead of
+      // O(|total edges in the vault|). On keystroke-driven updates the reverse
+      // index therefore still scales with the edited file.
+      this.rebuildBackwardFor(norm);
+    } else {
+      // A new file can resolve previously unresolved links or make an existing
+      // basename ambiguous, so every outgoing edge must be resolved again.
+      this.rebuildBackward();
+    }
     this.notify();
   }
 
   /** Drop a file and all its outgoing/incoming edges. */
   removeFile(path: string): void {
-    this.removeFromBasenames(path);
     const norm = normalizeSlashes(path);
+    const existed = this.contents.has(norm);
+    this.removeFromBasenames(norm);
     this.forward.delete(norm);
     this.contents.delete(norm);
     this.invalidateUnlinkedCache();
-    // Only purge edges whose sourcePath is this file.
-    this.removeBackwardEdgesFrom(norm);
+    if (existed) {
+      // Removing a target can make previously ambiguous links resolvable, so
+      // rebuild all reverse edges after the file leaves the candidate maps.
+      this.rebuildBackward();
+    } else {
+      // Keep the no-op removal path cheap while preserving the old cleanup
+      // behavior if a source edge exists without a corresponding file entry.
+      this.removeBackwardEdgesFrom(norm);
+    }
     this.notify();
   }
 
