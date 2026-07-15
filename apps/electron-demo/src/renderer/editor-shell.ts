@@ -14,6 +14,7 @@ import {
   createWordCountPlugin,
   type WordCountPlugin
 } from "@floatboat/nexus-plugin-wordcount";
+import { createMermaidPlugin } from "@floatboat/nexus-plugin-mermaid";
 import type { AppState } from "./state";
 import { type EditorSettings, settingsToTheme } from "./settings";
 
@@ -141,6 +142,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       createHistoryPlugin(),
       createToolbarPlugin(),
       createSearchPlugin(),
+      createMermaidPlugin({ theme: "default" }),
       wikilinksPlugin,
       wordcount,
     ],
