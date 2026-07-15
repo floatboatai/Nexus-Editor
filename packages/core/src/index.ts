@@ -56,3 +56,9 @@ export type {
   WidgetDefinition,
   WidgetRenderContext
 } from "./types";
+
+export {
+  isControlledDocument,
+  resolveInitialDocument,
+  shouldSyncControlledDocument,
+}from "./controlled-document";
