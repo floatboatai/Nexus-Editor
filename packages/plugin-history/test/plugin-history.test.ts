@@ -62,3 +62,39 @@ describe("@floatboat/nexus-plugin-history", () => {
     editor.destroy();
   });
 });
+
+
+
+describe("@floatboat/nexus-plugin-history — options", () => {
+
+  it("newGroupDelay groups rapid edits into one undo step", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "hello",
+      plugins: [createHistoryPlugin({ newGroupDelay: 100_000 })],
+    });
+
+    editor.setDocument("hello world");
+    editor.setDocument("hello world!");
+
+    // Both changes should be in one undo group
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("hello");
+    editor.destroy();
+  });
+
+  it("default options behave identically to the original plugin", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "start",
+      plugins: [createHistoryPlugin()],
+    });
+
+    editor.setDocument("end");
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("start");
+    editor.destroy();
+  });
+});
