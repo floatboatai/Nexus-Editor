@@ -253,6 +253,30 @@ const myPlugin: NexusPlugin = {
 
 </details>
 
+<details>
+<summary><b>Plugin Options</b> — configurable plugin behavior</summary>
+
+#### `createHistoryPlugin(options?)`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `minDepth` | `number` | 200 | Minimum number of undo entries to keep in history |
+| `newGroupDelay` | `number` | 500 | Delay (ms) before consecutive edits are grouped into one undo step |
+
+```ts
+import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
+
+// Default — CM6 defaults
+const editor = createEditor({ plugins: [createHistoryPlugin()] });
+
+// Custom — limit undo depth, faster grouping
+const editor = createEditor({
+  plugins: [createHistoryPlugin({ minDepth: 100, newGroupDelay: 300 })],
+});
+```
+
+</details>
+
 ---
 
 ## 🛠️ Development

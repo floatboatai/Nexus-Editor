@@ -253,6 +253,30 @@ const myPlugin: NexusPlugin = {
 
 </details>
 
+<details>
+<summary><b>插件配置</b> —— 可配置的插件行为</summary>
+
+#### `createHistoryPlugin(options?)`
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `minDepth` | `number` | 200 | 撤销历史保留的最少条目数 |
+| `newGroupDelay` | `number` | 500 | 连续编辑合并为同一撤销组的间隔（毫秒） |
+
+```ts
+import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
+
+// 默认 — CM6 默认值
+const editor = createEditor({ plugins: [createHistoryPlugin()] });
+
+// 自定义 — 限制撤销深度，加快分组
+const editor = createEditor({
+  plugins: [createHistoryPlugin({ minDepth: 100, newGroupDelay: 300 })],
+});
+```
+
+</details>
+
 ---
 
 ## 🛠️ 开发
