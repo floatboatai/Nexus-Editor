@@ -44,8 +44,12 @@ const PANEL_STYLES = `
 `;
 
 const HEADER_STYLES = `
-  padding: 8px 10px;
+  box-sizing: border-box;
+  height: var(--nexus-pane-header-height, 58px);
+  padding: 0 10px;
   border-bottom: 1px solid var(--nexus-border, #eee);
+  display: flex;
+  align-items: center;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -74,10 +78,11 @@ const SECTION_HEADER_STYLES = `
 const LIST_STYLES = `
   flex: 1;
   overflow-y: auto;
+  padding: 4px 0;
 `;
 
 const EMPTY_STYLES = `
-  padding: 8px 12px 12px;
+  padding: 16px 14px;
   color: var(--nexus-text-faint, #bbb);
   font-size: 12px;
   font-style: italic;

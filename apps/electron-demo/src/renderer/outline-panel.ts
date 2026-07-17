@@ -9,7 +9,7 @@ export interface OutlinePanel {
 const PANEL_STYLES = `
   width: 220px;
   flex-shrink: 0;
-  border-right: 1px solid var(--nexus-border, #eee);
+  border-left: 1px solid var(--nexus-border, #eee);
   background: var(--nexus-bg, #fff);
   overflow-y: auto;
   font-family: system-ui, -apple-system, sans-serif;
@@ -19,7 +19,11 @@ const PANEL_STYLES = `
 `;
 
 const HEADER_STYLES = `
-  padding: 10px 14px;
+  box-sizing: border-box;
+  height: var(--nexus-pane-header-height, 58px);
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;

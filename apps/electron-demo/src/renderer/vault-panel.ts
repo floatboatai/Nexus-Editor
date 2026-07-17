@@ -27,7 +27,9 @@ const PANEL_STYLES = `
 `;
 
 const HEADER_STYLES = `
-  padding: 8px 10px;
+  box-sizing: border-box;
+  height: var(--nexus-pane-header-height, 58px);
+  padding: 0 10px;
   border-bottom: 1px solid var(--nexus-border, #eee);
   display: flex;
   align-items: center;

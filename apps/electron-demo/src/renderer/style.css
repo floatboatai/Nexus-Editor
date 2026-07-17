@@ -31,6 +31,7 @@ body,
 }
 
 .main-area {
+  --nexus-pane-header-height: 58px;
   flex: 1;
   display: flex;
   overflow: hidden;
@@ -54,6 +55,7 @@ body,
 .editor-container > .nexus-toolbar,
 .editor-container > [data-nexus-toolbar],
 .editor-container > [role="toolbar"] {
+  height: var(--nexus-pane-header-height);
   flex-shrink: 0;
 }
 

@@ -63,6 +63,19 @@ export interface ToolbarUI {
 
 let tooltipId = 0;
 
+const TOOLTIP_STYLES = `
+  position: fixed;
+  z-index: 1100;
+  transform: translateX(-50%);
+  padding: 5px 7px;
+  border-radius: 4px;
+  background: var(--nexus-tooltip-bg, #333333);
+  color: var(--nexus-tooltip-text, #ffffff);
+  font: 11px/1 system-ui, -apple-system, sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+`;
+
 /**
  * Pick an overlay mount target that stays visible under the HTML Fullscreen API.
  * The Fullscreen API only renders the fullscreen element subtree; anything
@@ -87,6 +100,7 @@ function positionToolbarTooltip(button: HTMLElement, tooltip: HTMLElement): void
 function installToolbarTooltip(button: HTMLButtonElement): () => void {
   const tooltip = document.createElement("div");
   tooltip.className = "nexus-toolbar-tooltip";
+  tooltip.style.cssText = TOOLTIP_STYLES;
   tooltip.id = `nexus-toolbar-tooltip-${++tooltipId}`;
   tooltip.setAttribute("role", "tooltip");
   button.setAttribute("aria-describedby", tooltip.id);
