@@ -3,12 +3,17 @@ import { createEditor } from "@floatboat/nexus-core";
 import { createGfmPreset } from "../../preset-gfm/src/index";
 import {
   createSearchPlugin,
+  findFuzzyMatches,
   findSearchMatches,
-  replaceAllMatches
+  replaceAllMatches,
+  type SearchPluginLabels
 } from "../src/index";
 
 const HISTORY_KEY = "nexus:test-search-history";
 const TABLE_SEARCH_HIGHLIGHT_PREFIX = "nexus-table-search-";
+const SEARCH_LINK_MATCH_ATTRIBUTE = "data-nexus-search-link-match";
+const SEARCH_LINK_ACTIVE_MATCH_CLASS = "nexus-search-link-match-active";
+const SEARCH_ACTIVE_MATCH_CLASS = "nexus-search-active-match";
 
 class FakeHighlight {
   readonly ranges: Range[];
@@ -183,12 +188,15 @@ function openSearchPanel(container: HTMLElement): HTMLInputElement {
   return input!;
 }
 
-function setupSearchPanel(options: Parameters<typeof createSearchPlugin>[0] = {}) {
+function setupSearchPanel(
+  options: Parameters<typeof createSearchPlugin>[0] = {},
+  initialValue = "alpha beta gamma alpha"
+) {
   const container = document.createElement("div");
   document.body.append(container);
   const editor = createEditor({
     container,
-    initialValue: "alpha beta gamma alpha",
+    initialValue,
     plugins: [createSearchPlugin(options)]
   });
   const input = openSearchPanel(container);
@@ -241,6 +249,36 @@ describe("@floatboat/nexus-plugin-search", () => {
     expect(findSearchMatches("Hello hello HELLO", "hello", { caseSensitive: true })).toEqual([
       { from: 6, to: 11, text: "hello" }
     ]);
+  });
+
+  it("finds ordered fuzzy matches and ranks contiguous results first", () => {
+    expect(findFuzzyMatches("abc axxb", "ab")).toEqual([
+      { from: 0, to: 2, text: "ab", positions: [0, 1], score: 0 },
+      { from: 4, to: 8, text: "axxb", positions: [4, 7], score: 22 }
+    ]);
+  });
+
+  it("bounds fuzzy results while retaining the best-ranked matches", () => {
+    expect(findFuzzyMatches("axxb ab", "ab", { maxResults: 1 })).toEqual([
+      { from: 5, to: 7, text: "ab", positions: [5, 6], score: 5 }
+    ]);
+  });
+
+  it("does not match across punctuation or whitespace", () => {
+    expect(findFuzzyMatches("w..f w/f w?f w,f workflow", "wf").map((match) => match.text)).toEqual([
+      "workf"
+    ]);
+  });
+
+  it("respects case sensitivity for fuzzy search", () => {
+    expect(findFuzzyMatches("Nexus nexus", "nxs")).toHaveLength(2);
+    expect(findFuzzyMatches("Nexus nexus", "nxs", { caseSensitive: true })).toEqual([
+      { from: 6, to: 11, text: "nexus", positions: [6, 8, 10], score: 30 }
+    ]);
+  });
+
+  it("returns no fuzzy matches for an empty query", () => {
+    expect(findFuzzyMatches("Nexus", "")).toEqual([]);
   });
 
   it("supports whole-word matching", () => {
@@ -307,7 +345,376 @@ describe("@floatboat/nexus-plugin-search", () => {
     const plugin = createSearchPlugin();
 
     expect(plugin.name).toBe("plugin-search");
-    expect(plugin.cmExtensions).toHaveLength(4);
+    expect(plugin.cmExtensions).toHaveLength(6);
+  });
+
+  it("accepts deprecated label overrides for source compatibility", () => {
+    const plugin = createSearchPlugin({
+      labels: {
+        showReplace: "Show replace",
+        hideReplace: "Hide replace",
+        all: "All",
+        matchCase: "Match case",
+        regexp: "Regexp",
+        byWord: "By word"
+      }
+    });
+
+    expect(plugin.name).toBe("plugin-search");
+  });
+
+  it("keeps existing complete label objects source-compatible", () => {
+    const legacyLabels: SearchPluginLabels = {
+      find: "Find",
+      replace: "Replace",
+      next: "Next",
+      previous: "Previous",
+      replaceNext: "Replace",
+      replaceAll: "Replace all",
+      close: "Close",
+      showReplace: "Show replace",
+      hideReplace: "Hide replace",
+      all: "All",
+      matchCase: "Match case",
+      regexp: "Regexp",
+      byWord: "By word"
+    };
+
+    expect(createSearchPlugin({ labels: legacyLabels }).name).toBe("plugin-search");
+  });
+
+  it("navigates and decorates fuzzy matches without changing literal search", () => {
+    const harness = setupSearchPanel();
+    const fuzzyButton = harness.container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
+    );
+    expect(fuzzyButton).not.toBeNull();
+
+    fuzzyButton!.click();
+    const submit = submitSearch(harness.input, "lph");
+
+    expect(submit.defaultPrevented).toBe(true);
+    expect(harness.editor.getSelection()).toEqual({ anchor: 0, head: 0 });
+    expect(
+      Array.from(harness.container.querySelectorAll(`.nexus-search-fuzzy-match`)).map((element) => element.textContent)
+    ).toEqual(["l", "p", "h", "l", "p", "h"]);
+    expect(
+      Array.from(harness.container.querySelectorAll(`.nexus-search-fuzzy-match-active`)).map(
+        (element) => element.textContent
+      )
+    ).toEqual(["l", "p", "h"]);
+    expect(
+      Array.from(harness.container.querySelectorAll(`.nexus-search-fuzzy-match`)).findIndex((element) =>
+        element.classList.contains("nexus-search-fuzzy-match-active")
+      )
+    ).toBe(0);
+
+    submitSearch(harness.input, "lph");
+    expect(harness.editor.getSelection()).toEqual({ anchor: 0, head: 0 });
+    expect(
+      Array.from(harness.container.querySelectorAll(`.nexus-search-fuzzy-match`)).map((element) => element.textContent)
+    ).toEqual(["l", "p", "h", "l", "p", "h"]);
+    expect(
+      Array.from(harness.container.querySelectorAll(`.nexus-search-fuzzy-match-active`)).map(
+        (element) => element.textContent
+      )
+    ).toEqual(["l", "p", "h"]);
+    expect(
+      Array.from(harness.container.querySelectorAll(`.nexus-search-fuzzy-match`)).findIndex((element) =>
+        element.classList.contains("nexus-search-fuzzy-match-active")
+      )
+    ).toBe(3);
+
+    harness.destroy();
+  });
+
+  it("navigates fuzzy matches from top to bottom instead of by match score", () => {
+    const harness = setupSearchPanel({}, "axxb ab");
+    const fuzzyButton = harness.container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
+    );
+    expect(fuzzyButton).not.toBeNull();
+
+    fuzzyButton!.click();
+    submitSearch(harness.input, "ab");
+    expect(harness.editor.getSelection()).toEqual({ anchor: 0, head: 0 });
+    expect(
+      Array.from(harness.container.querySelectorAll(`.nexus-search-fuzzy-match`)).findIndex((element) =>
+        element.classList.contains("nexus-search-fuzzy-match-active")
+      )
+    ).toBe(0);
+
+    submitSearch(harness.input, "ab");
+    expect(harness.editor.getSelection()).toEqual({ anchor: 0, head: 0 });
+    expect(
+      Array.from(harness.container.querySelectorAll(`.nexus-search-fuzzy-match`)).findIndex((element) =>
+        element.classList.contains("nexus-search-fuzzy-match-active")
+      )
+    ).toBe(2);
+
+    harness.destroy();
+  });
+
+  it("clears a stale editor selection when the fuzzy query changes", () => {
+    const harness = setupSearchPanel({}, "ai fl");
+    const fuzzyButton = harness.container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
+    );
+    expect(fuzzyButton).not.toBeNull();
+
+    fuzzyButton!.click();
+    submitSearch(harness.input, "ai");
+    harness.editor.setSelection(0, 2);
+    expect(harness.editor.getSelection()).toEqual({ anchor: 0, head: 2 });
+
+    harness.input.value = "fl";
+    harness.input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+
+    expect(harness.editor.getSelection()).toEqual({ anchor: 0, head: 0 });
+    expect(harness.container.querySelectorAll(`.nexus-search-fuzzy-match-active`)).toHaveLength(0);
+
+    harness.destroy();
+  });
+
+  it("clears a stale editor selection when a normal query is shortened or cleared", () => {
+    const harness = setupSearchPanel({}, "ai fl");
+
+    harness.input.value = "ai";
+    harness.input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    harness.editor.setSelection(0, 2);
+
+    harness.input.value = "a";
+    harness.input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    expect(harness.editor.getSelection()).toEqual({ anchor: 0, head: 0 });
+
+    harness.editor.setSelection(0, 1);
+    harness.input.value = "";
+    harness.input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    expect(harness.editor.getSelection()).toEqual({ anchor: 0, head: 0 });
+
+    harness.destroy();
+  });
+
+  it("toggles fuzzy mode and disables replacement controls", () => {
+    const harness = setupSearchPanel();
+    const fuzzyButton = harness.container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
+    );
+    const replaceButton = harness.container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-replace"]'
+    );
+    const replaceInput = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-replace-input"]'
+    );
+    const replaceAllButton = harness.container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-replace-all"]'
+    );
+    expect(fuzzyButton).not.toBeNull();
+
+    fuzzyButton!.click();
+
+    expect(fuzzyButton?.getAttribute("aria-pressed")).toBe("true");
+    expect(fuzzyButton?.dataset.active).toBe("true");
+    expect(replaceInput?.disabled).toBe(true);
+    expect(replaceButton?.disabled).toBe(true);
+    expect(replaceAllButton?.disabled).toBe(true);
+
+    fuzzyButton!.click();
+    expect(fuzzyButton?.getAttribute("aria-pressed")).toBe("false");
+    expect(fuzzyButton?.dataset.active).toBe("false");
+    expect(replaceInput?.disabled).toBe(false);
+
+    harness.destroy();
+  });
+
+  it("shows a fuzzy zero-result status", () => {
+    const harness = setupSearchPanel();
+    const fuzzyButton = harness.container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
+    );
+    const status = harness.container.querySelector<HTMLElement>(
+      '[data-test-id="markdown-search-fuzzy-status"]'
+    );
+    expect(fuzzyButton).not.toBeNull();
+    expect(status).not.toBeNull();
+
+    fuzzyButton!.click();
+    harness.input.value = "zzz";
+    harness.input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+
+    expect(status?.hidden).toBe(false);
+    expect(status?.textContent).toBe("No fuzzy matches");
+    expect(status?.parentElement).toBe(
+      harness.container.querySelector('[data-test-id="markdown-search-bar"]')
+    );
+
+    harness.destroy();
+  });
+
+  it("clears fuzzy decorations when the search panel closes", () => {
+    const harness = setupSearchPanel();
+    const fuzzyButton = harness.container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
+    );
+    const closeButton = harness.container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-close"]'
+    );
+    expect(fuzzyButton).not.toBeNull();
+    expect(closeButton).not.toBeNull();
+
+    fuzzyButton!.click();
+    harness.input.value = "lph";
+    harness.input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    expect(harness.container.querySelectorAll(`.nexus-search-fuzzy-match`)).toHaveLength(6);
+
+    closeButton!.click();
+    expect(harness.container.querySelectorAll(`.nexus-search-fuzzy-match`)).toHaveLength(0);
+
+    harness.destroy();
+  });
+
+  it("removes an open search tooltip when the panel is destroyed", () => {
+    const harness = setupSearchPanel();
+    const fuzzyButton = harness.container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
+    );
+    expect(fuzzyButton).not.toBeNull();
+
+    fuzzyButton!.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    const tooltipId = fuzzyButton!.getAttribute("aria-describedby");
+    expect(document.getElementById(tooltipId ?? "")?.textContent).toBe("Fuzzy");
+
+    harness.destroy();
+    expect(document.getElementById(tooltipId ?? "")).toBeNull();
+  });
+
+  it("highlights fuzzy matches in rendered links without changing link rendering", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({
+      container,
+      initialValue: "[query](https://example.com/query) after",
+      livePreview: true,
+      plugins: [createGfmPreset(), createSearchPlugin()]
+    });
+
+    try {
+      editor.setSelection(editor.getDocument().length);
+      const input = openSearchPanel(container);
+      const fuzzyButton = container.querySelector<HTMLButtonElement>(
+        '[data-test-id="markdown-search-fuzzy-toggle"]'
+      );
+      expect(fuzzyButton).not.toBeNull();
+
+      fuzzyButton!.click();
+      input.value = "qu";
+      input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+      const nextButton = container.querySelector<HTMLButtonElement>(
+        '[data-test-id="markdown-search-next"]'
+      );
+      expect(nextButton).not.toBeNull();
+      nextButton!.click();
+      await Promise.resolve();
+
+      const link = container.querySelector<HTMLElement>("[data-link-url]");
+      expect(link).not.toBeNull();
+      expect(link?.textContent).toBe("query");
+      expect(link?.querySelectorAll(`[${SEARCH_LINK_MATCH_ATTRIBUTE}="true"]`)).toHaveLength(1);
+      expect(link?.querySelector(`[${SEARCH_LINK_MATCH_ATTRIBUTE}="true"]`)?.textContent).toBe("qu");
+      expect(
+        link?.querySelector(`[${SEARCH_LINK_MATCH_ATTRIBUTE}="true"]`)?.classList.contains(
+          SEARCH_LINK_ACTIVE_MATCH_CLASS
+        )
+      ).toBe(true);
+
+      const closeButton = container.querySelector<HTMLButtonElement>(
+        '[data-test-id="markdown-search-close"]'
+      );
+      expect(closeButton).not.toBeNull();
+      closeButton!.click();
+      await Promise.resolve();
+      expect(container.querySelector("[data-link-url]")).not.toBeNull();
+      expect(container.querySelector(`[${SEARCH_LINK_MATCH_ATTRIBUTE}="true"]`)).toBeNull();
+    } finally {
+      editor.destroy();
+      container.remove();
+    }
+  });
+
+  it("highlights normal matches in rendered links without changing link rendering", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({
+      container,
+      initialValue: "[query](https://example.com/query) after",
+      livePreview: true,
+      plugins: [createGfmPreset(), createSearchPlugin()]
+    });
+
+    try {
+      editor.setSelection(editor.getDocument().length);
+      const input = openSearchPanel(container);
+      submitSearch(input, "query");
+      await Promise.resolve();
+
+      const link = container.querySelector<HTMLElement>("[data-link-url]");
+      expect(link).not.toBeNull();
+      expect(link?.textContent).toBe("query");
+      expect(link?.querySelectorAll(`[${SEARCH_LINK_MATCH_ATTRIBUTE}="true"]`)).toHaveLength(1);
+      expect(link?.querySelector(`[${SEARCH_LINK_MATCH_ATTRIBUTE}="true"]`)?.textContent).toBe("query");
+      expect(
+        link?.querySelector(`[${SEARCH_LINK_MATCH_ATTRIBUTE}="true"]`)?.classList.contains(
+          SEARCH_LINK_ACTIVE_MATCH_CLASS
+        )
+      ).toBe(true);
+      expect(editor.getSelection()).toEqual({
+        anchor: editor.getDocument().length,
+        head: editor.getDocument().length
+      });
+    } finally {
+      editor.destroy();
+      container.remove();
+    }
+  });
+
+  it("marks only the current fuzzy result inside adjacent links", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({
+      container,
+      initialValue:
+        "[QureQure](https://example.com/QureQure) [Qure](https://example.com/Qure) after",
+      livePreview: true,
+      plugins: [createGfmPreset(), createSearchPlugin()]
+    });
+
+    try {
+      editor.setSelection(editor.getDocument().length);
+      const input = openSearchPanel(container);
+      const fuzzyButton = container.querySelector<HTMLButtonElement>(
+        '[data-test-id="markdown-search-fuzzy-toggle"]'
+      );
+      expect(fuzzyButton).not.toBeNull();
+      fuzzyButton!.click();
+
+      submitSearch(input, "qr");
+      await Promise.resolve();
+
+      const links = container.querySelectorAll<HTMLElement>("[data-link-url]");
+      expect(links).toHaveLength(2);
+      expect(links[0].querySelectorAll(`[${SEARCH_LINK_MATCH_ATTRIBUTE}="true"]`)).toHaveLength(4);
+      expect(links[0].querySelectorAll(`.${SEARCH_LINK_ACTIVE_MATCH_CLASS}`)).toHaveLength(2);
+      expect(links[1].querySelectorAll(`.${SEARCH_LINK_ACTIVE_MATCH_CLASS}`)).toHaveLength(0);
+
+      submitSearch(input, "qr");
+      await Promise.resolve();
+      expect(links[0].querySelectorAll(`.${SEARCH_LINK_ACTIVE_MATCH_CLASS}`)).toHaveLength(2);
+      expect(links[1].querySelectorAll(`.${SEARCH_LINK_ACTIVE_MATCH_CLASS}`)).toHaveLength(0);
+    } finally {
+      editor.destroy();
+      container.remove();
+    }
   });
 
   it("highlights rendered table cell matches through CSS Highlight ranges", () => {
@@ -331,10 +738,8 @@ describe("@floatboat/nexus-plugin-search", () => {
 
       submitSearch(input, "SearchNeedle070");
 
-      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual([
-        "SearchNeedle070"
-      ]);
-      expect(readTableHighlightTexts(highlightSupport.registry, "match")).toEqual([]);
+      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual([]);
+      expect(readTableHighlightTexts(highlightSupport.registry, "match")).toEqual(["SearchNeedle070"]);
       expect(container.querySelector(".nexus-table-wrapper")?.textContent).toContain("SearchNeedle070");
     } finally {
       editor.destroy();
@@ -362,30 +767,30 @@ describe("@floatboat/nexus-plugin-search", () => {
       const input = openSearchPanel(container);
 
       submitSearch(input, "RichNeedle");
-      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual([
-        "RichNeedle"
-      ]);
+      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual([]);
+      expect(readTableHighlightTexts(highlightSupport.registry, "match")).toEqual(["RichNeedle"]);
 
       submitSearch(input, "bc");
       expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual([]);
       expect(readTableHighlightTexts(highlightSupport.registry, "match")).toEqual([]);
 
       submitSearch(input, "Label");
-      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual(["Label"]);
+      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual([]);
+      expect(readTableHighlightTexts(highlightSupport.registry, "match")).toEqual([
+        "labelLabelLabel"
+      ]);
 
       submitSearch(input, "HiddenNeedle");
       expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual([]);
       expect(readTableHighlightTexts(highlightSupport.registry, "match")).toEqual([]);
 
       submitSearch(input, "RepeatedLabel");
-      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual([
-        "RepeatedLabel"
-      ]);
+      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual([]);
+      expect(readTableHighlightTexts(highlightSupport.registry, "match")).toEqual(["RepeatedLabel"]);
 
       submitSearch(input, "CodeNeedle");
-      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual([
-        "CodeNeedle"
-      ]);
+      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual([]);
+      expect(readTableHighlightTexts(highlightSupport.registry, "match")).toEqual(["CodeNeedle"]);
     } finally {
       editor.destroy();
       container.remove();
@@ -406,7 +811,8 @@ describe("@floatboat/nexus-plugin-search", () => {
 
     try {
       submitSearch(openSearchPanel(container), "Label");
-      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual(["Label"]);
+      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual([]);
+      expect(readTableHighlightTexts(highlightSupport.registry, "match")).toEqual(["Label"]);
 
       editor.replaceRange(0, 0, "a longer prefix\n\n");
       await new Promise((resolve) => window.setTimeout(resolve, 0));
@@ -415,39 +821,6 @@ describe("@floatboat/nexus-plugin-search", () => {
         ...readTableHighlightTexts(highlightSupport.registry, "selected"),
         ...readTableHighlightTexts(highlightSupport.registry, "match"),
       ]).toContain("Label");
-    } finally {
-      editor.destroy();
-      container.remove();
-      highlightSupport.restore();
-    }
-  });
-
-  it("uses whole-document regexp context for rendered table matches", () => {
-    const highlightSupport = installCssHighlightMock();
-    const container = document.createElement("div");
-    document.body.append(container);
-    const editor = createEditor({
-      container,
-      initialValue: "| Value |\n| --- |\n| Label |",
-      livePreview: true,
-      plugins: [createGfmPreset(), createSearchPlugin()]
-    });
-
-    try {
-      const input = openSearchPanel(container);
-      const regexpField = container.querySelector<HTMLInputElement>(
-        '[data-test-id="markdown-search-regexp-toggle"]'
-      );
-      expect(regexpField).not.toBeNull();
-      regexpField!.checked = true;
-      regexpField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
-
-      submitSearch(input, "Label$");
-      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual([]);
-      expect(readTableHighlightTexts(highlightSupport.registry, "match")).toEqual([]);
-
-      submitSearch(input, "Label(?= \\|)");
-      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual(["Label"]);
     } finally {
       editor.destroy();
       container.remove();
@@ -480,7 +853,8 @@ describe("@floatboat/nexus-plugin-search", () => {
       submitSearch(openSearchPanel(firstContainer), "FirstNeedle");
       submitSearch(openSearchPanel(secondContainer), "SecondNeedle");
 
-      expect(readTableHighlightTexts(highlightSupport.registry, "selected").sort()).toEqual([
+      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual([]);
+      expect(readTableHighlightTexts(highlightSupport.registry, "match").sort()).toEqual([
         "FirstNeedle",
         "SecondNeedle"
       ]);
@@ -489,9 +863,8 @@ describe("@floatboat/nexus-plugin-search", () => {
       ).toBe(initialStyleCount + 2);
 
       firstEditor.destroy();
-      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual([
-        "SecondNeedle"
-      ]);
+      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual([]);
+      expect(readTableHighlightTexts(highlightSupport.registry, "match")).toEqual(["SecondNeedle"]);
       expect(
         document.querySelectorAll("style[data-nexus-table-search-highlight]").length
       ).toBe(initialStyleCount + 1);
@@ -527,7 +900,8 @@ describe("@floatboat/nexus-plugin-search", () => {
         createSearchPlugin({
           labels: {
             find: "查找",
-            next: "下一个"
+            next: "下一个",
+            fuzzy: "模糊"
           }
         })
       ]
@@ -561,41 +935,70 @@ describe("@floatboat/nexus-plugin-search", () => {
     expect(panel).not.toBeNull();
     expect(input).not.toBeNull();
     expect(input?.placeholder).toBe("查找");
+    const row = container.querySelector<HTMLElement>('[data-test-id="markdown-search-find-row"]');
+    const previousButton = container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-prev"]'
+    );
     const nextButton = container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-next"]');
-    const nextTooltip = container.querySelector<HTMLElement>('[data-test-id="markdown-search-next-tooltip"]');
-    const replaceToggle = container.querySelector<HTMLButtonElement>(
-      '[data-test-id="markdown-search-toggle-replace"]'
+    const fuzzyButton = container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
     );
-    const replaceToggleTooltip = container.querySelector<HTMLElement>(
-      '[data-test-id="markdown-search-toggle-replace-tooltip"]'
+    const replaceInput = container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-replace-input"]'
     );
-    const replaceRow = container.querySelector<HTMLDivElement>('[data-test-id="markdown-search-replace-row"]');
+    const replaceButton = container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-replace"]'
+    );
+    const replaceAllButton = container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-replace-all"]'
+    );
+    const closeButton = container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-close"]'
+    );
+    expect(panel?.classList.contains("cm-search")).toBe(false);
     expect(nextButton?.textContent).toBe("");
     expect(nextButton?.title).toBe("");
     expect(nextButton?.getAttribute("aria-label")).toBe("下一个");
-    expect(nextButton?.getAttribute("aria-describedby")).toBe(nextTooltip?.id);
-    expect(nextButton?.querySelector("svg")).not.toBeNull();
-    expect(nextTooltip?.getAttribute("role")).toBe("tooltip");
-    expect(nextTooltip?.getAttribute("aria-label")).toBe("下一个");
-    expect(nextTooltip?.dataset.tooltip).toBe("下一个");
+    const nextTooltipId = nextButton?.getAttribute("aria-describedby");
+    expect(nextTooltipId).toMatch(/^nexus-search-tooltip-/);
+    nextButton?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    const nextTooltip = document.getElementById(nextTooltipId ?? "");
     expect(nextTooltip?.textContent).toBe("下一个");
-    expect(container.querySelector('[data-test-id="markdown-search-find-row"]')).not.toBeNull();
-    expect(replaceToggle?.getAttribute("aria-expanded")).toBe("false");
-    expect(replaceToggle?.getAttribute("aria-label")).toBe("Show replace");
-    expect(replaceToggle?.getAttribute("aria-controls")).toBe(replaceRow?.id);
-    expect(replaceToggleTooltip?.textContent).toBe("Show replace");
-    expect(replaceRow).not.toBeNull();
-    expect(replaceRow?.hidden).toBe(true);
+    expect((nextTooltip as HTMLElement | null)?.style.position).toBe("fixed");
+    nextButton?.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }));
+    expect(document.getElementById(nextTooltipId ?? "")).toBeNull();
+    expect(nextButton?.querySelector("svg")).not.toBeNull();
+    expect(previousButton?.querySelector("path")?.getAttribute("d")).toBe("m18 15-6-6-6 6");
+    expect(nextButton?.querySelector("path")?.getAttribute("d")).toBe("m6 9 6 6 6-6");
+    expect(container.querySelector('[data-test-id="markdown-search-all"]')).toBeNull();
 
-    replaceToggle?.click();
-    expect(replaceToggle?.getAttribute("aria-expanded")).toBe("true");
-    expect(replaceToggle?.getAttribute("aria-label")).toBe("Hide replace");
-    expect(replaceToggleTooltip?.textContent).toBe("Hide replace");
-    expect(replaceRow?.hidden).toBe(false);
+    expect(row).not.toBeNull();
+    expect(replaceInput?.parentElement).toBe(row);
+    expect(row?.contains(replaceButton ?? null)).toBe(true);
+    expect(row?.contains(replaceAllButton ?? null)).toBe(true);
+    expect(row?.lastElementChild?.contains(closeButton ?? null)).toBe(true);
+    expect(replaceInput?.hidden).toBe(false);
+    expect(replaceButton?.textContent).toBe("Replace");
+    expect(replaceAllButton?.textContent).toBe("Replace all");
+    expect(container.querySelector('[data-test-id="markdown-search-toggle-replace"]')).toBeNull();
+    expect(container.querySelector('[data-test-id="markdown-search-replace-row"]')).toBeNull();
 
-    replaceToggle?.click();
-    expect(replaceToggle?.getAttribute("aria-expanded")).toBe("false");
-    expect(replaceRow?.hidden).toBe(true);
+    expect(fuzzyButton?.textContent).toBe("");
+    expect(fuzzyButton?.getAttribute("aria-label")).toBe("模糊");
+    expect(fuzzyButton?.getAttribute("aria-pressed")).toBe("false");
+    expect(fuzzyButton?.dataset.active).toBe("false");
+    expect(fuzzyButton?.title).toBe("");
+    expect(fuzzyButton?.getAttribute("aria-describedby")).toMatch(/^nexus-search-tooltip-/);
+    expect(fuzzyButton?.querySelector("svg")).not.toBeNull();
+    expect(container.querySelector('[data-test-id="markdown-search-options"]')).toBeNull();
+    expect(container.querySelector('[data-test-id="markdown-search-options-menu"]')).toBeNull();
+    expect(container.querySelector('[data-test-id="markdown-search-case-toggle"]')).toBeNull();
+    expect(container.querySelector('[data-test-id="markdown-search-regexp-toggle"]')).toBeNull();
+    expect(container.querySelector('[data-test-id="markdown-search-word-toggle"]')).toBeNull();
+
+    fuzzyButton?.click();
+    expect(fuzzyButton?.getAttribute("aria-pressed")).toBe("true");
+    expect(fuzzyButton?.dataset.active).toBe("true");
 
     editor.destroy();
     container.remove();
@@ -645,9 +1048,8 @@ describe("@floatboat/nexus-plugin-search", () => {
       })
     );
 
-    const selection = editor.getSelection();
-    expect(Math.min(selection.anchor, selection.head)).toBe(6);
-    expect(Math.max(selection.anchor, selection.head)).toBe(10);
+    expect(editor.getSelection()).toEqual({ anchor: 0, head: 0 });
+    expect(container.querySelector(`.${SEARCH_ACTIVE_MATCH_CLASS}`)?.textContent).toBe("beta");
 
     editor.destroy();
     container.remove();
@@ -658,9 +1060,8 @@ describe("@floatboat/nexus-plugin-search", () => {
 
     submitSearch(harness.input, "beta");
 
-    const selection = harness.editor.getSelection();
-    expect(Math.min(selection.anchor, selection.head)).toBe(6);
-    expect(Math.max(selection.anchor, selection.head)).toBe(10);
+    expect(harness.editor.getSelection()).toEqual({ anchor: 0, head: 0 });
+    expect(harness.container.querySelector(`.${SEARCH_ACTIVE_MATCH_CLASS}`)?.textContent).toBe("beta");
 
     harness.destroy();
   });
@@ -734,9 +1135,8 @@ describe("@floatboat/nexus-plugin-search", () => {
     expect(() => pressInputArrow(harness.input, "ArrowUp")).not.toThrow();
     expect(storage.getItem).toHaveBeenCalledWith(HISTORY_KEY);
     expect(() => submitSearch(harness.input, "beta")).not.toThrow();
-    const selection = harness.editor.getSelection();
-    expect(Math.min(selection.anchor, selection.head)).toBe(6);
-    expect(Math.max(selection.anchor, selection.head)).toBe(10);
+    expect(harness.editor.getSelection()).toEqual({ anchor: 0, head: 0 });
+    expect(harness.container.querySelector(`.${SEARCH_ACTIVE_MATCH_CLASS}`)?.textContent).toBe("beta");
 
     harness.destroy();
   });
@@ -752,9 +1152,8 @@ describe("@floatboat/nexus-plugin-search", () => {
 
     expect(() => submitSearch(harness.input, "beta")).not.toThrow();
     expect(storage.setItem).toHaveBeenCalled();
-    const selection = harness.editor.getSelection();
-    expect(Math.min(selection.anchor, selection.head)).toBe(6);
-    expect(Math.max(selection.anchor, selection.head)).toBe(10);
+    expect(harness.editor.getSelection()).toEqual({ anchor: 0, head: 0 });
+    expect(harness.container.querySelector(`.${SEARCH_ACTIVE_MATCH_CLASS}`)?.textContent).toBe("beta");
 
     harness.destroy();
   });
@@ -800,42 +1199,28 @@ describe("@floatboat/nexus-plugin-search", () => {
     harness.destroy();
   });
 
-  it("recalls history without changing case, regexp, or whole-word options", () => {
+  it("recalls history without changing the replacement text", () => {
     const storage = createMemoryHistoryStorage(JSON.stringify(["alpha"]));
     const harness = setupSearchPanel(historyOptions({ storage }));
-    const caseField = harness.container.querySelector<HTMLInputElement>(
-      '[data-test-id="markdown-search-case-toggle"]'
+    const replaceInput = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-replace-input"]'
     );
-    const regexpField = harness.container.querySelector<HTMLInputElement>(
-      '[data-test-id="markdown-search-regexp-toggle"]'
-    );
-    const wholeWordField = harness.container.querySelector<HTMLInputElement>(
-      '[data-test-id="markdown-search-word-toggle"]'
-    );
-    expect(caseField).not.toBeNull();
-    expect(regexpField).not.toBeNull();
-    expect(wholeWordField).not.toBeNull();
+    expect(replaceInput).not.toBeNull();
 
-    caseField!.checked = true;
-    regexpField!.checked = true;
-    wholeWordField!.checked = true;
-    caseField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
-    regexpField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
-    wholeWordField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    replaceInput!.value = "replacement";
+    replaceInput!.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
     harness.input.value = "draft";
     harness.input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
 
     pressInputArrow(harness.input, "ArrowUp");
 
     expect(harness.input.value).toBe("alpha");
-    expect(caseField!.checked).toBe(true);
-    expect(regexpField!.checked).toBe(true);
-    expect(wholeWordField!.checked).toBe(true);
+    expect(replaceInput!.value).toBe("replacement");
 
     harness.destroy();
   });
 
-  it("falls back to default tooltip labels when localized labels are blank", () => {
+  it("falls back to default button labels when localized labels are blank", () => {
     const container = document.createElement("div");
     document.body.append(container);
     const editor = createEditor({
@@ -874,15 +1259,11 @@ describe("@floatboat/nexus-plugin-search", () => {
     }
 
     const replaceButton = container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-replace"]');
-    const replaceTooltip = container.querySelector<HTMLElement>('[data-test-id="markdown-search-replace-tooltip"]');
     const replaceAllButton = container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-replace-all"]');
-    const replaceAllTooltip = container.querySelector<HTMLElement>(
-      '[data-test-id="markdown-search-replace-all-tooltip"]'
-    );
     expect(replaceButton?.getAttribute("aria-label")).toBe("Replace");
-    expect(replaceTooltip?.textContent).toBe("Replace");
+    expect(replaceButton?.title).toBe("Replace");
     expect(replaceAllButton?.getAttribute("aria-label")).toBe("Replace all");
-    expect(replaceAllTooltip?.textContent).toBe("Replace all");
+    expect(replaceAllButton?.title).toBe("Replace all");
 
     editor.destroy();
     container.remove();

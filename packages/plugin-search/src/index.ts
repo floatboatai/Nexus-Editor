@@ -1,7 +1,5 @@
 import {
   closeSearchPanel,
-  findNext,
-  findPrevious,
   getSearchQuery,
   highlightSelectionMatches,
   openSearchPanel,
@@ -11,14 +9,15 @@ import {
   searchKeymap,
   searchPanelOpen,
   SearchQuery,
-  selectMatches,
   setSearchQuery
 } from "@codemirror/search";
 import {
+  Decoration,
+  EditorView,
   keymap,
   runScopeHandlers,
   ViewPlugin,
-  type EditorView,
+  type DecorationSet,
   type Panel,
   type ViewUpdate
 } from "@codemirror/view";
@@ -29,6 +28,16 @@ export interface SearchMatch {
   from: number;
   to: number;
   text: string;
+}
+
+export interface FuzzySearchMatch extends SearchMatch {
+  positions: number[];
+  score: number;
+}
+
+export interface FuzzySearchOptions {
+  caseSensitive?: boolean;
+  maxResults?: number;
 }
 
 export interface SearchOptions {
@@ -72,39 +81,61 @@ export interface SearchPluginOptions {
 export interface SearchPluginLabels {
   find: string;
   replace: string;
-  showReplace: string;
-  hideReplace: string;
   next: string;
   previous: string;
-  all: string;
-  matchCase: string;
-  regexp: string;
-  byWord: string;
+  fuzzy?: string;
   replaceNext: string;
   replaceAll: string;
   close: string;
+  noFuzzyMatches?: string;
+
+  /** @deprecated The search panel no longer renders this control. */
+  showReplace?: string;
+  /** @deprecated The search panel no longer renders this control. */
+  hideReplace?: string;
+  /** @deprecated The search panel no longer renders this control. */
+  all?: string;
+  /** @deprecated The search panel no longer renders this control. */
+  matchCase?: string;
+  /** @deprecated The search panel no longer renders this control. */
+  regexp?: string;
+  /** @deprecated The search panel no longer renders this control. */
+  byWord?: string;
 }
 
-const DEFAULT_LABELS: SearchPluginLabels = {
+type ResolvedSearchPluginLabels = Required<
+  Pick<
+    SearchPluginLabels,
+    | "find"
+    | "replace"
+    | "next"
+    | "previous"
+    | "fuzzy"
+    | "replaceNext"
+    | "replaceAll"
+    | "close"
+    | "noFuzzyMatches"
+  >
+>;
+
+const DEFAULT_LABELS: ResolvedSearchPluginLabels = {
   find: "Find",
   replace: "Replace",
-  showReplace: "Show replace",
-  hideReplace: "Hide replace",
   next: "Next",
   previous: "Previous",
-  all: "All",
-  matchCase: "Match case",
-  regexp: "Regexp",
-  byWord: "By word",
+  fuzzy: "Fuzzy",
   replaceNext: "Replace",
   replaceAll: "Replace all",
-  close: "Close"
+  close: "Close",
+  noFuzzyMatches: "No fuzzy matches"
 };
 
 const DEFAULT_SEARCH_HISTORY_KEY = "nexus.search.history";
 const DEFAULT_SEARCH_HISTORY_MAX_ENTRIES = 20;
 const TABLE_SEARCH_CELL_SELECTOR = ".nexus-table-wrapper .nexus-cell";
 const TABLE_SEARCH_HIGHLIGHT_PREFIX = "nexus-table-search";
+const SEARCH_LINK_MATCH_ATTRIBUTE = "data-nexus-search-link-match";
+const DEFAULT_FUZZY_MAX_RESULTS = 1_000;
 
 let nextTableSearchHighlightId = 0;
 
@@ -121,6 +152,11 @@ interface TableSearchHighlightNames {
   match: string;
   selected: string;
   styleId: string;
+}
+
+interface TextRange {
+  from: number;
+  to: number;
 }
 
 interface RenderedSearchMatch extends SearchMatch {
@@ -229,6 +265,94 @@ function createTextRanges(root: Element, from: number, to: number): Range[] {
   }
 
   return ranges;
+}
+
+function mergeTextRanges(ranges: readonly TextRange[]): TextRange[] {
+  const merged: TextRange[] = [];
+  for (const range of [...ranges].sort((left, right) => left.from - right.from || left.to - right.to)) {
+    const previous = merged.at(-1);
+    if (previous && range.from <= previous.to) {
+      previous.to = Math.max(previous.to, range.to);
+    } else {
+      merged.push({ ...range });
+    }
+  }
+  return merged;
+}
+
+function clearLinkTextHighlights(root: Element): void {
+  const affectedLinks = new Set<HTMLElement>();
+  for (const marker of Array.from(
+    root.querySelectorAll<HTMLElement>(`[${SEARCH_LINK_MATCH_ATTRIBUTE}="true"]`)
+  )) {
+    const link = marker.closest<HTMLElement>("[data-link-url]");
+    if (link) affectedLinks.add(link);
+    marker.replaceWith(...Array.from(marker.childNodes));
+  }
+  for (const link of affectedLinks) link.normalize();
+}
+
+function highlightLinkTextRanges(
+  root: HTMLElement,
+  ranges: readonly TextRange[],
+  activeRanges: readonly TextRange[] = []
+): void {
+  const mergedRanges = mergeTextRanges(ranges);
+  if (mergedRanges.length === 0) return;
+  const mergedActiveRanges = mergeTextRanges(activeRanges);
+
+  const doc = root.ownerDocument;
+  const textNodes: Text[] = [];
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
+
+  let offset = 0;
+  for (const node of textNodes) {
+    const text = node.data;
+    const nextOffset = offset + text.length;
+    const nodeRanges = mergedRanges
+      .filter((range) => range.from < nextOffset && range.to > offset)
+      .map((range) => ({
+        from: Math.max(0, range.from - offset),
+        to: Math.min(text.length, range.to - offset)
+      }));
+
+    if (nodeRanges.length > 0) {
+      const fragment = doc.createDocumentFragment();
+      let cursor = 0;
+      for (const range of nodeRanges) {
+        const boundaries = [range.from, range.to];
+        for (const activeRange of mergedActiveRanges) {
+          const activeFrom = Math.max(range.from, activeRange.from - offset);
+          const activeTo = Math.min(range.to, activeRange.to - offset);
+          if (activeFrom < activeTo) boundaries.push(activeFrom, activeTo);
+        }
+
+        boundaries.sort((left, right) => left - right);
+        for (let index = 0; index < boundaries.length - 1; index++) {
+          const from = boundaries[index];
+          const to = boundaries[index + 1];
+          if (from === to) continue;
+          if (cursor < from) fragment.append(text.slice(cursor, from));
+          const marker = doc.createElement("span");
+          const active = mergedActiveRanges.some(
+            (activeRange) => activeRange.from <= offset + from && activeRange.to >= offset + to
+          );
+          marker.className = active
+            ? `${SEARCH_LINK_MATCH_CLASS} ${SEARCH_LINK_ACTIVE_MATCH_CLASS}`
+            : SEARCH_LINK_MATCH_CLASS;
+          marker.dataset.nexusSearchLinkMatch = "true";
+          marker.textContent = text.slice(from, to);
+          fragment.append(marker);
+          cursor = to;
+        }
+      }
+      if (cursor < text.length) fragment.append(text.slice(cursor));
+      node.replaceWith(fragment);
+    }
+
+    offset = nextOffset;
+  }
 }
 
 function readNumericDatasetValue(element: HTMLElement, key: string): number | null {
@@ -489,6 +613,514 @@ const tableSearchHighlightPlugin = ViewPlugin.fromClass(
   }
 );
 
+interface FuzzySearchState {
+  enabled: boolean;
+  query: string;
+  caseSensitive: boolean;
+}
+
+const FUZZY_MATCH_CLASS = "nexus-search-fuzzy-match";
+const FUZZY_ACTIVE_MATCH_CLASS = "nexus-search-fuzzy-match-active";
+const SEARCH_ACTIVE_MATCH_CLASS = "nexus-search-active-match";
+const SEARCH_LINK_MATCH_CLASS = "nexus-search-link-match";
+const SEARCH_LINK_ACTIVE_MATCH_CLASS = "nexus-search-link-match-active";
+
+class FuzzySearchHighlighter {
+  decorations: DecorationSet = Decoration.none;
+  private state: FuzzySearchState = {
+    enabled: false,
+    query: "",
+    caseSensitive: false
+  };
+  private matches: FuzzySearchMatch[] = [];
+  private activeMatch: FuzzySearchMatch | null = null;
+  private navigationIndex = -1;
+  private literalQuery: SearchQuery | null = null;
+  private activeLiteralMatch: SearchMatch | null = null;
+  private linkHighlightSyncScheduled = false;
+  private linkHighlightMeasureScheduled = false;
+  private destroyed = false;
+
+  constructor(private readonly view: EditorView) {}
+
+  get resultCount(): number {
+    return this.matches.length;
+  }
+
+  configure(state: FuzzySearchState): void {
+    const changed =
+      state.enabled !== this.state.enabled ||
+      state.query !== this.state.query ||
+      state.caseSensitive !== this.state.caseSensitive;
+    if (!changed) return;
+
+    this.state = state;
+    this.rebuildMatches();
+  }
+
+  configureLiteral(query: SearchQuery | null): void {
+    if ((query === null && this.literalQuery === null) || (query && this.literalQuery?.eq(query))) {
+      return;
+    }
+
+    this.literalQuery = query;
+    this.rebuildLiteralMatches();
+  }
+
+  update(update: ViewUpdate): void {
+    if (!searchPanelOpen(update.state)) {
+      this.state = { enabled: false, query: "", caseSensitive: false };
+      this.matches = [];
+      this.activeMatch = null;
+      this.navigationIndex = -1;
+      this.literalQuery = null;
+      this.activeLiteralMatch = null;
+      this.rebuildDecorations();
+      this.clearLinkHighlights();
+      return;
+    }
+
+    if (update.docChanged) {
+      if (this.state.enabled) this.rebuildMatches();
+      else if (this.literalQuery?.valid) this.rebuildLiteralMatches();
+    } else if (this.state.enabled || this.literalQuery?.valid) {
+      this.scheduleLinkHighlightSync();
+    }
+  }
+
+  destroy(): void {
+    this.destroyed = true;
+    this.clearLinkHighlights();
+  }
+
+  navigate(direction: "next" | "previous"): boolean {
+    if (this.matches.length === 0) return false;
+
+    const matches = [...this.matches].sort((left, right) => left.from - right.from || left.to - right.to);
+    const offset = direction === "next" ? 1 : -1;
+    const fallback = direction === "next" ? 0 : this.matches.length - 1;
+    const index = (this.navigationIndex + offset + matches.length) % matches.length;
+    this.navigationIndex = this.navigationIndex === -1 ? fallback : index;
+    const match = matches[this.navigationIndex];
+    this.activeMatch = match;
+    this.rebuildDecorations();
+
+    this.view.dispatch({
+      effects: EditorView.scrollIntoView(match.from, { y: "center" })
+    });
+    return true;
+  }
+
+  navigateLiteral(direction: "next" | "previous"): boolean {
+    const query = this.literalQuery;
+    if (!query?.valid) return false;
+
+    const match =
+      direction === "next"
+        ? this.findNextLiteralMatch(query, this.activeLiteralMatch?.to ?? 0) ??
+          this.findNextLiteralMatch(query, 0)
+        : this.findPreviousLiteralMatch(query, this.activeLiteralMatch?.from ?? this.view.state.doc.length) ??
+          this.findPreviousLiteralMatch(query, this.view.state.doc.length);
+    if (!match) return false;
+
+    this.activeLiteralMatch = match;
+    this.rebuildDecorations();
+
+    this.view.dispatch({
+      effects: EditorView.scrollIntoView(match.from, { y: "center" })
+    });
+    return true;
+  }
+
+  private rebuildMatches(): void {
+    this.activeMatch = null;
+    this.navigationIndex = -1;
+    this.matches = this.state.enabled
+      ? findFuzzyMatches(this.view.state.doc.toString(), this.state.query, {
+          caseSensitive: this.state.caseSensitive
+        })
+      : [];
+
+    this.rebuildDecorations();
+    this.scheduleLinkHighlightSync();
+  }
+
+  private rebuildLiteralMatches(): void {
+    this.activeLiteralMatch = null;
+    this.rebuildDecorations();
+    this.scheduleLinkHighlightSync();
+  }
+
+  private findNextLiteralMatch(query: SearchQuery, from: number): SearchMatch | null {
+    const next = query.getCursor(this.view.state, from).next();
+    return next.done ? null : this.createLiteralMatch(next.value.from, next.value.to);
+  }
+
+  private findPreviousLiteralMatch(query: SearchQuery, before: number): SearchMatch | null {
+    const cursor = query.getCursor(this.view.state, 0, before);
+    let previous: SearchMatch | null = null;
+    for (let next = cursor.next(); !next.done; next = cursor.next()) {
+      if (next.value.to <= before) {
+        previous = this.createLiteralMatch(next.value.from, next.value.to);
+      }
+    }
+    return previous;
+  }
+
+  private createLiteralMatch(from: number, to: number): SearchMatch {
+    return { from, to, text: this.view.state.sliceDoc(from, to) };
+  }
+
+  private rebuildDecorations(): void {
+    const positions = new Set<number>();
+    for (const match of this.matches) {
+      for (const position of match.positions) positions.add(position);
+    }
+    const activePositions = new Set(this.activeMatch?.positions);
+    const decorations = Array.from(positions)
+      .sort((a, b) => a - b)
+      .map((position) =>
+        Decoration.mark({
+          class: activePositions.has(position)
+            ? `${FUZZY_MATCH_CLASS} ${FUZZY_ACTIVE_MATCH_CLASS}`
+            : FUZZY_MATCH_CLASS
+        }).range(position, position + 1)
+      );
+    if (this.activeLiteralMatch) {
+      decorations.push(
+        Decoration.mark({ class: SEARCH_ACTIVE_MATCH_CLASS }).range(
+          this.activeLiteralMatch.from,
+          this.activeLiteralMatch.to
+        )
+      );
+    }
+
+    this.decorations = Decoration.set(
+      decorations.sort((left, right) => left.from - right.from),
+      true
+    );
+  }
+
+  private scheduleLinkHighlightSync(): void {
+    if (this.destroyed) return;
+
+    if (!this.linkHighlightSyncScheduled) {
+      this.linkHighlightSyncScheduled = true;
+      queueMicrotask(() => {
+        this.linkHighlightSyncScheduled = false;
+        this.syncLinkHighlights();
+      });
+    }
+
+    if (this.linkHighlightMeasureScheduled) return;
+    this.linkHighlightMeasureScheduled = true;
+    this.view.requestMeasure({
+      read: () => null,
+      write: () => {
+        this.linkHighlightMeasureScheduled = false;
+        this.syncLinkHighlights();
+      }
+    });
+  }
+
+  private syncLinkHighlights(): void {
+    if (this.destroyed) return;
+
+    const fuzzyActive = this.state.enabled && this.state.query;
+    const literalQuery = this.literalQuery?.valid ? this.literalQuery : null;
+    clearLinkTextHighlights(this.view.dom);
+    if (!fuzzyActive && !literalQuery) {
+      return;
+    }
+
+    for (const link of Array.from(this.view.dom.querySelectorAll<HTMLElement>("[data-link-url]"))) {
+      const linkRanges: TextRange[] = [];
+      if (fuzzyActive) {
+        const positions = new Set<number>();
+        for (const match of findFuzzyMatches(link.textContent ?? "", this.state.query, {
+          caseSensitive: this.state.caseSensitive
+        })) {
+          for (const position of match.positions) positions.add(position);
+        }
+        for (const position of positions) {
+          linkRanges.push({ from: position, to: position + 1 });
+        }
+      } else if (literalQuery) {
+        for (const match of findSearchMatches(link.textContent ?? "", literalQuery.search, {
+          caseSensitive: literalQuery.caseSensitive,
+          regexp: literalQuery.regexp,
+          wholeWord: literalQuery.wholeWord
+        })) {
+          linkRanges.push({ from: match.from, to: match.to });
+        }
+      }
+
+      highlightLinkTextRanges(
+        link,
+        linkRanges,
+        this.getActiveLinkRanges(link)
+      );
+    }
+  }
+
+  private getActiveLinkRanges(link: HTMLElement): TextRange[] {
+    const activeMatch = this.activeMatch ?? this.activeLiteralMatch;
+    if (!activeMatch) return [];
+
+    const url = link.dataset.linkUrl;
+    if (!url) return [];
+    const line = this.view.state.doc.lineAt(activeMatch.from);
+    if (activeMatch.to > line.to) return [];
+
+    for (let urlIndex = line.text.indexOf(url); urlIndex >= 0; urlIndex = line.text.indexOf(url, urlIndex + url.length)) {
+      const urlFrom = line.from + urlIndex;
+      const urlTo = urlFrom + url.length;
+      const label = link.textContent ?? "";
+      const labelIndex = line.text.lastIndexOf(`[${label}](`, urlIndex);
+      if (labelIndex >= 0) {
+        const labelFrom = line.from + labelIndex + 1;
+        const labelTo = labelFrom + label.length;
+        if (activeMatch.from >= labelFrom && activeMatch.to <= labelTo) {
+          return this.mapActiveMatchToLinkRanges(activeMatch, labelFrom);
+        }
+      }
+      if (activeMatch.from >= urlFrom && activeMatch.to <= urlTo) {
+        return this.mapActiveMatchToLinkRanges(activeMatch, urlFrom);
+      }
+    }
+
+    return [];
+  }
+
+  private mapActiveMatchToLinkRanges(activeMatch: SearchMatch, sourceFrom: number): TextRange[] {
+    if (this.activeMatch) {
+      return this.activeMatch.positions.map((position) => ({
+        from: position - sourceFrom,
+        to: position - sourceFrom + 1
+      }));
+    }
+
+    return [{ from: activeMatch.from - sourceFrom, to: activeMatch.to - sourceFrom }];
+  }
+
+  private clearLinkHighlights(): void {
+    clearLinkTextHighlights(this.view.dom);
+  }
+}
+
+const fuzzySearchHighlighter = ViewPlugin.fromClass(FuzzySearchHighlighter, {
+  decorations: (value) => value.decorations
+});
+
+const fuzzySearchTheme = EditorView.baseTheme({
+  "&": {
+    "--nexus-search-bg": "var(--nexus-bg-subtle, #f6f8fa)",
+    "--nexus-search-surface": "var(--nexus-bg, #ffffff)",
+    "--nexus-search-muted": "var(--nexus-bg-muted, #eef1f4)",
+    "--nexus-search-border": "var(--nexus-border, #d8dee4)",
+    "--nexus-search-text": "var(--nexus-text, #24292f)",
+    "--nexus-search-text-muted": "var(--nexus-text-muted, #66707b)",
+    "--nexus-search-accent": "var(--nexus-accent, #0969da)",
+    "--nexus-search-fuzzy-match-bg":
+      "rgba(255, 214, 10, 0.38)",
+    "--nexus-search-fuzzy-active-match-bg": "rgba(255, 177, 0, 0.68)",
+    "--nexus-search-active-match-bg": "rgba(255, 177, 0, 0.68)",
+    "--nexus-search-fuzzy-match-radius": "3px",
+    "--nexus-search-fuzzy-transition": "140ms",
+    "--nexus-search-status-color": "var(--nexus-search-text-muted)",
+    "--nexus-search-status-font-size": "12px"
+  },
+  ".nexus-search-panel": {
+    position: "relative",
+    display: "block",
+    boxSizing: "border-box",
+    minHeight: "43px",
+    padding: "6px 0 0 !important",
+    background: "var(--nexus-search-bg)",
+    color: "var(--nexus-search-text)",
+    borderBottom: "0",
+    fontFamily: "var(--nexus-font, system-ui, -apple-system, 'Segoe UI', sans-serif)",
+    fontSize: "13px",
+    lineHeight: "1",
+    overflowX: "hidden",
+    overflowY: "hidden"
+  },
+  ".cm-panels.cm-panels-top:has(.nexus-search-panel)": {
+    borderBottom: "0"
+  },
+  ".nexus-search-panel .nexus-search-row": {
+    boxSizing: "border-box",
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "nowrap",
+    gap: "4px",
+    minWidth: "0",
+    width: "100%",
+    maxWidth: "100%",
+    padding: "0 8px 7px 10px",
+    overflowX: "auto",
+    overflowY: "hidden",
+    whiteSpace: "nowrap"
+  },
+  ".nexus-search-panel [hidden]": {
+    display: "none"
+  },
+  ".nexus-search-panel .cm-textfield": {
+    boxSizing: "border-box",
+    flex: "1 1 180px",
+    minWidth: "90px",
+    maxWidth: "300px",
+    width: "clamp(140px, 22vw, 300px)",
+    height: "30px",
+    margin: "0 !important",
+    padding: "0 9px",
+    border: "1px solid var(--nexus-search-border)",
+    borderRadius: "4px",
+    outline: "none",
+    background: "var(--nexus-search-surface)",
+    color: "var(--nexus-search-text)",
+    font: "inherit",
+    lineHeight: "28px",
+    transition:
+      "border-color var(--nexus-search-fuzzy-transition) ease, box-shadow var(--nexus-search-fuzzy-transition) ease, background-color var(--nexus-search-fuzzy-transition) ease"
+  },
+  ".nexus-search-panel .cm-textfield::placeholder": {
+    color: "var(--nexus-search-text-muted)",
+    opacity: "0.78"
+  },
+  ".nexus-search-panel .cm-textfield:focus": {
+    borderColor: "var(--nexus-search-accent)",
+    boxShadow:
+      "0 0 0 2px color-mix(in srgb, var(--nexus-search-accent) 18%, transparent)"
+  },
+  ".nexus-search-panel .nexus-search-button-group": {
+    display: "inline-flex",
+    alignItems: "center",
+    flex: "0 0 auto",
+    gap: "0"
+  },
+  ".nexus-search-divider": {
+    alignSelf: "center",
+    flex: "0 0 1px",
+    width: "1px",
+    height: "18px",
+    margin: "0 4px",
+    background: "var(--nexus-border-subtle, var(--nexus-search-border))"
+  },
+  ".nexus-search-panel .cm-button": {
+    boxSizing: "border-box",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flex: "0 0 30px",
+    width: "30px",
+    height: "30px",
+    margin: "0 !important",
+    padding: "0",
+    border: "0",
+    borderRadius: "4px",
+    outline: "none",
+    background: "transparent",
+    color: "var(--nexus-search-text-muted)",
+    cursor: "pointer",
+    font: "inherit",
+    lineHeight: "1",
+    transition:
+      "background-color var(--nexus-search-fuzzy-transition) ease, color var(--nexus-search-fuzzy-transition) ease, transform var(--nexus-search-fuzzy-transition) ease, opacity var(--nexus-search-fuzzy-transition) ease"
+  },
+  ".nexus-search-panel .cm-button:hover:not(:disabled)": {
+    background: "var(--nexus-search-muted)",
+    color: "var(--nexus-search-text)"
+  },
+  ".nexus-search-panel .cm-button:active:not(:disabled)": {
+    transform: "scale(0.96)"
+  },
+  ".nexus-search-panel .cm-button:focus-visible": {
+    outline: "2px solid var(--nexus-search-accent)",
+    outlineOffset: "1px"
+  },
+  ".nexus-search-panel .cm-button:disabled": {
+    cursor: "not-allowed",
+    opacity: "0.36"
+  },
+  ".nexus-search-panel .cm-button svg": {
+    width: "18px",
+    height: "18px"
+  },
+  ".nexus-search-panel .nexus-search-text-button": {
+    flex: "0 0 auto",
+    width: "auto",
+    minWidth: "30px",
+    padding: "0 6px",
+    fontWeight: "500",
+    whiteSpace: "nowrap"
+  },
+  ".nexus-search-panel .cm-button[name='select']": {
+    fontWeight: "600"
+  },
+  ".nexus-search-panel .nexus-search-icon-button[data-active='true']": {
+    background: "var(--nexus-search-muted)",
+    color: "var(--nexus-search-accent)"
+  },
+  ".nexus-search-panel .cm-button[name='close']": {
+    position: "static",
+    top: "auto",
+    right: "auto",
+    alignSelf: "center",
+    flex: "0 0 30px",
+    color: "var(--nexus-search-text-muted)"
+  },
+  ".nexus-search-button-wrap": {
+    display: "inline-flex",
+    flex: "0 0 auto"
+  },
+  [`.${FUZZY_MATCH_CLASS}`]: {
+    backgroundColor: "var(--nexus-search-fuzzy-match-bg)",
+    borderRadius: "var(--nexus-search-fuzzy-match-radius)",
+    transition: "background-color var(--nexus-search-fuzzy-transition) ease"
+  },
+  [`.${FUZZY_ACTIVE_MATCH_CLASS}`]: {
+    backgroundColor: "var(--nexus-search-fuzzy-active-match-bg)"
+  },
+  [`.${SEARCH_ACTIVE_MATCH_CLASS}`]: {
+    backgroundColor: "var(--nexus-search-active-match-bg)",
+    borderRadius: "var(--nexus-search-fuzzy-match-radius)"
+  },
+  [`.${SEARCH_LINK_MATCH_CLASS}`]: {
+    backgroundColor: "var(--nexus-search-fuzzy-match-bg)",
+    borderRadius: "var(--nexus-search-fuzzy-match-radius)",
+    color: "inherit",
+    textDecoration: "inherit"
+  },
+  [`.${SEARCH_LINK_ACTIVE_MATCH_CLASS}`]: {
+    backgroundColor: "var(--nexus-search-fuzzy-active-match-bg)"
+  },
+  ".nexus-search-fuzzy-status": {
+    display: "block",
+    boxSizing: "border-box",
+    margin: "0 10px 7px",
+    maxWidth: "calc(100% - 20px)",
+    padding: "5px 8px",
+    border: "1px solid var(--nexus-search-border)",
+    borderRadius: "4px",
+    background: "var(--nexus-search-surface)",
+    color: "var(--nexus-search-status-color)",
+    fontSize: "var(--nexus-search-status-font-size)",
+    lineHeight: "16px"
+  },
+  "@media (max-width: 760px)": {
+    ".nexus-search-panel .cm-textfield": {
+      minWidth: "84px"
+    }
+  },
+  "@media (prefers-reduced-motion: reduce)": {
+    [`.${FUZZY_MATCH_CLASS}`]: { transition: "none" },
+    ".nexus-search-panel .cm-button, .nexus-search-panel .cm-textfield": {
+      transition: "none"
+    }
+  }
+});
+
 function resolveMaxEntries(maxEntries: number | undefined): number {
   if (maxEntries === undefined || !Number.isFinite(maxEntries)) {
     return DEFAULT_SEARCH_HISTORY_MAX_ENTRIES;
@@ -670,6 +1302,96 @@ export function findSearchMatches(
   return matches;
 }
 
+export function findFuzzyMatches(
+  doc: string,
+  query: string,
+  options: FuzzySearchOptions = {}
+): FuzzySearchMatch[] {
+  const maxResults = resolveFuzzyMaxResults(options.maxResults);
+  if (!query || maxResults === 0) return [];
+
+  const haystack = options.caseSensitive ? doc : doc.toLowerCase();
+  const needle = options.caseSensitive ? query : query.toLowerCase();
+  if (Array.from(needle).some((character) => !isFuzzyTokenCharacter(character))) {
+    return [];
+  }
+  const matches: FuzzySearchMatch[] = [];
+  let worstMatchIndex = -1;
+
+  for (let tokenStart = 0; tokenStart < haystack.length; ) {
+    if (!isFuzzyTokenCharacter(doc[tokenStart])) {
+      tokenStart++;
+      continue;
+    }
+
+    let tokenEnd = tokenStart + 1;
+    while (tokenEnd < doc.length && isFuzzyTokenCharacter(doc[tokenEnd])) tokenEnd++;
+
+    for (let from = tokenStart; from < tokenEnd; from++) {
+      if (haystack[from] !== needle[0]) continue;
+
+      const positions = [from];
+      let cursor = from + 1;
+      for (let index = 1; index < needle.length; index++) {
+        cursor = haystack.indexOf(needle[index], cursor);
+        if (cursor === -1 || cursor >= tokenEnd) break;
+        positions.push(cursor);
+        cursor++;
+      }
+      if (positions.length !== needle.length) continue;
+
+      const to = positions[positions.length - 1] + 1;
+      const gaps = to - from - needle.length;
+      const match: FuzzySearchMatch = {
+        from,
+        to,
+        text: doc.slice(from, to),
+        positions,
+        score: gaps * (doc.length + 1) + from
+      };
+
+      if (matches.length < maxResults) {
+        matches.push(match);
+        if (matches.length === maxResults) {
+          worstMatchIndex = findWorstFuzzyMatchIndex(matches);
+        }
+      } else if (compareFuzzyMatches(match, matches[worstMatchIndex]) < 0) {
+        matches[worstMatchIndex] = match;
+        worstMatchIndex = findWorstFuzzyMatchIndex(matches);
+      }
+    }
+
+    tokenStart = tokenEnd;
+  }
+
+  return matches.sort(compareFuzzyMatches);
+}
+
+function isFuzzyTokenCharacter(character: string | undefined): boolean {
+  return character !== undefined && /[\p{L}\p{N}_]/u.test(character);
+}
+
+function resolveFuzzyMaxResults(maxResults: number | undefined): number {
+  if (maxResults === undefined || !Number.isFinite(maxResults)) {
+    return DEFAULT_FUZZY_MAX_RESULTS;
+  }
+  return Math.max(0, Math.floor(maxResults));
+}
+
+function compareFuzzyMatches(left: FuzzySearchMatch, right: FuzzySearchMatch): number {
+  return left.score - right.score || left.from - right.from;
+}
+
+function findWorstFuzzyMatchIndex(matches: readonly FuzzySearchMatch[]): number {
+  let worstIndex = 0;
+  for (let index = 1; index < matches.length; index++) {
+    if (compareFuzzyMatches(matches[index], matches[worstIndex]) > 0) {
+      worstIndex = index;
+    }
+  }
+  return worstIndex;
+}
+
 export function replaceAllMatches(
   doc: string,
   query: string,
@@ -700,21 +1422,20 @@ function resolveLabel(
   return phrase || fallback;
 }
 
-function resolveLabels(view: EditorView, labels: Partial<SearchPluginLabels> | undefined): SearchPluginLabels {
+function resolveLabels(
+  view: EditorView,
+  labels: Partial<SearchPluginLabels> | undefined
+): ResolvedSearchPluginLabels {
   return {
     find: resolveLabel(view, labels, "find", DEFAULT_LABELS.find),
     replace: resolveLabel(view, labels, "replace", DEFAULT_LABELS.replace),
-    showReplace: resolveLabel(view, labels, "showReplace", DEFAULT_LABELS.showReplace),
-    hideReplace: resolveLabel(view, labels, "hideReplace", DEFAULT_LABELS.hideReplace),
     next: resolveLabel(view, labels, "next", DEFAULT_LABELS.next),
     previous: resolveLabel(view, labels, "previous", DEFAULT_LABELS.previous),
-    all: resolveLabel(view, labels, "all", DEFAULT_LABELS.all),
-    matchCase: resolveLabel(view, labels, "matchCase", DEFAULT_LABELS.matchCase),
-    regexp: resolveLabel(view, labels, "regexp", DEFAULT_LABELS.regexp),
-    byWord: resolveLabel(view, labels, "byWord", DEFAULT_LABELS.byWord),
+    fuzzy: resolveLabel(view, labels, "fuzzy", DEFAULT_LABELS.fuzzy),
     replaceNext: resolveLabel(view, labels, "replaceNext", DEFAULT_LABELS.replaceNext),
     replaceAll: resolveLabel(view, labels, "replaceAll", DEFAULT_LABELS.replaceAll),
-    close: resolveLabel(view, labels, "close", DEFAULT_LABELS.close)
+    close: resolveLabel(view, labels, "close", DEFAULT_LABELS.close),
+    noFuzzyMatches: resolveLabel(view, labels, "noFuzzyMatches", DEFAULT_LABELS.noFuzzyMatches)
   };
 }
 
@@ -736,16 +1457,95 @@ function createButton(
   return button;
 }
 
-type SearchIconName = "toggleReplace" | "previous" | "next" | "all" | "replace" | "replaceAll";
+type SearchIconName = "previous" | "next" | "fuzzy" | "close";
+
+let searchTooltipId = 0;
+
+const SEARCH_TOOLTIP_STYLES = `
+  position: fixed;
+  z-index: 1100;
+  transform: translateX(-50%);
+  padding: 5px 7px;
+  border-radius: 4px;
+  background: var(--nexus-tooltip-bg, #333333);
+  color: var(--nexus-tooltip-text, #ffffff);
+  font: 11px/1 system-ui, -apple-system, sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+`;
+
+function positionSearchTooltip(button: HTMLElement, tooltip: HTMLElement): void {
+  const rect = button.getBoundingClientRect();
+  const win = button.ownerDocument.defaultView;
+  const below = rect.bottom + 8;
+  const top = win && below + tooltip.offsetHeight > win.innerHeight
+    ? rect.top - tooltip.offsetHeight - 8
+    : below;
+  tooltip.style.left = `${rect.left + rect.width / 2}px`;
+  tooltip.style.top = `${top}px`;
+}
+
+function pickSearchTooltipMount(button: HTMLElement): HTMLElement {
+  const doc = button.ownerDocument;
+  const fullscreenElement = doc.fullscreenElement as HTMLElement | null;
+  if (fullscreenElement?.contains(button)) return fullscreenElement;
+  return doc.body;
+}
+
+function installSearchTooltip(button: HTMLButtonElement): () => void {
+  const tooltip = button.ownerDocument.createElement("div");
+  tooltip.className = "nexus-search-tooltip";
+  tooltip.style.cssText = SEARCH_TOOLTIP_STYLES;
+  tooltip.id = `nexus-search-tooltip-${++searchTooltipId}`;
+  tooltip.setAttribute("role", "tooltip");
+  button.setAttribute("aria-describedby", tooltip.id);
+
+  const show = () => {
+    const label = button.getAttribute("aria-label") ?? "";
+    if (!label.trim()) return;
+    tooltip.textContent = label;
+    if (!tooltip.isConnected) pickSearchTooltipMount(button).append(tooltip);
+    positionSearchTooltip(button, tooltip);
+  };
+  const hide = () => tooltip.remove();
+  const updatePosition = () => {
+    if (tooltip.isConnected) positionSearchTooltip(button, tooltip);
+  };
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape") hide();
+  };
+  const win = button.ownerDocument.defaultView;
+
+  button.addEventListener("mouseenter", show);
+  button.addEventListener("focus", show);
+  button.addEventListener("mouseleave", hide);
+  button.addEventListener("blur", hide);
+  button.addEventListener("click", hide);
+  button.addEventListener("keydown", handleKeyDown);
+  win?.addEventListener("scroll", updatePosition, true);
+  win?.addEventListener("resize", updatePosition);
+
+  return () => {
+    button.removeEventListener("mouseenter", show);
+    button.removeEventListener("focus", show);
+    button.removeEventListener("mouseleave", hide);
+    button.removeEventListener("blur", hide);
+    button.removeEventListener("click", hide);
+    button.removeEventListener("keydown", handleKeyDown);
+    win?.removeEventListener("scroll", updatePosition, true);
+    win?.removeEventListener("resize", updatePosition);
+    hide();
+  };
+}
 
 function createIcon(name: SearchIconName): SVGSVGElement {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("width", "16");
-  svg.setAttribute("height", "16");
+  svg.setAttribute("width", "18");
+  svg.setAttribute("height", "18");
   svg.setAttribute("fill", "none");
   svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-width", "2.4");
   svg.setAttribute("stroke-linecap", "round");
   svg.setAttribute("stroke-linejoin", "round");
   svg.setAttribute("aria-hidden", "true");
@@ -755,83 +1555,34 @@ function createIcon(name: SearchIconName): SVGSVGElement {
     path.setAttribute("d", d);
     svg.appendChild(path);
   };
-  const appendLine = (x1: number, y1: number, x2: number, y2: number) => {
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    line.setAttribute("x1", String(x1));
-    line.setAttribute("y1", String(y1));
-    line.setAttribute("x2", String(x2));
-    line.setAttribute("y2", String(y2));
-    svg.appendChild(line);
-  };
-  const appendText = (text: string, x: number, y: number, size: number) => {
-    const node = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    node.setAttribute("x", String(x));
-    node.setAttribute("y", String(y));
-    node.setAttribute("font-size", String(size));
-    node.setAttribute("font-family", "system-ui, sans-serif");
-    node.setAttribute("font-weight", "700");
-    node.setAttribute("fill", "currentColor");
-    node.setAttribute("stroke", "none");
-    node.textContent = text;
-    svg.appendChild(node);
-  };
-
   switch (name) {
-    case "toggleReplace":
-      appendPath("m9 18 6-6-6-6");
-      break;
     case "previous":
-      appendPath("m15 18-6-6 6-6");
+      appendPath("m18 15-6-6-6 6");
       break;
     case "next":
-      appendPath("m9 18 6-6-6-6");
+      appendPath("m6 9 6 6 6-6");
       break;
-    case "all":
-      appendLine(5, 7, 19, 7);
-      appendLine(5, 12, 19, 12);
-      appendLine(5, 17, 19, 17);
+    case "fuzzy":
+      appendPath("M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13");
+      appendPath("M15 15l5 5");
       break;
-    case "replace":
-      appendText("R", 4, 17, 13);
-      appendPath("m15 8 3 3-3 3");
-      break;
-    case "replaceAll":
-      appendText("R", 3, 17, 12);
-      appendPath("m14 7 3 3-3 3");
-      appendPath("m17 7 3 3-3 3");
+    case "close":
+      appendPath("M7 7l10 10M17 7 7 17");
       break;
   }
 
   return svg;
 }
 
-let tooltipId = 0;
-let rowId = 0;
-
-function createTooltip(testId: string, label: string): HTMLSpanElement {
-  const tooltip = document.createElement("span");
-  tooltip.className = "nexus-search-tooltip";
-  tooltip.dataset.testId = `${testId}-tooltip`;
-  tooltip.dataset.tooltip = label;
-  tooltip.id = `${testId}-tooltip-${++tooltipId}`;
-  tooltip.setAttribute("role", "tooltip");
-  tooltip.setAttribute("aria-label", label);
-  tooltip.textContent = label;
-  return tooltip;
-}
-
-interface IconButtonElements {
+interface SearchButtonElements {
   wrapper: HTMLSpanElement;
   button: HTMLButtonElement;
-  tooltip: HTMLSpanElement;
+  destroyTooltip?: () => void;
 }
 
-function setIconButtonLabel(elements: IconButtonElements, label: string): void {
-  elements.button.setAttribute("aria-label", label);
-  elements.button.dataset.tooltipLabel = label;
-  elements.tooltip.dataset.tooltip = label;
-  elements.tooltip.setAttribute("aria-label", label);
-  elements.tooltip.textContent = label;
+function setButtonLabel(button: HTMLButtonElement, label: string): void {
+  button.setAttribute("aria-label", label);
+  button.removeAttribute("title");
 }
 
 function createIconButtonElements(
@@ -840,22 +1591,19 @@ function createIconButtonElements(
   label: string,
   icon: SearchIconName,
   onClick: () => void
-): IconButtonElements {
+): SearchButtonElements {
   const wrapper = document.createElement("span");
-  wrapper.className = "nexus-search-tooltip-wrap";
+  wrapper.className = "nexus-search-button-wrap";
 
   const button = createButton(testId, name, label, onClick);
   button.classList.add("nexus-search-icon-button");
   button.dataset.iconOnly = "true";
-  button.removeAttribute("title");
   button.textContent = "";
   button.appendChild(createIcon(icon));
 
-  const tooltip = createTooltip(testId, label);
-  button.setAttribute("aria-describedby", tooltip.id);
-  wrapper.append(button, tooltip);
-  setIconButtonLabel({ wrapper, button, tooltip }, label);
-  return { wrapper, button, tooltip };
+  wrapper.append(button);
+  setButtonLabel(button, label);
+  return { wrapper, button, destroyTooltip: installSearchTooltip(button) };
 }
 
 function createIconButton(
@@ -864,15 +1612,24 @@ function createIconButton(
   label: string,
   icon: SearchIconName,
   onClick: () => void
-): HTMLSpanElement {
-  const { wrapper } = createIconButtonElements(testId, name, label, icon, onClick);
-  return wrapper;
+): SearchButtonElements {
+  return createIconButtonElements(testId, name, label, icon, onClick);
 }
 
-function createLabel(input: HTMLInputElement, text: string): HTMLLabelElement {
-  const label = document.createElement("label");
-  label.append(input, text);
-  return label;
+function createTextButtonElements(
+  testId: string,
+  name: string,
+  label: string,
+  onClick: () => void
+): SearchButtonElements {
+  const wrapper = document.createElement("span");
+  wrapper.className = "nexus-search-button-wrap";
+
+  const button = createButton(testId, name, label, onClick);
+  button.classList.add("nexus-search-text-button");
+
+  wrapper.append(button);
+  return { wrapper, button };
 }
 
 function createSearchRow(testId: string): HTMLDivElement {
@@ -888,14 +1645,17 @@ class NexusSearchPanel implements Panel {
   private query: SearchQuery;
   private readonly searchField: HTMLInputElement;
   private readonly replaceField: HTMLInputElement;
-  private readonly caseField: HTMLInputElement;
-  private readonly regexpField: HTMLInputElement;
-  private readonly wholeWordField: HTMLInputElement;
-  private readonly labels: SearchPluginLabels;
+  private readonly fuzzyStatus: HTMLSpanElement;
+  private readonly labels: ResolvedSearchPluginLabels;
   private readonly history: SearchHistoryController;
-  private readonly replaceRow?: HTMLDivElement;
-  private readonly replaceToggle?: IconButtonElements;
-  private replaceExpanded = false;
+  private readonly fuzzyToggle: SearchButtonElements;
+  private readonly replaceNextButton?: HTMLButtonElement;
+  private readonly replaceAllButton?: HTMLButtonElement;
+  private readonly destroyTooltips: Array<() => void> = [];
+  private readonly searchAnchor: number;
+  private fuzzyEnabled = false;
+  private lastSearchInput: string;
+  private lastFuzzyMode = false;
 
   constructor(
     private readonly view: EditorView,
@@ -904,6 +1664,7 @@ class NexusSearchPanel implements Panel {
     history: SearchHistoryController
   ) {
     this.query = getSearchQuery(view.state);
+    this.searchAnchor = view.state.selection.main.from;
     const resolvedLabels = resolveLabels(view, labels);
     this.labels = resolvedLabels;
     this.history = history;
@@ -915,6 +1676,7 @@ class NexusSearchPanel implements Panel {
       this.query.search,
       true
     );
+    this.lastSearchInput = this.searchField.value;
     this.replaceField = this.createTextField(
       "markdown-search-replace-input",
       "replace",
@@ -922,81 +1684,91 @@ class NexusSearchPanel implements Panel {
       this.query.replace,
       false
     );
-    this.caseField = this.createCheckbox("markdown-search-case-toggle", "case", this.query.caseSensitive);
-    this.regexpField = this.createCheckbox("markdown-search-regexp-toggle", "re", this.query.regexp);
-    this.wholeWordField = this.createCheckbox("markdown-search-word-toggle", "word", this.query.wholeWord);
+    this.fuzzyStatus = document.createElement("span");
+    this.fuzzyStatus.className = "nexus-search-fuzzy-status";
+    this.fuzzyStatus.dataset.testId = "markdown-search-fuzzy-status";
+    this.fuzzyStatus.setAttribute("aria-live", "polite");
+    this.fuzzyStatus.hidden = true;
 
     this.dom = document.createElement("div");
-    this.dom.className = "cm-search nexus-search-panel";
+    this.dom.className = "nexus-search-panel";
     this.dom.dataset.testId = "markdown-search-bar";
     this.dom.addEventListener("keydown", (event) => this.handleKeyDown(event));
 
     const searchRow = createSearchRow("markdown-search-find-row");
     const canReplace = !view.state.readOnly;
-    if (canReplace) {
-      this.replaceToggle = createIconButtonElements(
-        "markdown-search-toggle-replace",
-        "toggleReplace",
-        resolvedLabels.showReplace,
-        "toggleReplace",
-        () => this.setReplaceExpanded(!this.replaceExpanded, true)
-      );
-    }
     const navigationGroup = document.createElement("div");
     navigationGroup.className = "nexus-search-button-group";
-    navigationGroup.append(
-      createIconButton("markdown-search-prev", "prev", resolvedLabels.previous, "previous", () =>
-        this.submitSearch(() => findPrevious(view))
-      ),
-      createIconButton("markdown-search-next", "next", resolvedLabels.next, "next", () =>
-        this.submitSearch(() => findNext(view))
-      ),
-      createIconButton("markdown-search-all", "select", resolvedLabels.all, "all", () =>
-        this.submitSearch(() => selectMatches(view))
-      )
+    const previousButton = createIconButton(
+      "markdown-search-prev",
+      "prev",
+      resolvedLabels.previous,
+      "previous",
+      () => this.submitSearch(() => this.navigate("previous"))
     );
+    const nextButton = createIconButton(
+      "markdown-search-next",
+      "next",
+      resolvedLabels.next,
+      "next",
+      () => this.submitSearch(() => this.navigate("next"))
+    );
+    navigationGroup.append(previousButton.wrapper, nextButton.wrapper);
+    if (previousButton.destroyTooltip) this.destroyTooltips.push(previousButton.destroyTooltip);
+    if (nextButton.destroyTooltip) this.destroyTooltips.push(nextButton.destroyTooltip);
 
-    const searchRowChildren: HTMLElement[] = [
-      this.searchField,
-      createLabel(this.caseField, resolvedLabels.matchCase),
-      createLabel(this.regexpField, resolvedLabels.regexp),
-      createLabel(this.wholeWordField, resolvedLabels.byWord),
-      navigationGroup
-    ];
-    if (this.replaceToggle) {
-      searchRowChildren.unshift(this.replaceToggle.wrapper);
-    }
-    searchRow.append(...searchRowChildren);
+    this.fuzzyToggle = createIconButtonElements(
+      "markdown-search-fuzzy-toggle",
+      "fuzzy",
+      resolvedLabels.fuzzy,
+      "fuzzy",
+      () => {
+        this.fuzzyEnabled = !this.fuzzyEnabled;
+        this.commit();
+      }
+    );
+    this.fuzzyToggle.button.setAttribute("aria-pressed", "false");
+    if (this.fuzzyToggle.destroyTooltip) this.destroyTooltips.push(this.fuzzyToggle.destroyTooltip);
 
-    this.dom.append(searchRow);
+    searchRow.append(this.searchField, navigationGroup, this.fuzzyToggle.wrapper);
 
     if (canReplace) {
-      const replaceRow = createSearchRow("markdown-search-replace-row");
-      replaceRow.id = `markdown-search-replace-row-${++rowId}`;
-      this.replaceRow = replaceRow;
-      this.replaceToggle?.button.setAttribute("aria-controls", replaceRow.id);
-      this.replaceToggle?.button.setAttribute("aria-expanded", "false");
-      replaceRow.append(
-        this.replaceField,
-        createIconButton("markdown-search-replace", "replace", resolvedLabels.replaceNext, "replace", () =>
-          replaceNext(view)
-        ),
-        createIconButton(
-          "markdown-search-replace-all",
-          "replaceAll",
-          resolvedLabels.replaceAll,
-          "replaceAll",
-          () => replaceAll(view)
-        )
+      const divider = document.createElement("span");
+      divider.className = "nexus-search-divider";
+      divider.setAttribute("aria-hidden", "true");
+      const replaceNextElements = createTextButtonElements(
+        "markdown-search-replace",
+        "replace",
+        resolvedLabels.replaceNext,
+        () => replaceNext(view)
       );
-      this.setReplaceExpanded(false);
-      this.dom.append(replaceRow);
+      const replaceAllElements = createTextButtonElements(
+        "markdown-search-replace-all",
+        "replaceAll",
+        resolvedLabels.replaceAll,
+        () => replaceAll(view)
+      );
+      this.replaceNextButton = replaceNextElements.button;
+      this.replaceAllButton = replaceAllElements.button;
+      searchRow.append(
+        divider,
+        this.replaceField,
+        replaceNextElements.wrapper,
+        replaceAllElements.wrapper
+      );
     }
 
-    const closeButton = createButton("markdown-search-close", "close", "×", () => closeSearchPanel(view));
-    closeButton.setAttribute("aria-label", resolvedLabels.close);
-    closeButton.title = resolvedLabels.close;
-    this.dom.append(closeButton);
+    const closeButton = createIconButtonElements(
+      "markdown-search-close",
+      "close",
+      resolvedLabels.close,
+      "close",
+      () => closeSearchPanel(view)
+    );
+    if (closeButton.destroyTooltip) this.destroyTooltips.push(closeButton.destroyTooltip);
+    searchRow.append(closeButton.wrapper);
+    this.dom.append(searchRow, this.fuzzyStatus);
+    this.syncFuzzyControls();
   }
 
   update(update: ViewUpdate): void {
@@ -1007,10 +1779,17 @@ class NexusSearchPanel implements Panel {
         }
       }
     }
+    if (update.docChanged && this.fuzzyEnabled) {
+      this.updateFuzzyStatus();
+    }
   }
 
   mount(): void {
     this.searchField.select();
+  }
+
+  destroy(): void {
+    for (const destroyTooltip of this.destroyTooltips) destroyTooltip();
   }
 
   private createTextField(
@@ -1043,30 +1822,38 @@ class NexusSearchPanel implements Panel {
     return input;
   }
 
-  private createCheckbox(testId: string, name: string, checked: boolean): HTMLInputElement {
-    const input = document.createElement("input");
-    input.dataset.testId = testId;
-    input.type = "checkbox";
-    input.name = name;
-    input.setAttribute("form", "");
-    input.checked = checked;
-    input.addEventListener("change", () => this.commit());
-    return input;
-  }
-
   private commit(): void {
+    this.syncFuzzyControls();
+    const fuzzy = this.fuzzyEnabled;
+    const search = this.searchField.value;
+    if (search !== this.lastSearchInput || fuzzy !== this.lastFuzzyMode) {
+      this.clearEditorSelection();
+      this.lastSearchInput = search;
+      this.lastFuzzyMode = fuzzy;
+    }
+
     const query = new SearchQuery({
-      search: this.searchField.value,
-      caseSensitive: this.caseField.checked,
-      regexp: this.regexpField.checked,
-      wholeWord: this.wholeWordField.checked,
+      search: fuzzy ? "" : search,
+      caseSensitive: this.query.caseSensitive,
+      regexp: fuzzy ? false : this.query.regexp,
+      wholeWord: fuzzy ? false : this.query.wholeWord,
       replace: this.replaceField.value
     });
+    const highlighter = this.fuzzySearch();
+    highlighter?.configure({
+      enabled: fuzzy,
+      query: search,
+      caseSensitive: this.query.caseSensitive
+    });
+    highlighter?.configureLiteral(fuzzy ? null : query);
 
     if (!query.eq(this.query)) {
       this.query = query;
       this.view.dispatch({ effects: setSearchQuery.of(query) });
+    } else {
+      this.view.dispatch({});
     }
+    this.updateFuzzyStatus();
   }
 
   private submitSearch(runSearchCommand: () => void): void {
@@ -1075,19 +1862,12 @@ class NexusSearchPanel implements Panel {
     runSearchCommand();
   }
 
-  private setReplaceExpanded(expanded: boolean, focusReplace = false): void {
-    if (!this.replaceRow || !this.replaceToggle) return;
-
-    this.replaceExpanded = expanded;
-    this.replaceRow.hidden = !expanded;
-    this.replaceRow.setAttribute("aria-hidden", String(!expanded));
-    this.replaceToggle.button.setAttribute("aria-expanded", String(expanded));
-    setIconButtonLabel(this.replaceToggle, expanded ? this.labels.hideReplace : this.labels.showReplace);
-
-    if (expanded && focusReplace) {
-      this.replaceField.focus();
-      this.replaceField.select();
+  private navigate(direction: "next" | "previous"): void {
+    if (this.fuzzyEnabled) {
+      this.fuzzySearch()?.navigate(direction);
+      return;
     }
+    this.fuzzySearch()?.navigateLiteral(direction);
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
@@ -1102,7 +1882,7 @@ class NexusSearchPanel implements Panel {
 
     if (event.key === "Enter" && event.target === this.searchField) {
       event.preventDefault();
-      this.submitSearch(() => (event.shiftKey ? findPrevious : findNext)(this.view));
+      this.submitSearch(() => this.navigate(event.shiftKey ? "previous" : "next"));
       return;
     }
 
@@ -1132,11 +1912,45 @@ class NexusSearchPanel implements Panel {
 
   private setQuery(query: SearchQuery): void {
     this.query = query;
-    this.searchField.value = query.search;
+    if (!this.fuzzyEnabled) {
+      this.searchField.value = query.search;
+    }
+    this.lastSearchInput = this.searchField.value;
     this.replaceField.value = query.replace;
-    this.caseField.checked = query.caseSensitive;
-    this.regexpField.checked = query.regexp;
-    this.wholeWordField.checked = query.wholeWord;
+    this.syncFuzzyControls();
+    this.updateFuzzyStatus();
+  }
+
+  private fuzzySearch(): FuzzySearchHighlighter | null {
+    return this.view.plugin(fuzzySearchHighlighter) ?? null;
+  }
+
+  private clearEditorSelection(): void {
+    const selection = this.view.state.selection.main;
+    if (!selection.empty || selection.from !== this.searchAnchor) {
+      this.view.dispatch({ selection: { anchor: this.searchAnchor } });
+    }
+  }
+
+  private syncFuzzyControls(): void {
+    const fuzzy = this.fuzzyEnabled;
+    this.replaceField.disabled = fuzzy;
+    this.replaceNextButton?.toggleAttribute("disabled", fuzzy);
+    this.replaceAllButton?.toggleAttribute("disabled", fuzzy);
+    this.fuzzyToggle.button.dataset.active = String(fuzzy);
+    this.fuzzyToggle.button.setAttribute("aria-pressed", String(fuzzy));
+  }
+
+  private updateFuzzyStatus(): void {
+    if (!this.fuzzyEnabled || !this.searchField.value) {
+      this.fuzzyStatus.hidden = true;
+      this.fuzzyStatus.textContent = "";
+      return;
+    }
+
+    const empty = this.fuzzySearch()?.resultCount === 0;
+    this.fuzzyStatus.hidden = !empty;
+    this.fuzzyStatus.textContent = empty ? this.labels.noFuzzyMatches : "";
   }
 }
 
@@ -1150,7 +1964,9 @@ export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlug
       createPanel: (view) => new NexusSearchPanel(view, options.top ?? true, options.labels, history)
     }),
     keymap.of(searchKeymap),
-    tableSearchHighlightPlugin
+    tableSearchHighlightPlugin,
+    fuzzySearchHighlighter,
+    fuzzySearchTheme
   ];
 
   if (options.highlightSelectionMatches ?? true) {
