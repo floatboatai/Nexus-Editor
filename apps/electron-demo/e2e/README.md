@@ -17,3 +17,6 @@ workspace. Native file dialogs are stubbed in the Electron main process, so
 the file lifecycle test uses real file IO without depending on an operating
 system dialog. The fixture captures renderer console errors and preserves
 Playwright traces and screenshots when a test fails.
+
+The suite launches the Electron binary supplied by the `electron` dependency;
+it does not download or launch a separate Playwright browser.

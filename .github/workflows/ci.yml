@@ -62,6 +62,7 @@ jobs:
   e2e:
     name: Electron E2E
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -101,7 +102,7 @@ jobs:
   publish:
     name: Publish Packages
     runs-on: ubuntu-latest
-    needs: verify
+    needs: [verify, e2e]
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish)
     steps:
       - name: Checkout

@@ -1,5 +1,6 @@
 import {
   _electron as electron,
+  type ConsoleMessage,
   expect,
   test as base,
   type ElectronApplication,
@@ -70,10 +71,32 @@ export const test = base.extend<ElectronTestContext>({
     }
   },
 
-  electronApp: async ({ userDataDir }, use, testInfo) => {
+  electronApp: async ({ workspaceDir: _workspaceDir, userDataDir }, use, testInfo) => {
     const rendererErrors: string[] = [];
     const processLogs: string[] = [];
+    const rendererListeners = new Map<
+      Page,
+      { onConsole: (message: ConsoleMessage) => void; onPageError: (error: Error) => void }
+    >();
     let app: ElectronApplication | undefined;
+    let stderr: NodeJS.ReadableStream | null = null;
+
+    const onStderr = (chunk: Buffer) => {
+      processLogs.push(chunk.toString());
+    };
+
+    const observeRenderer = (page: Page) => {
+      if (rendererListeners.has(page)) return;
+
+      const onConsole = (message: ConsoleMessage) => {
+        if (message.type() === "error") rendererErrors.push(message.text());
+      };
+      const onPageError = (error: Error) => rendererErrors.push(error.message);
+
+      page.on("console", onConsole);
+      page.on("pageerror", onPageError);
+      rendererListeners.set(page, { onConsole, onPageError });
+    };
 
     try {
       app = await electron.launch({
@@ -82,15 +105,12 @@ export const test = base.extend<ElectronTestContext>({
         cwd: appDirectory,
       });
 
-      app.process().stderr?.on("data", (chunk: Buffer) => {
-        processLogs.push(chunk.toString());
-      });
+      stderr = app.process().stderr;
+      stderr?.on("data", onStderr);
+      app.on("window", observeRenderer);
 
       const window = await app.firstWindow();
-      window.on("console", (message) => {
-        if (message.type() === "error") rendererErrors.push(message.text());
-      });
-      window.on("pageerror", (error) => rendererErrors.push(error.message));
+      observeRenderer(window);
 
       await expect(window.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
       await use(app);
@@ -99,8 +119,20 @@ export const test = base.extend<ElectronTestContext>({
         throw new Error(formatFailureDetails(rendererErrors, processLogs));
       }
     } finally {
-      await attachFailureDetails(testInfo, rendererErrors, processLogs);
-      await app?.close().catch(() => undefined);
+      try {
+        for (const [page, listeners] of rendererListeners) {
+          page.off("console", listeners.onConsole);
+          page.off("pageerror", listeners.onPageError);
+        }
+        app?.off("window", observeRenderer);
+      } finally {
+        try {
+          await app?.close();
+        } finally {
+          stderr?.off("data", onStderr);
+          await attachFailureDetails(testInfo, rendererErrors, processLogs);
+        }
+      }
     }
   },
 
