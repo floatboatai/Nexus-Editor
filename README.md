@@ -267,6 +267,10 @@ pnpm test           # run all tests
 
 # Electron demo
 pnpm dev:electron-demo
+
+# Electron end-to-end tests (builds the demo first)
+pnpm build:electron-demo
+pnpm test:e2e
 ```
 
 </details>
