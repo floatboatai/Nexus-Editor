@@ -15,6 +15,7 @@ describe("createEditorShell", () => {
     });
 
     expect(container.querySelector(".cm-editor")).not.toBeNull();
+    expect(container.querySelector(".cm-content")?.getAttribute("aria-label")).toBe("Markdown editor");
     shell.destroy();
   });
 

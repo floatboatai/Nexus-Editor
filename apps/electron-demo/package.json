@@ -13,6 +13,7 @@
     "build": "tsup electron/main.ts electron/preload.ts --outDir dist-electron --format cjs --platform node --external electron --clean && vite build",
     "start": "electron dist-electron/main.js",
     "test": "vitest run --config ../../vitest.config.ts",
+    "test:e2e": "playwright test --config playwright.config.ts",
     "dist": "pnpm run build && electron-builder",
     "dist:mac": "pnpm run build && electron-builder --mac",
     "dist:mac-arm64": "pnpm run build && electron-builder --mac --arm64",
@@ -32,6 +33,7 @@
     "highlight.js": "^11.11.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.61.1",
     "electron": "^35.0.0",
     "electron-builder": "^25.1.8",
     "npm-run-all2": "^7.0.0",

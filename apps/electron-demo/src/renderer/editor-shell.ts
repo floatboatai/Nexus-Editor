@@ -332,6 +332,9 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
 
   editorRef.current = editor;
 
+  const editorInput = container.querySelector<HTMLElement>(".cm-content");
+  editorInput?.setAttribute("aria-label", "Markdown editor");
+
   const toolbar = createToolbarUI(editor);
   container.insertBefore(toolbar.element, container.firstChild);
 
