@@ -1,4 +1,4 @@
-import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
+import { Annotation, Compartment, EditorSelection, EditorState } from "@codemirror/state";
 
 // Annotation attached to dispatches that load content programmatically (e.g.
 // setDocument from file open) so updateListener can skip the user-edit path —
@@ -26,6 +26,9 @@ import { markdownKeymap } from "./markdown-keymap";
 import { multiCursorExtension } from "./multi-cursor";
 import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { createThemeExtension, lightTheme, type NexusTheme } from "./theme";
+
+/** Compartment for runtime line-wrapping switching */
+const lineWrappingCompartment = new Compartment();
 import { computeSlashState } from "./slash-state";
 import type {
   EditorAPI,
@@ -510,6 +513,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
     : [];
   const indentGuidesExt = config.indentGuides ? indentationMarkers() : [];
   const multiCursorExt = config.multiCursor ? multiCursorExtension() : [];
+  const lineWrappingExt = config.lineWrapping
+    ? lineWrappingCompartment.of(EditorView.lineWrapping)
+    : [];
 
   const shortcutExtensions =
     shortcuts.length > 0
@@ -666,6 +672,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
         indentGuidesExt,
         markdownKeymap(),
         multiCursorExt,
+        lineWrappingExt,
         markdownFoldService(),
         keymap.of([indentWithTab]),
         closeBrackets(),
@@ -744,6 +751,11 @@ export function createEditor(config: EditorConfig): EditorAPI {
     setTheme(theme: NexusTheme) {
       if (destroyed) return;
       view.dispatch(themeExt.reconfigure(theme));
+    },
+    setLineWrapping(enabled) {
+      if (destroyed) return;
+      const ext = enabled ? EditorView.lineWrapping : [];
+      view.dispatch({ effects: lineWrappingCompartment.reconfigure(ext) });
     },
     getSelection() {
       const sel = view.state.selection.main;
