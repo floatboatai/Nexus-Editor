@@ -21,26 +21,72 @@ export interface ElectronTestContext {
   userDataDir: string;
 }
 
-function formatFailureDetails(
+interface E2EFixtures extends ElectronTestContext {
+  e2eContext: ElectronTestContext;
+}
+
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.stack ?? error.message;
+  return String(error);
+}
+
+function recordedTestFailure(testInfo: TestInfo): string | undefined {
+  if (testInfo.status === testInfo.expectedStatus) return undefined;
+
+  const error = testInfo.error;
+  return (
+    error?.stack ??
+    error?.message ??
+    error?.value ??
+    `Test finished with ${testInfo.status} instead of ${testInfo.expectedStatus}.`
+  );
+}
+
+function formatDiagnostics(
   rendererErrors: string[],
   processLogs: string[],
+  testFailure: unknown,
+  teardownErrors: unknown[],
 ): string {
   const sections: string[] = [];
+
+  if (testFailure) {
+    sections.push(`Test failure:\n${describeError(testFailure)}`);
+  }
   if (rendererErrors.length > 0) {
     sections.push(`Renderer console errors:\n${rendererErrors.join("\n")}`);
   }
   if (processLogs.length > 0) {
-    sections.push(`Electron process output:\n${processLogs.join("\n")}`);
+    sections.push(`Electron process stderr:\n${processLogs.join("\n")}`);
   }
+  if (teardownErrors.length > 0) {
+    sections.push(
+      `Fixture teardown errors:\n${teardownErrors.map(describeError).join("\n\n")}`,
+    );
+  }
+
   return sections.join("\n\n");
 }
 
-async function attachFailureDetails(
+async function captureTeardownError(
+  teardownErrors: unknown[],
+  operation: () => Promise<void> | void,
+): Promise<void> {
+  try {
+    await operation();
+  } catch (error) {
+    teardownErrors.push(error);
+  }
+}
+
+async function attachDiagnostics(
   testInfo: TestInfo,
   rendererErrors: string[],
   processLogs: string[],
+  testFailure: unknown,
+  teardownErrors: unknown[],
 ): Promise<void> {
-  const details = formatFailureDetails(rendererErrors, processLogs);
+  const details = formatDiagnostics(rendererErrors, processLogs, testFailure, teardownErrors);
   if (!details) return;
 
   await testInfo.attach("electron-diagnostics", {
@@ -49,94 +95,129 @@ async function attachFailureDetails(
   });
 }
 
-export const test = base.extend<ElectronTestContext>({
-  workspaceDir: [
-    async ({}, use) => {
-      const directory = await mkdtemp(path.join(tmpdir(), "nexus-e2e-workspace-"));
+export const test = base.extend<E2EFixtures>({
+  e2eContext: [
+    async ({}, use, testInfo) => {
+      const rendererErrors: string[] = [];
+      const processLogs: string[] = [];
+      const teardownErrors: unknown[] = [];
+      const rendererListeners = new Map<
+        Page,
+        { onConsole: (message: ConsoleMessage) => void; onPageError: (error: Error) => void }
+      >();
+      let workspaceDir: string | undefined;
+      let userDataDir: string | undefined;
+      let app: ElectronApplication | undefined;
+      let stderr: NodeJS.ReadableStream | null = null;
+      let testFailure: unknown;
+
+      const onStderr = (chunk: Buffer) => {
+        processLogs.push(chunk.toString());
+      };
+
+      const observeRenderer = (page: Page) => {
+        if (rendererListeners.has(page)) return;
+
+        const onConsole = (message: ConsoleMessage) => {
+          if (message.type() === "error") rendererErrors.push(message.text());
+        };
+        const onPageError = (error: Error) => rendererErrors.push(error.message);
+
+        page.on("console", onConsole);
+        page.on("pageerror", onPageError);
+        rendererListeners.set(page, { onConsole, onPageError });
+      };
+
       try {
-        await use(directory);
+        workspaceDir = await mkdtemp(path.join(tmpdir(), "nexus-e2e-workspace-"));
+        userDataDir = await mkdtemp(path.join(tmpdir(), "nexus-e2e-user-data-"));
+
+        app = await electron.launch({
+          executablePath: electronBinary,
+          args: ["dist-electron/main.js", `--user-data-dir=${userDataDir}`],
+          cwd: appDirectory,
+          env: { ...process.env, NEXUS_E2E: "1" },
+        });
+
+        stderr = app.process().stderr;
+        stderr?.on("data", onStderr);
+        app.on("window", observeRenderer);
+
+        const window = await app.firstWindow();
+        observeRenderer(window);
+        await expect(window.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+
+        await use({ electronApp: app, window, workspaceDir, userDataDir });
+
+        testFailure ??= recordedTestFailure(testInfo);
+
+        if (rendererErrors.length > 0) {
+          throw new Error(formatDiagnostics(rendererErrors, processLogs, undefined, []));
+        }
+      } catch (error) {
+        testFailure = error;
+        throw error;
       } finally {
-        await rm(directory, { recursive: true, force: true });
+        for (const [page, listeners] of rendererListeners) {
+          await captureTeardownError(teardownErrors, () => {
+            page.off("console", listeners.onConsole);
+            page.off("pageerror", listeners.onPageError);
+          });
+        }
+        await captureTeardownError(teardownErrors, () => {
+          app?.off("window", observeRenderer);
+        });
+        await captureTeardownError(teardownErrors, () => app?.close());
+        await captureTeardownError(teardownErrors, () => {
+          stderr?.off("data", onStderr);
+        });
+        if (workspaceDir) {
+          const directory = workspaceDir;
+          await captureTeardownError(teardownErrors, () =>
+            rm(directory, { recursive: true, force: true }),
+          );
+        }
+        if (userDataDir) {
+          const directory = userDataDir;
+          await captureTeardownError(teardownErrors, () =>
+            rm(directory, { recursive: true, force: true }),
+          );
+        }
+
+        try {
+          await attachDiagnostics(
+            testInfo,
+            rendererErrors,
+            processLogs,
+            testFailure,
+            teardownErrors,
+          );
+        } catch (error) {
+          teardownErrors.push(error);
+          process.stderr.write(`Unable to attach Electron E2E diagnostics: ${describeError(error)}\n`);
+        }
+
+        if (teardownErrors.length > 0 && !testFailure) {
+          throw new AggregateError(teardownErrors, "Electron E2E fixture teardown failed");
+        }
       }
     },
     { auto: true },
   ],
 
-  userDataDir: async ({}, use) => {
-    const directory = await mkdtemp(path.join(tmpdir(), "nexus-e2e-user-data-"));
-    try {
-      await use(directory);
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
+  electronApp: async ({ e2eContext }, use) => {
+    await use(e2eContext.electronApp);
   },
 
-  electronApp: async ({ workspaceDir: _workspaceDir, userDataDir }, use, testInfo) => {
-    const rendererErrors: string[] = [];
-    const processLogs: string[] = [];
-    const rendererListeners = new Map<
-      Page,
-      { onConsole: (message: ConsoleMessage) => void; onPageError: (error: Error) => void }
-    >();
-    let app: ElectronApplication | undefined;
-    let stderr: NodeJS.ReadableStream | null = null;
-
-    const onStderr = (chunk: Buffer) => {
-      processLogs.push(chunk.toString());
-    };
-
-    const observeRenderer = (page: Page) => {
-      if (rendererListeners.has(page)) return;
-
-      const onConsole = (message: ConsoleMessage) => {
-        if (message.type() === "error") rendererErrors.push(message.text());
-      };
-      const onPageError = (error: Error) => rendererErrors.push(error.message);
-
-      page.on("console", onConsole);
-      page.on("pageerror", onPageError);
-      rendererListeners.set(page, { onConsole, onPageError });
-    };
-
-    try {
-      app = await electron.launch({
-        executablePath: electronBinary,
-        args: ["dist-electron/main.js", `--user-data-dir=${userDataDir}`],
-        cwd: appDirectory,
-      });
-
-      stderr = app.process().stderr;
-      stderr?.on("data", onStderr);
-      app.on("window", observeRenderer);
-
-      const window = await app.firstWindow();
-      observeRenderer(window);
-
-      await expect(window.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
-      await use(app);
-
-      if (testInfo.status === testInfo.expectedStatus && rendererErrors.length > 0) {
-        throw new Error(formatFailureDetails(rendererErrors, processLogs));
-      }
-    } finally {
-      try {
-        for (const [page, listeners] of rendererListeners) {
-          page.off("console", listeners.onConsole);
-          page.off("pageerror", listeners.onPageError);
-        }
-        app?.off("window", observeRenderer);
-      } finally {
-        try {
-          await app?.close();
-        } finally {
-          stderr?.off("data", onStderr);
-          await attachFailureDetails(testInfo, rendererErrors, processLogs);
-        }
-      }
-    }
+  window: async ({ e2eContext }, use) => {
+    await use(e2eContext.window);
   },
 
-  window: async ({ electronApp }, use) => {
-    await use(await electronApp.firstWindow());
+  workspaceDir: async ({ e2eContext }, use) => {
+    await use(e2eContext.workspaceDir);
+  },
+
+  userDataDir: async ({ e2eContext }, use) => {
+    await use(e2eContext.userDataDir);
   },
 });

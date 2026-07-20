@@ -1,9 +1,13 @@
 import { defineConfig } from "@playwright/test";
+import path from "node:path";
+
+const outputDir = path.resolve(__dirname, "test-results");
+const reportDir = path.resolve(__dirname, "playwright-report");
 
 export default defineConfig({
   testDir: "./e2e",
   testMatch: "**/*.spec.ts",
-  outputDir: "test-results",
+  outputDir,
   timeout: 30_000,
   expect: {
     timeout: 5_000,
@@ -13,7 +17,7 @@ export default defineConfig({
   retries: 0,
   reporter: [
     ["list"],
-    ["html", { open: "never", outputFolder: "playwright-report" }],
+    ["html", { open: "never", outputFolder: reportDir }],
   ],
   use: {
     screenshot: "only-on-failure",

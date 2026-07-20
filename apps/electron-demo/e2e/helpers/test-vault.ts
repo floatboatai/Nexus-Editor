@@ -28,6 +28,10 @@ export async function stubOpenFileDialog(
   filePath: string,
 ): Promise<() => Promise<void>> {
   await electronApp.evaluate(({ dialog }, options) => {
+    if (process.env.NEXUS_E2E !== "1") {
+      throw new Error("The file dialog stub is available only when NEXUS_E2E=1.");
+    }
+
     const state = globalThis as typeof globalThis & Record<string, unknown>;
     state[options.originalKey] ??= dialog.showOpenDialog;
     dialog.showOpenDialog = async () => ({
