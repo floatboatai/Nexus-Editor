@@ -693,6 +693,15 @@ export class EditableTableWidget extends WidgetType {
     let draggingRow = -1;   // which row is being dragged
     let dropTargetCol = -1;
     let dropTargetRow = -1;
+    // Pending grip interaction: mousedown on a grip starts a "maybe-drag" phase.
+    // Only transition to full drag (editing lock, blur cell, floating pill) when
+    // the mouse moves beyond a small threshold. A simple click stays in the
+    // pending phase and only selects the column/row via the click handler.
+    let pendingGripCol = -1;
+    let pendingGripRow = -1;
+    let pendingGripStartX = 0;
+    let pendingGripStartY = 0;
+    const DRAG_THRESHOLD = 5;
     const editingLocks = {
       focus: false,
       range: false,
@@ -984,10 +993,9 @@ export class EditableTableWidget extends WidgetType {
      */
     const measureColumnWidths = (): number[] => {
       const widths: number[] = [];
-      // table.rows = [gripRow, headerRow, ...dataRows] — measure off the
-      // header row because it has the same cell-count as data rows and is
-      // never the all-empty fallback.
-      const headerRow = table.rows[1];
+      // Measure from the rendered header: it has the same cell count as data
+      // rows and remains available even when all body cells are empty.
+      const headerRow = getContentRows()[0];
       if (!headerRow) return widths;
       for (let i = 0; i < headerRow.cells.length; i++) {
         const w = (headerRow.cells[i] as HTMLElement).getBoundingClientRect().width;
@@ -1098,6 +1106,14 @@ export class EditableTableWidget extends WidgetType {
 
     // ── Helpers ──
 
+    function getContentRows(): HTMLTableRowElement[] {
+      return Array.from(table.rows);
+    }
+
+    function getBodyRows(): HTMLTableRowElement[] {
+      return getContentRows().filter((row) => row.querySelector("td.nexus-cell"));
+    }
+
     function getColumnCells(colIdx: number): HTMLElement[] {
       const result: HTMLElement[] = [];
       table.querySelectorAll("tr").forEach((tr) => {
@@ -1108,7 +1124,11 @@ export class EditableTableWidget extends WidgetType {
     }
 
     function getHeaderCells(): NodeListOf<Element> {
-      return table.querySelectorAll("tr:nth-child(2) .nexus-cell");
+      const headerRow = getContentRows()[0];
+      return headerRow ? headerRow.querySelectorAll(".nexus-cell") : (() => {
+        const frag = document.createDocumentFragment();
+        return frag.querySelectorAll("*");
+      })();
     }
 
     function colAtClientX(clientX: number): number {
@@ -1121,11 +1141,10 @@ export class EditableTableWidget extends WidgetType {
     }
 
     function rowAtClientY(clientY: number): number {
-      // Skip header (index 0), only match data rows (index >= 1)
-      const dataRows = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
-      for (let i = 1; i < dataRows.length; i++) { // start at 1 to skip header row
+      const dataRows = getBodyRows();
+      for (let i = 0; i < dataRows.length; i++) {
         const rect = dataRows[i].getBoundingClientRect();
-        if (clientY >= rect.top && clientY <= rect.bottom) return i;
+        if (clientY >= rect.top && clientY <= rect.bottom) return i + 1;
       }
       return -1;
     }
@@ -1148,8 +1167,7 @@ export class EditableTableWidget extends WidgetType {
     function showRowIndicator(targetRow: number): void {
       if (draggingRow < 0 || targetRow === draggingRow) { rowIndicator.style.display = "none"; dropTargetRow = -1; return; }
       dropTargetRow = targetRow;
-      const dataRows = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
-      const row = dataRows[targetRow] as HTMLElement | undefined;
+      const row = getContentRows()[targetRow];
       if (!row) return;
       const wrapperRect = wrapper.getBoundingClientRect();
       const rowRect = row.getBoundingClientRect();
@@ -1190,8 +1208,7 @@ export class EditableTableWidget extends WidgetType {
     }
 
     function getCellElement(row: number, col: number): HTMLElement | null {
-      const dataRows = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
-      const tr = dataRows[row];
+      const tr = getContentRows()[row];
       if (!tr) return null;
       const cells = tr.querySelectorAll(".nexus-cell");
       return (cells[col] as HTMLElement) ?? null;
@@ -1344,7 +1361,7 @@ export class EditableTableWidget extends WidgetType {
       if (!range) { rangeBorder.style.display = "none"; return; }
 
       // Highlight cells in range
-      const dataRows = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
+      const dataRows = getContentRows();
       dataRows.forEach((tr, rowIdx) => {
         tr.querySelectorAll(".nexus-cell").forEach((cell, colIdx) => {
           const h = cell as HTMLElement;
@@ -1387,7 +1404,7 @@ export class EditableTableWidget extends WidgetType {
     }
 
     function cellAtPoint(clientX: number, clientY: number): { row: number; col: number } | null {
-      const dataRows = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
+      const dataRows = getContentRows();
       for (let r = 0; r < dataRows.length; r++) {
         const cells = dataRows[r].querySelectorAll(".nexus-cell");
         for (let c = 0; c < cells.length; c++) {
@@ -1427,12 +1444,12 @@ export class EditableTableWidget extends WidgetType {
     function highlightRow(rowIdx: number): void {
       clearSelection();
       selectedRow = rowIdx;
-      const trs = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
-      if (trs[rowIdx]) {
-        trs[rowIdx].querySelectorAll(".nexus-cell").forEach((el) => {
+      const row = getContentRows()[rowIdx];
+      if (row) {
+        row.querySelectorAll(".nexus-cell").forEach((el) => {
           (el as HTMLElement).style.background = SELECT_BG;
         });
-        const grip = trs[rowIdx].querySelector(".nexus-row-grip");
+        const grip = row.querySelector(".nexus-row-grip");
         if (grip) (grip as HTMLElement).style.background = SELECT_BORDER;
       }
     }
@@ -1476,9 +1493,8 @@ export class EditableTableWidget extends WidgetType {
       }
       if (draggingRow >= 0) {
         // Move floating pill vertically, constrained to non-header data rows
-        const dataRows = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
-        // dataRows[0] is header, dataRows[1+] are body rows — clamp to body rows only
-        const firstBodyRow = dataRows[1]?.getBoundingClientRect();
+        const dataRows = getBodyRows();
+        const firstBodyRow = dataRows[0]?.getBoundingClientRect();
         const lastRow = dataRows[dataRows.length - 1]?.getBoundingClientRect();
         const minY = firstBodyRow ? firstBodyRow.top : wrapperRect.top;
         const maxY = lastRow ? lastRow.bottom : wrapperRect.bottom;
@@ -1509,7 +1525,7 @@ export class EditableTableWidget extends WidgetType {
       hideIndicators();
       floatingPill.style.display = "none";
       floatingRowPill.style.display = "none";
-      gripRow.style.opacity = "0";
+      setColumnGripsVisible(false);
       draggingCol = -1;
       draggingRow = -1;
       document.removeEventListener("mousemove", onDragMove);
@@ -1530,90 +1546,160 @@ export class EditableTableWidget extends WidgetType {
     }
 
     function startColDrag(colIdx: number, startX: number): void {
+      // Start a "maybe-drag" pending phase. The full drag (editing lock,
+      // floating pill, blur cell) only activates when mouse moves beyond
+      // DRAG_THRESHOLD. A simple click stays pending and selects via click.
+      pendingGripCol = colIdx;
+      pendingGripRow = -1;
+      pendingGripStartX = startX;
+      pendingGripStartY = 0;
+      document.addEventListener("mousemove", onMaybeDragMove);
+      document.addEventListener("mouseup", onMaybeDragEnd);
+    }
+
+    function activateColDrag(colIdx: number): void {
+      // Transition from pending to full drag — acquire editing lock, show
+      // floating pill, blur any active cell.
       draggingCol = colIdx;
       draggingRow = -1;
-      // Lock editing to prevent CM6 from recreating widget DOM mid-drag
       acquireEditingLock("drag");
       blurActiveCellForDrag();
       clearRangeSelection();
       clearSelection();
       // Highlight source column
       getColumnCells(colIdx).forEach((el) => { el.style.background = DRAG_HIGHLIGHT_BG; });
-      // Hide grip row, show floating pill instead
-      gripRow.style.opacity = "0";
+      // Hide header-owned grips while the floating pill represents the drag.
+      setColumnGripsVisible(false);
       const wrapperRect = wrapper.getBoundingClientRect();
-      floatingPill.style.left = (startX - wrapperRect.left - 8) + "px";
+      floatingPill.style.left = (pendingGripStartX - wrapperRect.left - 8) + "px";
       floatingPill.style.display = "block";
-      document.addEventListener("mousemove", onDragMove);
-      document.addEventListener("mouseup", onDragEnd);
       document.body.style.cursor = "grabbing";
       document.body.style.userSelect = "none";
     }
 
     function startRowDrag(rowIdx: number, startY: number): void {
+      // Start a "maybe-drag" pending phase, same as columns.
+      pendingGripRow = rowIdx;
+      pendingGripCol = -1;
+      pendingGripStartX = 0;
+      pendingGripStartY = startY;
+      document.addEventListener("mousemove", onMaybeDragMove);
+      document.addEventListener("mouseup", onMaybeDragEnd);
+    }
+
+    function activateRowDrag(rowIdx: number): void {
+      // Transition from pending to full row drag.
       draggingRow = rowIdx;
       draggingCol = -1;
-      // Lock editing to prevent CM6 from recreating widget DOM mid-drag
       acquireEditingLock("drag");
       blurActiveCellForDrag();
       clearRangeSelection();
       clearSelection();
       // Highlight source row
-      const trs = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
-      if (trs[rowIdx]) {
-        trs[rowIdx].querySelectorAll(".nexus-cell").forEach((el) => {
+      const row = getContentRows()[rowIdx];
+      if (row) {
+        row.querySelectorAll(".nexus-cell").forEach((el) => {
           (el as HTMLElement).style.background = DRAG_HIGHLIGHT_BG;
         });
       }
       // Show floating row pill
       const wrapperRect = wrapper.getBoundingClientRect();
-      floatingRowPill.style.top = (startY - wrapperRect.top - 8) + "px";
+      floatingRowPill.style.top = (pendingGripStartY - wrapperRect.top - 8) + "px";
       floatingRowPill.style.display = "block";
       // Hide the source row grip
-      const grip = trs[rowIdx]?.querySelector(".nexus-row-grip") as HTMLElement | null;
+      const grip = row?.querySelector(".nexus-row-grip") as HTMLElement | null;
       if (grip) grip.style.opacity = "0";
-      document.addEventListener("mousemove", onDragMove);
-      document.addEventListener("mouseup", onDragEnd);
       document.body.style.cursor = "grabbing";
       document.body.style.userSelect = "none";
     }
 
-    // ── Column grip row ──
-    const gripRow = document.createElement("tr");
-    gripRow.style.cssText = "opacity:0;transition:opacity .15s;";
+    // ── Maybe-drag threshold gate ──
+    // mousedown on a grip starts "pending" mode. Only transition to full drag
+    // when the mouse moves beyond DRAG_THRESHOLD. This lets simple clicks
+    // select a column/row without acquiring the editing lock or blurring cells.
 
-    const gripSpacer = document.createElement("td");
-    gripSpacer.style.cssText = "width:16px;min-width:16px;padding:0;border:none;";
-    gripRow.appendChild(gripSpacer);
+    function onMaybeDragMove(e: MouseEvent): void {
+      const dx = Math.abs(e.clientX - pendingGripStartX);
+      const dy = Math.abs(e.clientY - pendingGripStartY);
+      if (dx < DRAG_THRESHOLD && dy < DRAG_THRESHOLD) return;
 
-    for (let c = 0; c < colCount; c++) {
-      const gripCell = document.createElement("td");
-      gripCell.className = "nexus-col-grip";
-      gripCell.style.cssText =
-        "padding:4px 0;text-align:center;cursor:grab;user-select:none;border:none;";
+      // Threshold exceeded → activate full drag
+      document.removeEventListener("mousemove", onMaybeDragMove);
+      document.removeEventListener("mouseup", onMaybeDragEnd);
+
+      if (pendingGripCol >= 0) {
+        activateColDrag(pendingGripCol);
+        document.addEventListener("mousemove", onDragMove);
+      } else if (pendingGripRow >= 0) {
+        activateRowDrag(pendingGripRow);
+        document.addEventListener("mousemove", onDragMove);
+      }
+      document.addEventListener("mouseup", onDragEnd);
+      // Feed this move event to the real drag handler
+      onDragMove(e);
+    }
+
+    function onMaybeDragEnd(_e: MouseEvent): void {
+      // Mouse released without exceeding threshold → this was a click, not a drag.
+      // Keep pendingGripCol/pendingGripRow set so the cell blur microtask
+      // (triggered when wrapper.focus() blurs an active cell) sees
+      // pendingGripCol >= 0 and skips the CM6 selection dispatch that
+      // would steal focus back from the wrapper. The grip click handler
+      // clears pending state after selection is complete.
+      document.removeEventListener("mousemove", onMaybeDragMove);
+      document.removeEventListener("mouseup", onMaybeDragEnd);
+      // Safety net: if click never fires (e.g. grip removed mid-event),
+      // clear pending state after the current event cycle. Using rAF
+      // ensures this runs after click, so if click fires first it
+      // clears and this rAF sees -1 and does nothing redundant.
+      requestAnimationFrame(() => {
+        pendingGripCol = -1;
+        pendingGripRow = -1;
+      });
+    }
+    const columnGrips: HTMLElement[] = [];
+
+    function setColumnGripsVisible(visible: boolean): void {
+      columnGrips.forEach((grip) => { 
+        grip.style.opacity = visible ? "1" : "0.6"; 
+        grip.style.zIndex = visible ? "3" : "2";
+      });
+    }
+
+    function createColumnGrip(colIdx: number): HTMLElement {
+      const grip = document.createElement("div");
+      grip.className = "nexus-col-grip";
+      grip.style.cssText =
+        "position:absolute;top:-3px;left:50%;transform:translateX(-50%);width:24px;height:14px;" +
+        "display:flex;align-items:center;justify-content:center;cursor:grab;user-select:none;" +
+        "opacity:0.6;transition:opacity .15s,z-index .15s;z-index:2;";
       const pill = createGripPill();
-      gripCell.appendChild(pill);
+      pill.style.width = "18px";
+      pill.style.height = "6px";
+      grip.appendChild(pill);
 
-      gripCell.addEventListener("mouseenter", () => { if (draggingCol < 0) pill.style.background = GRIP_BG_HOVER; });
-      gripCell.addEventListener("mouseleave", () => { if (draggingCol < 0) pill.style.background = GRIP_BG; });
+      grip.addEventListener("mouseenter", () => { if (draggingCol < 0) pill.style.background = GRIP_BG_HOVER; });
+      grip.addEventListener("mouseleave", () => { if (draggingCol < 0) pill.style.background = GRIP_BG; });
 
-      const colIdx = c;
-
-      gripCell.addEventListener("mousedown", (e) => {
+      grip.addEventListener("mousedown", (e) => {
         e.preventDefault();
         e.stopPropagation();
         startColDrag(colIdx, e.clientX);
       });
 
-      gripCell.addEventListener("click", (e) => {
+      grip.addEventListener("click", (e) => {
         e.stopPropagation();
         highlightColumn(colIdx);
-        wrapper.focus({ preventScroll: true });
+        // Clear the pending grip phase now that selection is complete.
+        // This was kept set through onMaybeDragEnd so the cell blur
+        // microtask wouldn't steal focus via CM6 dispatch.
+        pendingGripCol = -1;
+        pendingGripRow = -1;
       });
 
-      gripRow.appendChild(gripCell);
+      columnGrips.push(grip);
+      return grip;
     }
-    table.appendChild(gripRow);
 
     // ── 单元格方向键导航（表格内像电子表格一样移动）──
     // 单元格各自 contentEditable，focus 某个单元格即触发其 focus 处理器进入编辑态，
@@ -1625,12 +1711,9 @@ export class EditableTableWidget extends WidgetType {
     // 编辑器文档（停在文档选区处，常是第 0 行），导致"光标没跳到目标单元格、反而飞到第一行"。
     // 切换期间置位，让旧单元格 blur 跳过这个会抢焦点的派发；新单元格 focus 已接管编辑态。
     let navigatingBetweenCells = false;
-    function tableDataRows(): HTMLElement[] {
-      return Array.from(table.querySelectorAll<HTMLElement>("tr")).filter((row) => row.querySelector(".nexus-cell"));
-    }
     function cellAt(rowIndex: number, colIndex: number): HTMLElement | null {
       if (rowIndex < 0 || colIndex < 0) return null;
-      const row = tableDataRows()[rowIndex];
+      const row = getContentRows()[rowIndex];
       if (!row) return null;
       return row.querySelectorAll<HTMLElement>(".nexus-cell")[colIndex] ?? null;
     }
@@ -1676,7 +1759,7 @@ export class EditableTableWidget extends WidgetType {
     function navigateFromCell(key: string, cell: HTMLElement, rowIndex: number, colIndex: number): boolean {
       const offset = caretOffsetInCell(cell);
       const length = (cell.dataset.source ?? cell.textContent ?? "").length;
-      const dataRowCount = tableDataRows().length;
+      const dataRowCount = getContentRows().length;
       tableNavDebug("navigateFromCell", { key, offset, length, rowIndex, colIndex, colCount, dataRowCount });
 
       if (key === "ArrowUp") {
@@ -1755,8 +1838,16 @@ export class EditableTableWidget extends WidgetType {
 
         rowGrip.addEventListener("click", (e) => {
           e.stopPropagation();
+          // Acquire editing lock briefly to prevent CM6 dispatch stealing focus.
+          acquireEditingLock("drag");
           highlightRow(curRowIdx);
           wrapper.focus({ preventScroll: true });
+          // Clear the pending grip phase now that selection is complete.
+          pendingGripCol = -1;
+          pendingGripRow = -1;
+          requestAnimationFrame(() => {
+            releaseEditingLock("drag");
+          });
         });
       }
 
@@ -1803,9 +1894,11 @@ export class EditableTableWidget extends WidgetType {
           "position:relative;border-bottom:1px solid var(--nexus-border);border-right:1px solid var(--nexus-border);padding:8px 12px;" +
           "text-align:left;outline:none;min-width:60px;vertical-align:top;cursor:text;user-select:text;-webkit-user-select:text;";
         if (isHeader) {
+          td.style.paddingTop = "16px";
           td.style.fontWeight = "bold";
           td.style.background = "var(--nexus-bg-subtle)";
           td.style.borderTop = "1px solid var(--nexus-border)";
+          td.appendChild(createColumnGrip(colIdx));
           // Column-resize handle on the right edge of each header cell.
           // Sits half-on, half-off the border so the col-resize cursor is
           // discoverable on hover without obscuring cell text. Captures
@@ -1816,10 +1909,10 @@ export class EditableTableWidget extends WidgetType {
           resizeHandle.className = "nexus-col-resize";
           resizeHandle.style.cssText = [
             "position:absolute",
-            "top:0",
-            "right:-3px",
-            "width:7px",
-            "height:100%",
+            "top:2px",
+            "right:-5px",
+            "width:11px",
+            "height:calc(100% - 4px)",
             "cursor:col-resize",
             "z-index:3",
             "user-select:none",
@@ -2090,8 +2183,10 @@ export class EditableTableWidget extends WidgetType {
             }
             // Grip mousedown blurs the active cell before mouseup performs the
             // reorder. Keep the dirty row pending so onDragEnd can combine the
-            // text edit and the move in one transaction.
-            if (draggingCol >= 0 || draggingRow >= 0) {
+            // text edit and the move in one transaction. Also protect the pending
+            // grip phase (click-not-yet-drag) so the blur microtask doesn't
+            // dispatch CM selection that would steal focus from the wrapper.
+            if (draggingCol >= 0 || draggingRow >= 0 || pendingGripCol >= 0 || pendingGripRow >= 0) {
               tableNavDebug("blur-dispatch:skipped (dragging)");
               return;
             }
@@ -2259,16 +2354,13 @@ export class EditableTableWidget extends WidgetType {
     // ── Per-element hover (suppressed during drag) ──
     function isDragging(): boolean { return draggingCol >= 0 || draggingRow >= 0; }
 
-    const headerTr = table.querySelectorAll("tr")[1] as HTMLElement | undefined;
-    gripRow.addEventListener("mouseenter", () => { if (!isDragging()) gripRow.style.opacity = "1"; });
-    gripRow.addEventListener("mouseleave", () => { if (!isDragging()) gripRow.style.opacity = "0"; });
+    const headerTr = getContentRows()[0];
     if (headerTr) {
-      headerTr.addEventListener("mouseenter", () => { if (!isDragging()) gripRow.style.opacity = "1"; });
-      headerTr.addEventListener("mouseleave", () => { if (!isDragging()) gripRow.style.opacity = "0"; });
+      headerTr.addEventListener("mouseenter", () => { if (!isDragging()) setColumnGripsVisible(true); });
+      headerTr.addEventListener("mouseleave", () => { if (!isDragging()) setColumnGripsVisible(false); });
     }
 
-    table.querySelectorAll("tr").forEach((tr, trIdx) => {
-      if (trIdx === 0) return;
+    getBodyRows().forEach((tr) => {
       const grip = tr.querySelector(".nexus-row-grip") as HTMLElement | null;
       if (!grip) return;
       tr.addEventListener("mouseenter", () => { if (!isDragging()) grip.style.opacity = "1"; });
@@ -2277,8 +2369,7 @@ export class EditableTableWidget extends WidgetType {
 
     addCol.addEventListener("mouseenter", () => { if (!isDragging()) addCol.style.opacity = "1"; });
     addCol.addEventListener("mouseleave", () => { if (!isDragging()) addCol.style.opacity = "0"; });
-    table.querySelectorAll("tr").forEach((tr, trIdx) => {
-      if (trIdx === 0) return;
+    table.querySelectorAll("tr").forEach((tr) => {
       const cells = tr.querySelectorAll("th,td");
       const lastCell = cells[cells.length - 1] as HTMLElement | null;
       if (lastCell) {
@@ -2289,8 +2380,8 @@ export class EditableTableWidget extends WidgetType {
 
     addRow.addEventListener("mouseenter", () => { addRow.style.opacity = "1"; });
     addRow.addEventListener("mouseleave", () => { addRow.style.opacity = "0"; });
-    const allDataRows = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
-    const lastDataRow = allDataRows[allDataRows.length - 1] as HTMLElement | undefined;
+    const contentRows = getContentRows();
+    const lastDataRow = contentRows[contentRows.length - 1];
     if (lastDataRow) {
       lastDataRow.addEventListener("mouseenter", () => { addRow.style.opacity = "1"; });
       lastDataRow.addEventListener("mouseleave", () => { addRow.style.opacity = "0"; });
@@ -2318,7 +2409,23 @@ export class EditableTableWidget extends WidgetType {
     };
     document.addEventListener("mousedown", onDocMouseDown);
 
-    wrapper.addEventListener("keydown", (e) => {
+    // Listen on document (not wrapper) so the keydown reaches us even when
+    // CodeMirror owns focus. The wrapper cannot reliably hold DOM focus inside
+    // a CM6 widget, which previously made Delete on a grip-selected column a
+    // no-op. We guard against acting while a cell is being edited so that
+    // Backspace/Delete still deletes character text inside cells.
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (!wrapper.isConnected) {
+        document.removeEventListener("keydown", onKeyDown);
+        return;
+      }
+      const target = e.target as HTMLElement | null;
+      // If the event originates from an editable cell, let the browser handle
+      // character deletion; the cell's own keydown handler manages navigation.
+      if (target && target.classList && target.classList.contains("nexus-cell") && target.isContentEditable) return;
+      // Only act for this table instance when it has an active selection.
+      const hasSelection = selectedCol >= 0 || selectedRow >= 0 || getNormalizedRange() !== null;
+      if (!hasSelection) return;
       if (e.key === "Delete" || e.key === "Backspace") {
         // Range selection: clear cell contents in selected range
         const range = getNormalizedRange();
@@ -2349,7 +2456,8 @@ export class EditableTableWidget extends WidgetType {
           self.deleteRow(selectedRow);
         }
       }
-    });
+    };
+    document.addEventListener("keydown", onKeyDown);
     wrapper.addEventListener("copy", (e) => {
       const range = selectedCopyRange();
       if (!range) return;
