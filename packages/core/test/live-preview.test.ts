@@ -653,6 +653,24 @@ describe("live preview", () => {
     container.remove();
   });
 
+  it("removes the document keydown listener when a table widget is destroyed", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+    const removeListener = vi.spyOn(document, "removeEventListener");
+
+    editor.destroy();
+
+    expect(removeListener).toHaveBeenCalledWith("keydown", expect.any(Function));
+    removeListener.mockRestore();
+    container.remove();
+  });
+
   it("clears column selection when clicking outside the table", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);

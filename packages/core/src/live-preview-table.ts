@@ -768,6 +768,10 @@ export class EditableTableWidget extends WidgetType {
 
     this.cleanupEditingLocks = () => {
       sessionClosed = true;
+      // The table listens on document so Delete works when CodeMirror owns
+      // focus. Remove it with the widget instead of waiting for a future key
+      // event to discover that the wrapper was detached.
+      document.removeEventListener("keydown", onKeyDown);
       dirtyRows.clear();
       releaseEditingLock("focus");
       releaseEditingLock("range");
@@ -1660,8 +1664,8 @@ export class EditableTableWidget extends WidgetType {
     const columnGrips: HTMLElement[] = [];
 
     function setColumnGripsVisible(visible: boolean): void {
-      columnGrips.forEach((grip) => { 
-        grip.style.opacity = visible ? "1" : "0.6"; 
+      columnGrips.forEach((grip) => {
+        grip.style.opacity = visible ? "1" : "0.6";
         grip.style.zIndex = visible ? "3" : "2";
       });
     }
@@ -1909,10 +1913,10 @@ export class EditableTableWidget extends WidgetType {
           resizeHandle.className = "nexus-col-resize";
           resizeHandle.style.cssText = [
             "position:absolute",
-            "top:2px",
-            "right:-5px",
-            "width:11px",
-            "height:calc(100% - 4px)",
+            "top:0",
+            "right:-3px",
+            "width:7px",
+            "height:100%",
             "cursor:col-resize",
             "z-index:3",
             "user-select:none",
