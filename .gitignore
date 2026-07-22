@@ -24,3 +24,9 @@ pnpm-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+
+# Local handoff and PR draft documents (not part of the source PR)
+docs/handoff-table-header-grips.md
+docs/pr-description.md
+docs/pr-description.zh.md
+pr-diff-for-codex.md

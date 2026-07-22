@@ -52,6 +52,14 @@ function activateTableCell(cell: HTMLElement, clientX = 80, clientY = 40): void 
   }));
 }
 
+function getTableContentRows(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>("tr")).filter((row) => row.querySelector(".nexus-cell"));
+}
+
+function getTableBodyRows(container: HTMLElement): HTMLElement[] {
+  return getTableContentRows(container).filter((row) => row.querySelector("td.nexus-cell"));
+}
+
 describe("live preview", () => {
   // ── Inline formatting ──
   // Note: inline markers are hidden when cursor is on a DIFFERENT line (line-level detection).
@@ -557,7 +565,7 @@ describe("live preview", () => {
 
   // ── Tables ──
 
-  it("renders tables as editable widget with grip cells", () => {
+  it("renders tables with header-owned column grips", () => {
     const container = document.createElement("div");
     const editor = createEditor({
       container,
@@ -568,11 +576,133 @@ describe("live preview", () => {
 
     const table = container.querySelector("table");
     expect(table).not.toBeNull();
-    const ths = table?.querySelectorAll("th");
-    expect(ths!.length).toBeGreaterThanOrEqual(3);
-    expect(ths![1]?.textContent).toBe("A");
-    expect(ths![1]?.classList.contains("nexus-cell")).toBe(true);
+    const contentRows = getTableContentRows(container);
+    const headerCells = contentRows[0]?.querySelectorAll<HTMLElement>(".nexus-cell");
+    expect(headerCells).toHaveLength(2);
+    expect(headerCells?.[0]?.textContent).toBe("A");
+    expect(headerCells?.[0]?.querySelector(".nexus-col-grip")).not.toBeNull();
+    expect(headerCells?.[1]?.querySelector(".nexus-col-grip")).not.toBeNull();
+    expect(table?.querySelectorAll("tr")).toHaveLength(2);
     editor.destroy();
+  });
+
+  it("selects, clears, and deletes a column through its header-owned grip", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const header = getTableContentRows(container)[0];
+    const cells = header.querySelectorAll<HTMLElement>(".nexus-cell");
+    const grip = cells[0].querySelector<HTMLElement>(".nexus-col-grip");
+    expect(grip).not.toBeNull();
+
+    grip!.click();
+    expect(cells[0].style.background).toBe("rgba(124, 108, 250, 0.12)");
+    expect(getTableBodyRows(container)[0].querySelectorAll<HTMLElement>(".nexus-cell")[0].style.background)
+      .toBe("rgba(124, 108, 250, 0.12)");
+
+    document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    expect(cells[0].style.background).toBe("var(--nexus-bg-subtle)");
+
+    grip!.click();
+    const wrapper = container.querySelector<HTMLElement>(".nexus-table-wrapper");
+    const removeColumn = new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true });
+    wrapper!.dispatchEvent(removeColumn);
+    expect(removeColumn.defaultPrevented).toBe(true);
+    expect(editor.getDocument()).toBe("| B |\n| --- |\n| 2 |");
+
+    editor.destroy();
+    container.remove();
+  });
+
+  it("deletes a column via document-level Delete keydown (no wrapper focus)", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const header = getTableContentRows(container)[0];
+    const grip = header.querySelector<HTMLElement>(".nexus-col-grip");
+    expect(grip).toBeTruthy();
+
+    grip!.click();
+    const wrapper = container.querySelector<HTMLElement>(".nexus-table-wrapper");
+
+    // In a real CodeMirror editor the table wrapper cannot hold DOM focus,
+    // so the Delete keydown target is the CM6 editor (document), not the
+    // wrapper. The listener must still reach the handler.
+    const removeColumn = new KeyboardEvent("keydown", {
+      key: "Delete",
+      bubbles: true,
+      cancelable: true,
+    });
+    document.dispatchEvent(removeColumn);
+    expect(removeColumn.defaultPrevented).toBe(true);
+    expect(editor.getDocument()).toBe("| B |\n| --- |\n| 2 |");
+
+    editor.destroy();
+    container.remove();
+  });
+
+  it("removes the document keydown listener when a table widget is destroyed", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+    const removeListener = vi.spyOn(document, "removeEventListener");
+
+    editor.destroy();
+
+    expect(removeListener).toHaveBeenCalledWith("keydown", expect.any(Function));
+    removeListener.mockRestore();
+    container.remove();
+  });
+
+  it("clears column selection when clicking outside the table", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const header = getTableContentRows(container)[0];
+    const cells = header.querySelectorAll<HTMLElement>(".nexus-cell");
+    const grip = cells[0].querySelector<HTMLElement>(".nexus-col-grip");
+    expect(grip).not.toBeNull();
+
+    grip!.click();
+    expect(cells[0].style.background).toBe("rgba(124, 108, 250, 0.12)");
+    expect(getTableBodyRows(container)[0].querySelectorAll<HTMLElement>(".nexus-cell")[0].style.background)
+      .toBe("rgba(124, 108, 250, 0.12)");
+
+    const outside = document.createElement("div");
+    outside.textContent = "outside";
+    document.body.appendChild(outside);
+    outside.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+
+    expect(cells[0].style.background).toBe("var(--nexus-bg-subtle)");
+    expect(getTableBodyRows(container)[0].querySelectorAll<HTMLElement>(".nexus-cell")[0].style.background)
+      .toBe("");
+
+    editor.destroy();
+    container.remove();
+    outside.remove();
   });
 
   it("marks table ranges as atomic so vertical cursor motion skips over them", () => {
@@ -621,7 +751,7 @@ describe("live preview", () => {
       plugins: [createGfmPreset()]
     });
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    const cell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
     expect(cell).not.toBeUndefined();
     expect(cell?.contentEditable).not.toBe("true");
 
@@ -668,7 +798,7 @@ describe("live preview", () => {
     const view = requireEditorView(capturedView);
     editor.setSelection(source.length);
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    const cell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
     expect(cell).not.toBeUndefined();
 
     cell?.dispatchEvent(new MouseEvent("mousedown", {
@@ -711,7 +841,7 @@ describe("live preview", () => {
       plugins: [createGfmPreset(), { name: "capture-view", cmExtensions: [captureView] }]
     });
     const view = requireEditorView(capturedView);
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    const cell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
     expect(cell).not.toBeUndefined();
 
     activateTableCell(cell!);
@@ -732,7 +862,7 @@ describe("live preview", () => {
       plugins: [createGfmPreset()]
     });
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    const cell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
     expect(cell).not.toBeUndefined();
 
     cell?.dispatchEvent(new MouseEvent("mousedown", {
@@ -756,7 +886,7 @@ describe("live preview", () => {
     cell!.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
     document.removeEventListener("input", documentInputSpy);
 
-    const currentCell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    const currentCell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
     expect(cell?.isConnected).toBe(true);
     expect(currentCell).toBe(cell);
     expect(cell?.contentEditable).toBe("true");
@@ -782,7 +912,7 @@ describe("live preview", () => {
       plugins: [createGfmPreset()]
     });
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
 
     cell?.dispatchEvent(new MouseEvent("mousedown", {
@@ -839,7 +969,7 @@ describe("live preview", () => {
       livePreview: true,
       plugins: [createGfmPreset()]
     });
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
     activateTableCell(cell!);
 
@@ -877,7 +1007,7 @@ describe("live preview", () => {
         docs.push(doc);
       },
     });
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
     activateTableCell(cell!);
     cell!.textContent = "edited";
@@ -908,13 +1038,13 @@ describe("live preview", () => {
       livePreview: true,
       plugins: [createGfmPreset()]
     });
-    const firstCell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const firstCell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(firstCell).not.toBeUndefined();
     activateTableCell(firstCell!);
 
     editor.setDocument(source, { silent: true });
 
-    const reloadedCell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const reloadedCell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(reloadedCell).not.toBeUndefined();
     expect(reloadedCell).not.toBe(firstCell);
     activateTableCell(reloadedCell!);
@@ -943,12 +1073,12 @@ describe("live preview", () => {
       livePreview: true,
       plugins: [createGfmPreset()]
     });
-    const firstCell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const firstCell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(firstCell).not.toBeUndefined();
 
     editor.setDocument(`a much longer prefix\n\n${table}`, { silent: true });
 
-    const movedCell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const movedCell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(movedCell).not.toBeUndefined();
     expect(movedCell).not.toBe(firstCell);
     activateTableCell(movedCell!);
@@ -983,7 +1113,7 @@ describe("live preview", () => {
       livePreview: true,
       plugins: [createGfmPreset()]
     });
-    const activeCell = firstContainer.querySelectorAll<HTMLElement>("tr")[2]?.querySelector<HTMLElement>(".nexus-cell");
+    const activeCell = getTableBodyRows(firstContainer)[0]?.querySelector<HTMLElement>(".nexus-cell");
     expect(activeCell).not.toBeUndefined();
     activateTableCell(activeCell!);
 
@@ -997,6 +1127,41 @@ describe("live preview", () => {
     secondEditor.destroy();
     firstContainer.remove();
     secondContainer.remove();
+  });
+
+  it("does not rebuild table widget DOM during cell editing when selection changes", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let capturedView: EditorView | null = null;
+    const captureView = ViewPlugin.fromClass(
+      class {
+        constructor(readonly view: EditorView) {
+          capturedView = view;
+        }
+      }
+    );
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| editing | 2 |",
+      livePreview: true,
+      plugins: [createGfmPreset(), { name: "capture-view", cmExtensions: [captureView] }]
+    });
+    const view = requireEditorView(capturedView);
+
+    const cell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    expect(cell).not.toBeUndefined();
+    const originalCell = cell!;
+    activateTableCell(originalCell);
+    expect(originalCell.contentEditable).toBe("true");
+
+    view.dispatch({ selection: { anchor: 0, head: 0 } });
+
+    const currentCell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    expect(currentCell).toBe(originalCell);
+    expect(currentCell?.contentEditable).toBe("true");
+
+    editor.destroy();
+    container.remove();
   });
 
   it("flushes a dirty table cell before destroy", () => {
@@ -1013,7 +1178,7 @@ describe("live preview", () => {
         docs.push(doc);
       },
     });
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
     activateTableCell(cell!);
     cell!.textContent = "saved-before-destroy";
@@ -1039,7 +1204,7 @@ describe("live preview", () => {
         throw new Error("host failure");
       },
     });
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
     activateTableCell(cell!);
     cell!.textContent = "edited";
@@ -1218,7 +1383,7 @@ describe("live preview", () => {
       plugins: [createGfmPreset()]
     });
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    const cell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
     const textNode = cell?.querySelector("strong")?.firstChild;
     expect(cell).not.toBeUndefined();
     expect(textNode?.textContent).toBe("加粗");
@@ -1270,7 +1435,7 @@ describe("live preview", () => {
       plugins: [createGfmPreset()]
     });
 
-    const cells = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell");
+    const cells = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell");
     const firstCell = cells?.[0];
     const secondCell = cells?.[1];
     expect(firstCell).not.toBeUndefined();
@@ -1351,7 +1516,7 @@ describe("live preview", () => {
       plugins: [createGfmPreset()]
     });
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
     expect(cell?.style.userSelect).toBe("text");
 
@@ -1414,7 +1579,7 @@ describe("live preview", () => {
       plugins: [createGfmPreset()]
     });
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
     const text = cell!.firstChild;
     expect(text?.textContent).toBe("Kevin Stratvert");
@@ -1484,7 +1649,7 @@ describe("live preview", () => {
       plugins: [createGfmPreset()]
     });
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
     const text = cell!.firstChild;
     expect(text?.textContent).toBe("Kevin Stratvert");
@@ -1565,7 +1730,7 @@ describe("live preview", () => {
       plugins: [createGfmPreset()]
     });
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = getTableBodyRows(container)[0]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
 
     cell?.dispatchEvent(new MouseEvent("mousedown", {
@@ -1754,14 +1919,14 @@ describe("live preview", () => {
       plugins: [createGfmPreset()],
     });
 
-    const rows = Array.from(container.querySelectorAll("tr")).map((row) =>
+    const rows = getTableContentRows(container).map((row) =>
       Array.from(row.querySelectorAll(".nexus-cell")).map((cell) => cell.textContent)
     );
     // Every body row should have the same cell count as the widest row (4).
     // Header padded with one empty extra column; the short row padded too.
-    expect(rows[1]).toEqual(["A", "B", "C", ""]);
-    expect(rows[2]).toEqual(["1", "2", "", ""]);
-    expect(rows[3]).toEqual(["3", "4", "5", "6"]);
+    expect(rows[0]).toEqual(["A", "B", "C", ""]);
+    expect(rows[1]).toEqual(["1", "2", "", ""]);
+    expect(rows[2]).toEqual(["3", "4", "5", "6"]);
     editor.destroy();
   });
 
@@ -1774,11 +1939,11 @@ describe("live preview", () => {
       plugins: [createGfmPreset()]
     });
 
-    const rows = Array.from(container.querySelectorAll("tr")).map((row) =>
+    const rows = getTableContentRows(container).map((row) =>
       Array.from(row.querySelectorAll(".nexus-cell")).map((cell) => cell.textContent)
     );
-    expect(rows[1]).toEqual(["A", "", "C"]);
-    expect(rows[2]).toEqual(["1", "", "3"]);
+    expect(rows[0]).toEqual(["A", "", "C"]);
+    expect(rows[1]).toEqual(["1", "", "3"]);
     editor.destroy();
   });
 
@@ -1797,11 +1962,11 @@ describe("live preview", () => {
     expect(addColumn).not.toBeUndefined();
     addColumn?.click();
 
-    const rows = Array.from(container.querySelectorAll("tr")).map((row) =>
+    const rows = getTableContentRows(container).map((row) =>
       Array.from(row.querySelectorAll(".nexus-cell")).map((cell) => cell.textContent)
     );
-    expect(rows[1]).toEqual(["A", "B", ""]);
-    expect(rows[2]).toEqual(["1", "2", ""]);
+    expect(rows[0]).toEqual(["A", "B", ""]);
+    expect(rows[1]).toEqual(["1", "2", ""]);
     expect(editor.getDocument()).toContain("| A | B");
     editor.destroy();
   });
@@ -1821,7 +1986,7 @@ describe("live preview", () => {
       plugins: [createGfmPreset()]
     });
 
-    const dataCell = container.querySelectorAll("tr")[2]?.querySelector(".nexus-cell");
+    const dataCell = getTableBodyRows(container)[0]?.querySelector(".nexus-cell");
     expect(dataCell).not.toBeNull();
     const event = new MouseEvent("contextmenu", {
       bubbles: true,
