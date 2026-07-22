@@ -1,0 +1,17 @@
+export {
+  createStreamingPlugin,
+  createStreamingExtension,
+  StreamingManager,
+  StreamingCursorWidget,
+  streamingSessionField,
+  createStreamingDecorationPlugin,
+  startStreamEffect,
+  appendStreamEffect,
+  finishStreamEffect,
+  type StreamingSessionOptions,
+  type StreamingSessionState,
+  type StreamingPluginOptions,
+  type StartStreamPayload,
+  type AppendStreamPayload,
+  type FinishStreamPayload,
+} from "./streaming-plugin";

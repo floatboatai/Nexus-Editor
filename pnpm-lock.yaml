@@ -181,6 +181,18 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/plugin-streaming:
+    dependencies:
+      '@codemirror/state':
+        specifier: ^6.5.2
+        version: 6.6.0
+      '@codemirror/view':
+        specifier: ^6.36.1
+        version: 6.41.0
+      '@floatboat/nexus-core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/plugin-toolbar:
     dependencies:
       '@codemirror/state':
