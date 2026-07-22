@@ -1,3 +1,4 @@
+import { i18n } from "./i18n";
 import { createState, type AppState } from "./state";
 import { createEditorShell, type EditorShell } from "./editor-shell";
 import { loadSettings, createSettingsPanel, type EditorSettings } from "./settings";
@@ -21,27 +22,34 @@ let backlinks: BacklinksPanel;
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
 
-function createAppToolbar(): HTMLElement {
+interface ToolbarButtons {
+  vault: HTMLButtonElement;
+  open: HTMLButtonElement;
+  save: HTMLButtonElement;
+  saveAs: HTMLButtonElement;
+  vaultToggle: HTMLButtonElement;
+  outline: HTMLButtonElement;
+  backlinks: HTMLButtonElement;
+  search: HTMLButtonElement;
+  settings: HTMLButtonElement;
+}
+
+function createAppToolbar(): { element: HTMLElement; buttons: ToolbarButtons } {
   const toolbar = document.createElement("div");
   toolbar.className = "toolbar";
 
   const vaultBtn = document.createElement("button");
-  vaultBtn.textContent = "Vault";
-  vaultBtn.title = "Open a folder as a vault";
   vaultBtn.addEventListener("click", () => {
     void vault.promptPickVault();
   });
 
   const openBtn = document.createElement("button");
-  openBtn.textContent = "Open";
   openBtn.addEventListener("click", handleOpen);
 
   const saveBtn = document.createElement("button");
-  saveBtn.textContent = "Save";
   saveBtn.addEventListener("click", handleSave);
 
   const saveAsBtn = document.createElement("button");
-  saveAsBtn.textContent = "Save As";
   saveAsBtn.addEventListener("click", handleSaveAs);
 
   const spacer = document.createElement("div");
@@ -49,31 +57,26 @@ function createAppToolbar(): HTMLElement {
 
   const vaultToggleBtn = document.createElement("button");
   vaultToggleBtn.textContent = "\uD83D\uDCD1"; // 📑
-  vaultToggleBtn.title = "Toggle vault panel";
   vaultToggleBtn.style.fontSize = "14px";
   vaultToggleBtn.addEventListener("click", toggleVault);
 
   const outlineBtn = document.createElement("button");
   outlineBtn.textContent = "\u2630"; // ☰
-  outlineBtn.title = "Toggle outline";
   outlineBtn.style.fontSize = "14px";
   outlineBtn.addEventListener("click", toggleOutline);
 
   const backlinksBtn = document.createElement("button");
   backlinksBtn.textContent = "\uD83D\uDD17"; // 🔗
-  backlinksBtn.title = "Toggle backlinks panel";
   backlinksBtn.style.fontSize = "14px";
   backlinksBtn.addEventListener("click", toggleBacklinks);
 
   const searchBtn = document.createElement("button");
   searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
-  searchBtn.title = "Search (Ctrl+F)";
   searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
 
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "\u2699"; // ⚙
-  settingsBtn.title = "Settings";
   settingsBtn.style.fontSize = "16px";
   settingsBtn.addEventListener("click", handleSettings);
 
@@ -89,7 +92,30 @@ function createAppToolbar(): HTMLElement {
     searchBtn,
     settingsBtn
   );
-  return toolbar;
+  return { element: toolbar, buttons: {
+    vault: vaultBtn,
+    open: openBtn,
+    save: saveBtn,
+    saveAs: saveAsBtn,
+    vaultToggle: vaultToggleBtn,
+    outline: outlineBtn,
+    backlinks: backlinksBtn,
+    search: searchBtn,
+    settings: settingsBtn,
+  } };
+}
+
+function updateToolbarLocale(btns: ToolbarButtons): void {
+  btns.vault.textContent = i18n.t("toolbar.vault");
+  btns.vault.title = i18n.t("toolbar.vault.title");
+  btns.open.textContent = i18n.t("toolbar.open");
+  btns.save.textContent = i18n.t("toolbar.save");
+  btns.saveAs.textContent = i18n.t("toolbar.saveAs");
+  btns.vaultToggle.title = i18n.t("toolbar.vaultToggle.title");
+  btns.outline.title = i18n.t("toolbar.outlineToggle.title");
+  btns.backlinks.title = i18n.t("toolbar.backlinksToggle.title");
+  btns.search.title = i18n.t("toolbar.search.title");
+  btns.settings.title = i18n.t("toolbar.settings.title");
 }
 
 function createStatusLine(): HTMLElement {
@@ -103,14 +129,14 @@ function renderStatus(): void {
   const el = document.getElementById("status-line");
   if (!el) return;
 
-  const pathLabel = state.activeFile ?? state.filePath ?? "Untitled";
-  const dirtyMark = state.dirty ? " [modified]" : "";
+  const pathLabel = state.activeFile ?? state.filePath ?? i18n.t("status.untitled");
+  const dirtyMark = state.dirty ? i18n.t("status.modified") : "";
   const stats = shell?.editor.getDocumentStats();
-  const statsText = stats ? ` | ${stats.words} words, ${stats.lines} lines` : "";
+  const statsText = stats ? ` | ${stats.words} ${i18n.t("status.words")}, ${stats.lines} ${i18n.t("status.lines")}` : "";
   const vaultLabel = state.vaultPath
-    ? ` | Vault: ${state.vaultPath.split(/[\\/]/).pop()}`
+    ? ` | ${i18n.t("status.vault")}: ${state.vaultPath.split(/[\\/]/).pop()}`
     : "";
-  const errorText = state.error ? ` — Error: ${state.error}` : "";
+  const errorText = state.error ? ` — ${i18n.t("status.error")}: ${state.error}` : "";
   el.textContent = `${pathLabel}${dirtyMark}${statsText}${vaultLabel}${errorText}`;
 }
 
@@ -202,11 +228,40 @@ function toggleBacklinks(): void {
   togglePanel(backlinks.element, () => backlinks.refresh());
 }
 
+const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".ico"]);
+
 async function handleVaultFileOpen(filePath: string): Promise<void> {
   const total = perfStart("open-file", { filePath });
   try {
     state.error = null;
     if (!(await confirmDiscardIfDirty())) return;
+
+    // Image files: display as rendered markdown image via nexus-vault:// protocol
+    const fileExt = filePath.toLowerCase().match(/\.[^.]+$/)?.[0] || "";
+    if (IMAGE_EXTS.has(fileExt)) {
+      const vaultPath = state.vaultPath;
+      if (!vaultPath) {
+        state.error = "No active vault";
+        renderStatus();
+        return;
+      }
+      const normFile = filePath.replace(/\\/g, "/");
+      const normVault = vaultPath.replace(/\\/g, "/").replace(/\/+$/, "");
+      let relPath = normFile;
+      if (normFile.startsWith(normVault + "/")) {
+        relPath = normFile.slice(normVault.length + 1);
+      }
+      const encoded = relPath.split("/").map(encodeURIComponent).join("/");
+      const uri = "nexus-vault://vault/" + encoded;
+
+      state.filePath = filePath;
+      state.activeFile = filePath;
+      vault.setActiveFile(filePath);
+      shell.loadDocument("![](" + uri + ")");
+      renderStatus();
+      perfEnd(total);
+      return;
+    }
 
     const ipc = perfStart("open-file.ipc-read");
     const result = await window.nexusDemo.vault.read(filePath);
@@ -346,6 +401,8 @@ function boot(): void {
   if (!root) throw new Error("Missing #app element");
 
   const appToolbar = createAppToolbar();
+  updateToolbarLocale(appToolbar.buttons);
+  let unsubI18n: (() => void) | null = null;
   const statusLine = createStatusLine();
 
   const mainArea = document.createElement("div");
@@ -357,7 +414,7 @@ function boot(): void {
   const editorContainer = document.createElement("div");
   editorContainer.className = "editor-container";
 
-  root.append(appToolbar, mainArea, statusLine);
+  root.append(appToolbar.element, mainArea, statusLine);
 
   shell = createEditorShell({
     container: editorContainer,
@@ -409,16 +466,78 @@ function boot(): void {
 
   editorColumn.append(searchBar.element, editorContainer);
   mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
+  // --- Vault panel resize handle ---
+  const VAULT_MIN_WIDTH = 160;
+  const VAULT_MAX_WIDTH = 600;
+  const VAULT_WIDTH_KEY = 'nexus-demo:vault-width';
+
+  const vaultResizeHandle = document.createElement('div');
+  vaultResizeHandle.className = 'resize-handle';
+  vaultResizeHandle.addEventListener('mousedown', (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startWidth = vault.element.offsetWidth;
+
+    const onMove = (ev: MouseEvent) => {
+      const newWidth = Math.max(VAULT_MIN_WIDTH, Math.min(VAULT_MAX_WIDTH, startWidth + ev.clientX - startX));
+      vault.element.style.width = newWidth + 'px';
+    };
+
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      try {
+        localStorage.setItem(VAULT_WIDTH_KEY, String(vault.element.offsetWidth));
+      } catch { /* ignore */ }
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+
+  // Insert the handle between vault panel and editor column
+  mainArea.insertBefore(vaultResizeHandle, editorColumn);
+
+  // Restore saved vault panel width
+  try {
+    const saved = localStorage.getItem(VAULT_WIDTH_KEY);
+    if (saved) {
+      const w = parseInt(saved, 10);
+      if (!isNaN(w) && w >= VAULT_MIN_WIDTH && w <= VAULT_MAX_WIDTH) {
+        vault.element.style.width = w + 'px';
+      }
+    }
+  } catch { /* ignore */ }
+
+
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {
     void seedLinkIndex();
   });
 
+  unsubI18n = i18n.subscribe(() => {
+    updateToolbarLocale(appToolbar.buttons);
+    vault.updateLocale();
+    outline.updateLocale();
+    backlinks.updateLocale();
+    renderStatus();
+  });
+
   document.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === "f") {
       e.preventDefault();
       searchBar.open();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+      e.preventDefault();
+      void handleSave();
     }
   });
 

@@ -190,3 +190,35 @@ body,
   color: var(--nexus-accent, #2563eb);
   font-weight: 500;
 }
+
+/* ── Vault panel resize handle ───────────────────────────── */
+.resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  flex-shrink: 0;
+  position: relative;
+  background: transparent;
+  z-index: 5;
+  transition: background 0.15s;
+}
+
+.resize-handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -3px;
+  right: -3px;
+  bottom: 0;
+}
+
+.resize-handle:hover,
+.resize-handle:active {
+  background: var(--nexus-accent, #4a90d9);
+}
+
+/* ── Vault panel drag-and-drop ───────────────────────────── */
+.nexus-vault-dragover {
+  outline: 2px solid var(--nexus-accent, #4a90d9);
+  outline-offset: -2px;
+  border-radius: 3px;
+}

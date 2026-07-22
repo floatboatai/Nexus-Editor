@@ -1,3 +1,4 @@
+import { i18n } from "./i18n";
 import type { LinkIndex, BacklinkHit } from "./link-index";
 
 export interface BacklinksPanelOptions {
@@ -9,6 +10,7 @@ export interface BacklinksPanelOptions {
 export interface BacklinksPanel {
   element: HTMLElement;
   refresh(): void;
+  updateLocale(): void;
   destroy(): void;
 }
 
@@ -134,7 +136,7 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
 
   const header = document.createElement("div");
   header.style.cssText = HEADER_STYLES;
-  header.textContent = "Backlinks";
+  header.textContent = i18n.t("backlinks.title");
   root.appendChild(header);
 
   const list = document.createElement("div");
@@ -179,7 +181,7 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
 
     const snippet = document.createElement("div");
     snippet.style.cssText = ITEM_SNIPPET_STYLES;
-    snippet.textContent = hit.snippet || "(empty)";
+    snippet.textContent = hit.snippet || i18n.t("backlinks.emptySnippet");
     btn.appendChild(snippet);
 
     parent.appendChild(btn);
@@ -204,8 +206,8 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
     list.textContent = "";
     const active = getActiveFile();
     if (!active) {
-      header.textContent = "Backlinks";
-      renderEmpty("No active file", list);
+      header.textContent = i18n.t("backlinks.title");
+      renderEmpty(i18n.t("backlinks.noActiveFile"), list);
       return;
     }
 
@@ -213,9 +215,9 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
     const linked = index.getBacklinks(active);
     header.textContent = `Backlinks · ${linked.length} linked · … mentions`;
 
-    renderSectionHeader("Linked mentions", linked.length, list);
+    renderSectionHeader(i18n.t("backlinks.linkedMentions"), linked.length, list);
     if (linked.length === 0) {
-      renderEmpty("No linked mentions", list);
+      renderEmpty(i18n.t("backlinks.noLinked"), list);
     } else {
       for (const hit of linked) renderItem(hit, list);
     }
@@ -223,8 +225,8 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
     // Placeholder for unlinked section — filled asynchronously so we don't
     // block the UI thread with the O(vault-size) regex scan in
     // getUnlinkedMentions.
-    const unlinkedHeader = renderSectionHeader("Unlinked mentions", 0, list);
-    unlinkedHeader.textContent = "Unlinked mentions — scanning…";
+    const unlinkedHeader = renderSectionHeader(i18n.t("backlinks.unlinkedMentions"), 0, list);
+    unlinkedHeader.textContent = i18n.t("backlinks.scanning");
     const unlinkedContainer = document.createElement("div");
     list.appendChild(unlinkedContainer);
 
@@ -241,11 +243,11 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
           "backlinks.unlinked-scan", `${(t1 - t0).toFixed(1)}ms`,
           { hits: unlinked.length });
       }
-      header.textContent = `Backlinks · ${linked.length} linked · ${unlinked.length} mention${unlinked.length === 1 ? "" : "s"}`;
+      header.textContent = i18n.t("backlinks.header", { linked: linked.length, total: unlinked.length });
       unlinkedHeader.textContent = "";
       renderSectionHeaderInto(unlinkedHeader, "Unlinked mentions", unlinked.length);
       if (unlinked.length === 0) {
-        renderEmpty("No unlinked mentions", unlinkedContainer);
+        renderEmpty(i18n.t("backlinks.noUnlinked"), unlinkedContainer);
       } else {
         for (const hit of unlinked) renderItem(hit, unlinkedContainer);
       }
@@ -258,6 +260,10 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
   return {
     element: root,
     refresh,
+    updateLocale() {
+      header.textContent = i18n.t("backlinks.title");
+      refresh();
+    },
     destroy() {
       destroyed = true;
       if (pendingUnlinkedCancel) {
