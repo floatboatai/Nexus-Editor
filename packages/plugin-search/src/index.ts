@@ -25,6 +25,9 @@ import {
 
 import type { NexusPlugin } from "@floatboat/nexus-core";
 
+import { fuzzyMatch, findFuzzyMatches, type FuzzyMatch, type FuzzySearchOptions } from "./fuzzy";
+export { fuzzyMatch, findFuzzyMatches, type FuzzyMatch, type FuzzySearchOptions };
+
 export interface SearchMatch {
   from: number;
   to: number;
@@ -35,6 +38,17 @@ export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  /**
+   * Fuzzy subsequence matching: every query character appears in the
+   * source in order, but not necessarily contiguously.  Mutually
+   * exclusive with {@link regexp} and {@link wholeWord}.
+   */
+  fuzzy?: boolean;
+  /**
+   * Maximum gap between consecutive matched characters in fuzzy mode.
+   * Forwarded to {@link findFuzzyMatches}.  Default 64.
+   */
+  fuzzyMaxGap?: number;
 }
 
 export interface SearchHistoryStorage {
@@ -650,6 +664,13 @@ export function findSearchMatches(
     return [];
   }
 
+  if (options.fuzzy) {
+    return findFuzzyMatches(doc, query, {
+      caseSensitive: options.caseSensitive,
+      maxGap: options.fuzzyMaxGap
+    }).map(({ from, to, text }) => ({ from, to, text }));
+  }
+
   const pattern = buildSearchPattern(query, options);
   if (!pattern) {
     return [];
@@ -678,6 +699,24 @@ export function replaceAllMatches(
 ): string {
   if (!query) {
     return doc;
+  }
+
+  if (options.fuzzy) {
+    const matches = findFuzzyMatches(doc, query, {
+      caseSensitive: options.caseSensitive,
+      maxGap: options.fuzzyMaxGap
+    });
+    if (matches.length === 0) return doc;
+
+    let result = "";
+    let cursor = 0;
+    for (const match of matches) {
+      result += doc.slice(cursor, match.from);
+      result += replacement;
+      cursor = match.to;
+    }
+    result += doc.slice(cursor);
+    return result;
   }
 
   const pattern = buildSearchPattern(query, options);
