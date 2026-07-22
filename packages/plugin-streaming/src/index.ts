@@ -4,7 +4,7 @@ export {
   StreamingManager,
   StreamingCursorWidget,
   streamingSessionField,
-  streamingDecorationPlugin,
+  createStreamingDecorationPlugin,
   startStreamEffect,
   appendStreamEffect,
   finishStreamEffect,

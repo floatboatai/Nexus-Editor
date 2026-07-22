@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import {
@@ -7,12 +7,22 @@ import {
   streamingSessionField,
 } from "../src/streaming-plugin";
 
-function createView(initialDoc: string = ""): EditorView {
+const activeViews: EditorView[] = [];
+
+afterEach(() => {
+  for (const view of activeViews.splice(0)) {
+    view.destroy();
+  }
+});
+
+function createView(initialDoc: string = "", shimmerClassName?: string): EditorView {
   const state = EditorState.create({
     doc: initialDoc,
-    extensions: [createStreamingExtension({ autoScroll: false })],
+    extensions: [createStreamingExtension({ autoScroll: false, shimmerClassName })],
   });
-  return new EditorView({ state });
+  const view = new EditorView({ state });
+  activeViews.push(view);
+  return view;
 }
 
 describe("plugin-streaming", () => {
@@ -79,5 +89,16 @@ describe("plugin-streaming", () => {
     const session = view.state.field(streamingSessionField);
     expect(session.text).toBe("");
     expect(view.state.doc.toString()).toBe("Start: ");
+  });
+
+  it("clamps out-of-range start positions safely", () => {
+    const view = createView("Short");
+    const manager = new StreamingManager({ autoScroll: false });
+
+    manager.startStream(view, "stream-clamp", 999);
+    const session = view.state.field(streamingSessionField);
+
+    expect(session.startPos).toBe(5);
+    expect(session.currentPos).toBe(5);
   });
 });

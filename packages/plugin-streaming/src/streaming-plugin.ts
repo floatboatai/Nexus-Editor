@@ -133,40 +133,42 @@ export class StreamingCursorWidget extends WidgetType {
 }
 
 /**
- * ViewPlugin rendering the animated typing cursor widget at stream head.
+ * Factory creating ViewPlugin that renders the animated typing cursor widget at stream head.
  */
-export const streamingDecorationPlugin = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet;
+export function createStreamingDecorationPlugin(shimmerClassName: string = "nexus-streaming-cursor"): Extension {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
 
-    constructor(view: EditorView) {
-      this.decorations = this.buildDecorations(view);
-    }
-
-    update(update: ViewUpdate) {
-      if (update.docChanged || update.viewportChanged || update.state.field(streamingSessionField) !== update.startState.field(streamingSessionField)) {
-        this.decorations = this.buildDecorations(update.view);
-      }
-    }
-
-    buildDecorations(view: EditorView): DecorationSet {
-      const state = view.state.field(streamingSessionField);
-      if (!state.active) {
-        return Decoration.none;
+      constructor(view: EditorView) {
+        this.decorations = this.buildDecorations(view);
       }
 
-      const widget = Decoration.widget({
-        widget: new StreamingCursorWidget("nexus-streaming-cursor"),
-        side: 1,
-      });
+      update(update: ViewUpdate) {
+        if (update.docChanged || update.viewportChanged || update.state.field(streamingSessionField) !== update.startState.field(streamingSessionField)) {
+          this.decorations = this.buildDecorations(update.view);
+        }
+      }
 
-      return Decoration.set([widget.range(state.currentPos)]);
+      buildDecorations(view: EditorView): DecorationSet {
+        const state = view.state.field(streamingSessionField);
+        if (!state.active) {
+          return Decoration.none;
+        }
+
+        const widget = Decoration.widget({
+          widget: new StreamingCursorWidget(shimmerClassName),
+          side: 1,
+        });
+
+        return Decoration.set([widget.range(state.currentPos)]);
+      }
+    },
+    {
+      decorations: (v) => v.decorations,
     }
-  },
-  {
-    decorations: (v) => v.decorations,
-  }
-);
+  );
+}
 
 export interface StreamingPluginOptions {
   shimmerClassName?: string;
@@ -187,7 +189,9 @@ export class StreamingManager {
    * Starts a new token streaming session in the given CodeMirror view.
    */
   startStream(view: EditorView, sessionId: string, atPos?: number): void {
-    const pos = atPos ?? view.state.selection.main.head;
+    const docLen = view.state.doc.length;
+    const rawPos = atPos ?? view.state.selection.main.head;
+    const pos = Math.max(0, Math.min(rawPos, docLen));
     view.dispatch({
       effects: [startStreamEffect.of({ sessionId, pos })],
     });
@@ -244,11 +248,12 @@ export class StreamingManager {
  * Returns extension suite for token streaming.
  */
 export function createStreamingExtension(options: StreamingPluginOptions = {}): Extension[] {
+  const className = options.shimmerClassName ?? "nexus-streaming-cursor";
   return [
     streamingSessionField,
-    streamingDecorationPlugin,
+    createStreamingDecorationPlugin(className),
     EditorView.theme({
-      ".nexus-streaming-cursor": {
+      [`.${className}`]: {
         display: "inline-block",
         width: "2px",
         height: "1.2em",
