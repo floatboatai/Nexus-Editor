@@ -7,9 +7,23 @@ import {
   toggleBlockquote,
   toggleOrderedList,
   toggleUnorderedList,
+  insertEmoji,
+  insertTable,
 } from "./formatting";
 
-export { toggleBlockquote, toggleOrderedList, toggleUnorderedList, insertCodeBlock, insertImage, insertHorizontalRule, applyTextColor, applyHighlight } from "./formatting";
+export {
+  toggleBlockquote,
+  toggleOrderedList,
+  toggleUnorderedList,
+  insertCodeBlock,
+  insertImage,
+  insertHorizontalRule,
+  applyTextColor,
+  applyHighlight,
+  insertEmoji,
+  insertTable,
+} from "./formatting";
+
 export { createToolbarUI } from "./toolbar-ui";
 export { colorDecorationExtension } from "./color-decoration";
 export type { ToolbarUI, ToolbarUIOptions, ToolbarButton, ToolbarGroup } from "./toolbar-ui";
@@ -213,6 +227,21 @@ export const toolbarSlashCommands: SlashCommandDef[] = [
     description: "Insert a horizontal rule",
     keywords: ["hr", "rule", "divider", "separator", "---"],
     run: insertHorizontalRule,
+  },
+  // ========== 新增：高级命令 ==========
+  {
+    id: "emoji",
+    title: "Emoji",
+    description: "Insert an emoji",
+    keywords: ["emoji", "smiley", "icon"],
+    run: (e) => insertEmoji(e, "😊"), // 默认插入笑脸
+  },
+  {
+    id: "table",
+    title: "Table",
+    description: "Insert a table (3x3)",
+    keywords: ["table", "grid", "rows", "cols"],
+    run: (e) => insertTable(e, 3, 3),
   },
 ];
 

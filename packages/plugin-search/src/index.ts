@@ -1,3 +1,5 @@
+// packages/plugin-search/src/index.ts
+
 import {
   closeSearchPanel,
   findNext,
@@ -25,6 +27,8 @@ import {
 
 import type { NexusPlugin } from "@floatboat/nexus-core";
 
+// ======================== 接口定义 ========================
+
 export interface SearchMatch {
   from: number;
   to: number;
@@ -35,6 +39,8 @@ export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  /** 启用模糊搜索（fzf 风格），优先级高于 regexp 和 wholeWord */
+  fuzzy?: boolean;
 }
 
 export interface SearchHistoryStorage {
@@ -50,21 +56,9 @@ export interface SearchHistoryOptions {
 }
 
 export interface SearchPluginOptions {
-  /**
-   * Render the search panel above the editor content. Defaults to true.
-   */
   top?: boolean;
-  /**
-   * Enable case-sensitive search by default.
-   */
   caseSensitive?: boolean;
-  /**
-   * Highlight viewport matches for the current selection.
-   */
   highlightSelectionMatches?: boolean;
-  /**
-   * Opt-in search query history. Pass storage explicitly to persist entries.
-   */
   history?: boolean | SearchHistoryOptions;
   labels?: Partial<SearchPluginLabels>;
 }
@@ -84,6 +78,8 @@ export interface SearchPluginLabels {
   replaceAll: string;
   close: string;
 }
+
+// ======================== 常量 ========================
 
 const DEFAULT_LABELS: SearchPluginLabels = {
   find: "Find",
@@ -146,6 +142,46 @@ interface RenderedSourceSegment {
   sourceFrom: number;
   sourceTo: number;
 }
+
+// ======================== 模糊搜索核心实现 ========================
+
+/**
+ * 对单个文档字符串执行模糊搜索匹配（fzf 风格）。
+ * 返回匹配到的子串数组，如果无匹配则返回空数组。
+ * 该算法是回溯匹配器，按顺序匹配查询字符，允许跳过目标中的任意字符。
+ */
+export function fuzzyMatch(doc: string, query: string): SearchMatch[] {
+  if (!query || !doc) return [];
+
+  const lowerDoc = doc.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  let docIdx = 0;
+  const matchedIndices: number[] = [];
+
+  // 按顺序匹配查询中的每个字符
+  for (const qChar of lowerQuery) {
+    let found = false;
+    while (docIdx < lowerDoc.length) {
+      if (lowerDoc[docIdx] === qChar) {
+        matchedIndices.push(docIdx);
+        docIdx++;
+        found = true;
+        break;
+      }
+      docIdx++;
+    }
+    if (!found) {
+      return []; // 无法完整匹配所有查询字符
+    }
+  }
+
+  // 将匹配到的位置转换为 SearchMatch 对象（取第一个和最后一个位置作为范围）
+  const from = matchedIndices[0];
+  const to = matchedIndices[matchedIndices.length - 1] + 1;
+  return [{ from, to, text: doc.slice(from, to) }];
+}
+
+// ======================== 辅助函数（表格搜索高亮等） ========================
 
 function getCssHighlightSupport(doc: Document):
   | {
@@ -375,6 +411,8 @@ function isSelectedSearchMatch(
   );
 }
 
+// ======================== TableSearchHighlighter ========================
+
 class TableSearchHighlighter {
   private readonly names = createTableSearchHighlightNames();
   private registry: CssHighlightRegistry | null = null;
@@ -488,6 +526,8 @@ const tableSearchHighlightPlugin = ViewPlugin.fromClass(
     }
   }
 );
+
+// ======================== 搜索历史 ========================
 
 function resolveMaxEntries(maxEntries: number | undefined): number {
   if (maxEntries === undefined || !Number.isFinite(maxEntries)) {
@@ -619,6 +659,8 @@ class SearchHistoryController {
   }
 }
 
+// ======================== 搜索辅助 ========================
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -641,35 +683,6 @@ function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp 
   }
 }
 
-export function findSearchMatches(
-  doc: string,
-  query: string,
-  options: SearchOptions = {}
-): SearchMatch[] {
-  if (!query) {
-    return [];
-  }
-
-  const pattern = buildSearchPattern(query, options);
-  if (!pattern) {
-    return [];
-  }
-  const matches: SearchMatch[] = [];
-
-  for (const match of doc.matchAll(pattern)) {
-    const text = match[0];
-    const from = match.index ?? 0;
-
-    matches.push({
-      from,
-      to: from + text.length,
-      text
-    });
-  }
-
-  return matches;
-}
-
 export function replaceAllMatches(
   doc: string,
   query: string,
@@ -686,6 +699,43 @@ export function replaceAllMatches(
   }
   return doc.replace(pattern, replacement);
 }
+
+// ======================== 核心搜索函数（已支持 fuzzy） ========================
+
+export function findSearchMatches(
+  doc: string,
+  query: string,
+  options: SearchOptions = {}
+): SearchMatch[] {
+  if (!query) {
+    return [];
+  }
+
+  // 优先处理模糊搜索
+  if (options.fuzzy) {
+    return fuzzyMatch(doc, query);
+  }
+
+  // 原有的精确/正则匹配
+  const pattern = buildSearchPattern(query, options);
+  if (!pattern) {
+    return [];
+  }
+
+  const matches: SearchMatch[] = [];
+  for (const match of doc.matchAll(pattern)) {
+    const text = match[0];
+    const from = match.index ?? 0;
+    matches.push({
+      from,
+      to: from + text.length,
+      text
+    });
+  }
+  return matches;
+}
+
+// ======================== 标签解析与 UI 辅助 ========================
 
 function resolveLabel(
   view: EditorView,
@@ -882,6 +932,98 @@ function createSearchRow(testId: string): HTMLDivElement {
   return row;
 }
 
+// ======================== 浮动面板样式注入 ========================
+
+let searchPanelStylesInjected = false;
+
+function injectSearchPanelStyles() {
+  if (searchPanelStylesInjected) return;
+  searchPanelStylesInjected = true;
+
+  const style = document.createElement("style");
+  style.textContent = `
+    .nexus-search-panel--floating {
+      position: fixed !important;
+      top: 12px !important;
+      right: 12px !important;
+      width: auto !important;
+      min-width: 320px;
+      max-width: 480px;
+      background: rgba(255, 255, 255, 0.95) !important;
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(0, 0, 0, 0.08) !important;
+      border-radius: 8px !important;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12) !important;
+      padding: 8px 12px !important;
+      z-index: 1000;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .nexus-search-panel--floating .cm-button {
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      padding: 4px 6px;
+      border-radius: 4px;
+      color: #1e293b;
+      transition: background 0.15s;
+    }
+    .nexus-search-panel--floating .cm-button:hover {
+      background: rgba(0, 0, 0, 0.06);
+    }
+    .nexus-search-panel--floating .cm-textfield {
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 13px;
+      background: white;
+      transition: border-color 0.15s;
+    }
+    .nexus-search-panel--floating .cm-textfield:focus {
+      border-color: #2563eb;
+      outline: none;
+    }
+    .nexus-search-panel--floating .nexus-search-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .nexus-search-panel--floating label {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      font-size: 12px;
+      color: #475569;
+      cursor: pointer;
+    }
+    .nexus-search-panel--floating input[type="checkbox"] {
+      margin: 0;
+      accent-color: #2563eb;
+    }
+    .nexus-search-panel--floating .nexus-search-button-group {
+      display: flex;
+      gap: 2px;
+    }
+    .nexus-search-panel--floating .nexus-search-count {
+      font-size: 12px;
+      color: #64748b;
+      margin-left: 4px;
+      min-width: 30px;
+      text-align: center;
+    }
+    .nexus-search-panel--floating .nexus-search-tooltip-wrap {
+      position: relative;
+      display: inline-flex;
+    }
+    .nexus-search-panel--floating .nexus-search-tooltip {
+      display: none;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+// ======================== NexusSearchPanel（含匹配计数） ========================
+
 class NexusSearchPanel implements Panel {
   readonly dom: HTMLElement;
   readonly pos = 80;
@@ -897,12 +1039,17 @@ class NexusSearchPanel implements Panel {
   private readonly replaceToggle?: IconButtonElements;
   private replaceExpanded = false;
 
+  // 匹配计数元素
+  private readonly matchCountEl: HTMLSpanElement;
+
   constructor(
     private readonly view: EditorView,
     readonly top: boolean,
     labels: Partial<SearchPluginLabels> | undefined,
     history: SearchHistoryController
   ) {
+    injectSearchPanelStyles();
+
     this.query = getSearchQuery(view.state);
     const resolvedLabels = resolveLabels(view, labels);
     this.labels = resolvedLabels;
@@ -926,8 +1073,13 @@ class NexusSearchPanel implements Panel {
     this.regexpField = this.createCheckbox("markdown-search-regexp-toggle", "re", this.query.regexp);
     this.wholeWordField = this.createCheckbox("markdown-search-word-toggle", "word", this.query.wholeWord);
 
+    // 创建匹配计数元素
+    this.matchCountEl = document.createElement("span");
+    this.matchCountEl.className = "nexus-search-count";
+    this.matchCountEl.textContent = "";
+
     this.dom = document.createElement("div");
-    this.dom.className = "cm-search nexus-search-panel";
+    this.dom.className = "cm-search nexus-search-panel nexus-search-panel--floating";
     this.dom.dataset.testId = "markdown-search-bar";
     this.dom.addEventListener("keydown", (event) => this.handleKeyDown(event));
 
@@ -961,7 +1113,8 @@ class NexusSearchPanel implements Panel {
       createLabel(this.caseField, resolvedLabels.matchCase),
       createLabel(this.regexpField, resolvedLabels.regexp),
       createLabel(this.wholeWordField, resolvedLabels.byWord),
-      navigationGroup
+      navigationGroup,
+      this.matchCountEl
     ];
     if (this.replaceToggle) {
       searchRowChildren.unshift(this.replaceToggle.wrapper);
@@ -997,6 +1150,8 @@ class NexusSearchPanel implements Panel {
     closeButton.setAttribute("aria-label", resolvedLabels.close);
     closeButton.title = resolvedLabels.close;
     this.dom.append(closeButton);
+
+    this.updateMatchCount();
   }
 
   update(update: ViewUpdate): void {
@@ -1007,10 +1162,49 @@ class NexusSearchPanel implements Panel {
         }
       }
     }
+    this.updateMatchCount();
   }
 
   mount(): void {
     this.searchField.select();
+  }
+
+  private updateMatchCount(): void {
+    const state = this.view.state;
+    if (!searchPanelOpen(state)) {
+      this.matchCountEl.textContent = "";
+      return;
+    }
+    const query = getSearchQuery(state);
+    if (!query.valid || !query.search) {
+      this.matchCountEl.textContent = "";
+      return;
+    }
+
+    const cursor = query.getCursor(state);
+    let total = 0;
+    let selectedIndex = -1;
+    const selections = state.selection.ranges.map(r => ({ from: r.from, to: r.to }));
+
+    for (let result = cursor.next(); !result.done; result = cursor.next()) {
+      total++;
+      const matchFrom = result.value.from;
+      const matchTo = result.value.to;
+      const isSelected = selections.some(
+        sel => sel.from === matchFrom && sel.to === matchTo
+      );
+      if (isSelected && selectedIndex === -1) {
+        selectedIndex = total;
+      }
+    }
+
+    if (total === 0) {
+      this.matchCountEl.textContent = "";
+    } else if (selectedIndex === -1) {
+      this.matchCountEl.textContent = `${total}`;
+    } else {
+      this.matchCountEl.textContent = `${selectedIndex} / ${total}`;
+    }
   }
 
   private createTextField(
@@ -1034,10 +1228,12 @@ class NexusSearchPanel implements Panel {
     input.addEventListener("input", () => {
       if (mainField) this.history.resetCursor();
       this.commit();
+      this.updateMatchCount();
     });
     input.addEventListener("change", () => {
       if (mainField) this.history.resetCursor();
       this.commit();
+      this.updateMatchCount();
     });
     input.addEventListener("keyup", () => this.commit());
     return input;
@@ -1050,7 +1246,10 @@ class NexusSearchPanel implements Panel {
     input.name = name;
     input.setAttribute("form", "");
     input.checked = checked;
-    input.addEventListener("change", () => this.commit());
+    input.addEventListener("change", () => {
+      this.commit();
+      this.updateMatchCount();
+    });
     return input;
   }
 
@@ -1073,6 +1272,7 @@ class NexusSearchPanel implements Panel {
     this.commit();
     this.history.record(this.searchField.value);
     runSearchCommand();
+    this.updateMatchCount();
   }
 
   private setReplaceExpanded(expanded: boolean, focusReplace = false): void {
@@ -1110,6 +1310,7 @@ class NexusSearchPanel implements Panel {
       event.preventDefault();
       this.commit();
       replaceNext(this.view);
+      this.updateMatchCount();
     }
   }
 
@@ -1127,6 +1328,7 @@ class NexusSearchPanel implements Panel {
     event.preventDefault();
     this.searchField.value = recalled;
     this.commit();
+    this.updateMatchCount();
     return true;
   }
 
@@ -1137,8 +1339,11 @@ class NexusSearchPanel implements Panel {
     this.caseField.checked = query.caseSensitive;
     this.regexpField.checked = query.regexp;
     this.wholeWordField.checked = query.wholeWord;
+    this.updateMatchCount();
   }
 }
+
+// ======================== 插件导出 ========================
 
 export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlugin {
   const history = new SearchHistoryController(options.history);

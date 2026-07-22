@@ -17,6 +17,8 @@ import {
   insertImage,
   applyTextColor,
   applyHighlight,
+  insertEmoji,
+  insertTable,
 } from "./formatting";
 import {
   iconUndo,
@@ -38,6 +40,8 @@ import {
   iconHighlight,
   iconImage,
   iconFullscreen,
+  iconTable,      // 新增
+  iconEmoji,      // 新增
 } from "./icons";
 
 export interface ToolbarButton {
@@ -132,6 +136,169 @@ function installToolbarTooltip(button: HTMLButtonElement): () => void {
   };
 }
 
+// ========== 新增：Emoji 选择器 ==========
+const EMOJIS = [
+  '😀', '😁', '😂', '🤣', '😃', '😄', '😅', '😆', '😉', '😊', '😋', '😎', '😍', '🥰', '😘',
+  '😗', '😙', '😚', '🙂', '🤗', '🤩', '🤔', '🤨', '😐', '😑', '😶', '🙄', '😏', '😣', '😥',
+  '😮', '🤐', '😯', '😪', '😫', '😴', '😌', '😛', '😜', '😝', '🤤', '😒', '😓', '😔', '😕',
+  '🙃', '🤑', '😲', '☹️', '🙁', '😖', '😞', '😟', '😤', '😢', '😭', '😦', '😧', '😨', '😩',
+  '🤯', '😬', '😰', '😱', '🥵', '🥶', '😳', '🤪', '😵', '😡', '😠', '🤬', '❤️', '🧡', '💛',
+  '💚', '💙', '💜', '🖤', '💔', '❣️', '💕', '💞', '💓', '💗', '💖', '✨', '⭐', '🌟', '🌈',
+];
+
+function openEmojiPicker(editor: EditorAPI, anchorBtn: HTMLElement, onClose: () => void): { destroy: () => void } {
+  const panel = document.createElement("div");
+  panel.className = "nexus-toolbar-dropdown";
+  panel.style.cssText = `
+    position: fixed;
+    background: var(--nexus-bg, #fff);
+    border: 1px solid var(--nexus-border, #eee);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    padding: 8px;
+    z-index: 10000;
+    max-width: 220px;
+    max-height: 200px;
+    overflow-y: auto;
+  `;
+
+  const rect = anchorBtn.getBoundingClientRect();
+  panel.style.top = rect.bottom + 4 + 'px';
+  panel.style.left = rect.left + 'px';
+
+  const grid = document.createElement("div");
+  grid.style.cssText = "display:grid;grid-template-columns:repeat(8,1fr);gap:4px;";
+
+  const itemCleanups: Array<() => void> = [];
+
+  for (const emoji of EMOJIS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = emoji;
+    btn.style.cssText = `
+      font-size: 20px;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      padding: 2px;
+      border-radius: 4px;
+      line-height: 1;
+    `;
+    btn.title = emoji;
+
+    const handleClick = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      insertEmoji(editor, emoji);
+      editor.focus();
+      onClose();
+    };
+    const handleEnter = () => { btn.style.background = 'var(--nexus-bg-muted, #f0f0f0)'; };
+    const handleLeave = () => { btn.style.background = 'transparent'; };
+
+    btn.addEventListener('click', handleClick);
+    btn.addEventListener('mouseenter', handleEnter);
+    btn.addEventListener('mouseleave', handleLeave);
+    itemCleanups.push(() => {
+      btn.removeEventListener('click', handleClick);
+      btn.removeEventListener('mouseenter', handleEnter);
+      btn.removeEventListener('mouseleave', handleLeave);
+    });
+
+    grid.appendChild(btn);
+  }
+
+  panel.appendChild(grid);
+  pickOverlayMount(anchorBtn).appendChild(panel);
+
+  return {
+    destroy() {
+      for (const fn of itemCleanups) fn();
+      itemCleanups.length = 0;
+      panel.remove();
+    },
+  };
+}
+
+// ========== 新增：表格选择器 ==========
+function openTablePicker(editor: EditorAPI, anchorBtn: HTMLElement, onClose: () => void): { destroy: () => void } {
+  const panel = document.createElement("div");
+  panel.className = "nexus-toolbar-dropdown";
+  panel.style.cssText = `
+    position: fixed;
+    background: var(--nexus-bg, #fff);
+    border: 1px solid var(--nexus-border, #eee);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    padding: 12px;
+    z-index: 10000;
+    min-width: 180px;
+  `;
+
+  const rect = anchorBtn.getBoundingClientRect();
+  panel.style.top = rect.bottom + 4 + 'px';
+  panel.style.left = rect.left + 'px';
+
+  const label = document.createElement('div');
+  label.textContent = 'Insert table:';
+  label.style.cssText = 'font-weight:500;margin-bottom:8px;font-size:13px;color:var(--nexus-text-muted,#888);';
+  panel.appendChild(label);
+
+  const rowCol = document.createElement('div');
+  rowCol.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:8px;';
+
+  const rowsInput = document.createElement('input');
+  rowsInput.type = 'number';
+  rowsInput.min = '1';
+  rowsInput.max = '10';
+  rowsInput.value = '3';
+  rowsInput.style.cssText = 'width:50px;padding:4px;border:1px solid var(--nexus-border,#ddd);border-radius:4px;font-size:13px;';
+  const xLabel = document.createElement('span');
+  xLabel.textContent = '×';
+  const colsInput = document.createElement('input');
+  colsInput.type = 'number';
+  colsInput.min = '1';
+  colsInput.max = '10';
+  colsInput.value = '3';
+  colsInput.style.cssText = 'width:50px;padding:4px;border:1px solid var(--nexus-border,#ddd);border-radius:4px;font-size:13px;';
+
+  rowCol.append(rowsInput, xLabel, colsInput);
+  panel.appendChild(rowCol);
+
+  const btnGroup = document.createElement('div');
+  btnGroup.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
+
+  const insertBtn = document.createElement('button');
+  insertBtn.textContent = 'Insert';
+  insertBtn.style.cssText = 'padding:4px 12px;background:var(--nexus-accent,#0969da);color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px;';
+  insertBtn.addEventListener('click', () => {
+    const rows = parseInt(rowsInput.value) || 3;
+    const cols = parseInt(colsInput.value) || 3;
+    insertTable(editor, rows, cols);
+    editor.focus();
+    onClose();
+  });
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.style.cssText = 'padding:4px 12px;background:transparent;border:1px solid var(--nexus-border,#ddd);border-radius:4px;cursor:pointer;font-size:13px;';
+  cancelBtn.addEventListener('click', () => {
+    onClose();
+  });
+
+  btnGroup.append(insertBtn, cancelBtn);
+  panel.appendChild(btnGroup);
+
+  pickOverlayMount(anchorBtn).appendChild(panel);
+
+  return {
+    destroy() {
+      panel.remove();
+    },
+  };
+}
+
+// ========== 默认工具栏组配置（增加表情和表格） ==========
 function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
   return [
     {
@@ -179,9 +346,16 @@ function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
         { id: "highlight", title: "Highlight", icon: iconHighlight, action: () => {} },
       ],
     },
+    // ========== 新增：高级工具组（表情、表格、图片） ==========
     {
       buttons: [
+        { id: "emoji", title: "Insert emoji", icon: iconEmoji, action: () => {} },
+        { id: "table", title: "Insert table", icon: iconTable, action: () => {} },
         { id: "image", title: "Insert image", icon: iconImage, action: insertImage },
+      ],
+    },
+    {
+      buttons: [
         { id: "fullscreen", title: "Fullscreen", icon: iconFullscreen, action: () => options?.onFullscreen?.() },
       ],
     },
@@ -441,7 +615,7 @@ function showColorPicker(
 }
 
 /** IDs that trigger dropdown behavior instead of a direct action. */
-const DROPDOWN_IDS = new Set(["heading-menu", "text-color", "highlight"]);
+const DROPDOWN_IDS = new Set(["heading-menu", "text-color", "highlight", "emoji", "table"]);
 
 export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): ToolbarUI {
   const groups = options?.groups ?? defaultGroups(options);
@@ -510,6 +684,10 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
             activeDropdown = showColorPicker(editor, button, COLOR_PALETTE, applyTextColor, closeDropdown);
           } else if (btn.id === "highlight") {
             activeDropdown = showColorPicker(editor, button, HIGHLIGHT_PALETTE, applyHighlight, closeDropdown);
+          } else if (btn.id === "emoji") {
+            activeDropdown = openEmojiPicker(editor, button, closeDropdown);
+          } else if (btn.id === "table") {
+            activeDropdown = openTablePicker(editor, button, closeDropdown);
           }
 
           outsideHandler = (ev: MouseEvent) => {
