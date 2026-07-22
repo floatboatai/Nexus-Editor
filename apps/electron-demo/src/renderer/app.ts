@@ -228,11 +228,40 @@ function toggleBacklinks(): void {
   togglePanel(backlinks.element, () => backlinks.refresh());
 }
 
+const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".ico"]);
+
 async function handleVaultFileOpen(filePath: string): Promise<void> {
   const total = perfStart("open-file", { filePath });
   try {
     state.error = null;
     if (!(await confirmDiscardIfDirty())) return;
+
+    // Image files: display as rendered markdown image via nexus-vault:// protocol
+    const fileExt = filePath.toLowerCase().match(/\.[^.]+$/)?.[0] || "";
+    if (IMAGE_EXTS.has(fileExt)) {
+      const vaultPath = state.vaultPath;
+      if (!vaultPath) {
+        state.error = "No active vault";
+        renderStatus();
+        return;
+      }
+      const normFile = filePath.replace(/\\/g, "/");
+      const normVault = vaultPath.replace(/\\/g, "/").replace(/\/+$/, "");
+      let relPath = normFile;
+      if (normFile.startsWith(normVault + "/")) {
+        relPath = normFile.slice(normVault.length + 1);
+      }
+      const encoded = relPath.split("/").map(encodeURIComponent).join("/");
+      const uri = "nexus-vault://vault/" + encoded;
+
+      state.filePath = filePath;
+      state.activeFile = filePath;
+      vault.setActiveFile(filePath);
+      shell.loadDocument("![](" + uri + ")");
+      renderStatus();
+      perfEnd(total);
+      return;
+    }
 
     const ipc = perfStart("open-file.ipc-read");
     const result = await window.nexusDemo.vault.read(filePath);
@@ -495,6 +524,9 @@ function boot(): void {
 
   unsubI18n = i18n.subscribe(() => {
     updateToolbarLocale(appToolbar.buttons);
+    vault.updateLocale();
+    outline.updateLocale();
+    backlinks.updateLocale();
     renderStatus();
   });
 

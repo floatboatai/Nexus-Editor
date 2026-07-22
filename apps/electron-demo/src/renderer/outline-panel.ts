@@ -4,6 +4,7 @@ import type { EditorAPI, TocEntry } from "@floatboat/nexus-core";
 export interface OutlinePanel {
   element: HTMLElement;
   update(): void;
+  updateLocale(): void;
   destroy(): void;
 }
 
@@ -122,6 +123,10 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
   return {
     element: panel,
     update,
+    updateLocale() {
+      header.textContent = i18n.t("outline.title");
+      update();
+    },
     destroy() {
       editor.off("change", update);
       panel.remove();

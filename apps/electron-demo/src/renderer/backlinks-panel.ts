@@ -10,6 +10,7 @@ export interface BacklinksPanelOptions {
 export interface BacklinksPanel {
   element: HTMLElement;
   refresh(): void;
+  updateLocale(): void;
   destroy(): void;
 }
 
@@ -259,6 +260,10 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
   return {
     element: root,
     refresh,
+    updateLocale() {
+      header.textContent = i18n.t("backlinks.title");
+      refresh();
+    },
     destroy() {
       destroyed = true;
       if (pendingUnlinkedCancel) {

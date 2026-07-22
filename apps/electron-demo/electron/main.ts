@@ -18,7 +18,7 @@ let mainWindow: BrowserWindow | null = null;
 export interface VaultNode {
   name: string;
   path: string;
-  kind: "file" | "directory";
+  kind: "file" | "directory" | "image";
   children?: VaultNode[];
 }
 
@@ -28,6 +28,7 @@ interface VaultState {
 }
 
 const SUPPORTED_EXT = new Set([".md", ".markdown", ".txt"]);
+const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".ico"]);
 const SKIP_DIRS = new Set(["node_modules", ".git", ".svn", ".hg", ".DS_Store"]);
 
 let activeVault: string | null = null;
@@ -163,13 +164,19 @@ async function scanDirectory(dir: string): Promise<VaultNode[]> {
 
     if (entry.isFile()) {
       const ext = path.extname(entry.name).toLowerCase();
-      if (!SUPPORTED_EXT.has(ext)) continue;
-      nodes.push({ name: entry.name, path: childPath, kind: "file" });
+      if (SUPPORTED_EXT.has(ext)) {
+        nodes.push({ name: entry.name, path: childPath, kind: "file" });
+      } else if (IMAGE_EXT.has(ext)) {
+        nodes.push({ name: entry.name, path: childPath, kind: "image" });
+      }
     }
   }
 
   nodes.sort((a, b) => {
-    if (a.kind !== b.kind) return a.kind === "directory" ? -1 : 1;
+    const order = { directory: 0, file: 1, image: 1 };
+    const ka = order[a.kind] ?? 1;
+    const kb = order[b.kind] ?? 1;
+    if (ka !== kb) return ka - kb;
     return a.name.localeCompare(b.name);
   });
 

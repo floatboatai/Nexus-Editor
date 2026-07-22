@@ -6,7 +6,7 @@ interface DemoFileHandle {
 interface VaultNode {
   name: string;
   path: string;
-  kind: "file" | "directory";
+  kind: "file" | "directory" | "image";
   children?: VaultNode[];
 }
 

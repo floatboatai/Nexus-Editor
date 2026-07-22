@@ -13,6 +13,7 @@ export interface VaultPanel {
   refresh(): Promise<void>;
   setActiveFile(filePath: string | null): void;
   getVaultPath(): string | null;
+  updateLocale(): void;
   destroy(): void;
 }
 
@@ -189,6 +190,10 @@ function fileIcon(): string {
   return "\u{1F4C4}"; // 📄
 }
 
+function imageIcon(): string {
+  return "\u{1F5BC}\uFE0F"; // 🖼️
+}
+
 /** Depth → px of left padding for tree rows. */
 function indentPx(depth: number): number {
   return 8 + depth * 16;
@@ -359,6 +364,8 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     icon.style.cssText = "width: 16px; flex-shrink: 0; font-size: 13px; text-align: center;";
     if (isDir) {
       icon.textContent = folderIcon(dirOpen);
+    } else if (node.kind === "image") {
+      icon.textContent = imageIcon();
     } else {
       icon.textContent = fileIcon();
     }
@@ -420,7 +427,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
             container.style.display = "none";
           }
         }
-      } else if (!isActive) {
+      } else {
         callbacks.onOpenFile(node.path);
       }
     });
@@ -860,6 +867,15 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
       }
     },
     getVaultPath: () => vaultPath,
+    updateLocale() {
+      title.textContent = i18n.t("vault.title");
+      openBtn.title = i18n.t("vault.openBtnTitle");
+      newFileBtn.title = i18n.t("vault.openBtn.title");
+      newFolderBtn.title = i18n.t("vault.newFolderBtn.title");
+      collapseAllBtn.title = i18n.t("vault.collapseAllFolders");
+      expandAllBtn.title = i18n.t("vault.expandAllFolders");
+      renderTree();
+    },
     destroy() {
       if (unsubscribeChanged) unsubscribeChanged();
       panel.remove();
