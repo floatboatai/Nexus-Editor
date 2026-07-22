@@ -31,10 +31,17 @@ export interface SearchMatch {
   text: string;
 }
 
+export interface FuzzyMatch extends SearchMatch {
+  score: number;
+  positions: number[];
+}
+
 export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  fuzzy?: boolean;
+  fuzzyDistance?: number;
 }
 
 export interface SearchHistoryStorage {
@@ -641,6 +648,66 @@ function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp 
   }
 }
 
+export function findFuzzyMatches(
+  doc: string,
+  query: string,
+  options: SearchOptions = {}
+): FuzzyMatch[] {
+  if (!query || !doc) return [];
+
+  const caseSensitive = options.caseSensitive ?? false;
+  const qStr = caseSensitive ? query : query.toLowerCase();
+  const maxDistance = options.fuzzyDistance ?? 30;
+
+  const matches: FuzzyMatch[] = [];
+  const lines = doc.split("\n");
+  let lineOffset = 0;
+
+  for (const line of lines) {
+    const lineText = caseSensitive ? line : line.toLowerCase();
+    let qIdx = 0;
+    const positions: number[] = [];
+
+    for (let i = 0; i < lineText.length; i++) {
+      if (lineText[i] === qStr[qIdx]) {
+        positions.push(i);
+        qIdx++;
+        if (qIdx === qStr.length) break;
+      }
+    }
+
+    if (qIdx === qStr.length && positions.length > 0) {
+      const start = positions[0];
+      const end = positions[positions.length - 1] + 1;
+      const span = end - start;
+
+      if (span - qStr.length <= maxDistance) {
+        let score = 100 - (span - qStr.length) * 5;
+        for (let i = 1; i < positions.length; i++) {
+          if (positions[i] === positions[i - 1] + 1) {
+            score += 10;
+          }
+        }
+        if (start === 0 || /\s/.test(line[start - 1])) {
+          score += 20;
+        }
+
+        matches.push({
+          from: lineOffset + start,
+          to: lineOffset + end,
+          text: line.slice(start, end),
+          score,
+          positions: positions.map((p) => lineOffset + p),
+        });
+      }
+    }
+
+    lineOffset += line.length + 1;
+  }
+
+  return matches.sort((a, b) => b.score - a.score);
+}
+
 export function findSearchMatches(
   doc: string,
   query: string,
@@ -648,6 +715,10 @@ export function findSearchMatches(
 ): SearchMatch[] {
   if (!query) {
     return [];
+  }
+
+  if (options.fuzzy) {
+    return findFuzzyMatches(doc, query, options);
   }
 
   const pattern = buildSearchPattern(query, options);
