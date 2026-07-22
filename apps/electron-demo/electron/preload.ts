@@ -26,9 +26,11 @@ export interface VaultBridge {
   createFile(parentDir: string, name: string): Promise<{ path: string }>;
   createFolder(parentDir: string, name: string): Promise<{ path: string }>;
   rename(oldPath: string, newName: string): Promise<{ path: string }>;
+  move(sourcePath: string, destDir: string): Promise<{ path: string }>;
   delete(targetPath: string): Promise<{ ok: boolean }>;
   getLast(): Promise<VaultState>;
   setLast(vaultPath: string): Promise<{ ok: boolean }>;
+  pasteImage(imageDataUrl: string, fileName: string): Promise<{ uri: string }>;
   onChanged(cb: (payload: { vault: string }) => void): () => void;
 }
 
@@ -64,6 +66,9 @@ const vaultBridge: VaultBridge = {
   rename(oldPath, newName) {
     return ipcRenderer.invoke("vault:rename", oldPath, newName);
   },
+  move(sourcePath, destDir) {
+    return ipcRenderer.invoke("vault:move", sourcePath, destDir);
+  },
   delete(targetPath) {
     return ipcRenderer.invoke("vault:delete", targetPath);
   },
@@ -72,6 +77,9 @@ const vaultBridge: VaultBridge = {
   },
   setLast(vaultPath) {
     return ipcRenderer.invoke("vault:set-last", vaultPath);
+  },
+  pasteImage(imageDataUrl, fileName) {
+    return ipcRenderer.invoke("vault:paste-image", imageDataUrl, fileName);
   },
   onChanged(cb) {
     const listener = (_event: Electron.IpcRendererEvent, payload: { vault: string }) => cb(payload);

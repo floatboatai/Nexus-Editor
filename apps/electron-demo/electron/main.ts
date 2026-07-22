@@ -150,14 +150,14 @@ async function scanDirectory(dir: string): Promise<VaultNode[]> {
 
     if (entry.isDirectory()) {
       const children = await scanDirectory(childPath);
-      if (children.length > 0) {
-        nodes.push({
-          name: entry.name,
-          path: childPath,
-          kind: "directory",
-          children,
-        });
-      }
+      // Always include directories — even empty ones — so the user can see
+      // the folder structure and create files inside them via the context menu.
+      nodes.push({
+        name: entry.name,
+        path: childPath,
+        kind: "directory",
+        children,
+      });
       continue;
     }
 
@@ -388,6 +388,21 @@ ipcMain.handle(
   }
 );
 
+ipcMain.handle(
+  "vault:move",
+  async (_event, sourcePath: string, destDir: string) => {
+    const src = assertInsideVault(sourcePath);
+    const dest = assertInsideVault(destDir);
+    const baseName = path.basename(src);
+    const target = path.join(dest, baseName);
+    if (existsSync(target)) {
+      throw new Error(`Target already exists: ${baseName}`);
+    }
+    await rename(src, target);
+    return { path: target };
+  }
+);
+
 ipcMain.handle("vault:delete", async (_event, targetPath: string) => {
   const abs = assertInsideVault(targetPath);
   await shell.trashItem(abs);
@@ -412,6 +427,33 @@ ipcMain.handle("vault:set-last", async (_event, vaultPath: string) => {
   const recents = [vaultPath, ...current.recents.filter((r) => r !== vaultPath)].slice(0, 10);
   await writeVaultState({ lastVault: vaultPath, recents });
   return { ok: true };
+});
+
+ipcMain.handle("vault:paste-image", async (_event, imageDataUrl: string, fileName: string) => {
+  if (!activeVault) throw new Error("No active vault");
+
+  // Create the local_files directory inside the vault if it doesn't exist.
+  const localFilesDir = path.join(activeVault, "local_files");
+  await mkdir(localFilesDir, { recursive: true });
+
+  // Generate a unique name: original stem + timestamp + extension, so
+  // pasting the same image twice doesn't clobber the first save.
+  const ext = path.extname(fileName) || ".png";
+  const stem = path.basename(fileName, ext);
+  const uniqueName = `${stem}-${Date.now()}${ext}`;
+  const destPath = path.join(localFilesDir, uniqueName);
+
+  // Decode the base64 data URL (e.g. data:image/png;base64,iVBOR...).
+  const matches = imageDataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+  if (!matches) throw new Error("Invalid image data URL");
+  const buffer = Buffer.from(matches[2], "base64");
+
+  await writeFile(destPath, buffer);
+
+  // Return a vault-relative URI that the custom nexus-vault:// protocol
+  // handler will serve back to the renderer.
+  const encoded = uniqueName.split("/").map(encodeURIComponent).join("/");
+  return { uri: `nexus-vault://vault/local_files/${encoded}` };
 });
 
 app.whenReady().then(() => {

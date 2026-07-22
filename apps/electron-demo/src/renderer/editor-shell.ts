@@ -318,6 +318,27 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     tabSize: settings.tabSize,
     direction: settings.direction,
     indentGuides: settings.indentGuides,
+    /**
+     * Paste / drag-and-drop of images: save the file to the vault's
+     * local_files/ directory and return a nexus-vault:// URI so the
+     * image widget can display it immediately.
+     */
+    onAssetUpload: async (file: File) => {
+      if (!state.vaultPath) return null;
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        const result = await window.nexusDemo.vault.pasteImage(dataUrl, file.name);
+        return result.uri;
+      } catch (err) {
+        console.error("[editor-shell] Failed to save pasted image:", err);
+        return null;
+      }
+    },
     onChange(doc) {
       state.content = doc;
       state.dirty = true;
