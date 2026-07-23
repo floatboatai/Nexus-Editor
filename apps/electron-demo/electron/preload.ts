@@ -37,6 +37,27 @@ export interface DemoBridge {
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
   vault: VaultBridge;
+  snapshots: SnapshotsBridge;
+}
+
+export interface SnapshotMeta {
+  id: string;
+  createdAt: number;
+  label?: string;
+  size: number;
+  hash: string;
+}
+
+export interface Snapshot extends SnapshotMeta {
+  content: string;
+}
+
+export interface SnapshotsBridge {
+  list(documentKey: string): Promise<SnapshotMeta[]>;
+  load(documentKey: string, id: string): Promise<string | null>;
+  save(documentKey: string, snapshot: Snapshot): Promise<void>;
+  remove(documentKey: string, id: string): Promise<void>;
+  clear(documentKey: string): Promise<void>;
 }
 
 const vaultBridge: VaultBridge = {
@@ -82,6 +103,24 @@ const vaultBridge: VaultBridge = {
   },
 };
 
+const snapshotsBridge: SnapshotsBridge = {
+  list(documentKey) {
+    return ipcRenderer.invoke("snapshots:list", documentKey);
+  },
+  load(documentKey, id) {
+    return ipcRenderer.invoke("snapshots:load", documentKey, id);
+  },
+  save(documentKey, snapshot) {
+    return ipcRenderer.invoke("snapshots:save", documentKey, snapshot);
+  },
+  remove(documentKey, id) {
+    return ipcRenderer.invoke("snapshots:remove", documentKey, id);
+  },
+  clear(documentKey) {
+    return ipcRenderer.invoke("snapshots:clear", documentKey);
+  },
+};
+
 const bridge: DemoBridge = {
   openFile() {
     return ipcRenderer.invoke("demo:open-file");
@@ -93,6 +132,7 @@ const bridge: DemoBridge = {
     return ipcRenderer.invoke("demo:save-file-as", content);
   },
   vault: vaultBridge,
+  snapshots: snapshotsBridge,
 };
 
 contextBridge.exposeInMainWorld("nexusDemo", bridge);

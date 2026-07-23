@@ -180,6 +180,7 @@ pnpm dev:electron-demo
 | `@floatboat/nexus-plugin-math` | 行内 / 块级数学公式渲染（KaTeX） |
 | `@floatboat/nexus-plugin-vim` | Vim 键位（基于 `@replit/codemirror-vim`） |
 | `@floatboat/nexus-plugin-wordcount` | Markdown 感知的字数 / 字符数 / 中日韩字符 / 阅读时长统计 + ARIA 状态栏 |
+| `@floatboat/nexus-plugin-snapshots` | 版本历史：宿主注入存储的文档快照，安全恢复，保留策略 |
 
 </details>
 

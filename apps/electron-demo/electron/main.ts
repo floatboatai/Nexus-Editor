@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from "electron";
-import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promises";
+import { readFile, writeFile, readdir, mkdir, rename, rm, stat } from "node:fs/promises";
 import { existsSync, watch, type FSWatcher } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -203,7 +204,12 @@ function startWatcher(vaultPath: string): void {
   }, 150);
 
   try {
-    activeWatcher = watch(vaultPath, { recursive: true }, () => notify());
+    activeWatcher = watch(vaultPath, { recursive: true }, (_event, filename) => {
+      // Ignore dot-directories (.nexus/snapshots, .git, …) — snapshot writes
+      // must not re-seed the link index on every capture.
+      if (filename && filename.split(/[\\/]/).some((seg) => seg.startsWith("."))) return;
+      notify();
+    });
   } catch (err) {
     // Linux without recursive support — fall back to non-recursive on the root.
     try {
@@ -412,6 +418,126 @@ ipcMain.handle("vault:set-last", async (_event, vaultPath: string) => {
   const recents = [vaultPath, ...current.recents.filter((r) => r !== vaultPath)].slice(0, 10);
   await writeVaultState({ lastVault: vaultPath, recents });
   return { ok: true };
+});
+
+// -- snapshots ----------------------------------------------------------------
+// Reference implementation of Roadmap #19: snapshots live inside the vault at
+// .nexus/snapshots/<sha1(documentKey)>/<id>.md + <id>.json — append-only, no
+// shared index file. Dot-directories are excluded from the vault tree, readAll,
+// and the file watcher, so snapshot storage stays invisible to the rest of the
+// app.
+
+interface SnapshotMetaDTO {
+  id: string;
+  createdAt: number;
+  label?: string;
+  size: number;
+  hash: string;
+}
+
+interface SnapshotDTO extends SnapshotMetaDTO {
+  content: string;
+}
+
+const SNAPSHOT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+function snapshotDirFor(documentKey: string): string {
+  if (!activeVault) throw new Error("No active vault");
+  const keyHash = createHash("sha1").update(documentKey).digest("hex");
+  return path.join(activeVault, ".nexus", "snapshots", keyHash);
+}
+
+function assertSnapshotId(id: string): string {
+  if (!SNAPSHOT_ID_PATTERN.test(id)) throw new Error(`Invalid snapshot id: ${id}`);
+  return id;
+}
+
+function isEnoent(err: unknown): boolean {
+  return (err as NodeJS.ErrnoException).code === "ENOENT";
+}
+
+ipcMain.handle("snapshots:list", async (_event, documentKey: string) => {
+  if (!activeVault) return [];
+  const dir = snapshotDirFor(documentKey);
+  let files: string[];
+  try {
+    files = await readdir(dir);
+  } catch {
+    return [];
+  }
+  const metas: SnapshotMetaDTO[] = [];
+  for (const file of files) {
+    if (!file.endsWith(".json")) continue;
+    try {
+      const raw = await readFile(path.join(dir, file), "utf-8");
+      const parsed = JSON.parse(raw) as Partial<SnapshotMetaDTO>;
+      if (
+        typeof parsed.id !== "string" ||
+        typeof parsed.createdAt !== "number" ||
+        typeof parsed.hash !== "string"
+      ) {
+        continue;
+      }
+      metas.push({
+        id: parsed.id,
+        createdAt: parsed.createdAt,
+        label: typeof parsed.label === "string" ? parsed.label : undefined,
+        size: typeof parsed.size === "number" ? parsed.size : 0,
+        hash: parsed.hash,
+      });
+    } catch {
+      // Skip corrupt sidecars rather than failing the whole list.
+    }
+  }
+  return metas;
+});
+
+ipcMain.handle("snapshots:load", async (_event, documentKey: string, id: string) => {
+  if (!activeVault) return null;
+  const safeId = assertSnapshotId(id);
+  try {
+    return await readFile(path.join(snapshotDirFor(documentKey), `${safeId}.md`), "utf-8");
+  } catch (err) {
+    if (isEnoent(err)) return null;
+    throw err;
+  }
+});
+
+ipcMain.handle(
+  "snapshots:save",
+  async (_event, documentKey: string, snapshot: SnapshotDTO) => {
+    const safeId = assertSnapshotId(snapshot.id);
+    const dir = snapshotDirFor(documentKey);
+    await mkdir(dir, { recursive: true });
+    const meta: SnapshotMetaDTO = {
+      id: safeId,
+      createdAt: snapshot.createdAt,
+      label: typeof snapshot.label === "string" ? snapshot.label : undefined,
+      size: snapshot.size,
+      hash: snapshot.hash,
+    };
+    await writeFile(path.join(dir, `${safeId}.md`), snapshot.content, "utf-8");
+    await writeFile(path.join(dir, `${safeId}.json`), JSON.stringify(meta, null, 2), "utf-8");
+  }
+);
+
+ipcMain.handle("snapshots:remove", async (_event, documentKey: string, id: string) => {
+  if (!activeVault) return;
+  const safeId = assertSnapshotId(id);
+  const dir = snapshotDirFor(documentKey);
+  for (const ext of [".md", ".json"]) {
+    try {
+      await rm(path.join(dir, `${safeId}${ext}`));
+    } catch (err) {
+      // Removing a missing snapshot is a no-op (SnapshotStore contract).
+      if (!isEnoent(err)) throw err;
+    }
+  }
+});
+
+ipcMain.handle("snapshots:clear", async (_event, documentKey: string) => {
+  if (!activeVault) return;
+  await rm(snapshotDirFor(documentKey), { recursive: true, force: true });
 });
 
 app.whenReady().then(() => {

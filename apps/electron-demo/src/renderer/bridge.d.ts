@@ -35,6 +35,27 @@ interface DemoBridge {
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
   vault: VaultBridge;
+  snapshots: SnapshotsBridge;
+}
+
+interface SnapshotMeta {
+  id: string;
+  createdAt: number;
+  label?: string;
+  size: number;
+  hash: string;
+}
+
+interface Snapshot extends SnapshotMeta {
+  content: string;
+}
+
+interface SnapshotsBridge {
+  list(documentKey: string): Promise<SnapshotMeta[]>;
+  load(documentKey: string, id: string): Promise<string | null>;
+  save(documentKey: string, snapshot: Snapshot): Promise<void>;
+  remove(documentKey: string, id: string): Promise<void>;
+  clear(documentKey: string): Promise<void>;
 }
 
 interface Window {
