@@ -137,7 +137,7 @@ describe("createWordCountPlugin", () => {
 
     editor.setSelections([
       { anchor: 0, head: 5 },
-      { anchor: 18, head: 23 }
+      { anchor: 20, head: 25 }
     ]);
 
     expect(wordcount.isSelectionActive()).toBe(true);
