@@ -207,3 +207,82 @@ describe("findFuzzyMatches — edge cases", () => {
     expect(matches[0].text).toBe("hello");
   });
 });
+
+describe("fuzzyMatch — Unicode (astral plane)", () => {
+  it("matches an emoji query against emoji in the text", () => {
+    const result = fuzzyMatch("say 👋 hello", "👋");
+    expect(result).not.toBeNull();
+    expect(result!.text).toBe("👋");
+    // Offsets are UTF-16 code units: "👋" occupies two.
+    expect(result!.from).toBe(4);
+    expect(result!.to).toBe(6);
+    expect(result!.positions).toEqual([4]);
+  });
+
+  it("matches a mixed ASCII + emoji query as whole code points", () => {
+    const result = fuzzyMatch("wave 👋 now", "w👋");
+    expect(result).not.toBeNull();
+    expect(result!.positions).toEqual([0, 5]);
+    expect(result!.to).toBe(7);
+  });
+
+  it("never lands a position inside a surrogate pair", () => {
+    const result = fuzzyMatch("a👋b", "ab")!;
+    expect(result.positions).toEqual([0, 3]);
+    expect(result.text).toBe("a👋b");
+  });
+
+  it("matches astral characters case-insensitively", () => {
+    // Deseret capital LONG I (U+10400) lowercases to U+10428 — one of
+    // the few astral scripts with a real Unicode case mapping.
+    const result = fuzzyMatch("\u{10400}bc", "\u{10428}");
+    expect(result).not.toBeNull();
+    expect(result!.positions).toEqual([0]);
+  });
+
+  it("respects caseSensitive for astral characters", () => {
+    expect(fuzzyMatch("\u{10400}bc", "\u{10428}", { caseSensitive: true })).toBeNull();
+  });
+
+  it("treats emoji as word boundaries", () => {
+    const afterEmoji = fuzzyMatch("👋hello", "hello")!;
+    const midWord = fuzzyMatch("xhello", "hello")!;
+    expect(afterEmoji.score).toBeGreaterThan(midWord.score);
+  });
+
+  it("scores consecutive astral runs as consecutive", () => {
+    const consecutive = fuzzyMatch("👋🌍", "👋🌍")!;
+    const scattered = fuzzyMatch("👋a🌍", "👋🌍")!;
+    expect(consecutive.score).toBeGreaterThan(scattered.score);
+  });
+
+  it("measures gaps in code points, not code units", () => {
+    // One code point (👋) sits between a and b.
+    expect(fuzzyMatch("a👋b", "ab", { maxGap: 1 })).not.toBeNull();
+    expect(fuzzyMatch("a👋b", "ab", { maxGap: 0 })).toBeNull();
+  });
+
+  it("matches CJK text", () => {
+    const result = fuzzyMatch("English 中文混排 mix", "中文");
+    expect(result).not.toBeNull();
+    expect(result!.text).toBe("中文");
+  });
+});
+
+describe("findFuzzyMatches — Unicode (astral plane)", () => {
+  it("finds multiple emoji matches without overlap", () => {
+    const matches = findFuzzyMatches("👋 a 👋", "👋");
+    expect(matches).toHaveLength(2);
+    expect(matches[0].from).toBe(0);
+    expect(matches[0].to).toBe(2);
+    expect(matches[1].from).toBe(5);
+    expect(matches[1].to).toBe(7);
+  });
+
+  it("advances the cursor past astral match windows", () => {
+    const matches = findFuzzyMatches("👋x👋x", "👋x");
+    expect(matches).toHaveLength(2);
+    expect(matches[0].text).toBe("👋x");
+    expect(matches[1].from).toBe(3);
+  });
+});
