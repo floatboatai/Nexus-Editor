@@ -65,7 +65,7 @@ This document maps every planned feature to **package ownership / priority / sta
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
 | 18 | Realtime collaboration (OT / CRDT) | new `plugin-collab` | P3 | planned | Yes | Large feature; start with a tech-selection design doc |
-| 19 | Version history / snapshots | `core` + host storage | P2 | planned | Yes | electron-demo lands the reference impl first |
+| 19 | Version history / snapshots | `plugin-snapshots` + host storage | P2 | in-progress | Yes | electron-demo reference impl — `openspec/changes/add-version-snapshots` |
 | 20 | Shared comments / @mention | new `plugin-annotation` | P3 | planned | Yes | Depends on #18 |
 
 ## 8. Cross-platform
