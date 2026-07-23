@@ -416,9 +416,10 @@ function boot(): void {
   });
 
   document.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
       e.preventDefault();
-      searchBar.open();
+      // Shift upgrades to fuzzy subsequence search.
+      searchBar.open(e.shiftKey ? { fuzzy: true } : undefined);
     }
   });
 
