@@ -2,8 +2,35 @@ import { type Extension } from "@codemirror/state";
 import { foldGutter, foldService } from "@codemirror/language";
 
 const HEADING_RE = /^(#{1,6}) /;
-const FENCE_OPEN_RE = /^[ \t]*(`{3,}|~{3,})/;
+const FENCE_OPEN_RE = /^( {0,3})(`{3,}|~{3,})(.*)$/;
+const FENCE_CLOSE_RE = /^ {0,3}(`+|~+)[ \t]*$/;
 const INDENT_RE = /^([ \t]*)/;
+
+interface Fence {
+  char: "`" | "~";
+  length: number;
+}
+
+function parseOpeningFence(text: string): Fence | null {
+  const match = FENCE_OPEN_RE.exec(text);
+  if (!match) return null;
+
+  const marker = match[2];
+  if (marker[0] === "`" && match[3].includes("`")) return null;
+
+  return {
+    char: marker[0] as Fence["char"],
+    length: marker.length,
+  };
+}
+
+function isClosingFence(text: string, opening: Fence): boolean {
+  const match = FENCE_CLOSE_RE.exec(text);
+  if (!match) return false;
+
+  const marker = match[1];
+  return marker[0] === opening.char && marker.length >= opening.length;
+}
 
 /**
  * CM6 fold service for markdown headings and fenced code blocks.
@@ -39,17 +66,19 @@ export function markdownFoldService(): Extension {
     }
 
     // ── Fenced code block fold ──
-    const fenceMatch = FENCE_OPEN_RE.exec(text);
-    if (fenceMatch) {
-      const fenceChar = fenceMatch[1][0]; // ` or ~
-      const fenceLen = fenceMatch[1].length;
-      // Find closing fence
+    const openingFence = parseOpeningFence(text);
+    if (openingFence) {
       for (let i = line.number + 1; i <= state.doc.lines; i++) {
         const nextLine = state.doc.line(i);
-        const trimmed = nextLine.text.trimStart();
-        if (trimmed.startsWith(fenceChar.repeat(fenceLen)) && trimmed.trim().length <= fenceLen + 1) {
+        if (isClosingFence(nextLine.text, openingFence)) {
           return { from: line.to, to: nextLine.to };
         }
+      }
+
+      // CommonMark treats an unclosed fence as extending to the end of its
+      // containing block. At the document level, that means the end of the doc.
+      if (state.doc.length > line.to) {
+        return { from: line.to, to: state.doc.length };
       }
     }
 
