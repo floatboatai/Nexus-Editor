@@ -34,6 +34,13 @@ export interface SnapshotsPluginOptions {
   /** Retention cap per document key. Oldest snapshots drop first. Default: 50. */
   maxSnapshots?: number;
   /**
+   * Optional age-based expiry: snapshots older than this are pruned on
+   * capture and when the host calls {@link SnapshotsAPI.prune} (e.g. at
+   * app startup). Disabled by default. Example: 30 days is
+   * `30 * 24 * 60 * 60 * 1000`.
+   */
+  maxAgeMs?: number;
+  /**
    * Idle-based auto-capture: after each change, one snapshot is taken once
    * the user pauses for `intervalMs`. De-duplication keeps unchanged
    * documents free. Disabled by default.
@@ -60,6 +67,13 @@ export interface SnapshotsAPI {
   restore(id: string): Promise<boolean>;
   remove(id: string): Promise<boolean>;
   clear(): Promise<boolean>;
+  /**
+   * Remove expired (older than `maxAgeMs`) and count-overflow snapshots
+   * for the active document key. Runs automatically on capture; call
+   * explicitly at app startup so stale snapshots are swept even when the
+   * user doesn't capture anything.
+   */
+  prune(): Promise<void>;
   /**
    * Subscribe to snapshot-list changes for the active document key. The
    * listener fires asynchronously with the current list, then after every
@@ -92,7 +106,8 @@ export type SnapshotsPlugin = NexusPlugin & SnapshotsAPI;
 export function createSnapshotsPlugin(options: SnapshotsPluginOptions = {}): SnapshotsPlugin {
   const engine = new SnapshotEngine({
     store: options.store ?? createMemorySnapshotStore(),
-    maxSnapshots: options.maxSnapshots
+    maxSnapshots: options.maxSnapshots,
+    maxAgeMs: options.maxAgeMs
   });
   const getDocumentKey = options.getDocumentKey ?? (() => "default");
   const safetyLabel = options.restoreSafetyLabel ?? "Before restore";
@@ -176,6 +191,10 @@ export function createSnapshotsPlugin(options: SnapshotsPluginOptions = {}): Sna
       const cleared = await engine.clear(getDocumentKey());
       if (cleared) await emit();
       return cleared;
+    },
+    async prune() {
+      await engine.prune(getDocumentKey());
+      await emit();
     },
     subscribe(listener) {
       listeners.add(listener);

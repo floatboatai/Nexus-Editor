@@ -135,6 +135,9 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     store: window.nexusDemo?.snapshots,
     getDocumentKey: () => state.activeFile ?? "untitled",
     autoCapture: { intervalMs: 30_000 },
+    // Snapshots older than 30 days are swept lazily — on capture and once
+    // at startup below — so long-lived vaults don't accumulate files.
+    maxAgeMs: 30 * 24 * 60 * 60 * 1000,
   });
 
   // No more parser worker. Live-preview drives off `syntaxTree(state)` from
@@ -365,6 +368,8 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   // first paint.
   attachWordCountPlugin(wordcount, editor);
   attachSnapshotsPlugin(snapshots, editor);
+  // Startup sweep: expire old snapshots even when the user never captures.
+  void snapshots.prune();
 
   return {
     editor,

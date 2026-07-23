@@ -34,6 +34,9 @@ Roadmap #19 asks for "Version history / snapshots" with package ownership `core`
 - **Decision 7: Electron-demo stores snapshots inside the vault at `.nexus/snapshots/<document-hash>/`.**
   Snapshots travel with the vault (portable, vault-scoped) instead of living in Electron's `userData`. The vault tree walker skips dot-directories, so the folder stays invisible in the file panel and out of the link index. Each snapshot is a `<id>.md` content file plus a `<id>.json` metadata sidecar — append-only, no shared index file that could corrupt concurrent writes.
 
+- **Decision 8: Retention is count-based plus optional lazy age-based expiry.**
+  `maxSnapshots` bounds how many versions accumulate; `maxAgeMs` (e.g. 30 days in the demo) bounds how long they live. Expiry is swept lazily — after every capture and via an explicit `prune()` the demo calls at startup — instead of on a background timer. Timers are unreliable in long-lived editor sessions, the storage is host-owned, and sweeping on access is the same model Obsidian uses. The engine's internal sweep must not re-enter its own operation queue (a queued public `prune` called from an in-flight queued `capture` deadlocks), so `capture` invokes the sweep body directly.
+
 ## Risks / Trade-offs
 
 - Async store operations race with rapid capture/restore clicks → the plugin serializes engine operations on a per-plugin promise queue; UI-triggered calls simply queue up.

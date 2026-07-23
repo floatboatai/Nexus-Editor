@@ -252,6 +252,21 @@ describe("createSnapshotsPlugin", () => {
     }
   });
 
+  it("prune() sweeps snapshots older than maxAgeMs", async () => {
+    vi.useFakeTimers();
+    try {
+      const snapshots = setup({ maxAgeMs: 60_000 });
+      await snapshots.capture("old");
+      expect(await snapshots.list()).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(61_000);
+      await snapshots.prune();
+      expect(await snapshots.list()).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps working when the store throws", async () => {
     const store = createMemorySnapshotStore();
     vi.spyOn(store, "save").mockRejectedValueOnce(new Error("disk full"));

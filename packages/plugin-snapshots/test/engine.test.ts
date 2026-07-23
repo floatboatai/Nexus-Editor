@@ -112,6 +112,81 @@ describe("SnapshotEngine", () => {
     expect(await engine.load("doc", metas[1]!.id)).toBe("two");
   });
 
+  it("prunes snapshots older than maxAgeMs on capture", async () => {
+    let tick = 1_000;
+    const engine = new SnapshotEngine({
+      store: createMemorySnapshotStore(),
+      maxAgeMs: 500,
+      now: () => tick
+    });
+    await engine.capture("doc", "old");
+    tick = 1_600; // 600ms later — beyond the 500ms expiry
+    await engine.capture("doc", "new");
+
+    const metas = await engine.list("doc");
+    expect(metas).toHaveLength(1);
+    expect(await engine.load("doc", metas[0]!.id)).toBe("new");
+  });
+
+  it("prune() sweeps expired snapshots without a new capture", async () => {
+    let tick = 1_000;
+    const engine = new SnapshotEngine({
+      store: createMemorySnapshotStore(),
+      maxAgeMs: 500,
+      now: () => tick
+    });
+    await engine.capture("doc", "old");
+    tick = 1_600;
+
+    await engine.prune("doc");
+    expect(await engine.list("doc")).toHaveLength(0);
+  });
+
+  it("age and count retention compose", async () => {
+    let tick = 1_000;
+    const engine = new SnapshotEngine({
+      store: createMemorySnapshotStore(),
+      maxSnapshots: 2,
+      maxAgeMs: 500,
+      now: () => tick
+    });
+    await engine.capture("doc", "one");
+    tick = 1_100;
+    await engine.capture("doc", "two");
+    tick = 1_200;
+    await engine.capture("doc", "three");
+    tick = 1_800; // all three are now expired
+
+    await engine.prune("doc");
+    expect(await engine.list("doc")).toHaveLength(0);
+  });
+
+  it("snapshots exactly at the age boundary survive", async () => {
+    let tick = 1_000;
+    const engine = new SnapshotEngine({
+      store: createMemorySnapshotStore(),
+      maxAgeMs: 500,
+      now: () => tick
+    });
+    await engine.capture("doc", "edge");
+    tick = 1_500; // exactly 500ms old — not older than maxAgeMs
+
+    await engine.prune("doc");
+    expect(await engine.list("doc")).toHaveLength(1);
+  });
+
+  it("keeps everything when maxAgeMs is not configured", async () => {
+    let tick = 1_000;
+    const engine = new SnapshotEngine({
+      store: createMemorySnapshotStore(),
+      now: () => tick
+    });
+    await engine.capture("doc", "one");
+    tick = 999_999_999;
+    await engine.prune("doc");
+    expect(await engine.list("doc")).toHaveLength(1);
+  });
+
   it("defaults maxSnapshots to 50", async () => {
     const store = createMemorySnapshotStore();
     const engine = new SnapshotEngine({ store });

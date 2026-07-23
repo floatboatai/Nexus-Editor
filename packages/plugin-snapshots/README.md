@@ -19,6 +19,8 @@ const snapshots = createSnapshotsPlugin({
   // Snapshots are scoped per key (e.g. the active file path):
   getDocumentKey: () => activeFilePath ?? "untitled",
   maxSnapshots: 50,
+  // Optional age-based expiry — pruned on capture and via prune():
+  maxAgeMs: 30 * 24 * 60 * 60 * 1000,
   autoCapture: { intervalMs: 30_000 } // one snapshot after 30s idle
 });
 
@@ -37,7 +39,7 @@ A manual capture is also registered as the editor command `snapshots.capture` (l
 
 - **De-duplication** — capturing content identical to the newest snapshot is a no-op (`capture()` resolves `null`). Idle auto-capture therefore never grows the history of an unchanged document.
 - **Safe restore** — before replacing the document, a safety snapshot of the current buffer (label `"Before restore"`) is taken unless the content is already preserved. The restore itself is a single `setDocument` transaction, so one `undo()` reverts it (with `plugin-history` installed).
-- **Retention** — each document key keeps at most `maxSnapshots` entries (default 50); the oldest drop first.
+- **Retention** — each document key keeps at most `maxSnapshots` entries (default 50); the oldest drop first. With `maxAgeMs` set, snapshots older than that are also pruned — lazily, on capture and when the host calls `prune()` (e.g. at app startup), never on a background timer.
 - **Resilience** — a rejecting store never breaks the editor: failed saves resolve `null`, failed lists resolve `[]`, missing ids are no-ops.
 
 ## Persistence (`SnapshotStore`)

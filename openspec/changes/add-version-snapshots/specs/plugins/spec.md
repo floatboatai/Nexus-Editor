@@ -81,12 +81,22 @@ Capture SHALL record the current document with an optional trimmed label. Consec
 
 ### Requirement: Snapshot Retention
 
-Each document key SHALL retain at most `maxSnapshots` snapshots (default 50). When the cap is exceeded, the oldest snapshots SHALL be removed first.
+Each document key SHALL retain at most `maxSnapshots` snapshots (default 50). When the cap is exceeded, the oldest snapshots SHALL be removed first. When `maxAgeMs` is configured, snapshots older than that age SHALL be pruned lazily — on capture and when the host calls `prune()` — rather than by a background timer.
 
 #### Scenario: Oldest snapshots are dropped
 - **GIVEN** `maxSnapshots` is `2`
 - **WHEN** three snapshots with different content are captured in order
 - **THEN** only the two newest snapshots SHALL remain listed
+
+#### Scenario: Expired snapshots are pruned on capture
+- **GIVEN** `maxAgeMs` is configured and a snapshot older than that age exists
+- **WHEN** a new snapshot is captured
+- **THEN** the expired snapshot SHALL be removed
+
+#### Scenario: Startup sweep without a new capture
+- **GIVEN** `maxAgeMs` is configured and only expired snapshots exist
+- **WHEN** the host calls `prune()` (e.g. at app startup)
+- **THEN** the expired snapshots SHALL be removed without capturing anything new
 
 ### Requirement: Safe Restore
 

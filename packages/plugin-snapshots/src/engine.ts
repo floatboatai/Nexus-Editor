@@ -49,6 +49,13 @@ function createSnapshotId(createdAt: number, hash: string, taken: SnapshotMeta[]
 export interface SnapshotEngineOptions {
   store: SnapshotStore;
   maxSnapshots?: number;
+  /**
+   * Optional age-based expiry: snapshots older than this are pruned on
+   * capture and via {@link SnapshotEngine.prune}. Lazy sweeping (on access)
+   * instead of a background timer — timers are unreliable in long-lived
+   * editors and the storage is host-owned anyway.
+   */
+  maxAgeMs?: number;
   /** Injectable clock for tests. Defaults to `Date.now`. */
   now?: () => number;
 }
@@ -56,12 +63,15 @@ export interface SnapshotEngineOptions {
 export class SnapshotEngine {
   private readonly store: SnapshotStore;
   private readonly maxSnapshots: number;
+  private readonly maxAgeMs: number | null;
   private readonly now: () => number;
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(options: SnapshotEngineOptions) {
     this.store = options.store;
     this.maxSnapshots = Math.max(1, options.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS);
+    this.maxAgeMs =
+      options.maxAgeMs !== undefined && options.maxAgeMs > 0 ? options.maxAgeMs : null;
     this.now = options.now ?? Date.now;
   }
 
@@ -91,7 +101,9 @@ export class SnapshotEngine {
         // Persistence is best-effort; a failing store must not break editing.
         return null;
       }
-      await this.prune(documentKey);
+      // Call the sweep directly — the public prune() re-enters the queue,
+      // which would deadlock against this in-flight capture.
+      await this.sweep(documentKey);
       const { content: _content, ...meta } = snapshot;
       return meta;
     });
@@ -135,6 +147,15 @@ export class SnapshotEngine {
     });
   }
 
+  /**
+   * Remove expired snapshots (older than `maxAgeMs`, when configured) and
+   * count-overflow beyond `maxSnapshots`. Runs automatically after every
+   * capture; hosts can also call it explicitly, e.g. at app startup.
+   */
+  prune(documentKey: string): Promise<void> {
+    return this.enqueue(() => this.sweep(documentKey));
+  }
+
   /** Serialize async operations so rapid capture/restore clicks queue up. */
   private enqueue<T>(op: () => Promise<T>): Promise<T> {
     const run = this.queue.then(op, op);
@@ -142,22 +163,27 @@ export class SnapshotEngine {
     return run;
   }
 
+  private async sweep(documentKey: string): Promise<void> {
+    const cutoff = this.maxAgeMs === null ? null : this.now() - this.maxAgeMs;
+    const metas = await this.safeList(documentKey);
+    const stale = metas.filter((meta, index) => {
+      if (cutoff !== null && meta.createdAt < cutoff) return true;
+      return index >= this.maxSnapshots;
+    });
+    for (const meta of stale) {
+      try {
+        await this.store.remove(documentKey, meta.id);
+      } catch {
+        // Retention is best-effort; a stuck entry just survives to next time.
+      }
+    }
+  }
+
   private async safeList(documentKey: string): Promise<SnapshotMeta[]> {
     try {
       return sortNewestFirst(await this.store.list(documentKey));
     } catch {
       return [];
-    }
-  }
-
-  private async prune(documentKey: string): Promise<void> {
-    const metas = await this.safeList(documentKey);
-    for (const extra of metas.slice(this.maxSnapshots)) {
-      try {
-        await this.store.remove(documentKey, extra.id);
-      } catch {
-        // Retention is best-effort; a stuck entry just survives to next time.
-      }
     }
   }
 }
