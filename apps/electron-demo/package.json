@@ -26,6 +26,7 @@
     "@floatboat/nexus-plugin-history": "workspace:*",
     "@floatboat/nexus-plugin-search": "workspace:*",
     "@floatboat/nexus-plugin-slash": "workspace:*",
+    "@floatboat/nexus-plugin-snapshots": "workspace:*",
     "@floatboat/nexus-plugin-toolbar": "workspace:*",
     "@floatboat/nexus-plugin-wordcount": "workspace:*",
     "@floatboat/nexus-preset-gfm": "workspace:*",

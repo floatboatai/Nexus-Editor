@@ -14,6 +14,11 @@ import {
   createWordCountPlugin,
   type WordCountPlugin
 } from "@floatboat/nexus-plugin-wordcount";
+import {
+  attachSnapshotsPlugin,
+  createSnapshotsPlugin,
+  type SnapshotsPlugin
+} from "@floatboat/nexus-plugin-snapshots";
 import type { AppState } from "./state";
 import { type EditorSettings, settingsToTheme } from "./settings";
 
@@ -85,6 +90,8 @@ export interface EditorShell {
   slashMenu: SlashMenuUI;
   /** Markdown-aware word-count plugin (handle + status bar). */
   wordcount: WordCountPlugin;
+  /** Version-history snapshots (Roadmap #19 reference implementation). */
+  snapshots: SnapshotsPlugin;
   applySettings(settings: EditorSettings): void;
   loadDocument(content: string): void;
   destroy(): void;
@@ -119,6 +126,17 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     statusBar: { container, classPrefix: "nexus-wordcount" },
   });
 
+  // Snapshots persist through the main process into the vault's
+  // .nexus/snapshots/ directory, keyed by the active file path so each
+  // note gets its own history. Outside Electron (unit tests, browser
+  // hosts) the preload bridge is absent and the plugin falls back to its
+  // in-memory store.
+  const snapshots = createSnapshotsPlugin({
+    store: window.nexusDemo?.snapshots,
+    getDocumentKey: () => state.activeFile ?? "untitled",
+    autoCapture: { intervalMs: 30_000 },
+  });
+
   // No more parser worker. Live-preview drives off `syntaxTree(state)` from
   // @codemirror/lang-markdown (incremental, intrinsic to EditorState), and
   // editor.ts builds mdast for `getAst()` / `change` events synchronously
@@ -143,6 +161,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       createSearchPlugin(),
       wikilinksPlugin,
       wordcount,
+      snapshots,
     ],
     livePreview: settings.livePreview
       ? {
@@ -345,12 +364,14 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   // microtask), so it's already wired by the time the user sees the
   // first paint.
   attachWordCountPlugin(wordcount, editor);
+  attachSnapshotsPlugin(snapshots, editor);
 
   return {
     editor,
     toolbar,
     slashMenu,
     wordcount,
+    snapshots,
     applySettings(next: EditorSettings) {
       editor.setTheme(settingsToTheme(next));
     },
@@ -373,6 +394,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
         `${(t1 - t0).toFixed(1)}ms`, { bytes: content.length });
     },
     destroy() {
+      snapshots.destroy();
       wordcount.destroy();
       slashMenu.destroy();
       toolbar.destroy();
