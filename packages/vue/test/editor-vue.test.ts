@@ -262,4 +262,85 @@ describe("@floatboat/nexus-vue", () => {
       expect(wrapper.element.querySelector(".cm-line")?.textContent).toBe("uncontrolled");
     });
   });
+
+  it("emits selectionChange event on cursor move", async () => {
+    const selections: unknown[] = [];
+    const wrapper = mount(Editor, {
+      props: {
+        initialValue: "hello world",
+        onSelectionChange: (sel: unknown) => {
+          selections.push(sel);
+        }
+      }
+    });
+
+    await nextTick();
+
+    const Harness = defineComponent({
+      setup() {
+        const { containerRef, editor } = useEditor({
+          initialValue: "hello world",
+          onReady: (api) => {
+            api.setSelection(6, 11);
+          }
+        });
+        return () => h("div", { ref: containerRef });
+      }
+    });
+
+    const wrapper2 = mount(Harness);
+    await nextTick();
+
+    // Use the standalone useEditor to verify the callback fires
+    const onSelection = vi.fn();
+    const Harness2 = defineComponent({
+      setup() {
+        const { containerRef, editor } = useEditor({
+          initialValue: "abc",
+          onSelectionChange: onSelection,
+          onReady: (api) => {
+            api.setSelection(0, 3);
+          }
+        });
+        return () => h("div", { ref: containerRef });
+      }
+    });
+
+    mount(Harness2);
+    await nextTick();
+
+    expect(onSelection).toHaveBeenCalled();
+    const call = onSelection.mock.calls[0][0];
+    expect(call.anchor).toBe(0);
+    expect(call.head).toBe(3);
+  });
+
+  it("calls onSlashMenuChange when slash commands are registered", async () => {
+    const handler = vi.fn();
+    const commands = [{ id: "h1", title: "Heading 1" }];
+
+    const Harness = defineComponent({
+      setup() {
+        const { containerRef, editor } = useEditor({
+          initialValue: "",
+          plugins: [{ name: "test", slashCommands: commands }],
+          onSlashMenuChange: handler,
+          onReady: (api) => {
+            api.setDocument("/he");
+            api.setSelection(3);
+          }
+        });
+        return () => h("div", { ref: containerRef });
+      }
+    });
+
+    mount(Harness);
+    await nextTick();
+
+    expect(handler).toHaveBeenCalled();
+    const lastCall = handler.mock.calls[handler.mock.calls.length - 1][0];
+    expect(lastCall.isOpen).toBe(true);
+    expect(lastCall.query).toBe("he");
+    expect(lastCall.commands).toHaveLength(1);
+  });
 });

@@ -2,7 +2,7 @@ import { computed, defineComponent, h, type PropType } from "vue";
 
 import { useEditor } from "./use-editor";
 
-import type { EditorAPI } from "@floatboat/nexus-core";
+import type { EditorAPI, SlashMenuState, SelectionState } from "@floatboat/nexus-core";
 import type { EditorProps, UseEditorConfig } from "./types";
 
 const editorPropKeys = [
@@ -21,6 +21,8 @@ const editorPropKeys = [
   "onChange",
   "onFocus",
   "onBlur",
+  "onSelectionChange",
+  "onSlashMenuChange",
   "onAssetUpload",
   "onReady"
 ] as const;
@@ -114,16 +116,28 @@ export const Editor = defineComponent({
     onReady: {
       type: Function as PropType<(editor: EditorAPI) => void>,
       required: false
+    },
+    onSelectionChange: {
+      type: Function as PropType<(selection: { anchor: number; head: number } & SelectionState) => void>,
+      required: false
+    },
+    onSlashMenuChange: {
+      type: Function as PropType<(state: SlashMenuState) => void>,
+      required: false
     }
   },
   emits: {
-    "update:modelValue": (_value: string) => true
+    "update:modelValue": (_value: string) => true,
+    selectionChange: (_selection: { anchor: number; head: number } & SelectionState) => true,
+    slashMenuChange: (_state: SlashMenuState) => true
   },
   setup(props, { emit, attrs }) {
     const editorConfig = computed<UseEditorConfig>(() => {
       const config = pickEditorConfig(props as EditorProps);
       const { modelValue } = props;
       const userOnChange = config.onChange;
+      const userOnSelectionChange = config.onSelectionChange;
+      const userOnSlashMenuChange = config.onSlashMenuChange;
 
       return {
         ...config,
@@ -133,6 +147,14 @@ export const Editor = defineComponent({
             emit("update:modelValue", doc);
           }
           userOnChange?.(doc, ast);
+        },
+        onSelectionChange: (selection) => {
+          emit("selectionChange", selection);
+          userOnSelectionChange?.(selection);
+        },
+        onSlashMenuChange: (state) => {
+          emit("slashMenuChange", state);
+          userOnSlashMenuChange?.(state);
         }
       };
     });
