@@ -238,3 +238,112 @@ describe("slashMenuChange", () => {
     editor.destroy();
   });
 });
+
+describe("onSelectionChange config callback", () => {
+  it("fires on cursor move via setSelection", () => {
+    const container = document.createElement("div");
+    const handler = vi.fn();
+    const editor = createEditor({
+      container,
+      initialValue: "hello world",
+      onSelectionChange: handler,
+    });
+
+    editor.setSelection(5);
+
+    expect(handler).toHaveBeenCalledWith({
+      anchor: 5,
+      head: 5,
+      ranges: [{ anchor: 5, head: 5 }],
+      mainIndex: 0,
+    });
+    editor.destroy();
+  });
+
+  it("fires with the expanded range when text is selected", () => {
+    const container = document.createElement("div");
+    const handler = vi.fn();
+    const editor = createEditor({
+      container,
+      initialValue: "hello world",
+      onSelectionChange: handler,
+    });
+
+    editor.setSelection(6, 11);
+
+    expect(handler).toHaveBeenCalledWith({
+      anchor: 6,
+      head: 11,
+      ranges: [{ anchor: 6, head: 11 }],
+      mainIndex: 0,
+    });
+    editor.destroy();
+  });
+
+  it("coexists with the event emitter", () => {
+    const container = document.createElement("div");
+    const configHandler = vi.fn();
+    const eventHandler = vi.fn();
+    const editor = createEditor({
+      container,
+      initialValue: "hello",
+      onSelectionChange: configHandler,
+    });
+
+    editor.on("selectionChange", eventHandler);
+    editor.setSelection(2);
+
+    expect(configHandler).toHaveBeenCalledOnce();
+    expect(eventHandler).toHaveBeenCalledOnce();
+    editor.destroy();
+  });
+});
+
+describe("onSlashMenuChange config callback", () => {
+  const commands = [
+    { id: "heading", title: "Heading" },
+    { id: "bold", title: "Bold" },
+  ];
+
+  it("fires with open state when slash is typed", () => {
+    const container = document.createElement("div");
+    const handler = vi.fn();
+    const editor = createEditor({
+      container,
+      initialValue: "",
+      plugins: [{ name: "test", slashCommands: commands }],
+      onSlashMenuChange: handler,
+    });
+
+    editor.setDocument("/hea");
+    editor.setSelection(4);
+
+    expect(handler).toHaveBeenCalled();
+    const lastCall = handler.mock.calls[handler.mock.calls.length - 1][0];
+    expect(lastCall.isOpen).toBe(true);
+    expect(lastCall.query).toBe("hea");
+    expect(lastCall.commands).toHaveLength(1);
+    expect(lastCall.commands[0].id).toBe("heading");
+    editor.destroy();
+  });
+
+  it("coexists with the event emitter", () => {
+    const container = document.createElement("div");
+    const configHandler = vi.fn();
+    const eventHandler = vi.fn();
+    const editor = createEditor({
+      container,
+      initialValue: "",
+      plugins: [{ name: "test", slashCommands: commands }],
+      onSlashMenuChange: configHandler,
+    });
+
+    editor.on("slashMenuChange", eventHandler);
+    editor.setDocument("/bo");
+    editor.setSelection(3);
+
+    expect(configHandler).toHaveBeenCalled();
+    expect(eventHandler).toHaveBeenCalled();
+    editor.destroy();
+  });
+});

@@ -623,12 +623,14 @@ export function createEditor(config: EditorConfig): EditorAPI {
 
             if (update.selectionSet) {
               const selection = update.state.selection;
-              emitter.emit("selectionChange", {
+              const selectionState = {
                 anchor: sel.anchor,
                 head: sel.head,
                 ranges: selection.ranges.map((range) => ({ anchor: range.anchor, head: range.head })),
                 mainIndex: selection.mainIndex,
-              });
+              };
+              config.onSelectionChange?.(selectionState);
+              emitter.emit("selectionChange", selectionState);
             }
 
             if (slashCommands.length > 0) {
@@ -647,7 +649,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
                 } catch { /* out of range */ }
               }
 
-              emitter.emit("slashMenuChange", { ...state, coords });
+              const slashState = { ...state, coords };
+              config.onSlashMenuChange?.(slashState);
+              emitter.emit("slashMenuChange", slashState);
             }
           }
         }),

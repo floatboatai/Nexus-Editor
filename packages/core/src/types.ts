@@ -114,6 +114,16 @@ export interface EditorConfig {
   onFocus?: () => void;
   onBlur?: () => void;
   /**
+   * Fires on every cursor move or selection change with full selection state
+   * (main range, all ranges, main index). Mirrors the `selectionChange` event.
+   */
+  onSelectionChange?: (selection: { anchor: number; head: number } & SelectionState) => void;
+  /**
+   * Fires whenever the slash-menu state changes — query text, matched commands,
+   * open/closed, and screen coordinates. Mirrors the `slashMenuChange` event.
+   */
+  onSlashMenuChange?: (state: SlashMenuState) => void;
+  /**
    * 资源上传钩子：粘贴 / 拖拽进来的图片或文件交给宿主落盘 / 上传，返回可供 markdown
    * 引用的 URL（相对路径或远程地址）。返回 null 表示放弃，编辑器不会插入坏链接。
    */
