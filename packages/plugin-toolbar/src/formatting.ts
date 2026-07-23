@@ -208,3 +208,47 @@ export function insertHorizontalRule(editor: EditorAPI): boolean {
   editor.setSelection(anchor + hr.length);
   return true;
 }
+
+/**
+ * Insert a GFM table at the current cursor position. The generated
+ * markdown includes a header row, a separator row, and the requested
+ * number of body rows. The cursor is placed inside the first header cell
+ * so the user can start typing immediately.
+ *
+ * The table button in the default toolbar opens a grid picker that
+ * calls this function with the selected dimensions; hosts using the
+ * function programmatically can pass explicit row / column counts
+ * (rows includes the header).
+ */
+export function insertTable(editor: EditorAPI, rows: number = 3, cols: number = 3): boolean {
+  const doc = editor.getDocument();
+  const { anchor } = editor.getSelection();
+
+  // Build GFM table
+  const headerCells = Array(cols).fill(" Header ");
+  const header = "|" + headerCells.join("|") + "|";
+
+  const separatorCells = Array(cols).fill(" --- ");
+  const separator = "|" + separatorCells.join("|") + "|";
+
+  const bodyLines: string[] = [];
+  const bodyCount = Math.max(1, rows - 1); // at least one body row
+  for (let r = 0; r < bodyCount; r++) {
+    const cells = Array(cols).fill(" Cell ");
+    bodyLines.push("|" + cells.join("|") + "|");
+  }
+
+  const tableMd = header + "\n" + separator + "\n" + bodyLines.join("\n");
+
+  // Ensure proper newline separation from preceding content
+  const needsLeadingNewline = anchor > 0 && doc[anchor - 1] !== "\n";
+  const prefix = needsLeadingNewline ? "\n" : "";
+
+  const newDoc = doc.slice(0, anchor) + prefix + tableMd + "\n" + doc.slice(anchor);
+  editor.setDocument(newDoc);
+
+  // Place cursor inside the first header cell (past "| ")
+  const cursorPos = anchor + prefix.length + 2;
+  editor.setSelection(cursorPos);
+  return true;
+}

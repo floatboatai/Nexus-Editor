@@ -15,6 +15,7 @@ import {
   toggleUnorderedList,
   insertCodeBlock,
   insertImage,
+  insertTable,
   applyTextColor,
   applyHighlight,
 } from "./formatting";
@@ -38,6 +39,7 @@ import {
   iconHighlight,
   iconImage,
   iconFullscreen,
+  iconTable,
 } from "./icons";
 
 export interface ToolbarButton {
@@ -182,6 +184,7 @@ function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
     {
       buttons: [
         { id: "image", title: "Insert image", icon: iconImage, action: insertImage },
+        { id: "insert-table", title: "Insert table", icon: iconTable, action: () => {} },
         { id: "fullscreen", title: "Fullscreen", icon: iconFullscreen, action: () => options?.onFullscreen?.() },
       ],
     },
@@ -440,8 +443,121 @@ function showColorPicker(
   };
 }
 
+/**
+ * Table dimension picker — a grid of cells the user hovers to select
+ * rows × columns, then clicks to insert a GFM table.  Mirrors the
+ * Notion-style table-picker UX.
+ */
+function showTablePicker(
+  editor: EditorAPI,
+  anchorBtn: HTMLElement,
+  onClose: () => void,
+): { destroy: () => void } {
+  const MAX_COLS = 8;
+  const MAX_ROWS = 6;
+
+  const panel = document.createElement("div");
+  panel.className = "nexus-toolbar-dropdown";
+  panel.style.cssText = COLOR_GRID_STYLES + "padding:10px;";
+
+  const rect = anchorBtn.getBoundingClientRect();
+  panel.style.top = rect.bottom + 4 + "px";
+  panel.style.left = rect.left + "px";
+
+  // Dimension label
+  const label = document.createElement("div");
+  label.style.cssText =
+    "text-align:center;font-size:11px;color:var(--nexus-text-muted,#888);" +
+    "margin-bottom:6px;font-family:system-ui,sans-serif;min-height:16px;line-height:16px;";
+  label.textContent = "Insert table";
+  panel.appendChild(label);
+
+  // Cell grid
+  const grid = document.createElement("div");
+  grid.style.cssText = `display:grid;grid-template-columns:repeat(${MAX_COLS},1fr);gap:2px;`;
+
+  const cells: HTMLButtonElement[][] = [];
+  const itemCleanups: Array<() => void> = [];
+
+  for (let r = 0; r < MAX_ROWS; r++) {
+    const row: HTMLButtonElement[] = [];
+    for (let c = 0; c < MAX_COLS; c++) {
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.style.cssText = [
+        "width:22px;height:22px;",
+        "border:1px solid var(--nexus-border-subtle,#ddd);",
+        "border-radius:2px;",
+        "background:transparent;",
+        "cursor:pointer;",
+        "padding:0;",
+        "transition:background .05s;",
+      ].join("");
+
+      const highlight = (active: boolean) => {
+        for (let rr = 0; rr < MAX_ROWS; rr++) {
+          for (let cc = 0; cc < MAX_COLS; cc++) {
+            const on = active && rr <= r && cc <= c;
+            cells[rr][cc].style.background = on
+              ? "var(--nexus-accent,#0969da)"
+              : "transparent";
+            cells[rr][cc].style.borderColor = on
+              ? "var(--nexus-accent,#0969da)"
+              : "var(--nexus-border-subtle,#ddd)";
+          }
+        }
+        label.textContent = active ? `${c + 1} × ${r + 1} table` : "Insert table";
+      };
+
+      const handleEnter = () => highlight(true);
+      const handleClick = (e: MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        insertTable(editor, r + 1, c + 1);
+        editor.focus();
+        onClose();
+      };
+
+      cell.addEventListener("mouseenter", handleEnter);
+      cell.addEventListener("click", handleClick);
+      itemCleanups.push(() => {
+        cell.removeEventListener("mouseenter", handleEnter);
+        cell.removeEventListener("click", handleClick);
+      });
+
+      row.push(cell);
+      grid.appendChild(cell);
+    }
+    cells.push(row);
+  }
+
+  // Reset highlights when the pointer leaves the grid
+  const handleGridLeave = () => {
+    for (const row of cells) {
+      for (const c of row) {
+        c.style.background = "transparent";
+        c.style.borderColor = "var(--nexus-border-subtle,#ddd)";
+      }
+    }
+    label.textContent = "Insert table";
+  };
+  grid.addEventListener("mouseleave", handleGridLeave);
+  itemCleanups.push(() => grid.removeEventListener("mouseleave", handleGridLeave));
+
+  panel.appendChild(grid);
+  pickOverlayMount(anchorBtn).appendChild(panel);
+
+  return {
+    destroy() {
+      for (const fn of itemCleanups) fn();
+      itemCleanups.length = 0;
+      panel.remove();
+    },
+  };
+}
+
 /** IDs that trigger dropdown behavior instead of a direct action. */
-const DROPDOWN_IDS = new Set(["heading-menu", "text-color", "highlight"]);
+const DROPDOWN_IDS = new Set(["heading-menu", "text-color", "highlight", "insert-table"]);
 
 export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): ToolbarUI {
   const groups = options?.groups ?? defaultGroups(options);
@@ -510,6 +626,8 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
             activeDropdown = showColorPicker(editor, button, COLOR_PALETTE, applyTextColor, closeDropdown);
           } else if (btn.id === "highlight") {
             activeDropdown = showColorPicker(editor, button, HIGHLIGHT_PALETTE, applyHighlight, closeDropdown);
+          } else if (btn.id === "insert-table") {
+            activeDropdown = showTablePicker(editor, button, closeDropdown);
           }
 
           outsideHandler = (ev: MouseEvent) => {

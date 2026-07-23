@@ -7,6 +7,7 @@ import {
   toggleItalic,
   toggleInlineCode,
   insertLink,
+  insertTable,
   toggleHeading,
   toggleOrderedList,
   toggleUnorderedList,
@@ -603,6 +604,151 @@ describe("toggleUnorderedList — atomic undo", () => {
 
     editor.undo();
     expect(editor.getDocument()).toBe(original);
+    editor.destroy();
+  });
+});
+
+// ── insertTable ─────────────────────────────────────────────────────────────
+
+describe("insertTable", () => {
+  it("inserts a default 3×3 GFM table at cursor position", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "before\n\nafter" });
+
+    editor.setSelection(7); // cursor at the second \n (already past a newline)
+    insertTable(editor);
+
+    // No extra leading newline because cursor already follows \n
+    expect(editor.getDocument()).toBe(
+      "before\n| Header | Header | Header |\n| --- | --- | --- |\n| Cell | Cell | Cell |\n| Cell | Cell | Cell |\n\nafter"
+    );
+    editor.destroy();
+  });
+
+  it("places cursor inside the first header cell", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "" });
+
+    insertTable(editor, 3, 3);
+    const sel = editor.getSelection();
+
+    // Cursor should be at position 2 (past "| ") of the header row
+    expect(sel.anchor).toBe(2);
+    expect(sel.head).toBe(2);
+    editor.destroy();
+  });
+
+  it("adds leading newline when cursor is not at line start", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "text" });
+
+    editor.setSelection(4); // end of "text"
+    insertTable(editor, 2, 2);
+
+    expect(editor.getDocument()).toBe(
+      "text\n| Header | Header |\n| --- | --- |\n| Cell | Cell |\n"
+    );
+    editor.destroy();
+  });
+
+  it("does not add extra leading newline when already after a newline", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "line1\n" });
+
+    editor.setSelection(6); // just after \n
+    insertTable(editor, 2, 2);
+
+    expect(editor.getDocument()).toBe(
+      "line1\n| Header | Header |\n| --- | --- |\n| Cell | Cell |\n"
+    );
+    editor.destroy();
+  });
+
+  it("inserts at document start without leading newline", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "" });
+
+    insertTable(editor, 2, 1);
+
+    expect(editor.getDocument()).toBe(
+      "| Header |\n| --- |\n| Cell |\n"
+    );
+    editor.destroy();
+  });
+
+  it("respects custom row and column counts", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "" });
+
+    insertTable(editor, 4, 5);
+
+    const doc = editor.getDocument();
+    const lines = doc.split("\n");
+    // Header + separator + 3 body rows (rows=4 means header + 3 body)
+    expect(lines).toHaveLength(6); // 5 rows + trailing \n split
+    expect(lines[0]).toBe("| Header | Header | Header | Header | Header |");
+    expect(lines[1]).toBe("| --- | --- | --- | --- | --- |");
+    expect(lines[2]).toBe("| Cell | Cell | Cell | Cell | Cell |");
+    expect(lines[3]).toBe("| Cell | Cell | Cell | Cell | Cell |");
+    expect(lines[4]).toBe("| Cell | Cell | Cell | Cell | Cell |");
+    editor.destroy();
+  });
+
+  it("always produces at least one body row", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "" });
+
+    insertTable(editor, 1, 2); // rows=1 should still produce 1 body row
+
+    const doc = editor.getDocument();
+    const lines = doc.split("\n");
+    // Header + separator + 1 body row
+    expect(lines).toHaveLength(4);
+    expect(lines[2]).toBe("| Cell | Cell |");
+    editor.destroy();
+  });
+
+  it("inserts as a slash command", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "",
+      plugins: [createToolbarPlugin()],
+    });
+
+    const tableCmd = editor.getSlashCommands().find((c) => c.id === "table");
+    expect(tableCmd).toBeDefined();
+    expect(tableCmd?.run?.(editor)).toBe(true);
+
+    expect(editor.getDocument()).toContain("| Header |");
+    expect(editor.getDocument()).toContain("| --- |");
+    editor.destroy();
+  });
+
+  it("registers table in the slash command catalogue", () => {
+    const plugin = createToolbarPlugin();
+    const ids = (plugin.slashCommands ?? []).map((c) => c.id);
+    expect(ids).toEqual(expect.arrayContaining(["table"]));
+  });
+});
+
+describe("createToolbarUI — table button", () => {
+  it("renders the insert-table button with a tooltip", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "" });
+    const toolbar = createToolbarUI(editor);
+    document.body.appendChild(toolbar.element);
+
+    const btn = toolbar.element.querySelector<HTMLButtonElement>('[data-toolbar-action="insert-table"]');
+    expect(btn).not.toBeNull();
+    expect(btn?.getAttribute("aria-label")).toBe("Insert table");
+    expect(btn?.dataset.toolbarTooltip).toBe("Insert table");
+
+    btn?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    const tooltip = document.getElementById(btn?.getAttribute("aria-describedby") ?? "");
+    expect(tooltip?.textContent).toBe("Insert table");
+
+    toolbar.destroy();
     editor.destroy();
   });
 });
