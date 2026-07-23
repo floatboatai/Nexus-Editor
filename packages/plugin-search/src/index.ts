@@ -35,6 +35,29 @@ export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  /**
+   * Match `query` as a subsequence of the text (fzf-style) instead of a
+   * literal/regex substring. When enabled, `wholeWord` and `regexp` are
+   * ignored and {@link findSearchMatches} returns one match per line whose
+   * span covers the first to last matched character.
+   */
+  fuzzy?: boolean;
+}
+
+/**
+ * Result of a fuzzy (subsequence) match. Positions are ascending UTF-16
+ * code-unit offsets into the matched text — the same unit CodeMirror uses for
+ * document ranges, so they map directly to {@link SearchMatch.from/to}.
+ */
+export interface FuzzyMatch {
+  /** Higher is better. Rewards contiguous, leading, and case-exact matches. */
+  score: number;
+  /** Ascending offsets into `text` where each query character matched. */
+  positions: number[];
+}
+
+export interface FuzzyMatchOptions {
+  caseSensitive?: boolean;
 }
 
 export interface SearchHistoryStorage {
@@ -641,6 +664,183 @@ function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp 
   }
 }
 
+const FUZZY_MATCH_BASE = 1;
+const FUZZY_BONUS_CONSECUTIVE = 16;
+const FUZZY_BONUS_BOUNDARY = 8;
+const FUZZY_BONUS_CASE = 4;
+const FUZZY_PENALTY_GAP = 1;
+
+function isFuzzyWordChar(code: number): boolean {
+  return (
+    (code >= 48 && code <= 57) || // 0-9
+    (code >= 65 && code <= 90) || // A-Z
+    (code >= 97 && code <= 122) || // a-z
+    code === 95 // _
+  );
+}
+
+function isFuzzyCJK(code: number): boolean {
+  // CJK has no word separators; treat every ideograph as a boundary so
+  // matching inside Chinese text scores like matching at a word start.
+  return (
+    (code >= 0x3400 && code <= 0x4dbf) || // CJK Unified Ideographs Extension A
+    (code >= 0x4e00 && code <= 0x9fff) // CJK Unified Ideographs
+  );
+}
+
+function isFuzzyWordStart(text: string, index: number): boolean {
+  if (index === 0) return true;
+  if (isFuzzyCJK(text.charCodeAt(index))) return true;
+  return !isFuzzyWordChar(text.charCodeAt(index - 1));
+}
+
+/**
+ * Score a single matched character. The case bonus only applies when
+ * case-insensitive: under case-sensitive mode every match is already
+ * case-exact, so the bonus would be redundant.
+ */
+function fuzzyCharScore(
+  text: string,
+  pos: number,
+  queryChar: string,
+  caseSensitive: boolean
+): number {
+  let score = FUZZY_MATCH_BASE;
+  if (isFuzzyWordStart(text, pos)) score += FUZZY_BONUS_BOUNDARY;
+  if (!caseSensitive && text.charCodeAt(pos) === queryChar.charCodeAt(0)) {
+    score += FUZZY_BONUS_CASE;
+  }
+  return score;
+}
+
+/**
+ * fzf-style subsequence matcher. Returns the highest-scoring alignment of
+ * `query` as a subsequence of `text`, or null when no alignment exists.
+ *
+ * Scoring rewards contiguous runs, leading / word-start positions, exact-case
+ * letters, and earlier matches; it penalises gaps between matched characters —
+ * so an intuitive match ("abc" in "abc") outranks a scattered one ("abc" in
+ * "aXbYc").
+ *
+ * The optimal alignment is found with an O(n·m) dynamic program. A naive
+ * greedy left-to-right scan would confirm a subsequence but can settle on a
+ * low-scoring alignment (e.g. matching the first 'a' when a later word-start
+ * 'a' scores far higher); the DP is the backtracking matcher the roadmap calls
+ * for.
+ */
+export function fuzzyMatch(
+  text: string,
+  query: string,
+  options: FuzzyMatchOptions = {}
+): FuzzyMatch | null {
+  if (query.length === 0) return { score: 0, positions: [] };
+  if (text.length === 0 || query.length > text.length) return null;
+
+  const caseSensitive = options.caseSensitive ?? false;
+  const n = text.length;
+  const m = query.length;
+  const haystack = caseSensitive ? text : text.toLowerCase();
+  const needle = caseSensitive ? query : query.toLowerCase();
+  const neg = Number.NEGATIVE_INFINITY;
+
+  // dp[i][j] = best score matching query[0..i] with query[i] at text[j].
+  // back[i][j] = previous matched position chosen for query[i-1].
+  const dp: number[][] = Array.from({ length: m }, () => new Array<number>(n).fill(neg));
+  const back: number[][] = Array.from({ length: m }, () => new Array<number>(n).fill(-1));
+
+  for (let j = 0; j < n; j++) {
+    if (haystack[j] === needle[0]) {
+      dp[0][j] = fuzzyCharScore(text, j, query[0], caseSensitive);
+    }
+  }
+
+  for (let i = 1; i < m; i++) {
+    // Running max of (dp[i-1][k] + PENALTY*k) over feasible k already seen.
+    // The non-consecutive transition to position j reuses it as
+    // runningMax - PENALTY*(j-1), keeping the inner loop O(1) per cell
+    // instead of O(n).
+    let runningMax = neg;
+    let runningMaxK = -1;
+    const needleChar = needle[i];
+    for (let j = 0; j < n; j++) {
+      if (haystack[j] === needleChar) {
+        let best = neg;
+        let bestK = -1;
+        if (j > 0 && dp[i - 1][j - 1] !== neg) {
+          best = dp[i - 1][j - 1] + FUZZY_BONUS_CONSECUTIVE;
+          bestK = j - 1;
+        }
+        if (runningMax !== neg) {
+          const candidate = runningMax - FUZZY_PENALTY_GAP * (j - 1);
+          if (candidate > best) {
+            best = candidate;
+            bestK = runningMaxK;
+          }
+        }
+        if (best !== neg) {
+          dp[i][j] = best + fuzzyCharScore(text, j, query[i], caseSensitive);
+          back[i][j] = bestK;
+        }
+      }
+      if (dp[i - 1][j] !== neg) {
+        const candidate = dp[i - 1][j] + FUZZY_PENALTY_GAP * j;
+        if (candidate > runningMax) {
+          runningMax = candidate;
+          runningMaxK = j;
+        }
+      }
+    }
+  }
+
+  let end = -1;
+  let bestScore = neg;
+  for (let j = 0; j < n; j++) {
+    if (dp[m - 1][j] > bestScore) {
+      bestScore = dp[m - 1][j];
+      end = j;
+    }
+  }
+  if (end === -1) return null;
+
+  const positions: number[] = new Array<number>(m);
+  let j = end;
+  for (let i = m - 1; i >= 0; i--) {
+    positions[i] = j;
+    if (i > 0) j = back[i][j];
+  }
+  return { score: bestScore, positions };
+}
+
+/**
+ * Find fuzzy matches line-by-line. Each matching line yields one
+ * {@link SearchMatch} spanning its first to last matched character, so callers
+ * that consume substring matches (navigation, highlighting) work unchanged.
+ */
+function findFuzzyLineMatches(
+  doc: string,
+  query: string,
+  options: SearchOptions
+): SearchMatch[] {
+  const matches: SearchMatch[] = [];
+  let lineStart = 0;
+  const lines = doc.split("\n");
+  for (const line of lines) {
+    const cleanLine = line.endsWith("\r") ? line.slice(0, -1) : line;
+    const result = fuzzyMatch(cleanLine, query, { caseSensitive: options.caseSensitive });
+    if (result && result.positions.length > 0) {
+      const first = result.positions[0];
+      const last = result.positions[result.positions.length - 1];
+      matches.push({
+        from: lineStart + first,
+        to: lineStart + last + 1,
+        text: cleanLine.slice(first, last + 1)
+      });
+    }
+    lineStart += line.length + 1; // +1 for the consumed "\n"
+  }
+  return matches;
+}
+
 export function findSearchMatches(
   doc: string,
   query: string,
@@ -648,6 +848,10 @@ export function findSearchMatches(
 ): SearchMatch[] {
   if (!query) {
     return [];
+  }
+
+  if (options.fuzzy) {
+    return findFuzzyLineMatches(doc, query, options);
   }
 
   const pattern = buildSearchPattern(query, options);
@@ -677,6 +881,12 @@ export function replaceAllMatches(
   options: SearchOptions = {}
 ): string {
   if (!query) {
+    return doc;
+  }
+
+  // Fuzzy matches are not contiguous substrings, so there is no single span
+  // to replace. Leave the document untouched rather than guess intent.
+  if (options.fuzzy) {
     return doc;
   }
 

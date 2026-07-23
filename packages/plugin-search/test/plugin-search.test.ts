@@ -4,6 +4,7 @@ import { createGfmPreset } from "../../preset-gfm/src/index";
 import {
   createSearchPlugin,
   findSearchMatches,
+  fuzzyMatch,
   replaceAllMatches
 } from "../src/index";
 
@@ -886,5 +887,124 @@ describe("@floatboat/nexus-plugin-search", () => {
 
     editor.destroy();
     container.remove();
+  });
+
+  describe("fuzzy matching", () => {
+    it("matches a subsequence and returns the matched positions", () => {
+      expect(fuzzyMatch("hello", "hlo")).toEqual({ score: 37, positions: [0, 3, 4] });
+    });
+
+    it("preserves query order — out-of-order characters do not match", () => {
+      expect(fuzzyMatch("abc", "cba")).toBeNull();
+      expect(fuzzyMatch("acb", "abc")).toBeNull();
+    });
+
+    it("returns null when the query is not a subsequence", () => {
+      expect(fuzzyMatch("abc", "abcd")).toBeNull();
+      expect(fuzzyMatch("world", "xyz")).toBeNull();
+    });
+
+    it("returns a zero-score empty match for an empty query", () => {
+      expect(fuzzyMatch("anything", "")).toEqual({ score: 0, positions: [] });
+    });
+
+    it("returns null for empty text with a non-empty query", () => {
+      expect(fuzzyMatch("", "abc")).toBeNull();
+    });
+
+    it("matches case-insensitively by default", () => {
+      expect(fuzzyMatch("HELLO", "hlo")?.positions).toEqual([0, 3, 4]);
+      expect(fuzzyMatch("hello", "HLO")?.positions).toEqual([0, 3, 4]);
+    });
+
+    it("respects case-sensitive mode", () => {
+      expect(fuzzyMatch("HELLO", "hlo", { caseSensitive: true })).toBeNull();
+      expect(fuzzyMatch("HELLO", "HLO", { caseSensitive: true })?.positions).toEqual([0, 3, 4]);
+    });
+
+    it("prefers the contiguous alignment over a scattered one", () => {
+      // "a b c abc" contains both a scattered "a b c" and a contiguous "abc";
+      // the matcher must pick the contiguous run at the end.
+      expect(fuzzyMatch("a b c abc", "abc")?.positions).toEqual([6, 7, 8]);
+    });
+
+    it("scores word-start matches higher than mid-word matches", () => {
+      const midWord = fuzzyMatch("abc", "bc")?.score ?? -Infinity;
+      const wordStart = fuzzyMatch("a bc", "bc")?.score ?? -Infinity;
+      expect(wordStart).toBeGreaterThan(midWord);
+    });
+
+    it("rewards exact-case letters under case-insensitive mode", () => {
+      const exactCase = fuzzyMatch("Hello", "H")?.score ?? -Infinity;
+      const otherCase = fuzzyMatch("Hello", "h")?.score ?? -Infinity;
+      expect(exactCase).toBeGreaterThan(otherCase);
+    });
+
+    it("returns strictly ascending positions", () => {
+      const result = fuzzyMatch("foo bar baz", "fbb");
+      expect(result).not.toBeNull();
+      const positions = result!.positions;
+      for (let i = 1; i < positions.length; i++) {
+        expect(positions[i]).toBeGreaterThan(positions[i - 1]);
+      }
+    });
+
+    it("treats CJK ideographs as word boundaries", () => {
+      // 你好世界: 你0 好1 世2 界3. Matching "好世" lands on [1, 2].
+      expect(fuzzyMatch("你好世界", "好世")?.positions).toEqual([1, 2]);
+      expect(fuzzyMatch("你好世界", "世界")?.positions).toEqual([2, 3]);
+    });
+
+    it("finds one fuzzy match per line with absolute document offsets", () => {
+      const doc = "abc\naxbxc";
+      expect(findSearchMatches(doc, "abc", { fuzzy: true })).toEqual([
+        { from: 0, to: 3, text: "abc" },
+        { from: 4, to: 9, text: "axbxc" }
+      ]);
+    });
+
+    it("skips lines that do not contain the query as a subsequence", () => {
+      const doc = "hello world\nfoo bar\nabc";
+      expect(findSearchMatches(doc, "hl", { fuzzy: true })).toEqual([
+        { from: 0, to: 3, text: "hel" }
+      ]);
+    });
+
+    it("matches case-insensitively across lines", () => {
+      const matches = findSearchMatches("Hello\nHELLO", "hlo", { fuzzy: true });
+      expect(matches).toEqual([
+        { from: 0, to: 5, text: "Hello" },
+        { from: 6, to: 11, text: "HELLO" }
+      ]);
+    });
+
+    it("takes precedence over regexp and wholeWord when fuzzy is enabled", () => {
+      // Under regexp, "a.c" matches "aXc"; under fuzzy the literal '.' is
+      // required and absent, so fuzzy wins and yields no match.
+      expect(findSearchMatches("aXc", "a.c", { fuzzy: true, regexp: true })).toEqual([]);
+      expect(findSearchMatches("aXc", "a.c", { regexp: true })).toEqual([
+        { from: 0, to: 3, text: "aXc" }
+      ]);
+      // wholeWord is ignored under fuzzy — the subsequence still matches.
+      expect(findSearchMatches("cat catalog", "cat", { fuzzy: true, wholeWord: true })).toEqual([
+        { from: 0, to: 3, text: "cat" }
+      ]);
+    });
+
+    it("returns an empty array for an empty fuzzy query", () => {
+      expect(findSearchMatches("abc", "", { fuzzy: true })).toEqual([]);
+    });
+
+    it("leaves the document unchanged when replacing with fuzzy enabled", () => {
+      expect(replaceAllMatches("abc", "abc", "X", { fuzzy: true })).toBe("abc");
+    });
+
+    it("handles CRLF line endings (\\r\\n) correctly without including \\r in matched text or disrupting offsets", () => {
+      const doc = "abc\r\naxbxc\r\nfoo";
+      expect(findSearchMatches(doc, "abc", { fuzzy: true })).toEqual([
+        { from: 0, to: 3, text: "abc" },
+        { from: 5, to: 10, text: "axbxc" }
+      ]);
+    });
   });
 });
