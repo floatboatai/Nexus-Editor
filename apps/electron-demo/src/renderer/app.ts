@@ -1,3 +1,4 @@
+// apps/electron-demo/src/renderer/app.ts
 import { createState, type AppState } from "./state";
 import { createEditorShell, type EditorShell } from "./editor-shell";
 import { loadSettings, createSettingsPanel, type EditorSettings } from "./settings";
@@ -7,6 +8,8 @@ import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
+import { t, setLanguage } from "./i18n";
+import { addRecentFile, getRecentFiles } from "./recent-files";
 
 installLongTaskWatch(50);
 
@@ -21,59 +24,197 @@ let backlinks: BacklinksPanel;
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
 
+// ── 自定义模态框 ──
+function showConfirmModal(
+  message: string,
+  options: { saveLabel?: string; discardLabel?: string; cancelLabel?: string } = {}
+): Promise<"save" | "discard" | "cancel"> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.style.cssText = `
+      position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 9999;
+    `;
+
+    const box = document.createElement("div");
+    box.style.cssText = `
+      background: white; border-radius: 8px; padding: 24px;
+      max-width: 420px; width: 90%; box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    `;
+
+    const msg = document.createElement("p");
+    msg.textContent = message;
+    msg.style.cssText = "margin: 0 0 20px 0; font-size: 14px; color: #1e293b;";
+
+    const btnContainer = document.createElement("div");
+    btnContainer.style.cssText = "display: flex; gap: 8px; justify-content: flex-end;";
+
+    const saveBtn = document.createElement("button");
+    saveBtn.textContent = options.saveLabel || "Save & Switch";
+    saveBtn.style.cssText = "padding: 6px 16px; border-radius: 4px; border: none; background: #2563eb; color: white; cursor: pointer; font-size: 13px;";
+    saveBtn.addEventListener("click", () => { overlay.remove(); resolve("save"); });
+
+    const discardBtn = document.createElement("button");
+    discardBtn.textContent = options.discardLabel || "Discard & Switch";
+    discardBtn.style.cssText = "padding: 6px 16px; border-radius: 4px; border: 1px solid #d1d5db; background: transparent; color: #1e293b; cursor: pointer; font-size: 13px;";
+    discardBtn.addEventListener("click", () => { overlay.remove(); resolve("discard"); });
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.textContent = options.cancelLabel || "Cancel";
+    cancelBtn.style.cssText = "padding: 6px 16px; border-radius: 4px; border: none; background: transparent; color: #6b7280; cursor: pointer; font-size: 13px;";
+    cancelBtn.addEventListener("click", () => { overlay.remove(); resolve("cancel"); });
+
+    btnContainer.append(cancelBtn, discardBtn, saveBtn);
+    box.append(msg, btnContainer);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) { overlay.remove(); resolve("cancel"); }
+    });
+  });
+}
+
+// ── 渲染最近文件下拉菜单 ──
+function renderRecentFilesDropdown(container: HTMLElement): void {
+  const files = getRecentFiles();
+  container.innerHTML = '';
+
+  if (files.length === 0) {
+    const emptyMsg = document.createElement('div');
+    emptyMsg.textContent = t('app.noRecentFiles');
+    emptyMsg.style.cssText = 'padding: 8px 16px; color: var(--nexus-text-muted, #888); font-size: 13px;';
+    container.appendChild(emptyMsg);
+    return;
+  }
+
+  for (const filePath of files) {
+    const item = document.createElement('div');
+    const fileName = filePath.split(/[\\/]/).pop() || filePath;
+    item.textContent = fileName;
+    item.title = filePath;
+    item.style.cssText = `
+      padding: 6px 16px; cursor: pointer; font-size: 13px;
+      color: var(--nexus-text, #24292e);
+      transition: background 0.12s;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    `;
+    item.addEventListener('mouseenter', () => {
+      item.style.background = 'var(--nexus-bg-active, #eef)';
+    });
+    item.addEventListener('mouseleave', () => {
+      item.style.background = 'transparent';
+    });
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      void handleVaultFileOpen(filePath);
+      container.style.display = 'none';
+    });
+    container.appendChild(item);
+  }
+}
+
 function createAppToolbar(): HTMLElement {
   const toolbar = document.createElement("div");
   toolbar.className = "toolbar";
 
   const vaultBtn = document.createElement("button");
-  vaultBtn.textContent = "Vault";
-  vaultBtn.title = "Open a folder as a vault";
+  vaultBtn.textContent = t("app.vault");
+  vaultBtn.title = t("app.vault");
   vaultBtn.addEventListener("click", () => {
     void vault.promptPickVault();
   });
 
   const openBtn = document.createElement("button");
-  openBtn.textContent = "Open";
+  openBtn.textContent = t("app.open");
+  openBtn.title = `${t("app.open")} (Ctrl+O)`;
   openBtn.addEventListener("click", handleOpen);
 
   const saveBtn = document.createElement("button");
-  saveBtn.textContent = "Save";
+  saveBtn.textContent = t("app.save");
+  saveBtn.title = `${t("app.save")} (Ctrl+S)`;
   saveBtn.addEventListener("click", handleSave);
 
   const saveAsBtn = document.createElement("button");
-  saveAsBtn.textContent = "Save As";
+  saveAsBtn.textContent = t("app.saveAs");
+  saveAsBtn.title = `${t("app.saveAs")} (Ctrl+Shift+S)`;
   saveAsBtn.addEventListener("click", handleSaveAs);
 
   const spacer = document.createElement("div");
   spacer.style.flex = "1";
 
   const vaultToggleBtn = document.createElement("button");
-  vaultToggleBtn.textContent = "\uD83D\uDCD1"; // 📑
-  vaultToggleBtn.title = "Toggle vault panel";
+  vaultToggleBtn.textContent = "\uD83D\uDCD1";
+  vaultToggleBtn.title = t("app.toggleVault");
   vaultToggleBtn.style.fontSize = "14px";
   vaultToggleBtn.addEventListener("click", toggleVault);
 
   const outlineBtn = document.createElement("button");
-  outlineBtn.textContent = "\u2630"; // ☰
-  outlineBtn.title = "Toggle outline";
+  outlineBtn.textContent = "\u2630";
+  outlineBtn.title = t("app.toggleOutline");
   outlineBtn.style.fontSize = "14px";
   outlineBtn.addEventListener("click", toggleOutline);
 
   const backlinksBtn = document.createElement("button");
-  backlinksBtn.textContent = "\uD83D\uDD17"; // 🔗
-  backlinksBtn.title = "Toggle backlinks panel";
+  backlinksBtn.textContent = "\uD83D\uDD17";
+  backlinksBtn.title = t("app.toggleBacklinks");
   backlinksBtn.style.fontSize = "14px";
   backlinksBtn.addEventListener("click", toggleBacklinks);
 
+  // 最近文件按钮
+  const recentBtn = document.createElement("button");
+  recentBtn.textContent = "📋";
+  recentBtn.title = t("app.recentFiles");
+  recentBtn.style.fontSize = "14px";
+  recentBtn.style.position = "relative";
+
+  const dropdown = document.createElement("div");
+  dropdown.id = "recent-files-dropdown";
+  dropdown.style.cssText = `
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: var(--nexus-bg, #fff);
+    border: 1px solid var(--nexus-border, #ddd);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    min-width: 200px;
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 1000;
+    padding: 4px 0;
+  `;
+
+  recentBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const isOpen = dropdown.style.display === "block";
+    if (isOpen) {
+      dropdown.style.display = "none";
+      return;
+    }
+    renderRecentFilesDropdown(dropdown);
+    dropdown.style.display = "block";
+  });
+
+  document.addEventListener("click", () => {
+    dropdown.style.display = "none";
+  });
+
+  recentBtn.appendChild(dropdown);
+
   const searchBtn = document.createElement("button");
-  searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
-  searchBtn.title = "Search (Ctrl+F)";
+  searchBtn.textContent = "\uD83D\uDD0D";
+  searchBtn.title = t("app.search");
   searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
 
   const settingsBtn = document.createElement("button");
-  settingsBtn.textContent = "\u2699"; // ⚙
-  settingsBtn.title = "Settings";
+  settingsBtn.textContent = "\u2699";
+  settingsBtn.title = t("app.settings");
   settingsBtn.style.fontSize = "16px";
   settingsBtn.addEventListener("click", handleSettings);
 
@@ -86,6 +227,7 @@ function createAppToolbar(): HTMLElement {
     vaultToggleBtn,
     outlineBtn,
     backlinksBtn,
+    recentBtn,
     searchBtn,
     settingsBtn
   );
@@ -103,20 +245,37 @@ function renderStatus(): void {
   const el = document.getElementById("status-line");
   if (!el) return;
 
-  const pathLabel = state.activeFile ?? state.filePath ?? "Untitled";
-  const dirtyMark = state.dirty ? " [modified]" : "";
+  const pathLabel = state.activeFile ?? state.filePath ?? t("app.untitled");
+  const dirtyMark = state.dirty ? ` ${t("app.modified")}` : "";
   const stats = shell?.editor.getDocumentStats();
-  const statsText = stats ? ` | ${stats.words} words, ${stats.lines} lines` : "";
-  const vaultLabel = state.vaultPath
-    ? ` | Vault: ${state.vaultPath.split(/[\\/]/).pop()}`
+  const statsText = stats
+    ? ` | ${t("app.status.stats", { words: stats.words, lines: stats.lines })}`
     : "";
-  const errorText = state.error ? ` — Error: ${state.error}` : "";
+  const vaultLabel = state.vaultPath
+    ? ` | ${t("app.status.vault", { name: state.vaultPath.split(/[\\/]/).pop() || "" })}`
+    : "";
+  const errorText = state.error ? ` — ${t("app.status.error", { message: state.error })}` : "";
   el.textContent = `${pathLabel}${dirtyMark}${statsText}${vaultLabel}${errorText}`;
 }
 
 async function confirmDiscardIfDirty(): Promise<boolean> {
   if (!state.dirty) return true;
-  return window.confirm("You have unsaved changes. Discard them and switch files?");
+  const result = await showConfirmModal(
+    t("confirm.dirty.title"),
+    {
+      saveLabel: t("confirm.dirty.save"),
+      discardLabel: t("confirm.dirty.discard"),
+      cancelLabel: t("confirm.dirty.cancel"),
+    }
+  );
+  if (result === "save") {
+    await handleSave();
+    return true;
+  }
+  if (result === "discard") {
+    return true;
+  }
+  return false;
 }
 
 async function handleOpen(): Promise<void> {
@@ -126,6 +285,7 @@ async function handleOpen(): Promise<void> {
     const result = await window.nexusDemo.openFile();
     if (!result) return;
 
+    addRecentFile(result.path);
     state.filePath = result.path;
     state.activeFile = result.path;
     shell.loadDocument(result.content);
@@ -164,6 +324,7 @@ async function handleSaveAs(): Promise<void> {
     const result = await window.nexusDemo.saveFileAs(state.content);
     if (!result) return;
 
+    addRecentFile(result.path);
     state.filePath = result.path;
     state.activeFile = result.path;
     state.dirty = false;
@@ -212,6 +373,7 @@ async function handleVaultFileOpen(filePath: string): Promise<void> {
     const result = await window.nexusDemo.vault.read(filePath);
     perfEnd(ipc, { bytes: result.content.length });
 
+    addRecentFile(result.path);
     state.filePath = result.path;
     state.activeFile = result.path;
 
@@ -239,7 +401,6 @@ function dirname(p: string): string {
   return slash >= 0 ? norm.slice(0, slash) : "";
 }
 
-/** Coalesce repeated re-seeds (e.g. a burst of FS changes) into a single run. */
 let seedToken = 0;
 async function seedLinkIndex(): Promise<void> {
   const myToken = ++seedToken;
@@ -273,13 +434,9 @@ async function seedLinkIndex(): Promise<void> {
 async function handleWikilinkNavigate(target: string, opts: { unresolved: boolean }): Promise<void> {
   try {
     state.error = null;
-    // Parse `#heading` / `^blockid` — bare part is what the resolver needs
-    // to match a file on disk; the anchor (if any) is used AFTER the file is
-    // loaded to scroll the editor to the matching heading / block.
     const { bare, anchor } = parseAnchor(target);
     if (!bare && !anchor) return;
 
-    // `[[#heading]]` with no bare target means "jump inside the current file".
     if (!bare && anchor && state.activeFile) {
       const pos = findAnchorPosition(state.content, anchor);
       if (pos !== null) shell.editor.setSelection(pos);
@@ -303,10 +460,6 @@ async function handleWikilinkNavigate(target: string, opts: { unresolved: boolea
       renderStatus();
       return;
     }
-    // Decide the create anchor:
-    //   - Target contains `/` → vault-relative path (matches Obsidian semantics
-    //     for explicit subpath links). Intermediate folders are auto-created.
-    //   - Otherwise → next to the active file.
     const hasSubpath = bare.includes("/") || bare.includes("\\");
     const parent = hasSubpath
       ? state.vaultPath
@@ -331,16 +484,17 @@ async function tryRestoreLastVault(): Promise<void> {
       state.vaultPath = last.lastVault;
       await vault.openVault(last.lastVault);
       renderStatus();
-      // Build link index in the background — the editor is usable without it.
       void seedLinkIndex();
     }
   } catch (err) {
-    // swallow — missing vault is a normal case
     console.warn("Could not restore last vault:", err);
   }
 }
 
 function boot(): void {
+  // 应用语言设置
+  setLanguage(settings.language);
+
   const bootScope = perfStart("boot");
   const root = document.getElementById("app");
   if (!root) throw new Error("Missing #app element");
@@ -389,13 +543,11 @@ function boot(): void {
     },
   });
 
-  // Keep state in sync when the vault panel picks a new vault.
   const originalOpenVault = vault.openVault;
   vault.openVault = async (nextPath: string) => {
     await originalOpenVault(nextPath);
     state.vaultPath = nextPath;
     renderStatus();
-    // Index in the background — don't block the editor on it.
     void seedLinkIndex();
   };
 
@@ -410,24 +562,39 @@ function boot(): void {
   editorColumn.append(searchBar.element, editorContainer);
   mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
 
-  // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {
     void seedLinkIndex();
   });
 
+  // 键盘快捷键
   document.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+    const ctrlOrCmd = e.ctrlKey || e.metaKey;
+
+    if (ctrlOrCmd && e.key === "f") {
       e.preventDefault();
       searchBar.open();
+      return;
+    }
+    if (ctrlOrCmd && e.key === "s" && !e.shiftKey) {
+      e.preventDefault();
+      void handleSave();
+      return;
+    }
+    if (ctrlOrCmd && e.key === "o" && !e.shiftKey) {
+      e.preventDefault();
+      void handleOpen();
+      return;
+    }
+    if (ctrlOrCmd && e.shiftKey && (e.key === "S" || e.key === "s")) {
+      e.preventDefault();
+      void handleSaveAs();
+      return;
     }
   });
 
   renderStatus();
   perfEnd(bootScope);
 
-  // Defer vault restore until after first paint so the window pops open with
-  // a usable UI; the vault read + link-index seed then runs while the user
-  // is still looking at the empty editor — invisible to them.
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       setTimeout(() => {

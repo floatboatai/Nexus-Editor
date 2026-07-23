@@ -82,6 +82,73 @@ function generateId(prefix: string): string {
   return `${prefix}-menu-${uniqueIdCounter}`;
 }
 
+// ========== 新增：注入基础样式（仅一次） ==========
+let stylesInjected = false;
+
+function injectBaseStyles(prefix: string) {
+  if (stylesInjected) return;
+  stylesInjected = true;
+
+  const style = document.createElement("style");
+  style.textContent = `
+    .${prefix}-menu {
+      background: #ffffff;
+      border: 1px solid rgba(0, 0, 0, 0.10);
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+      padding: 6px 0;
+      min-width: 220px;
+      max-height: 280px;
+      overflow-y: auto;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      z-index: 1000;
+    }
+    .${prefix}-menu__item {
+      position: relative;        /* 为快捷键绝对定位提供基准 */
+      padding: 6px 16px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;    /* 保持 title 和 description 垂直排列 */
+      line-height: 1.4;
+      transition: background 0.15s;
+    }
+    .${prefix}-menu__item.is-active {
+      background: #eef2f6;
+    }
+    .${prefix}-menu__item:hover {
+      background: #f3f6fa;
+    }
+    .${prefix}-menu__title {
+      font-weight: 500;
+      color: #1e293b;
+    }
+    .${prefix}-menu__description {
+      font-size: 0.8em;
+      color: #64748b;
+      margin-top: 1px;
+    }
+    .${prefix}-menu__shortcut {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 0.75em;
+      color: #94a3b8;
+      letter-spacing: 0.3px;
+      pointer-events: none;      /* 防止干扰鼠标事件 */
+    }
+    .${prefix}-menu__empty {
+      padding: 12px 16px;
+      color: #94a3b8;
+      text-align: center;
+      font-size: 0.9em;
+    }
+  `;
+  document.head.appendChild(style);
+}
+// =====================================================
+
 export function createSlashMenuUI(
   editor: EditorAPI,
   options: SlashMenuUIOptions = {}
@@ -92,6 +159,9 @@ export function createSlashMenuUI(
   const menuId = generateId(prefix);
   const commandHistory = createSlashCommandHistory(options.history);
 
+  // 注入菜单基础样式
+  injectBaseStyles(prefix);
+
   // ── DOM scaffolding ──────────────────────────────────────────────
   const root = document.createElement("div");
   root.className = `${prefix}-menu`;
@@ -100,9 +170,6 @@ export function createSlashMenuUI(
   root.setAttribute("aria-label", "Slash commands");
   root.style.position = "fixed";
   root.style.display = "none";
-  // The menu must not become a focus target — the editor stays focused
-  // throughout the menu lifecycle so keystrokes continue to flow to CM6
-  // while the menu intercepts navigation keys at document level.
   root.tabIndex = -1;
   container.appendChild(root);
 
@@ -110,16 +177,8 @@ export function createSlashMenuUI(
   let currentState: SlashMenuState | null = null;
   let visibleCommands: SlashCommandDef[] = [];
   let highlight = 0;
-  // Items reused across renders to keep CSS transitions / focus rings
-  // stable (rebuilding the list every keystroke would flicker active
-  // styles even when the highlighted command does not change).
   let itemEls: HTMLDivElement[] = [];
   let isComposing = false;
-  // `dismissed` is set when the user pressed Escape or clicked away;
-  // it stays true until the state machine reports a fresh trigger
-  // session (transitioning from closed → open). Without this latch,
-  // re-emissions from the editor (e.g. cursor wiggle) would reopen the
-  // menu the user just dismissed.
   let dismissed = false;
   let prevIsOpen = false;
   let destroyed = false;
@@ -163,6 +222,8 @@ export function createSlashMenuUI(
       item.className = `${prefix}-menu__item`;
       item.setAttribute("role", "option");
       item.id = `${menuId}-item-${itemEls.length}`;
+
+      // ----- 新增：标题和描述（保持原有的两个子元素） -----
       const title = document.createElement("div");
       title.className = `${prefix}-menu__title`;
       const desc = document.createElement("div");
@@ -170,15 +231,19 @@ export function createSlashMenuUI(
       item.appendChild(title);
       item.appendChild(desc);
 
+      // ----- 新增：快捷键元素（第三个子元素） -----
+      const shortcut = document.createElement("div");
+      shortcut.className = `${prefix}-menu__shortcut`;
+      // 稍后根据命令填充文本，这里先占位
+      item.appendChild(shortcut);
+
+      // 事件绑定（不变）
       const index = itemEls.length;
-      // Hover sync: keyboard and mouse share the same highlight model.
       item.addEventListener("mouseenter", () => {
         if (!isMenuOpen()) return;
         highlight = index;
         applyHighlight();
       });
-      // Confirm on click. preventDefault stops focus from leaving the
-      // editor and stops CM6 from acting on the underlying mousedown.
       item.addEventListener("mousedown", (e) => {
         e.preventDefault();
       });
@@ -203,11 +268,18 @@ export function createSlashMenuUI(
       }
     }
 
+    // 更新每个 item 的内容
     for (let i = 0; i < commands.length; i++) {
       const cmd = commands[i];
       const item = itemEls[i];
       item.dataset.slashCommandId = cmd.id;
-      const [titleEl, descEl] = item.children as unknown as HTMLDivElement[];
+
+      // 因为子元素顺序固定：0-title, 1-description, 2-shortcut
+      const children = item.children as unknown as HTMLDivElement[];
+      const titleEl = children[0];
+      const descEl = children[1];
+      const shortcutEl = children[2];
+
       titleEl.textContent = cmd.title;
       if (cmd.description) {
         descEl.textContent = cmd.description;
@@ -216,17 +288,21 @@ export function createSlashMenuUI(
         descEl.textContent = "";
         descEl.style.display = "none";
       }
+
+      // ----- 新增：设置快捷键文本（如果存在） -----
+      const shortcut = (cmd as any).shortcut; // 安全读取自定义属性
+      if (shortcut && typeof shortcut === "string") {
+        shortcutEl.textContent = shortcut;
+        shortcutEl.style.display = "";
+      } else {
+        shortcutEl.textContent = "";
+        shortcutEl.style.display = "none";
+      }
     }
   }
 
   function reposition(): void {
     if (!isMenuOpen() || !currentState) return;
-    // The menu becomes visible regardless of whether coords are
-    // available — keyboard navigation, screen-reader announcements,
-    // and tests must work in coordinate-less environments (JSDOM,
-    // headless layout-mid-flight). When coords are null we leave the
-    // menu wherever it last was; the next emission with valid coords
-    // will move it.
     root.style.display = "block";
     if (!currentState.coords) return;
     const { left, top, bottom } = currentState.coords;
@@ -237,20 +313,13 @@ export function createSlashMenuUI(
     const winHeight = typeof window !== "undefined" ? window.innerHeight : 0;
     const winWidth = typeof window !== "undefined" ? window.innerWidth : 0;
 
-    // Vertical flip: if the menu would clip below the viewport, render
-    // above the caret instead. JSDOM returns zero-sized rects, so this
-    // branch is naturally inert in unit tests.
     if (winHeight > 0 && rect.bottom > winHeight - VIEWPORT_MARGIN) {
       const flippedTop = top - rect.height - offset;
-      // Only flip if the flipped position fits better. If neither fits
-      // (tiny viewport), prefer the original below position so the
-      // first items remain visible.
       if (flippedTop >= VIEWPORT_MARGIN) {
         root.style.top = `${flippedTop}px`;
       }
     }
 
-    // Horizontal clamp: keep the menu inside the right edge.
     if (winWidth > 0 && rect.right > winWidth - VIEWPORT_MARGIN) {
       const clamped = Math.max(VIEWPORT_MARGIN, winWidth - VIEWPORT_MARGIN - rect.width);
       root.style.left = `${clamped}px`;
@@ -280,17 +349,11 @@ export function createSlashMenuUI(
     if (!isMenuOpen() || !currentState) return;
     const cmds = visibleCommands;
     if (cmds.length === 0 || highlight < 0 || highlight >= cmds.length) {
-      // Nothing valid to run; treat as dismiss so a stray Enter doesn't
-      // leave the menu visible.
       dismiss();
       return;
     }
     const cmd = cmds[highlight];
     const { from, to, query } = currentState;
-    // Remove the /query trigger before invoking run so commands that
-    // insert content at the caret don't have to know about the slash
-    // syntax. We select the trigger range first because
-    // `replaceSelection` operates on the current selection.
     if (from !== null && to !== null) {
       editor.setSelection(from, to);
       editor.replaceSelection("");
@@ -302,10 +365,6 @@ export function createSlashMenuUI(
       editor,
     };
 
-    // Hide eagerly. The natural slashMenuChange that follows the doc
-    // edit will also flip isOpen=false, but waiting for it would leave
-    // the menu visible for one frame after confirm — visible as a
-    // flash on slow paint paths.
     hide();
     currentState = null;
     visibleCommands = [];
@@ -323,10 +382,6 @@ export function createSlashMenuUI(
   // ── Event handlers ──────────────────────────────────────────────
   function onSlashMenuChange(state: SlashMenuState): void {
     if (destroyed) return;
-    // Reset the manual-dismiss latch whenever a fresh trigger session
-    // begins (closed → open transition). Otherwise an Escape would
-    // keep the menu suppressed forever for the rest of the editor's
-    // lifetime.
     if (state.isOpen && !prevIsOpen) {
       dismissed = false;
       highlight = 0;
@@ -340,7 +395,6 @@ export function createSlashMenuUI(
       return;
     }
 
-    // Clamp highlight if the command list shrank below it.
     if (highlight >= state.commands.length) {
       highlight = Math.max(0, state.commands.length - 1);
     }
@@ -349,9 +403,6 @@ export function createSlashMenuUI(
   }
 
   function onEditorBlur(): void {
-    // Lose-focus dismissal is unconditional. The editor losing focus
-    // means another panel or app grabbed it; the menu has no business
-    // staying open.
     if (!isMenuOpen()) return;
     dismiss();
   }
@@ -398,8 +449,6 @@ export function createSlashMenuUI(
         return;
       case "Enter":
       case "Tab":
-        // Empty results: swallow Enter so the editor doesn't insert a
-        // newline below the trigger. Treat as a no-op dismiss.
         e.preventDefault();
         e.stopPropagation();
         if (len === 0) {
@@ -422,10 +471,6 @@ export function createSlashMenuUI(
     const target = e.target as Node | null;
     if (!target) return;
     if (root.contains(target)) return;
-    // Anywhere outside the menu (including inside the editor) dismisses.
-    // The editor's own click will then reposition the caret normally;
-    // a subsequent slashMenuChange may reopen the menu if the user
-    // clicked inside a new `/query` token.
     dismiss();
   }
 
@@ -445,12 +490,7 @@ export function createSlashMenuUI(
   editor.on("slashMenuChange", onSlashMenuChange);
   editor.on("blur", onEditorBlur);
 
-  // Capture phase: we need to handle Enter / Escape / ArrowKeys before
-  // CM6's own keymap binds them to caret motion.
   document.addEventListener("keydown", onKeyDown, true);
-  // Use both mousedown and pointerdown so we close as early as
-  // possible regardless of input modality. Idempotent dismiss handles
-  // double invocations safely.
   document.addEventListener("mousedown", onDocumentPointerDown, true);
   if (typeof PointerEvent !== "undefined") {
     document.addEventListener("pointerdown", onDocumentPointerDown, true);

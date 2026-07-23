@@ -208,3 +208,44 @@ export function insertHorizontalRule(editor: EditorAPI): boolean {
   editor.setSelection(anchor + hr.length);
   return true;
 }
+
+// ========== 新增：高级功能 ==========
+/**
+ * 插入一个 Emoji 到光标位置
+ */
+export function insertEmoji(editor: EditorAPI, emoji: string): boolean {
+  const doc = editor.getDocument();
+  const { anchor } = editor.getSelection();
+  const newDoc = doc.slice(0, anchor) + emoji + doc.slice(anchor);
+  editor.setDocument(newDoc);
+  editor.setSelection(anchor + emoji.length);
+  return true;
+}
+
+/**
+ * 插入一个 Markdown 表格，指定行数和列数
+ */
+export function insertTable(editor: EditorAPI, rows: number, cols: number): boolean {
+  const doc = editor.getDocument();
+  const { anchor } = editor.getSelection();
+
+  // 构建表格语法
+  let table = '| ' + Array(cols).fill('').join(' | ') + ' |\n';
+  table += '| ' + Array(cols).fill('---').join(' | ') + ' |\n';
+  for (let i = 0; i < rows - 1; i++) {
+    table += '| ' + Array(cols).fill('').join(' | ') + ' |\n';
+  }
+
+  // 在光标处插入，前后加换行
+  const needsLeadingNewline = anchor > 0 && doc[anchor - 1] !== '\n';
+  const needsTrailingNewline = anchor < doc.length && doc[anchor] !== '\n';
+  const insert = (needsLeadingNewline ? '\n' : '') + table + (needsTrailingNewline ? '\n' : '');
+
+  const newDoc = doc.slice(0, anchor) + insert + doc.slice(anchor);
+  editor.setDocument(newDoc);
+
+  // 将光标定位到第一个单元格（表格第一行第一列后）
+  const offset = (needsLeadingNewline ? 1 : 0) + 2; // 跳过 "| "
+  editor.setSelection(anchor + offset);
+  return true;
+}

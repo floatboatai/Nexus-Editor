@@ -174,3 +174,18 @@ export function iconHorizontalRule(): HTMLElement {
     `<line x1="2" y1="9" x2="16" y2="9"/>`
   );
 }
+
+// ========== 新增：高级工具栏图标 ==========
+export function iconTable(): HTMLElement {
+  return svgIcon(
+    `<rect x="2" y="2" width="14" height="14" rx="1"/>` +
+    `<line x1="7" y1="2" x2="7" y2="16"/>` +
+    `<line x1="12" y1="2" x2="12" y2="16"/>` +
+    `<line x1="2" y1="7" x2="16" y2="7"/>` +
+    `<line x1="2" y1="11" x2="16" y2="11"/>`
+  );
+}
+
+export function iconEmoji(): HTMLElement {
+  return textLabel("😊", "font-size:16px;");
+}
