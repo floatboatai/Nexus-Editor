@@ -62,6 +62,9 @@ importers:
       '@floatboat/nexus-plugin-slash':
         specifier: workspace:*
         version: link:../../packages/plugin-slash
+      '@floatboat/nexus-plugin-snapshots':
+        specifier: workspace:*
+        version: link:../../packages/plugin-snapshots
       '@floatboat/nexus-plugin-toolbar':
         specifier: workspace:*
         version: link:../../packages/plugin-toolbar
@@ -176,6 +179,12 @@ importers:
         version: link:../core
 
   packages/plugin-slash:
+    dependencies:
+      '@floatboat/nexus-core':
+        specifier: workspace:*
+        version: link:../core
+
+  packages/plugin-snapshots:
     dependencies:
       '@floatboat/nexus-core':
         specifier: workspace:*
