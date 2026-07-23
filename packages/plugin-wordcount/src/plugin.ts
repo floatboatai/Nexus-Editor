@@ -150,14 +150,36 @@ export function createWordCountPlugin(options: WordCountPluginOptions = {}): Wor
   const computeSelection = (): { stats: WordCountStats; isActive: boolean } => {
     if (!editor) return { stats: EMPTY_STATS, isActive: false };
     try {
-      const { anchor, head } = editor.getSelection();
-      const from = Math.min(anchor, head);
-      const to = Math.max(anchor, head);
-      if (from === to) {
+      const selections = editor.getSelections().ranges;
+      const selectedRanges = selections
+        .map((range) => {
+          const from = Math.min(range.anchor, range.head);
+          const to = Math.max(range.anchor, range.head);
+          return { from, to };
+        })
+        .filter((range) => range.from !== range.to);
+
+      if (selectedRanges.length === 0) {
         return { stats: EMPTY_STATS, isActive: false };
       }
-      const slice = editor.getDocument().slice(from, to);
-      const stats = countMarkdown(slice, countOptions);
+
+      const source = editor.getDocument();
+      const stats = selectedRanges.reduce<WordCountStats>((acc, range) => {
+        const slice = source.slice(range.from, range.to);
+        const next = countMarkdown(slice, countOptions);
+        return {
+          words: acc.words + next.words,
+          latinWords: acc.latinWords + next.latinWords,
+          cjkCharacters: acc.cjkCharacters + next.cjkCharacters,
+          characters: acc.characters + next.characters,
+          charactersNoSpaces: acc.charactersNoSpaces + next.charactersNoSpaces,
+          lines: acc.lines + next.lines,
+          paragraphs: acc.paragraphs + next.paragraphs,
+          sentences: acc.sentences + next.sentences,
+          readingTimeSeconds: acc.readingTimeSeconds + next.readingTimeSeconds
+        };
+      }, EMPTY_STATS);
+
       return { stats, isActive: true };
     } catch {
       return { stats: EMPTY_STATS, isActive: false };
