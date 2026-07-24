@@ -473,6 +473,291 @@ function buildHeadingDecorations(
 const LIST_MARKER_RE = /^(\s*)([-*+]|\d+[.)]) /;
 const CHECKBOX_RE = /^\[([ xX])\] /;
 
+// ── List item drag-reorder state ────────────────────────────────────────────
+// WeakMap keyed by EditorView so state is scoped to a single editor instance
+// and cleaned up when the view is destroyed.
+interface ListDragState {
+  draggingIndex: number;
+  dropTargetIndex: number;
+  listFrom: number;
+  listTo: number;
+  itemOffsets: Array<{ from: number; to: number }>;
+  editing: boolean;
+}
+
+const listDragStates = new WeakMap<EditorView, ListDragState>();
+
+function getListDragState(view: EditorView | null): ListDragState | null {
+  if (!view) return null;
+  return listDragStates.get(view) ?? null;
+}
+
+function setListDragState(view: EditorView, state: ListDragState): void {
+  listDragStates.set(view, state);
+}
+
+function clearListDragState(view: EditorView): void {
+  listDragStates.delete(view);
+}
+
+function isListDragging(view: EditorView | null): boolean {
+  return !!view && listDragStates.has(view);
+}
+
+// ── List item grip widget ───────────────────────────────────────────────────
+// A small grip handle displayed on hover at the left edge of each list item.
+// Clicking it selects the item; dragging it reorders the item within the list.
+const GRIP_BG = "var(--nexus-bg-muted)";
+const GRIP_BG_HOVER = "var(--nexus-border)";
+const DRAG_HIGHLIGHT_BG = "rgba(124, 108, 250, 0.08)";
+const SELECT_BORDER = "var(--nexus-accent)";
+
+function createListGripWidget(
+  itemIndex: number,
+  listFrom: number,
+  listTo: number,
+  itemOffsets: Array<{ from: number; to: number }>,
+  viewRef: { current: EditorView | null },
+  doc: string,
+): WidgetType {
+  let gripEl: HTMLElement | null = null;
+
+  return new (class extends WidgetType {
+    eq(other: WidgetType): boolean {
+      return (other as any)._itemIndex === this._itemIndex &&
+             (other as any)._listFrom === this._listFrom;
+    }
+    readonly _itemIndex = itemIndex;
+    readonly _listFrom = listFrom;
+    readonly _listTo = listTo;
+
+    ignoreEvent(): boolean { return true; }
+
+    toDOM(): HTMLElement {
+      if (gripEl && gripEl.isConnected) return gripEl;
+
+      gripEl = document.createElement("span");
+      gripEl.className = "nexus-list-grip";
+      gripEl.style.cssText = [
+        "display:inline-flex",
+        "align-items:center",
+        "justify-content:center",
+        "width:16px",
+        "height:16px",
+        "margin-left:-16px",
+        "margin-right:2px",
+        "cursor:grab",
+        "user-select:none",
+        "border-radius:3px",
+        "background:transparent",
+        "transition:background .15s",
+        "vertical-align:middle",
+        "flex-shrink:0",
+      ].join(";") + ";";
+
+      // Three-dot grip icon
+      gripEl.textContent = "⠿";
+      gripEl.style.fontSize = "12px";
+      gripEl.style.lineHeight = "1";
+      gripEl.style.color = "var(--nexus-text-faint)";
+      gripEl.style.opacity = "0";
+      gripEl.style.transition = "opacity .15s, background .15s";
+
+      // Show on hover
+      gripEl.addEventListener("mouseenter", () => {
+        if (!isListDragging(viewRef.current)) {
+          gripEl!.style.opacity = "1";
+          gripEl!.style.background = GRIP_BG;
+        }
+      });
+      gripEl.addEventListener("mouseleave", () => {
+        if (!isListDragging(viewRef.current)) {
+          gripEl!.style.opacity = "0";
+          gripEl!.style.background = "transparent";
+        }
+      });
+
+      // ── Drag start ──
+      gripEl.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        const v = viewRef.current;
+        if (!v) return;
+
+        // Lock editing to prevent CM6 from recreating widget DOM mid-drag
+        setListDragState(v, {
+          draggingIndex: itemIndex,
+          dropTargetIndex: -1,
+          listFrom,
+          listTo,
+          itemOffsets,
+          editing: true,
+        });
+
+        // Set editing flag on the view to prevent StateField rebuild
+        (v as any)._listDragEditing = true;
+
+        // Highlight the dragged item's line
+        const lineEl = gripEl!.closest(".cm-line") as HTMLElement | null;
+        if (lineEl) {
+          lineEl.style.background = DRAG_HIGHLIGHT_BG;
+        }
+
+        // Create floating indicator
+        const floatingPill = document.createElement("div");
+        floatingPill.className = "nexus-list-drag-pill";
+        floatingPill.style.cssText = [
+          "position:fixed",
+          "width:6px",
+          "height:24px",
+          "border-radius:3px",
+          "background:" + SELECT_BORDER,
+          "pointer-events:none",
+          "z-index:9999",
+          "display:none",
+          "left:" + (e.clientX - 3) + "px",
+          "top:" + (e.clientY - 12) + "px",
+        ].join(";") + ";";
+        document.body.appendChild(floatingPill);
+
+        // ── Drag move ──
+        const onMove = (me: MouseEvent): void => {
+          me.preventDefault();
+          floatingPill.style.display = "block";
+          floatingPill.style.left = (me.clientX - 3) + "px";
+          floatingPill.style.top = (me.clientY - 12) + "px";
+
+          // Determine which item the cursor is over by checking Y position
+          // against item source offsets mapped to screen coordinates
+          const state = getListDragState(v);
+          if (!state) return;
+
+          let targetIdx = -1;
+          for (let i = 0; i < state.itemOffsets.length; i++) {
+            if (i === state.draggingIndex) continue;
+            const off = state.itemOffsets[i];
+            try {
+              const coords = v.coordsAtPos(Math.min(off.from + 1, v.state.doc.length));
+              if (coords && me.clientY >= coords.top && me.clientY <= coords.bottom) {
+                targetIdx = i;
+                break;
+              }
+            } catch {
+              // out of range
+            }
+          }
+
+          // Fallback: find nearest item by Y distance
+          if (targetIdx < 0) {
+            let minDist = Infinity;
+            for (let i = 0; i < state.itemOffsets.length; i++) {
+              if (i === state.draggingIndex) continue;
+              const off = state.itemOffsets[i];
+              try {
+                const coords = v.coordsAtPos(Math.min(off.from + 1, v.state.doc.length));
+                if (coords) {
+                  const mid = (coords.top + coords.bottom) / 2;
+                  const dist = Math.abs(me.clientY - mid);
+                  if (dist < minDist) {
+                    minDist = dist;
+                    targetIdx = i;
+                  }
+                }
+              } catch {
+                // out of range
+              }
+            }
+          }
+
+          state.dropTargetIndex = targetIdx;
+        };
+
+        // ── Drag end ──
+        const onUp = (ue: MouseEvent): void => {
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          floatingPill.remove();
+
+          const state = getListDragState(v);
+          if (!state) return;
+
+          const fromIdx = state.draggingIndex;
+          const toIdx = state.dropTargetIndex;
+
+          // Clean up visual state
+          if (lineEl) {
+            lineEl.style.background = "";
+          }
+
+          // Clear drag state
+          (v as any)._listDragEditing = false;
+          clearListDragState(v);
+
+          // Perform the reorder if valid
+          if (fromIdx >= 0 && toIdx >= 0 && fromIdx !== toIdx) {
+            reorderListItems(v, state.listFrom, state.listTo, state.itemOffsets, fromIdx, toIdx);
+          }
+        };
+
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+
+      return gripEl;
+    }
+  })();
+}
+
+/**
+ * Reorder list items in the document source by swapping the positions of
+ * two items within the list range.
+ */
+function reorderListItems(
+  view: EditorView,
+  listFrom: number,
+  listTo: number,
+  itemOffsets: Array<{ from: number; to: number }>,
+  fromIdx: number,
+  toIdx: number
+): void {
+  const doc = view.state.doc.toString();
+
+  // Verify the list range is still valid
+  if (listTo > doc.length) return;
+
+  // Collect the source text for each item
+  const items = itemOffsets.map((off) => ({
+    from: off.from,
+    to: off.to,
+    text: doc.slice(off.from, off.to),
+  }));
+
+  if (fromIdx < 0 || fromIdx >= items.length || toIdx < 0 || toIdx >= items.length) return;
+
+  // Build the new document by replacing the entire list range
+  const movedItem = items[fromIdx];
+  const remaining = items.filter((_, i) => i !== fromIdx);
+
+  // Insert the moved item at the target position
+  remaining.splice(toIdx, 0, movedItem);
+
+  // Reconstruct the list source
+  const newListSource = remaining.map((item) => item.text).join("\n");
+
+  // Dispatch the change
+  view.dispatch({
+    changes: {
+      from: listFrom,
+      to: listTo,
+      insert: newListSource,
+    },
+    // Place cursor at the moved item's new position
+    selection: { anchor: movedItem.from },
+  });
+}
+
 function buildListDecorations(
   range: { from: number; to: number; node: List },
   doc: string,
@@ -482,12 +767,15 @@ function buildListDecorations(
 ): void {
   // Iterate ListItems via mdast structure (not regex over flat source lines).
   // Nested sub-lists are children of a ListItem, not of the outer list, so
-  // walking list.children visits only this level \u2014 no double-decoration of
+  // walking list.children visits only this level — no double-decoration of
   // nested markers and no off-by-N ordered numbering caused by counting
   // nested-list lines as siblings.
   const list = range.node;
   const isOrdered = list.ordered === true;
   let orderNum = list.start ?? 1;
+
+  // Collect item offsets for drag-reorder
+  const itemOffsets: Array<{ from: number; to: number }> = [];
 
   for (const item of list.children) {
     const itemFrom = item.position?.start.offset;
@@ -504,6 +792,9 @@ function buildListDecorations(
     const ordinal = orderNum;
     if (isOrdered) orderNum++;
 
+    // Determine the full item range (from start to before next sibling or list end)
+    const itemTo = item.position?.end.offset ?? range.to;
+
     // Obsidian 式实时预览：光标落在本项首行时，显示原始 `- [ ] ` / `1. `
     // 源码以便直接编辑；其余项保持渲染后的圆点 / 复选框。inclusiveEnd
     // 让光标停在行尾（按 End 后）也算在行内。
@@ -512,6 +803,29 @@ function buildListDecorations(
     const indent = markerMatch[1];
     const markerStart = itemFrom + indent.length;
     const markerEnd = itemFrom + markerMatch[0].length;
+
+    // ── Grip handle for drag-reorder ──
+    // Only show grip for top-level list items (no indent) to keep it simple.
+    // The grip is a Decoration.widget placed at the start of the marker.
+    if (indent.length === 0) {
+      const gripWidget = createListGripWidget(
+        itemOffsets.length,
+        range.from,
+        range.to,
+        itemOffsets,
+        viewRef,
+        doc,
+      );
+      decos.push(
+        Decoration.widget({
+          widget: gripWidget,
+          side: -1,
+        }).range(markerStart)
+      );
+    }
+
+    // Record item offset for drag-reorder
+    itemOffsets.push({ from: itemFrom, to: itemTo });
 
     const bullet = document.createElement("span");
     let bulletKey: string;
@@ -1348,7 +1662,11 @@ export function createLivePreviewExtension(
       return build(state, state.selection.ranges, false);
     },
     update(decos: DecorationSet, tr: Transaction) {
+      // ── List drag-reorder: prevent CM6 from rebuilding widget DOM mid-drag ──
       if (isTableEditing(viewRef.current)) {
+        return tr.docChanged ? decos.map(tr.changes) : decos;
+      }
+      if ((viewRef.current as any)?._listDragEditing) {
         return tr.docChanged ? decos.map(tr.changes) : decos;
       }
       if (tr.effects.some((effect) => effect.is(rebuildForCompositionStart))) {

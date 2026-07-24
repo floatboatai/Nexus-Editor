@@ -1,12 +1,16 @@
 import { createState, type AppState } from "./state";
 import { createEditorShell, type EditorShell } from "./editor-shell";
-import { loadSettings, createSettingsPanel, type EditorSettings } from "./settings";
+import { loadSettings, saveSettings, createSettingsPanel, type EditorSettings } from "./settings";
 import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
 import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
+import { createCommandPalette, type CommandPaletteUI, type PaletteCommand } from "./command-palette";
+import { darkTheme, lightTheme } from "@floatboat/nexus-core";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
+
+
 
 installLongTaskWatch(50);
 
@@ -17,6 +21,9 @@ let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+let palette: CommandPaletteUI;
+let currentColorScheme: "light" | "dark" = settings.colorScheme;
+
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
@@ -71,6 +78,27 @@ function createAppToolbar(): HTMLElement {
   searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
 
+    const paletteBtn = document.createElement("button");
+  paletteBtn.textContent = "⌘K";
+  paletteBtn.title = "Command Palette (Ctrl+K)";
+  paletteBtn.style.fontSize = "14px";
+  paletteBtn.style.fontWeight = "bold";
+  paletteBtn.addEventListener("click", () => palette.open());
+
+  const darkModeBtn = document.createElement("button");
+  darkModeBtn.textContent = settings.colorScheme === "dark" ? "☀" : "🌙";
+  darkModeBtn.title = "Toggle dark mode";
+  darkModeBtn.style.fontSize = "16px";
+  darkModeBtn.addEventListener("click", () => {
+    currentColorScheme = currentColorScheme === "dark" ? "light" : "dark";
+    settings.colorScheme = currentColorScheme;
+    darkModeBtn.textContent = currentColorScheme === "dark" ? "☀" : "🌙";
+    shell.editor.setTheme(currentColorScheme === "dark" ? darkTheme : lightTheme);
+    saveSettings(settings);
+    
+  });
+
+
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "\u2699"; // ⚙
   settingsBtn.title = "Settings";
@@ -87,6 +115,8 @@ function createAppToolbar(): HTMLElement {
     outlineBtn,
     backlinksBtn,
     searchBtn,
+    paletteBtn, 
+    darkModeBtn,
     settingsBtn
   );
   return toolbar;
@@ -376,6 +406,25 @@ function boot(): void {
     },
   });
 
+    const paletteCommands: PaletteCommand[] = [
+    { id: "bold", title: "Bold", icon: "𝐁", hotkey: "Ctrl+B", run: (e) => { e.runCommand("bold"); } },
+    { id: "italic", title: "Italic", icon: "𝐼", hotkey: "Ctrl+I", run: (e) => { e.runCommand("italic"); } },
+    { id: "h1", title: "Heading 1", icon: "H1", hotkey: "Ctrl+1", run: (e) => { e.runCommand("h1"); } },
+    { id: "h2", title: "Heading 2", icon: "H2", hotkey: "Ctrl+2", run: (e) => { e.runCommand("h2"); } },
+    { id: "h3", title: "Heading 3", icon: "H3", hotkey: "Ctrl+3", run: (e) => { e.runCommand("h3"); } },
+    { id: "ulist", title: "Bulleted List", icon: "•", run: (e) => { e.runCommand("ulist"); } },
+    { id: "olist", title: "Numbered List", icon: "1.", run: (e) => { e.runCommand("olist"); } },
+    { id: "code-block", title: "Code Block", icon: "</>", run: (e) => { e.runCommand("code-block"); } },
+    { id: "blockquote", title: "Blockquote", icon: "❝", run: (e) => { e.runCommand("blockquote"); } },
+    { id: "link", title: "Insert Link", hotkey: "Ctrl+K", icon: "🔗", run: (e) => { e.runCommand("link"); } },
+    { id: "image", title: "Insert Image", icon: "🖼", run: (e) => { e.runCommand("image"); } },
+    { id: "hr", title: "Divider", icon: "—", run: (e) => { e.runCommand("hr"); } },
+    { id: "undo", title: "Undo", icon: "↩", hotkey: "Ctrl+Z", run: (e) => e.undo() },
+    { id: "redo", title: "Redo", icon: "↪", hotkey: "Ctrl+Y", run: (e) => e.redo() },
+  ];
+  palette = createCommandPalette(shell.editor, { commands: paletteCommands });
+
+
   vault = createVaultPanel({
     onOpenFile: (filePath) => {
       void handleVaultFileOpen(filePath);
@@ -420,6 +469,12 @@ function boot(): void {
       e.preventDefault();
       searchBar.open();
     }
+
+        if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+      e.preventDefault();
+      palette.open();
+    }
+
   });
 
   renderStatus();

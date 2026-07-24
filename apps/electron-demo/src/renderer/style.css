@@ -190,3 +190,29 @@ body,
   color: var(--nexus-accent, #2563eb);
   font-weight: 500;
 }
+
+
+/* ── Breadcrumb bar ─────────────────────────────────────────────── */
+.nexus-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 16px;
+  font-size: 12px;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: var(--nexus-text-muted, #888);
+  border-bottom: 1px solid var(--nexus-border, #eee);
+  flex-shrink: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.nexus-breadcrumb span {
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+.nexus-breadcrumb span:hover {
+  background: var(--nexus-bg-muted, #f0f0f0);
+  color: var(--nexus-text, #24292e);
+}
+.nexus-breadcrumb .sep { color: var(--nexus-text-faint, #bbb); cursor: default; }
