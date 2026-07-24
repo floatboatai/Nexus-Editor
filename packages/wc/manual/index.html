@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nexus WC 手工测试台</title>
+    <style>
+      :root { font-family: system-ui, sans-serif; color: #172033; background: #f5f7fb; }
+      body { max-width: 1180px; margin: 0 auto; padding: 24px; }
+      h1 { margin-top: 0; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+      .card { padding: 16px; border: 1px solid #d8dfeb; border-radius: 12px; background: white; }
+      .mount { min-height: 150px; border: 1px dashed #9aa9bf; border-radius: 8px; padding: 8px; }
+      nexus-editor { display: block; min-height: 130px; }
+      button { margin: 8px 8px 0 0; padding: 7px 11px; }
+      code, pre { font-family: ui-monospace, monospace; }
+      #log { min-height: 160px; max-height: 320px; overflow: auto; white-space: pre-wrap; }
+      iframe { width: 100%; min-height: 180px; border: 1px solid #9aa9bf; border-radius: 8px; }
+      .pass { color: #087a36; }
+      .fail { color: #b42318; }
+    </style>
+  </head>
+  <body>
+    <h1>Nexus Web Component 手工测试台</h1>
+    <p>每次点击按钮后检查下方日志；PASS 为绿色，FAIL 为红色。</p>
+
+    <div class="grid">
+      <section class="card">
+        <h2>升级前 property</h2>
+        <div id="pre-upgrade" class="mount"></div>
+        <button id="check-pre-upgrade">检查初始值</button>
+      </section>
+
+      <section class="card">
+        <h2>同步 reparent</h2>
+        <p>先在编辑器里输入任意文本，再点击移动。</p>
+        <div id="parent-a" class="mount"></div>
+        <div id="parent-b" class="mount"></div>
+        <button id="move-editor">移动并检查</button>
+      </section>
+
+      <section class="card">
+        <h2>延迟受控同步</h2>
+        <div id="controlled-mount" class="mount"></div>
+        <button id="run-controlled-race">运行 B → C 竞态</button>
+      </section>
+
+      <section class="card">
+        <h2>Shadow DOM 事件</h2>
+        <div id="shadow-host" class="mount"></div>
+        <button id="edit-shadow">触发 shadow 内变更</button>
+      </section>
+
+      <section class="card">
+        <h2>Multi-cursor</h2>
+        <div id="multi-mount" class="mount"></div>
+        <button id="check-multi">设置两个选区</button>
+      </section>
+
+      <section class="card">
+        <h2>iframe bridge</h2>
+        <iframe id="editor-frame" title="Nexus iframe runtime"></iframe>
+        <button id="iframe-set">setDocument</button>
+        <button id="iframe-get">getDocument</button>
+        <button id="iframe-focus">focus</button>
+        <button id="iframe-reload">reload 检测</button>
+        <button id="iframe-reconnect">重新连接</button>
+        <button id="iframe-wrong-origin">错误 origin</button>
+        <button id="iframe-destroy">destroy</button>
+      </section>
+
+    </div>
+
+    <section class="card" style="margin-top: 16px">
+      <h2>测试日志</h2>
+      <pre id="log"></pre>
+    </section>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

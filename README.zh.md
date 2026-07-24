@@ -117,6 +117,25 @@ import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 </details>
 
 <details>
+<summary><b>Web Component</b> —— 任意框架，或不用框架</summary>
+
+```ts
+import { defineNexusEditor } from "@floatboat/nexus-wc";
+
+defineNexusEditor(); // 注册 <nexus-editor>
+```
+
+```html
+<nexus-editor initial-value="# 你好，Nexus 👋"></nexus-editor>
+
+<script type="module">
+  document.querySelector("nexus-editor")
+    .addEventListener("nexus-change", (e) => console.log(e.detail.doc));
+</script>
+```
+</details>
+
+<details>
 <summary><b>原生 / 纯 DOM</b></summary>
 
 ```ts
@@ -165,13 +184,14 @@ pnpm dev:electron-demo
 ## 📦 包列表
 
 <details>
-<summary><b>完整包列表（11 个包）</b> —— 点击展开</summary>
+<summary><b>完整包列表（12 个包）</b> —— 点击展开</summary>
 
 | 包名 | 说明 |
 |---|---|
 | `@floatboat/nexus-core` | 编辑器引擎 —— CM6 状态机、AST 管道、实时预览、事件系统、Widget API |
 | `@floatboat/nexus-react` | React 绑定 —— `useEditor` Hook 与 `<Editor />` 组件 |
 | `@floatboat/nexus-vue` | Vue 3 绑定 —— `useEditor` 组合式函数 |
+| `@floatboat/nexus-wc` | 框架无关的 `<nexus-editor>` 与 iframe bridge 封装 |
 | `@floatboat/nexus-preset-gfm` | GitHub Flavored Markdown 预设（表格、删除线、任务列表） |
 | `@floatboat/nexus-plugin-history` | 撤销/重做，支持 `Ctrl+Z` / `Ctrl+Shift+Z` |
 | `@floatboat/nexus-plugin-search` | 搜索替换辅助函数 |
