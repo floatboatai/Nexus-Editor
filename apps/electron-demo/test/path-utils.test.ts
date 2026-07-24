@@ -67,4 +67,10 @@ describe("joinPath", () => {
   it("handles Windows-style paths as segments", () => {
     expect(joinPath("foo\\bar", "baz")).toBe("foo/bar/baz");
   });
+
+  it("preserves the UNC authority prefix", () => {
+    expect(joinPath("\\\\server\\share\\vault", "notes\\target.md")).toBe(
+      "//server/share/vault/notes/target.md"
+    );
+  });
 });
