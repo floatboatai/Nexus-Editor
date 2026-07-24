@@ -57,19 +57,37 @@ import {
 ### Selections API
 
 ```ts
-editor.getSelection();   // main range: { anchor, head }
-editor.getSelections();  // all ranges: { ranges: [{ anchor, head }, ...], mainIndex }
+editor.getSelection();      // main range: { anchor, head }
+editor.getSelections();     // all ranges: { ranges: [{ anchor, head }, ...], mainIndex }
+editor.getSelectedText();   // text in the main range; "" when collapsed
 
-editor.setSelection(5);                                  // single cursor
-editor.setSelections([{ anchor: 2 }, { anchor: 9, head: 14 }]);  // multiple ranges
-editor.setSelections([{ anchor: 2 }, { anchor: 9 }], 0);         // explicit main range
+editor.setSelection(5);                                           // single cursor
+editor.setSelections([{ anchor: 2 }, { anchor: 9, head: 14 }]);   // multiple ranges
+editor.setSelections([{ anchor: 2 }, { anchor: 9 }], 0);          // explicit main range
 
 editor.on("selectionChange", ({ anchor, head, ranges, mainIndex }) => {
   // anchor/head describe the main range; ranges carries all of them
 });
 ```
 
-Multiple ranges in `setSelections` require `multiCursor: true` — without the flag CodeMirror collapses the selection to its main range.
+Multiple ranges in `setSelections` require `multiCursor: true` — without the flag CodeMirror collapses the selection to its main range. `getSelectedText()` always reads the main range and returns an empty string for a collapsed cursor.
+
+### Range edits
+
+Use `replaceSelection()` for the current selection, or `replaceRange()` when the host already has source offsets:
+
+```ts
+editor.replaceSelection("replacement");
+
+editor.replaceRange(
+  0,
+  7,
+  "## Title",
+  { anchor: 8 }
+);
+```
+
+`replaceRange()` dispatches the text change and optional post-edit selection as one CodeMirror transaction, producing one undo entry. Its `from`, `to`, and selection offsets are pre-edit document coordinates. Pass `{ silent: true }` as the fifth argument only for non-user synchronization that must skip change events.
 
 ## Other config highlights
 
