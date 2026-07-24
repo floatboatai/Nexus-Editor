@@ -109,3 +109,72 @@ your own keyboard handlers.
 
 See [`docs/ROADMAP.md`](../../docs/ROADMAP.md) for upcoming items
 including history (#16) and fuzzy matching (#17).
+
+
+## 中文使用示例
+
+### 基础用法
+
+在编辑器中使用 Slash 命令菜单：
+
+```typescript
+import { slash } from '@nexus-editor/plugin-slash';
+import { EditorView } from '@codemirror/view';
+
+const editor = new EditorView({
+  doc: '输入 / 试试看',
+  extensions: [
+    slash({
+      commands: [
+        {
+          title: '标题 1',
+          icon: 'H1',
+          execute: (view) => {
+            view.dispatch({
+              changes: { from: view.state.selection.main.head, insert: '# ' }
+            });
+          }
+        },
+        {
+          title: '加粗',
+          icon: 'B',
+          execute: (view) => {
+            view.dispatch({
+              changes: { from: view.state.selection.main.head, insert: '**文本**' }
+            });
+          }
+        }
+      ]
+    })
+  ]
+});
+```
+
+### 自定义命令
+
+你可以根据自己的需求添加自定义命令：
+
+```typescript
+const customCommands = [
+  {
+    title: '插入日期',
+    icon: '📅',
+    execute: (view) => {
+      const date = new Date().toLocaleDateString();
+      view.dispatch({
+        changes: { from: view.state.selection.main.head, insert: date }
+      });
+    }
+  }
+];
+
+const editor = new EditorView({
+  extensions: [slash({ commands: customCommands })]
+});
+```
+
+### 过滤与排序
+
+Slash 插件支持命令过滤和优先级排序，可以根据用户输入动态调整显示内容。
+
+更多 API 详情请参考 [API 文档](./src/types.ts)。
