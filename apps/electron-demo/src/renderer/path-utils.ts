@@ -11,5 +11,8 @@ export function normalizeSlashes(path: string): string {
  * Unlike path.join(), always returns forward slashes regardless of platform.
  */
 export function joinPath(...parts: string[]): string {
-  return parts.join("/").replace(/\\/g, "/").replace(/\/+/g, "/");
+  const joined = parts.join("/").replace(/\\/g, "/");
+  const hasUncPrefix = joined.startsWith("//");
+  const collapsed = joined.replace(/\/+/g, "/");
+  return hasUncPrefix ? `/${collapsed}` : collapsed;
 }
