@@ -19,8 +19,8 @@
 
 | 优先级 | 主题 | 关键项 |
 |---|---|---|
-| **P0 — 当前** | 核心 API 完善 | `getSelectedText()`、斜杠命令排序、`<Editor />` `onReady`、TS 严格类型覆盖 |
-| **P1 — 下一阶段** | 进阶功能 | 多光标、正则搜索、撤销/重做分组、Widget API 标准化、Electron 打包优化 |
+| **P0 — 当前** | 核心 API 完善 | TypeScript 严格类型覆盖（进行中；其余 P0 已完成） |
+| **P1 — 下一阶段** | 进阶功能 | 撤销/重做分组、Widget API 标准化、Electron 打包优化、端到端测试 |
 | **P2 — 中期** | 体验与生态 | 高级工具栏（emoji / 表格 / 颜色）、模糊搜索、滚动同步预览、Web Component 包装 |
 | **P3 — 长期** | 协作能力 | 实时 CRDT 协作、共享评论 / @提醒、插件热重载 |
 
@@ -207,10 +207,21 @@ pnpm dev:electron-demo
 ```ts
 editor.getDocument()          // 当前 Markdown 文本
 editor.getAst()               // 当前 mdast 语法树
-editor.setDocument(md)        // 替换整个文档
+
+// 选区与范围编辑
+editor.getSelection()         // 主选区：{ anchor, head }
+editor.getSelections()        // { ranges: [{ anchor, head }, ...], mainIndex }
+editor.getSelectedText()      // 主选区文本；光标折叠时为 ""
+editor.setSelection(anchor, head)
+editor.setSelections([{ anchor: 2 }, { anchor: 9, head: 14 }], 1)
+editor.replaceSelection(text)
+editor.replaceRange(from, to, insert, { anchor: nextPos })
+
+// 整文档替换
+editor.setDocument(md)
 editor.setDocument(md, { silent: true, preserveSelection: true })
 editor.setDocument(md, { selection: { anchor: 0 } })
-editor.setSelection(pos)      // 移动光标
+
 editor.focus() / editor.blur()
 editor.destroy()
 
@@ -223,6 +234,8 @@ editor.off("change", handler)
 // 坐标（用于浮动 UI 定位）
 editor.getCoordsAtPos(pos)     // { left, right, top, bottom } | null
 ```
+
+`getSelectedText()` 只读取主选区；多光标模式下如需所有选区，请使用 `getSelections()`。`replaceRange()` 会在同一个 CodeMirror 事务中完成内容替换和可选的选区移动，因此一次撤销即可同时恢复两者；所有偏移量均基于编辑前的文档坐标。
 
 </details>
 
