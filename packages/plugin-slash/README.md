@@ -118,36 +118,49 @@ including history (#16) and fuzzy matching (#17).
 在编辑器中使用 Slash 命令菜单：
 
 ```typescript
-import { slash } from '@nexus-editor/plugin-slash';
-import { EditorView } from '@codemirror/view';
+import { createEditor } from "@floatboat/nexus-core";
+import { createSlashPlugin, createSlashMenuUI } from "@floatboat/nexus-plugin-slash";
 
-const editor = new EditorView({
-  doc: '输入 / 试试看',
-  extensions: [
-    slash({
-      commands: [
-        {
-          title: '标题 1',
-          icon: 'H1',
-          execute: (view) => {
-            view.dispatch({
-              changes: { from: view.state.selection.main.head, insert: '# ' }
-            });
-          }
+const editor = createEditor({
+  container: document.getElementById("editor")!,
+  plugins: [
+    createSlashPlugin([
+      {
+        id: "h1",
+        title: "标题 1",
+        keywords: ["h1", "标题"],
+        description: "一级标题",
+        run: (e) => {
+          e.replaceSelection("# ");
+          return true;
         },
-        {
-          title: '加粗',
-          icon: 'B',
-          execute: (view) => {
-            view.dispatch({
-              changes: { from: view.state.selection.main.head, insert: '**文本**' }
-            });
-          }
-        }
-      ]
-    })
-  ]
+      },
+      {
+        id: "bold",
+        title: "加粗",
+        keywords: ["bold", "粗体"],
+        description: "加粗文本",
+        run: (e) => {
+          e.replaceSelection("**文本**");
+          return true;
+        },
+      },
+      {
+        id: "todo",
+        title: "待办事项",
+        keywords: ["task", "任务", "checkbox"],
+        description: "插入复选框",
+        run: (e) => {
+          e.replaceSelection("- [ ] ");
+          return true;
+        },
+      },
+    ]),
+  ],
 });
+
+// 挂载浮动菜单
+const menu = createSlashMenuUI(editor);
 ```
 
 ### 自定义命令
@@ -155,26 +168,53 @@ const editor = new EditorView({
 你可以根据自己的需求添加自定义命令：
 
 ```typescript
-const customCommands = [
-  {
-    title: '插入日期',
-    icon: '📅',
-    execute: (view) => {
-      const date = new Date().toLocaleDateString();
-      view.dispatch({
-        changes: { from: view.state.selection.main.head, insert: date }
-      });
-    }
-  }
-];
+import { createEditor } from "@floatboat/nexus-core";
+import { createSlashPlugin, createSlashMenuUI } from "@floatboat/nexus-plugin-slash";
 
-const editor = new EditorView({
-  extensions: [slash({ commands: customCommands })]
+const editor = createEditor({
+  container: document.getElementById("editor")!,
+  plugins: [
+    createSlashPlugin([
+      {
+        id: "insert-date",
+        title: "插入日期",
+        keywords: ["date", "日期", "today"],
+        description: "插入当前日期",
+        run: (e) => {
+          const date = new Date().toLocaleDateString("zh-CN");
+          e.replaceSelection(date);
+          return true;
+        },
+      },
+      {
+        id: "insert-time",
+        title: "插入时间",
+        keywords: ["time", "时间", "now"],
+        description: "插入当前时间",
+        run: (e) => {
+          const time = new Date().toLocaleTimeString("zh-CN");
+          e.replaceSelection(time);
+          return true;
+        },
+      },
+    ]),
+  ],
 });
+
+const menu = createSlashMenuUI(editor);
 ```
 
 ### 过滤与排序
 
-Slash 插件支持命令过滤和优先级排序，可以根据用户输入动态调整显示内容。
+`filterSlashCommands(commands, query)` 按确定性规则排序：
+
+1. 标题精确匹配
+2. 标题前缀匹配（短标题优先）
+3. 关键词精确匹配
+4. 标题子串匹配（偏移量靠前优先）
+5. 关键词前缀匹配
+6. 关键词子串匹配
+
+平局时按标题字母序排列。空查询保留原始注册顺序，可通过插件顺序自定义"最常用优先"。
 
 更多 API 详情请参考 [API 文档](./src/types.ts)。
