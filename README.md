@@ -19,8 +19,8 @@ We ship in priority tiers — **P0 is what we're working on right now**.
 
 | Tier | Theme | Highlights |
 |---|---|---|
-| **P0 — Now** | Core API completeness | `getSelectedText()`, slash command sorting, `<Editor />` `onReady`, TS strict coverage |
-| **P1 — Next** | Power-user features | Multi-cursor, regex search, undo/redo grouping, widget API standardization, Electron packaging |
+| **P0 — Now** | Core API completeness | TypeScript strict coverage (ongoing; other P0 items shipped) |
+| **P1 — Next** | Power-user features | Undo/redo grouping, widget API standardization, Electron packaging, end-to-end testing |
 | **P2 — Mid-term** | UX & ecosystem | Advanced toolbar (emoji / table / color), fuzzy search, sync-scroll preview, web-component wrapper |
 | **P3 — Long-term** | Collaboration | Realtime CRDT collab, shared comments / @mention, plugin hot-reload |
 
@@ -207,10 +207,21 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 ```ts
 editor.getDocument()          // current Markdown string
 editor.getAst()               // current mdast Root
-editor.setDocument(md)        // replace entire document
+
+// Selection and range editing
+editor.getSelection()         // main range: { anchor, head }
+editor.getSelections()        // { ranges: [{ anchor, head }, ...], mainIndex }
+editor.getSelectedText()      // text in the main range; "" when collapsed
+editor.setSelection(anchor, head)
+editor.setSelections([{ anchor: 2 }, { anchor: 9, head: 14 }], 1)
+editor.replaceSelection(text)
+editor.replaceRange(from, to, insert, { anchor: nextPos })
+
+// Whole-document replacement
+editor.setDocument(md)
 editor.setDocument(md, { silent: true, preserveSelection: true })
 editor.setDocument(md, { selection: { anchor: 0 } })
-editor.setSelection(pos)      // move cursor
+
 editor.focus() / editor.blur()
 editor.destroy()
 
@@ -223,6 +234,8 @@ editor.off("change", handler)
 // Coordinates (for floating UI)
 editor.getCoordsAtPos(pos)     // { left, right, top, bottom } | null
 ```
+
+`getSelectedText()` reads the main selection range; use `getSelections()` when a host needs every range in multi-cursor mode. `replaceRange()` applies the content change and optional post-edit selection in one CodeMirror transaction, so a single undo restores both. Its offsets use pre-edit document coordinates.
 
 </details>
 
