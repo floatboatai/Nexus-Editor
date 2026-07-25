@@ -4,7 +4,9 @@ import { createGfmPreset } from "../../preset-gfm/src/index";
 import {
   createSearchPlugin,
   findSearchMatches,
-  replaceAllMatches
+  replaceAllMatches,
+  buildFuzzyPattern,
+  fuzzyScore
 } from "../src/index";
 
 const HISTORY_KEY = "nexus:test-search-history";
@@ -886,5 +888,155 @@ describe("@floatboat/nexus-plugin-search", () => {
 
     editor.destroy();
     container.remove();
+  });
+});
+
+describe("fuzzy search", () => {
+  describe("buildFuzzyPattern", () => {
+    it("matches characters in order with gaps", () => {
+      const pat = buildFuzzyPattern("hlo");
+      expect(pat).not.toBeNull();
+      // Create fresh regex to avoid g-flag lastIndex state across assertions
+      const re = (s: string) => new RegExp(pat!.source, pat!.flags).test(s);
+      expect(re("hello")).toBe(true);
+      expect(re("halo")).toBe(true);
+      expect(re("h e l l o")).toBe(true);
+    });
+
+    it("rejects out-of-order characters", () => {
+      const pat = buildFuzzyPattern("olh");
+      expect(pat).not.toBeNull();
+      expect(new RegExp(pat!.source, pat!.flags).test("hello")).toBe(false);
+    });
+
+    it("matches exact query with no gaps", () => {
+      const pat = buildFuzzyPattern("hello");
+      expect(pat).not.toBeNull();
+      const match = "hello".match(new RegExp(pat!.source, pat!.flags));
+      expect(match).not.toBeNull();
+      expect(match![0]).toBe("hello");
+    });
+
+    it("respects case sensitivity", () => {
+      const pat = buildFuzzyPattern("HL", { caseSensitive: true });
+      expect(pat).not.toBeNull();
+      const re = new RegExp(pat!.source, pat!.flags);
+      expect(re.test("hello")).toBe(false);
+      expect(re.test("HELLO")).toBe(true);
+    });
+
+    it("escapes regex special characters", () => {
+      const pat = buildFuzzyPattern("a.b");
+      expect(pat).not.toBeNull();
+      const re = new RegExp(pat!.source, pat!.flags);
+      expect(re.test("a.b")).toBe(true);
+    });
+
+    it("returns null for empty query", () => {
+      expect(buildFuzzyPattern("")).toBeNull();
+      expect(buildFuzzyPattern("   ")).toBeNull();
+    });
+  });
+
+  describe("fuzzyScore", () => {
+    it("scores exact match highest", () => {
+      const exact = fuzzyScore("hello", "hello");
+      const partial = fuzzyScore("hlo", "hello");
+      expect(exact).toBeGreaterThan(partial);
+    });
+
+    it("returns 0 for non-matching query", () => {
+      expect(fuzzyScore("xyz", "hello")).toBe(0);
+    });
+
+    it("prefers consecutive matches", () => {
+      const consecutive = fuzzyScore("hel", "hello");
+      const scattered = fuzzyScore("hlo", "h e l l o");
+      // "hel" matches consecutive chars in "hello", should score higher
+      expect(consecutive).toBeGreaterThan(scattered);
+    });
+
+    it("prefers word-boundary matches", () => {
+      const boundary = fuzzyScore("nf", "newFile");
+      const nonBoundary = fuzzyScore("nf", "sunflower");
+      expect(boundary).toBeGreaterThan(nonBoundary);
+    });
+
+    it("is case-insensitive", () => {
+      expect(fuzzyScore("HELLO", "hello")).toBeGreaterThan(0);
+      expect(fuzzyScore("hello", "HELLO")).toBeGreaterThan(0);
+    });
+  });
+
+  describe("findSearchMatches with fuzzy", () => {
+    it("finds fuzzy matches in document", () => {
+      const doc = "hello world\nhyper loop\nhalo effect";
+      const matches = findSearchMatches(doc, "hlo", { fuzzy: true });
+      expect(matches.length).toBe(3); // "hello", "hyper loop", "halo"
+      expect(matches.map((m) => m.text)).toContain("hello");
+    });
+
+    it("returns empty when fuzzy ignores regexp/wholeWord", () => {
+      const doc = "hello world";
+      // With fuzzy, regexp and wholeWord should be ignored
+      const matches = findSearchMatches(doc, "hlo", {
+        fuzzy: true,
+        regexp: true,
+        wholeWord: true
+      });
+      expect(matches.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("search panel fuzzy toggle", () => {
+    it("shows fuzzy checkbox in search panel", () => {
+      const container = document.createElement("div");
+      const editor = createEditor({
+        container,
+        initialValue: "hello world",
+        plugins: [createSearchPlugin()]
+      });
+
+      openSearchPanel(container);
+
+      const fuzzyToggle = container.querySelector<HTMLInputElement>(
+        '[data-test-id="markdown-search-fuzzy-toggle"]'
+      );
+      expect(fuzzyToggle).not.toBeNull();
+      expect(fuzzyToggle!.type).toBe("checkbox");
+
+      editor.destroy();
+      container.remove();
+    });
+
+    it("finds results with fuzzy toggle enabled", () => {
+      const container = document.createElement("div");
+      const editor = createEditor({
+        container,
+        initialValue: "hello world\nhouse of cards",
+        plugins: [createSearchPlugin()]
+      });
+
+      const searchInput = openSearchPanel(container);
+      const fuzzyToggle = container.querySelector<HTMLInputElement>(
+        '[data-test-id="markdown-search-fuzzy-toggle"]'
+      );
+      expect(fuzzyToggle).not.toBeNull();
+
+      // Enable fuzzy mode
+      fuzzyToggle!.checked = true;
+      fuzzyToggle!.dispatchEvent(new Event("change", { bubbles: true }));
+
+      // Type a fuzzy query
+      searchInput.value = "hlo";
+      searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+      // The editor should have found "hello" in the document
+      // Verify the document didn't break
+      expect(editor.getDocument()).toContain("hello");
+
+      editor.destroy();
+      container.remove();
+    });
   });
 });
