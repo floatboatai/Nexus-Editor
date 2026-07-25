@@ -265,6 +265,13 @@ export interface EditorAPI {
    */
   isComposing(): boolean;
   destroy(): void;
+  /**
+   * Returns a shared event bus for cross-plugin communication.
+   * Plugins can emit and listen for typed events without direct
+   * coupling. Core emits `document.change`, `focus`, `blur`,
+   * and `selection.change` on this bus.
+   */
+  getEventBus(): PluginEventBus;
   on<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
   off<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
   getCoordsAtPos(pos: number): { left: number; right: number; top: number; bottom: number } | null;
@@ -395,4 +402,26 @@ export interface NexusPlugin {
   remarkPlugins?: Array<Plugin<[], Root, Root>>;
   cmExtensions?: Extension[];
   widgets?: WidgetDefinition[];
+  /**
+   * Called after the editor is fully constructed. Plugins can use this
+   * to access the event bus via `api.getEventBus()` and subscribe to
+   * core or cross-plugin events.
+   */
+  onInit?: (api: EditorAPI) => void;
+}
+
+/**
+ * Shared event bus for cross-plugin communication. Plugins subscribe
+ * to events by name and receive strongly-typed payloads.
+ *
+ * Core events (always emitted):
+ * - `document.change` → `{ doc: string, ast: Root }`
+ * - `focus` → `{}`
+ * - `blur` → `{}`
+ * - `selection.change` → `{ anchor: number, head: number }`
+ */
+export interface PluginEventBus {
+  on(event: string, handler: (...args: any[]) => void): void;
+  off(event: string, handler: (...args: any[]) => void): void;
+  emit(event: string, ...args: any[]): void;
 }

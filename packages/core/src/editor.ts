@@ -313,11 +313,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
     if (next) {
       config.onFocus?.();
       emitter.emit("focus");
+      pluginBus.emit("focus");
       return;
     }
 
     config.onBlur?.();
     emitter.emit("blur");
+    pluginBus.emit("blur");
   }
 
   function emitChange(markdown: string) {
@@ -331,6 +333,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
       currentAst = parseDocument(customParser, markdown);
       config.onChange?.(markdown, currentAst);
       emitter.emit("change", markdown, currentAst);
+      pluginBus.emit("document.change", markdown, currentAst);
       return;
     }
 
@@ -341,6 +344,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
     currentAst = transformAst(lezerAstFromAnywhere(viewRef, markdown));
     config.onChange?.(markdown, currentAst);
     emitter.emit("change", markdown, currentAst);
+    pluginBus.emit("document.change", markdown, currentAst);
   }
 
   function scheduleChange(markdown: string) {
@@ -629,6 +633,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
                 ranges: selection.ranges.map((range) => ({ anchor: range.anchor, head: range.head })),
                 mainIndex: selection.mainIndex,
               });
+              pluginBus.emit("selection.change", {
+                anchor: sel.anchor,
+                head: sel.head,
+              });
             }
 
             if (slashCommands.length > 0) {
@@ -728,6 +736,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // / silent setDocument can read the live incremental Lezer tree.
   viewRef.current = view;
 
+  // Plugin event bus — shared across all plugins for cross-plugin communication
+  const pluginBus = new EventEmitter<Record<string, (...args: any[]) => void>>();
+
   api = {
     getDocument() {
       return view.state.doc.toString();
@@ -744,6 +755,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
     setTheme(theme: NexusTheme) {
       if (destroyed) return;
       view.dispatch(themeExt.reconfigure(theme));
+    },
+    getEventBus() {
+      return pluginBus;
     },
     getSelection() {
       const sel = view.state.selection.main;
@@ -975,6 +989,15 @@ export function createEditor(config: EditorConfig): EditorAPI {
       if (hasError) throw firstError;
     }
   };
+
+  // Call plugin onInit hooks so plugins can subscribe to the event bus
+  for (const plugin of plugins) {
+    try {
+      plugin.onInit?.(api);
+    } catch (error) {
+      debugNexus("plugin onInit error", { plugin: plugin.name, error: String(error) });
+    }
+  }
 
   return api;
 }
