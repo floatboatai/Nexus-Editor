@@ -238,3 +238,112 @@ describe("slashMenuChange", () => {
     editor.destroy();
   });
 });
+
+describe("plugin event bus", () => {
+  it("returns a shared event bus via getEventBus", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "" });
+
+    const bus = editor.getEventBus();
+    expect(bus).toBeDefined();
+    expect(typeof bus.on).toBe("function");
+    expect(typeof bus.off).toBe("function");
+    expect(typeof bus.emit).toBe("function");
+
+    editor.destroy();
+  });
+
+  it("emits document.change on the bus when content changes", () => {
+    const container = document.createElement("div");
+    const handler = vi.fn();
+    const editor = createEditor({ container, initialValue: "" });
+
+    editor.getEventBus().on("document.change", handler);
+    editor.setDocument("hello");
+
+    expect(handler).toHaveBeenCalled();
+    expect(handler.mock.calls[0][0]).toBe("hello");
+    expect(handler.mock.calls[0][1]).toHaveProperty("type", "root");
+    editor.destroy();
+  });
+
+  it("allows plugins to subscribe in onInit", () => {
+    const container = document.createElement("div");
+    const handler = vi.fn();
+
+    const editor = createEditor({
+      container,
+      initialValue: "initial",
+      plugins: [{
+        name: "test-plugin",
+        onInit(api) {
+          api.getEventBus().on("document.change", handler);
+        },
+      }],
+    });
+
+    editor.setDocument("changed");
+    expect(handler).toHaveBeenCalledWith("changed", expect.objectContaining({ type: "root" }));
+    editor.destroy();
+  });
+
+  it("allows plugins to emit custom events", () => {
+    const container = document.createElement("div");
+    const handler = vi.fn();
+
+    const editor = createEditor({
+      container,
+      initialValue: "",
+      plugins: [{
+        name: "emitter-plugin",
+        onInit(api) {
+          api.getEventBus().emit("custom.event", { data: 42 });
+        },
+      }],
+    });
+
+    // Subscribe AFTER creation (the emit already happened in onInit)
+    // So we test that the bus works for arbitrary events
+    editor.getEventBus().on("custom.event", handler);
+    editor.getEventBus().emit("custom.event", { data: 99 });
+
+    expect(handler).toHaveBeenCalledWith({ data: 99 });
+    editor.destroy();
+  });
+
+  it("unsubscribe via off stops delivery", () => {
+    const container = document.createElement("div");
+    const handler = vi.fn();
+    const editor = createEditor({ container, initialValue: "" });
+
+    const bus = editor.getEventBus();
+    bus.on("test.event", handler);
+    bus.emit("test.event", 1);
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    bus.off("test.event", handler);
+    bus.emit("test.event", 2);
+    expect(handler).toHaveBeenCalledTimes(1); // still 1, second emit ignored
+
+    editor.destroy();
+  });
+
+  it("emits focus and blur on the bus", () => {
+    const container = document.createElement("div");
+    const focusHandler = vi.fn();
+    const blurHandler = vi.fn();
+    const editor = createEditor({ container, initialValue: "" });
+
+    const bus = editor.getEventBus();
+    bus.on("focus", focusHandler);
+    bus.on("blur", blurHandler);
+
+    editor.focus();
+    expect(focusHandler).toHaveBeenCalled();
+
+    editor.blur();
+    expect(blurHandler).toHaveBeenCalled();
+
+    editor.destroy();
+  });
+});

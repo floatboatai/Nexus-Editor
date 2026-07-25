@@ -35,6 +35,12 @@ export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  /**
+   * Enable fzf-style fuzzy matching. Characters of the query are matched
+   * in order with any gaps allowed. When true, `regexp` and `wholeWord`
+   * are ignored. Default: false.
+   */
+  fuzzy?: boolean;
 }
 
 export interface SearchHistoryStorage {
@@ -58,6 +64,10 @@ export interface SearchPluginOptions {
    * Enable case-sensitive search by default.
    */
   caseSensitive?: boolean;
+  /**
+   * Enable fuzzy search by default.
+   */
+  fuzzy?: boolean;
   /**
    * Highlight viewport matches for the current selection.
    */
@@ -623,7 +633,83 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Build a RegExp from a fuzzy query string. Each character of the query
+ * is separated by `.*?` (non-greedy, non-newline) so CodeMirror's search
+ * cursor can match in order with any gaps.
+ */
+export function buildFuzzyPattern(query: string, options: SearchOptions = {}): RegExp | null {
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+
+  const chars = [...trimmed].map((ch) => escapeRegExp(ch));
+  const pattern = chars.join(".*?");
+  const flags = options.caseSensitive ? "g" : "gi";
+
+  try {
+    return new RegExp(pattern, flags);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Score a candidate string against a fuzzy query. Higher is better.
+ * Bonuses awarded for consecutive matches, word-boundary matches,
+ * and matches near the start. Returns 0 if the query does not match.
+ */
+export function fuzzyScore(query: string, candidate: string): number {
+  const q = query.trim();
+  const c = candidate;
+  if (!q) return 0;
+
+  const qLower = q.toLowerCase();
+  const cLower = c.toLowerCase();
+
+  let qi = 0;
+  let prevMatch = -2;
+  let score = 0;
+
+  for (let ci = 0; ci < cLower.length && qi < qLower.length; ci++) {
+    if (cLower[ci] !== qLower[qi]) continue;
+
+    // Base score per matched character
+    score += 10;
+
+    // Consecutive match bonus
+    if (ci === prevMatch + 1) {
+      score += 3;
+    }
+
+    // Word-boundary bonus (start of string, after space/hyphen/underscore/camelCase)
+    if (ci === 0 || /[\s\-_]/.test(c[ci - 1]) ||
+        (c[ci - 1] !== c[ci - 1].toUpperCase() && c[ci] === c[ci].toUpperCase())) {
+      score += 2;
+    }
+
+    // Near-start bonus (first 4 chars)
+    if (ci < 4) {
+      score += 1;
+    }
+
+    prevMatch = ci;
+    qi++;
+  }
+
+  // Did we match all query characters?
+  if (qi < qLower.length) return 0;
+
+  // Length penalty: longer gaps reduce score
+  score -= Math.max(0, candidate.length - query.length);
+
+  return Math.max(1, score);
+}
+
 function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp | null {
+  if (options.fuzzy) {
+    return buildFuzzyPattern(query, options);
+  }
+
   const flags = options.caseSensitive ? "g" : "gi";
 
   let pattern: string;
@@ -891,22 +977,27 @@ class NexusSearchPanel implements Panel {
   private readonly caseField: HTMLInputElement;
   private readonly regexpField: HTMLInputElement;
   private readonly wholeWordField: HTMLInputElement;
+  private readonly fuzzyField: HTMLInputElement;
   private readonly labels: SearchPluginLabels;
   private readonly history: SearchHistoryController;
   private readonly replaceRow?: HTMLDivElement;
   private readonly replaceToggle?: IconButtonElements;
   private replaceExpanded = false;
+  private fuzzy: boolean;
+  private readonly matchCounter: HTMLSpanElement;
 
   constructor(
     private readonly view: EditorView,
     readonly top: boolean,
     labels: Partial<SearchPluginLabels> | undefined,
-    history: SearchHistoryController
+    history: SearchHistoryController,
+    fuzzyDefault = false
   ) {
     this.query = getSearchQuery(view.state);
     const resolvedLabels = resolveLabels(view, labels);
     this.labels = resolvedLabels;
     this.history = history;
+    this.fuzzy = fuzzyDefault;
 
     this.searchField = this.createTextField(
       "markdown-search-input",
@@ -925,6 +1016,7 @@ class NexusSearchPanel implements Panel {
     this.caseField = this.createCheckbox("markdown-search-case-toggle", "case", this.query.caseSensitive);
     this.regexpField = this.createCheckbox("markdown-search-regexp-toggle", "re", this.query.regexp);
     this.wholeWordField = this.createCheckbox("markdown-search-word-toggle", "word", this.query.wholeWord);
+    this.fuzzyField = this.createCheckbox("markdown-search-fuzzy-toggle", "fuzzy", fuzzyDefault);
 
     this.dom = document.createElement("div");
     this.dom.className = "cm-search nexus-search-panel";
@@ -961,6 +1053,7 @@ class NexusSearchPanel implements Panel {
       createLabel(this.caseField, resolvedLabels.matchCase),
       createLabel(this.regexpField, resolvedLabels.regexp),
       createLabel(this.wholeWordField, resolvedLabels.byWord),
+      createLabel(this.fuzzyField, "Fuzzy"),
       navigationGroup
     ];
     if (this.replaceToggle) {
@@ -993,6 +1086,14 @@ class NexusSearchPanel implements Panel {
       this.dom.append(replaceRow);
     }
 
+    // Match counter (e.g. "5/12")
+    this.matchCounter = document.createElement("span");
+    this.matchCounter.className = "nexus-search-counter";
+    this.matchCounter.dataset.testId = "markdown-search-counter";
+    this.matchCounter.setAttribute("aria-live", "polite");
+    this.matchCounter.textContent = "";
+    this.dom.append(this.matchCounter);
+
     const closeButton = createButton("markdown-search-close", "close", "×", () => closeSearchPanel(view));
     closeButton.setAttribute("aria-label", resolvedLabels.close);
     closeButton.title = resolvedLabels.close;
@@ -1007,6 +1108,7 @@ class NexusSearchPanel implements Panel {
         }
       }
     }
+    this.updateMatchCounter();
   }
 
   mount(): void {
@@ -1055,11 +1157,20 @@ class NexusSearchPanel implements Panel {
   }
 
   private commit(): void {
+    const fuzzy = this.fuzzyField.checked;
+    this.fuzzy = fuzzy;
+
+    let search = this.searchField.value;
+    if (fuzzy && search.trim()) {
+      const pattern = buildFuzzyPattern(search, { caseSensitive: this.caseField.checked });
+      search = pattern ? pattern.source : search;
+    }
+
     const query = new SearchQuery({
-      search: this.searchField.value,
+      search,
       caseSensitive: this.caseField.checked,
-      regexp: this.regexpField.checked,
-      wholeWord: this.wholeWordField.checked,
+      regexp: fuzzy || this.regexpField.checked,
+      wholeWord: fuzzy ? false : this.wholeWordField.checked,
       replace: this.replaceField.value
     });
 
@@ -1135,19 +1246,53 @@ class NexusSearchPanel implements Panel {
     this.searchField.value = query.search;
     this.replaceField.value = query.replace;
     this.caseField.checked = query.caseSensitive;
-    this.regexpField.checked = query.regexp;
-    this.wholeWordField.checked = query.wholeWord;
+    this.regexpField.checked = this.fuzzy ? false : query.regexp;
+    this.wholeWordField.checked = this.fuzzy ? false : query.wholeWord;
+  }
+
+  private updateMatchCounter(): void {
+    const query = getSearchQuery(this.view.state);
+    if (!query.valid || !query.search.trim() || !searchPanelOpen(this.view.state)) {
+      this.matchCounter.textContent = "";
+      return;
+    }
+
+    const cursor = query.getCursor(this.view.state);
+    let total = 0;
+    let current = 0;
+    const mainSelection = this.view.state.selection.main;
+    let firstMatch = true;
+
+    for (let result = cursor.next(); !result.done; result = cursor.next()) {
+      total++;
+      // The "current" match is the first one whose start >= the current cursor position,
+      // or if wrapped, the first overall match
+      if (firstMatch || result.value.from >= mainSelection.head) {
+        if (firstMatch) {
+          firstMatch = false;
+        }
+        if (current === 0) {
+          current = total;
+        }
+      }
+    }
+
+    // If cursor is after all matches, current stays at 1
+    if (current === 0) current = 1;
+
+    this.matchCounter.textContent = total > 0 ? `${current}/${total}` : "";
   }
 }
 
 export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlugin {
   const history = new SearchHistoryController(options.history);
+  const fuzzyDefault = options.fuzzy ?? false;
   const cmExtensions = [
     search({
       top: options.top ?? true,
       caseSensitive: options.caseSensitive ?? false,
       literal: true,
-      createPanel: (view) => new NexusSearchPanel(view, options.top ?? true, options.labels, history)
+      createPanel: (view) => new NexusSearchPanel(view, options.top ?? true, options.labels, history, fuzzyDefault)
     }),
     keymap.of(searchKeymap),
     tableSearchHighlightPlugin

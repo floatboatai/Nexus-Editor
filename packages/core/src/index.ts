@@ -47,6 +47,7 @@ export type {
   NexusPlugin,
   ParseResult,
   ParserLike,
+  PluginEventBus,
   SelectionRangeJSON,
   SelectionState,
   SlashCommandDef,
