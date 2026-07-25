@@ -123,6 +123,9 @@ export function connectNexusIframe(
     port?.close();
     port = null;
     rejectPending(error);
+    // Every terminal path lands here, including timeout and reload — release
+    // host closures rather than retaining them on a dead controller.
+    changeListeners.clear();
     if (!readySettled) {
       readySettled = true;
       rejectReady(error);
@@ -267,7 +270,6 @@ export function connectNexusIframe(
       if (destroyed) return;
       port?.postMessage(createProtocolMessage({ type: "destroy" as const }));
       fail(new NexusIframeBridgeError("DESTROYED", "The iframe bridge has been destroyed."));
-      changeListeners.clear();
     },
   };
 }

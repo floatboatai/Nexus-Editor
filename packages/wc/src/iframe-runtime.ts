@@ -148,8 +148,14 @@ export function mountNexusIframeRuntime(options: NexusIframeRuntimeOptions): Edi
     activePort.postMessage(createProtocolMessage({ type: "ready" as const }));
   }
 
+  // Wrap `destroy` so a consumer-initiated teardown also tears down the bridge.
+  // The descriptor mirrors the plain data property `createEditor` returns —
+  // without `writable`/`enumerable` the override would become read-only and
+  // vanish from spreads such as `{ ...editor }`.
   Object.defineProperty(editor, "destroy", {
     configurable: true,
+    enumerable: true,
+    writable: true,
     value: destroy,
   });
   window.addEventListener("message", onWindowMessage);

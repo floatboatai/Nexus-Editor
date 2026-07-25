@@ -26,7 +26,12 @@ On `connectedCallback`, the element SHALL create a single light-DOM `<div>` chil
 
 #### Scenario: editor is available after connecting
 - **WHEN** a `<nexus-editor>` element is appended to the document
-- **THEN** `element.editor` SHALL be a non-null `EditorAPI` after the `nexus-ready` event fires
+- **THEN** `element.editor` SHALL be a non-null `EditorAPI` synchronously after `connectedCallback` returns
+
+#### Scenario: element lays out as a block by default
+- **WHEN** a `<nexus-editor>` element connects with no consumer stylesheet
+- **THEN** its computed `display` SHALL be `block`
+- **AND** any consumer rule targeting the tag SHALL override that default
 
 #### Scenario: editor is destroyed on disconnect
 - **WHEN** a connected `<nexus-editor>` element is removed from the document
@@ -63,12 +68,20 @@ The element SHALL dispatch `CustomEvent`s named `nexus-ready`, `nexus-change`, `
 - **WHEN** the element connects and finishes creating the editor
 - **THEN** a `nexus-ready` event SHALL fire with `event.detail.editor` equal to `element.editor`
 
+#### Scenario: nexus-ready reaches a listener attached after connection
+- **WHEN** a host attaches a `nexus-ready` listener immediately after appending the element, or immediately after `defineNexusEditor()` upgrades declarative markup
+- **THEN** that listener SHALL still receive the event, which is dispatched on a microtask rather than synchronously
+
+#### Scenario: nexus-ready is suppressed for an element detached before dispatch
+- **WHEN** the element is removed from the document before the pending `nexus-ready` microtask runs
+- **THEN** no `nexus-ready` event SHALL fire for the editor that is about to be destroyed
+
 #### Scenario: nexus-change carries doc and ast
 - **WHEN** the user edits the document
 - **THEN** a `nexus-change` event SHALL fire with `event.detail.doc` (string) and `event.detail.ast` (mdast Root)
 
 ### Requirement: initial-only configuration parity with React/Vue bindings
-Attributes and properties other than `value`/`initial-value` (`read-only`, `tab-size`, `direction`, `indent-guides`, `live-preview`, `multi-cursor`, `slash-menu-limit`, `parse-delay-ms`, `plugins`, `parser`, `theme`, `locale`, `onAssetUpload`) SHALL be read once when the editor is created and SHALL NOT trigger a live reconfiguration when changed after connection, matching `packages/react`'s `useEditor` mount-only creation effect. Properties assigned before custom-element registration SHALL be replayed through the upgraded element's setters before configuration is read.
+Attributes and properties other than `value`/`initial-value` (`read-only`, `tab-size`, `direction`, `indent-guides`, `live-preview`, `multi-cursor`, `slash-menu-limit`, `parse-delay-ms`, `plugins`, `parser`, `theme`, `locale`, `onAssetUpload`) SHALL be read once when the editor is created and SHALL NOT trigger a live reconfiguration when changed after connection, matching `packages/react`'s `useEditor` mount-only creation effect. `value` SHALL be the only entry in `observedAttributes`, so the element does not advertise reactivity it does not implement. Properties assigned before custom-element registration SHALL be replayed through the upgraded element's setters before configuration is read.
 
 #### Scenario: changing read-only after connect does not affect the live editor
 - **WHEN** `element.readOnly` is set to `true` after the element has connected

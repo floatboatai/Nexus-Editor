@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { NexusPlugin } from "@floatboat/nexus-core";
+import * as coreModule from "@floatboat/nexus-core";
+import type { NexusLocale, NexusPlugin, NexusTheme } from "@floatboat/nexus-core";
 import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 
 import { defineNexusEditor, NexusEditorElement } from "../src/index";
@@ -22,7 +23,7 @@ describe("defineNexusEditor", () => {
     expect(() => defineNexusEditor()).not.toThrow();
   });
 
-  it("skips registration when the tag name is already taken", () => {
+  it("keeps the existing registration when re-registering its own tag name", () => {
     expect(() => defineNexusEditor("nexus-editor")).not.toThrow();
     expect(customElements.get("nexus-editor")).toBe(NexusEditorElement);
   });
@@ -49,7 +50,7 @@ describe("NexusEditorElement", () => {
     vi.useRealTimers();
   });
 
-  it("mounts a core editor instance on connect and fires nexus-ready", () => {
+  it("mounts a core editor instance on connect and fires nexus-ready", async () => {
     let ready: NexusReadyDetail | null = null;
     host.addEventListener("nexus-ready", ((event: CustomEvent<NexusReadyDetail>) => {
       ready = event.detail;
@@ -59,9 +60,55 @@ describe("NexusEditorElement", () => {
     document.body.appendChild(host);
 
     expect(host.editor).not.toBeNull();
+    expect(host.querySelector(".cm-editor")).not.toBeNull();
+
+    await Promise.resolve();
     expect(ready).not.toBeNull();
     expect(ready!.editor).toBe(host.editor);
-    expect(host.querySelector(".cm-editor")).not.toBeNull();
+  });
+
+  it("delivers nexus-ready to a listener attached right after append", async () => {
+    const onReady = vi.fn();
+    document.body.appendChild(host);
+    // The README's imperative pattern: subscribe after insertion. A synchronous
+    // dispatch inside connectedCallback would already have missed this.
+    host.addEventListener("nexus-ready", onReady);
+
+    await Promise.resolve();
+
+    expect(onReady).toHaveBeenCalledOnce();
+  });
+
+  it("delivers nexus-ready for declarative markup upgraded by defineNexusEditor", async () => {
+    const tagName = "ready-nexus-editor";
+    const holder = document.createElement("div");
+    holder.innerHTML = `<${tagName} initial-value="# Hello"></${tagName}>`;
+    document.body.append(holder);
+
+    const el = holder.firstElementChild as NexusEditorElement;
+    const onReady = vi.fn();
+    customElements.define(tagName, class extends NexusEditorElement {});
+    // Upgrade already ran synchronously inside define(); the microtask dispatch
+    // is what makes this post-define subscription work.
+    el.addEventListener("nexus-ready", onReady);
+
+    await Promise.resolve();
+
+    expect(onReady).toHaveBeenCalledOnce();
+    expect(el.editor!.getDocument()).toBe("# Hello");
+    holder.remove();
+  });
+
+  it("does not fire nexus-ready after an immediate disconnect", async () => {
+    const onReady = vi.fn();
+    document.body.appendChild(host);
+    host.addEventListener("nexus-ready", onReady);
+    host.remove();
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onReady).not.toHaveBeenCalled();
   });
 
   it("destroys the editor and removes the container on disconnect", async () => {
@@ -326,5 +373,134 @@ describe("NexusEditorElement", () => {
 
     expect(host.hasAttribute("multi-cursor")).toBe(true);
     expect(host.editor!.getSelections().ranges).toHaveLength(2);
+  });
+
+  it("keeps the live editor editable when read-only is set after connect", () => {
+    host.setAttribute("initial-value", "editable");
+    document.body.appendChild(host);
+    const editor = host.editor;
+
+    host.readOnly = true;
+
+    // Initial-only config parity with packages/react: no live reconfiguration.
+    expect(host.editor).toBe(editor);
+    expect(host.querySelector(".cm-content")?.getAttribute("contenteditable")).toBe("true");
+  });
+
+  it("forwards focus and blur as composed nexus events", () => {
+    const onFocus = vi.fn();
+    const onBlur = vi.fn();
+    host.addEventListener("nexus-focus", onFocus);
+    host.addEventListener("nexus-blur", onBlur);
+    host.setAttribute("initial-value", "focus me");
+    document.body.appendChild(host);
+
+    host.editor!.focus();
+    expect(onFocus).toHaveBeenCalledOnce();
+    expect(onFocus.mock.calls[0]![0]).toMatchObject({ bubbles: true, composed: true });
+
+    host.editor!.blur();
+    expect(onBlur).toHaveBeenCalledOnce();
+  });
+
+  it("maps numeric and enum attributes into the editor config", () => {
+    const createSpy = vi.spyOn(coreModule, "createEditor");
+    host.setAttribute("initial-value", "config");
+    host.setAttribute("tab-size", "2");
+    host.setAttribute("direction", "rtl");
+    host.setAttribute("indent-guides", "");
+    host.setAttribute("slash-menu-limit", "3");
+    host.setAttribute("parse-delay-ms", "40");
+    document.body.appendChild(host);
+
+    expect(createSpy).toHaveBeenCalledOnce();
+    expect(createSpy.mock.calls[0]![0]).toMatchObject({
+      initialValue: "config",
+      tabSize: 2,
+      direction: "rtl",
+      indentGuides: true,
+      slashMenuLimit: 3,
+      parseDelayMs: 40,
+    });
+  });
+
+  it("passes an explicit ltr direction through instead of dropping it", () => {
+    const createSpy = vi.spyOn(coreModule, "createEditor");
+    host.setAttribute("direction", "ltr");
+    document.body.appendChild(host);
+
+    expect(createSpy.mock.calls[0]![0]).toMatchObject({ direction: "ltr" });
+  });
+
+  it("ignores an unparseable numeric attribute instead of passing NaN", () => {
+    const createSpy = vi.spyOn(coreModule, "createEditor");
+    host.setAttribute("tab-size", "wide");
+    document.body.appendChild(host);
+
+    expect(createSpy.mock.calls[0]![0].tabSize).toBeUndefined();
+  });
+
+  it("forwards theme, locale, parser and onAssetUpload properties", () => {
+    const createSpy = vi.spyOn(coreModule, "createEditor");
+    const theme = { name: "test-theme" } as unknown as NexusTheme;
+    const locale = { livePreview: { addRow: "Add" } } as unknown as Partial<NexusLocale>;
+    const onAssetUpload = vi.fn(async () => null);
+    host.theme = theme;
+    host.locale = locale;
+    host.onAssetUpload = onAssetUpload;
+    document.body.appendChild(host);
+
+    expect(createSpy.mock.calls[0]![0]).toMatchObject({ theme, locale, onAssetUpload });
+  });
+
+  it("lays out as a block element without consumer CSS", () => {
+    document.body.appendChild(host);
+
+    expect(getComputedStyle(host).display).toBe("block");
+  });
+
+  it("injects the block rule once into a consumer-owned shadow root", () => {
+    const outer = document.createElement("div");
+    const shadow = outer.attachShadow({ mode: "open" });
+    document.body.append(outer);
+
+    shadow.append(host);
+    const second = document.createElement("nexus-editor") as NexusEditorElement;
+    shadow.append(second);
+
+    const baseRules = Array.from(shadow.querySelectorAll("style"))
+      .filter((style) => (style.textContent ?? "").includes(":where(nexus-editor)"));
+    expect(baseRules).toHaveLength(1);
+    expect(baseRules[0]!.textContent).toContain("display:block");
+
+    second.remove();
+    outer.remove();
+  });
+
+  it("rolls back the container when createEditor throws, and recovers on reconnect", () => {
+    const createSpy = vi.spyOn(coreModule, "createEditor").mockImplementationOnce(() => {
+      throw new Error("boom");
+    });
+    // A throw inside connectedCallback is reported to the global error handler
+    // rather than propagating to appendChild, so swallow it here and assert on
+    // the element's own rolled-back state instead.
+    const onError = vi.fn((event: Event) => event.preventDefault());
+    window.addEventListener("error", onError);
+
+    try {
+      document.body.appendChild(host);
+    } finally {
+      window.removeEventListener("error", onError);
+    }
+
+    expect(host.editor).toBeNull();
+    expect(host.children).toHaveLength(0);
+
+    // connectedOnce was rolled back, so a later connect can still mount.
+    host.remove();
+    createSpy.mockRestore();
+    document.body.appendChild(host);
+
+    expect(host.editor).not.toBeNull();
   });
 });

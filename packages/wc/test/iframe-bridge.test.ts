@@ -184,6 +184,42 @@ describe("connectNexusIframe", () => {
 
     await expect(controller.getDocument()).rejects.toMatchObject({ code: "IFRAME_RELOADED" });
   });
+
+  it("releases change listeners when the connection fails terminally", async () => {
+    installFakeMessageChannel();
+    const iframe = document.createElement("iframe");
+    document.body.append(iframe);
+    const childWindow = iframe.contentWindow!;
+    let runtimePort: MessagePort | null = null;
+
+    vi.spyOn(childWindow, "postMessage").mockImplementation(((
+      message: unknown,
+      _targetOrigin: string | WindowPostMessageOptions,
+      transfer?: Transferable[],
+    ) => {
+      if ((message as { type?: string }).type === "probe") {
+        queueMicrotask(() => announceRuntime(childWindow, "runtime-1"));
+      }
+      if ((message as { type?: string }).type === "connect") {
+        runtimePort = transfer?.[0] as MessagePort;
+        runtimePort.start();
+        runtimePort.postMessage(createProtocolMessage({ type: "ready" as const }));
+      }
+    }) as typeof childWindow.postMessage);
+
+    const controller = connectNexusIframe(iframe, { targetOrigin: ORIGIN, timeoutMs: 20 });
+    await controller.ready;
+    const onChange = vi.fn();
+    controller.onChange(onChange);
+
+    // Terminal failure via reload, not destroy(): listeners must still be released.
+    announceRuntime(childWindow, "runtime-2");
+    await expect(controller.getDocument()).rejects.toMatchObject({ code: "IFRAME_RELOADED" });
+
+    runtimePort!.postMessage(createProtocolMessage({ type: "change" as const, doc: "after failure" }));
+    await Promise.resolve();
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });
 
 describe("mountNexusIframeRuntime", () => {
@@ -192,6 +228,30 @@ describe("mountNexusIframeRuntime", () => {
       container: document.createElement("div"),
       allowedParentOrigin: "*",
     })).toThrow();
+  });
+
+  it("exposes the bridge-aware destroy as a normal enumerable property", () => {
+    const parentDescriptor = Object.getOwnPropertyDescriptor(window, "parent")!;
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: { postMessage: vi.fn() } as unknown as Window,
+    });
+
+    try {
+      const container = document.createElement("div");
+      document.body.append(container);
+      const editor = mountNexusIframeRuntime({ container, allowedParentOrigin: ORIGIN });
+
+      const descriptor = Object.getOwnPropertyDescriptor(editor, "destroy")!;
+      expect(descriptor).toMatchObject({ enumerable: true, writable: true, configurable: true });
+      // A `{ ...editor }` spread must keep the bridge-aware override.
+      expect({ ...editor }.destroy).toBe(editor.destroy);
+
+      editor.destroy();
+      expect(container.querySelector(".cm-editor")).toBeNull();
+    } finally {
+      Object.defineProperty(window, "parent", parentDescriptor);
+    }
   });
 
   it("serves commands only after an origin-checked connection", async () => {

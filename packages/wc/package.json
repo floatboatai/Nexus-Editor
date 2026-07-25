@@ -20,8 +20,7 @@
     }
   },
   "files": [
-    "dist",
-    "README.md"
+    "dist"
   ],
   "scripts": {
     "build": "tsup src/index.ts src/iframe-parent.ts src/iframe-runtime.ts --format esm --dts --clean"

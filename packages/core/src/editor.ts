@@ -843,6 +843,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
     replaceRange(from, to, insert, selection, opts) {
       if (destroyed) return;
       const silent = opts?.silent === true;
+      // Same reasoning as performSetDocument: a silent external edit supersedes
+      // any delayed notification carrying the pre-edit document, which would
+      // otherwise roll a controlled host back to that older value.
+      if (silent) cancelPendingChangeNotification();
       view.dispatch({
         changes: { from, to, insert },
         selection: selection

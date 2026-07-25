@@ -25,6 +25,12 @@ function readNumberAttribute(element: Element, name: string): number | undefined
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function readDirectionAttribute(element: Element): "ltr" | "rtl" | undefined {
+  const raw = element.getAttribute("direction");
+  if (raw === "rtl" || raw === "ltr") return raw;
+  return undefined;
+}
+
 const PRE_UPGRADE_PROPERTIES = [
   "value",
   "plugins",
@@ -36,6 +42,45 @@ const PRE_UPGRADE_PROPERTIES = [
   "readOnly",
   "multiCursor",
 ] as const;
+
+/** Roots that already carry the base rule, keyed by the tag names injected into them. */
+const baseStyleRoots = new WeakMap<Document | ShadowRoot, Set<string>>();
+
+/**
+ * Custom elements default to `display: inline`, which would wrap CodeMirror's
+ * block DOM in an inline box with no height. Inject a zero-specificity
+ * `:where()` rule once per root so every consumer stylesheet still wins, and
+ * `packages/react`-style block layout works without boilerplate CSS.
+ */
+function ensureBaseStyles(element: HTMLElement): void {
+  const root = element.getRootNode();
+  if (!(root instanceof Document || root instanceof ShadowRoot)) return;
+
+  const tagName = element.localName;
+  let injected = baseStyleRoots.get(root);
+  if (!injected) {
+    injected = new Set<string>();
+    baseStyleRoots.set(root, injected);
+  }
+  if (injected.has(tagName)) return;
+  injected.add(tagName);
+
+  const css = `:where(${tagName}){display:block}`;
+  try {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(css);
+    root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+    return;
+  } catch {
+    // Constructable stylesheets are unavailable (older browsers, jsdom) —
+    // fall back to a plain <style> element in the same root.
+  }
+
+  const style = document.createElement("style");
+  style.textContent = css;
+  const target = root instanceof Document ? (root.head ?? root.documentElement) : root;
+  target?.prepend(style);
+}
 
 /**
  * Framework-agnostic Web Component wrapper around `@floatboat/nexus-core`.
@@ -193,6 +238,7 @@ export class NexusEditorElement extends HTMLElement {
     if (this.connectedOnce) return;
     this.connectedOnce = true;
 
+    ensureBaseStyles(this);
     const container = document.createElement("div");
     this.appendChild(container);
     this.container = container;
@@ -212,7 +258,7 @@ export class NexusEditorElement extends HTMLElement {
       theme: this._theme,
       locale: this._locale,
       tabSize: readNumberAttribute(this, "tab-size"),
-      direction: this.getAttribute("direction") === "rtl" ? "rtl" : undefined,
+      direction: readDirectionAttribute(this),
       indentGuides: this.hasAttribute("indent-guides"),
       readOnly: this.hasAttribute("read-only"),
       multiCursor: this.hasAttribute("multi-cursor"),
@@ -268,11 +314,21 @@ export class NexusEditorElement extends HTMLElement {
       );
     });
 
-    this.dispatchEvent(new CustomEvent<NexusReadyDetail>("nexus-ready", {
-      detail: { editor },
-      bubbles: true,
-      composed: true,
-    }));
+    // Dispatched on a microtask, not synchronously. Declarative markup upgrades
+    // during `defineNexusEditor()`, and imperative hosts usually attach
+    // listeners right after `append()` — a synchronous dispatch would fire
+    // before either could subscribe. `.editor` stays synchronously available
+    // for callers that do not need the event.
+    queueMicrotask(() => {
+      // Skip when the element was torn down, or detached before the microtask
+      // ran — its pending teardown would destroy this editor immediately after.
+      if (this._editor !== editor || !this.isConnected) return;
+      this.dispatchEvent(new CustomEvent<NexusReadyDetail>("nexus-ready", {
+        detail: { editor },
+        bubbles: true,
+        composed: true,
+      }));
+    });
   }
 
   disconnectedCallback(): void {

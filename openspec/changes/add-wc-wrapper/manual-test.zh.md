@@ -48,6 +48,33 @@ pnpm --filter @floatboat/nexus-electron-demo dist:mac-arm64
 - 输入后内容立即更新。
 - 页面和控制台没有异常。
 
+### WC-01b nexus-ready 可被注册后的监听器收到
+
+步骤：在浏览器控制台执行：
+
+```js
+const { NexusEditorElement } = await import("/packages/wc/src/index.ts");
+document.body.insertAdjacentHTML("beforeend", '<probe-editor initial-value="# ready"></probe-editor>');
+const el = document.querySelector("probe-editor");
+customElements.define("probe-editor", class extends NexusEditorElement {});
+let fired = 0;
+el.addEventListener("nexus-ready", () => { fired += 1; });   // define 之后才订阅
+await Promise.resolve();
+({ fired, display: getComputedStyle(el).display, doc: el.editor?.getDocument() });
+```
+
+预期：`fired` 为 `1`，`display` 为 `"block"`，`doc` 为 `"# ready"`。
+
+失败证据：`fired` 为 `0`（事件在 `connectedCallback` 内同步派发，宿主来不及订阅），或 `display` 为 `"inline"`。
+
+### WC-01c 默认块级布局
+
+步骤：在控制台执行 `getComputedStyle(document.querySelector("#parent-a nexus-editor")).display`。
+
+预期：返回 `"block"`。测试台的 CSS 只设置 `min-height`，块级来自组件自带的 `:where()` 基础样式。
+
+补充：执行 `document.querySelector("#parent-a nexus-editor").style.display = "flex"`，确认消费方样式能覆盖默认值。
+
 ### WC-02 注册前 property 保留
 
 步骤：点击“升级前 property”区域的“检查初始值”。

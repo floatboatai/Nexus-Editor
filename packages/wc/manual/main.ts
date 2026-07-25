@@ -40,7 +40,7 @@ async function main(): Promise<void> {
 
   const shadowHost = document.querySelector<HTMLElement>("#shadow-host")!;
   const shadowRoot = shadowHost.attachShadow({ mode: "open" });
-  shadowRoot.innerHTML = `<style>nexus-editor{display:block;min-height:130px}</style><nexus-editor></nexus-editor>`;
+  shadowRoot.innerHTML = `<style>nexus-editor{min-height:130px}</style><nexus-editor></nexus-editor>`;
   const shadowEditor = shadowRoot.querySelector("nexus-editor") as ManualEditor;
   shadowHost.addEventListener("nexus-change", () => {
     log("WC-05", true, "nexus-change 已穿过 Shadow DOM");

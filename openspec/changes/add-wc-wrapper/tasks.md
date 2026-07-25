@@ -33,3 +33,12 @@
 - [x] 6.3 Export the iframe runtime that mounts core with local configuration and validates the parent origin
 - [x] 6.4 Add parent/runtime regression tests, public types, package subpath exports, and usage documentation
 - [x] 6.5 Extend the browser test bench and Chinese manual checklist for same-origin and cross-origin iframe scenarios
+
+## 7. Second review round
+- [x] 7.1 Dispatch `nexus-ready` on a microtask so post-connect listeners observe it; suppress it for an element detached before dispatch
+- [x] 7.2 Inject a zero-specificity `display: block` base rule and document the layout contract
+- [x] 7.3 Cancel superseded delayed changes for silent `replaceRange`, matching `setDocument`
+- [x] 7.4 Release bridge change listeners on every terminal failure, not only `destroy()`
+- [x] 7.5 Preserve `direction="ltr"`, observe only `value`, and fix the runtime `destroy` descriptor
+- [x] 7.6 Register `@floatboat/nexus-wc` in `tsconfig.base.json` paths and align `files` with react/vue
+- [x] 7.7 Cover focus/blur events, attribute→config mapping, read-only non-reactivity, and the `createEditor` throw rollback

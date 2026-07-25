@@ -34,7 +34,28 @@ el.addEventListener("nexus-change", (event) => {
 });
 ```
 
-The element mounts a real `EditorAPI` instance (from `@floatboat/nexus-core`) into an inner `div` on connect. A permanent disconnect destroys it after the current microtask; a synchronous move between DOM parents preserves the live instance and uncontrolled edits. The instance is available synchronously after connect via the `.editor` property.
+The element mounts a real `EditorAPI` instance (from `@floatboat/nexus-core`) into an inner `div` on connect. A permanent disconnect destroys it after the current microtask; a synchronous move between DOM parents preserves the live instance and uncontrolled edits.
+
+### Reading the instance
+
+`.editor` is available **synchronously** once the element has connected, so the direct read is usually the simplest option:
+
+```ts
+document.body.append(el);
+el.editor?.getDocument(); // ready
+```
+
+`nexus-ready` is dispatched on a microtask after the editor is created, so a listener attached immediately after `append()` (or after `defineNexusEditor()` upgrades declarative markup) still receives it. Only listeners attached later — in a `setTimeout`, or after an `await` — can miss the event; use `.editor` in that case.
+
+### Layout
+
+The element sets `display: block` through a zero-specificity `:where()` rule, so it lays out like `@floatboat/nexus-react`'s wrapper div without any boilerplate CSS. Any consumer rule wins over it. The element has no intrinsic height, so give it one where your layout needs it:
+
+```css
+nexus-editor {
+  min-height: 300px;
+}
+```
 
 ## Controlled usage
 
@@ -167,4 +188,4 @@ pnpm --dir apps/electron-demo exec vite ../../packages/wc/manual --host 127.0.0.
 
 Open `http://127.0.0.1:5173/?frameOrigin=http://127.0.0.1:5174` for the cross-origin case.
 
-The complete Chinese checklist is in [`docs/manual-test-wc-add-web-component.zh.md`](../../docs/manual-test-wc-add-web-component.zh.md).
+The complete Chinese checklist is in [`openspec/changes/add-wc-wrapper/manual-test.zh.md`](../../openspec/changes/add-wc-wrapper/manual-test.zh.md).

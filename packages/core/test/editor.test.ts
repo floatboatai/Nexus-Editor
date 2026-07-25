@@ -298,6 +298,29 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("cancels a delayed change when a silent replaceRange supersedes it", () => {
+    vi.useFakeTimers();
+
+    const container = document.createElement("div");
+    const docs: string[] = [];
+    const editor = createEditor({
+      container,
+      initialValue: "initial",
+      parseDelayMs: 20,
+      onChange(doc) {
+        docs.push(doc);
+      }
+    });
+
+    editor.setDocument("queued user edit");
+    editor.replaceRange(0, editor.getDocument().length, "external value", undefined, { silent: true });
+    vi.advanceTimersByTime(20);
+
+    expect(editor.getDocument()).toBe("external value");
+    expect(docs).toEqual([]);
+    editor.destroy();
+  });
+
   it("defers change emission until IME composition ends", async () => {
     const container = document.createElement("div");
     const docs: string[] = [];

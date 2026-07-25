@@ -10,7 +10,11 @@ import type {
 } from "@floatboat/nexus-core";
 import type { Root } from "mdast";
 
-/** Attributes read once at connect time (initial-config parity with React/Vue). */
+/**
+ * Attributes read once at connect time (initial-config parity with React/Vue).
+ * Documentary only — deliberately NOT in `OBSERVED_ATTRIBUTES`, so the element
+ * never advertises reactivity it does not implement.
+ */
 export const INITIAL_ONLY_ATTRIBUTES = [
   "initial-value",
   "read-only",
@@ -26,7 +30,7 @@ export const INITIAL_ONLY_ATTRIBUTES = [
 /** Attributes observed for reactivity after connect. */
 export const REACTIVE_ATTRIBUTES = ["value"] as const;
 
-export const OBSERVED_ATTRIBUTES = [...REACTIVE_ATTRIBUTES, ...INITIAL_ONLY_ATTRIBUTES];
+export const OBSERVED_ATTRIBUTES = [...REACTIVE_ATTRIBUTES];
 
 export interface NexusReadyDetail {
   editor: EditorAPI;

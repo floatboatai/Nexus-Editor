@@ -11,7 +11,8 @@
       .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
       .card { padding: 16px; border: 1px solid #d8dfeb; border-radius: 12px; background: white; }
       .mount { min-height: 150px; border: 1px dashed #9aa9bf; border-radius: 8px; padding: 8px; }
-      nexus-editor { display: block; min-height: 130px; }
+      /* Only min-height: block display comes from the element's own base rule. */
+      nexus-editor { min-height: 130px; }
       button { margin: 8px 8px 0 0; padding: 7px 11px; }
       code, pre { font-family: ui-monospace, monospace; }
       #log { min-height: 160px; max-height: 320px; overflow: auto; white-space: pre-wrap; }
