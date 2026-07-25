@@ -1,0 +1,35 @@
+{
+  "name": "@floatboat/nexus-wc",
+  "version": "0.0.13",
+  "description": "Framework-agnostic Web Component and iframe wrappers for Nexus-Editor.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./iframe-parent": {
+      "types": "./dist/iframe-parent.d.ts",
+      "import": "./dist/iframe-parent.js"
+    },
+    "./iframe-runtime": {
+      "types": "./dist/iframe-runtime.d.ts",
+      "import": "./dist/iframe-runtime.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts src/iframe-parent.ts src/iframe-runtime.ts --format esm --dts --clean"
+  },
+  "dependencies": {
+    "@floatboat/nexus-core": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

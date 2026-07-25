@@ -367,6 +367,18 @@ export function createEditor(config: EditorConfig): EditorAPI {
     emitChange(view.state.doc.toString());
   }
 
+  function cancelPendingChangeNotification(): void {
+    if (parseTimer) {
+      clearTimeout(parseTimer);
+      parseTimer = undefined;
+    }
+    if (compositionFlushTimer) {
+      clearTimeout(compositionFlushTimer);
+      compositionFlushTimer = undefined;
+    }
+    pendingCompositionMarkdown = null;
+  }
+
   function queueCompositionChange(markdown: string) {
     pendingCompositionMarkdown = markdown;
     if (parseTimer) {
@@ -411,6 +423,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
     if (tableEditFlushed) flushScheduledChangeNow();
     const beforeSelection = view.state.selection.main;
     const silent = opts?.silent === true;
+    // A silent external replacement supersedes any delayed notification for
+    // the previous document. Leaving that timer alive can emit stale content
+    // after the replacement and roll a controlled host back to an older value.
+    if (silent) cancelPendingChangeNotification();
     const selection = resolveDocumentSelection(
       { anchor: beforeSelection.anchor, head: beforeSelection.head },
       next.length,
@@ -827,6 +843,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
     replaceRange(from, to, insert, selection, opts) {
       if (destroyed) return;
       const silent = opts?.silent === true;
+      // Same reasoning as performSetDocument: a silent external edit supersedes
+      // any delayed notification carrying the pre-edit document, which would
+      // otherwise roll a controlled host back to that older value.
+      if (silent) cancelPendingChangeNotification();
       view.dispatch({
         changes: { from, to, insert },
         selection: selection
