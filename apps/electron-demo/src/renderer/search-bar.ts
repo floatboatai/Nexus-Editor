@@ -1,5 +1,5 @@
 import type { EditorAPI } from "@floatboat/nexus-core";
-import { findSearchMatches, replaceAllMatches } from "@floatboat/nexus-plugin-search";
+import { findSearchMatches, replaceAllMatches, type SearchOptions } from "@floatboat/nexus-plugin-search";
 
 export interface SearchBar {
   element: HTMLElement;
@@ -104,6 +104,15 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   const countLabel = document.createElement("span");
   countLabel.style.cssText = COUNT_STYLES;
 
+  // Fuzzy toggle
+  const fuzzyLabel = document.createElement("label");
+  fuzzyLabel.style.cssText = "font-size:12px;color:var(--nexus-text-muted,#888);cursor:pointer;display:flex;align-items:center;gap:3px;user-select:none;";
+  const fuzzyCheckbox = document.createElement("input");
+  fuzzyCheckbox.type = "checkbox";
+  fuzzyCheckbox.style.cssText = "cursor:pointer;";
+  fuzzyCheckbox.title = "Fuzzy search — match characters in order with any gaps (e.g. hlo finds hello)";
+  fuzzyLabel.append(fuzzyCheckbox, "Fuzzy");
+
   // Close
   const closeBtn = document.createElement("button");
   closeBtn.innerHTML = "&times;";
@@ -113,12 +122,16 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   const spacer = document.createElement("div");
   spacer.style.flex = "1";
 
-  bar.append(findInput, prevBtn, nextBtn, countLabel, replaceInput, replaceBtn, replaceAllBtn, spacer, closeBtn);
+  bar.append(findInput, prevBtn, nextBtn, countLabel, fuzzyLabel, replaceInput, replaceBtn, replaceAllBtn, spacer, closeBtn);
 
   // State
   let matches: Array<{ from: number; to: number }> = [];
   let currentIdx = -1;
   let visible = false;
+
+  function getSearchOptions(): SearchOptions {
+    return fuzzyCheckbox.checked ? { fuzzy: true } : {};
+  }
 
   function updateMatches() {
     const query = findInput.value;
@@ -129,7 +142,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       return;
     }
     const doc = editor.getDocument();
-    matches = findSearchMatches(doc, query);
+    matches = findSearchMatches(doc, query, getSearchOptions());
     if (matches.length === 0) {
       currentIdx = -1;
       countLabel.textContent = "0 results";
@@ -178,13 +191,14 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     const query = findInput.value;
     if (!query) return;
     const doc = editor.getDocument();
-    const newDoc = replaceAllMatches(doc, query, replaceInput.value);
+    const newDoc = replaceAllMatches(doc, query, replaceInput.value, getSearchOptions());
     editor.setDocument(newDoc);
     updateMatches();
   }
 
   // Event handlers
   findInput.addEventListener("input", updateMatches);
+  fuzzyCheckbox.addEventListener("change", updateMatches);
   findInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.shiftKey ? goPrev() : goNext(); e.preventDefault(); }
     if (e.key === "Escape") { close(); }
