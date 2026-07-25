@@ -984,6 +984,7 @@ class NexusSearchPanel implements Panel {
   private readonly replaceToggle?: IconButtonElements;
   private replaceExpanded = false;
   private fuzzy: boolean;
+  private readonly matchCounter: HTMLSpanElement;
 
   constructor(
     private readonly view: EditorView,
@@ -1085,6 +1086,14 @@ class NexusSearchPanel implements Panel {
       this.dom.append(replaceRow);
     }
 
+    // Match counter (e.g. "5/12")
+    this.matchCounter = document.createElement("span");
+    this.matchCounter.className = "nexus-search-counter";
+    this.matchCounter.dataset.testId = "markdown-search-counter";
+    this.matchCounter.setAttribute("aria-live", "polite");
+    this.matchCounter.textContent = "";
+    this.dom.append(this.matchCounter);
+
     const closeButton = createButton("markdown-search-close", "close", "×", () => closeSearchPanel(view));
     closeButton.setAttribute("aria-label", resolvedLabels.close);
     closeButton.title = resolvedLabels.close;
@@ -1099,6 +1108,7 @@ class NexusSearchPanel implements Panel {
         }
       }
     }
+    this.updateMatchCounter();
   }
 
   mount(): void {
@@ -1238,6 +1248,39 @@ class NexusSearchPanel implements Panel {
     this.caseField.checked = query.caseSensitive;
     this.regexpField.checked = this.fuzzy ? false : query.regexp;
     this.wholeWordField.checked = this.fuzzy ? false : query.wholeWord;
+  }
+
+  private updateMatchCounter(): void {
+    const query = getSearchQuery(this.view.state);
+    if (!query.valid || !query.search.trim() || !searchPanelOpen(this.view.state)) {
+      this.matchCounter.textContent = "";
+      return;
+    }
+
+    const cursor = query.getCursor(this.view.state);
+    let total = 0;
+    let current = 0;
+    const mainSelection = this.view.state.selection.main;
+    let firstMatch = true;
+
+    for (let result = cursor.next(); !result.done; result = cursor.next()) {
+      total++;
+      // The "current" match is the first one whose start >= the current cursor position,
+      // or if wrapped, the first overall match
+      if (firstMatch || result.value.from >= mainSelection.head) {
+        if (firstMatch) {
+          firstMatch = false;
+        }
+        if (current === 0) {
+          current = total;
+        }
+      }
+    }
+
+    // If cursor is after all matches, current stays at 1
+    if (current === 0) current = 1;
+
+    this.matchCounter.textContent = total > 0 ? `${current}/${total}` : "";
   }
 }
 
