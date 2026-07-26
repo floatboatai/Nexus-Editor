@@ -434,7 +434,7 @@ describe("live preview", () => {
     editor.destroy();
   });
 
-  it("renders thematic break as hr element", () => {
+  it("renders thematic break as hr element when cursor is outside", () => {
     const container = document.createElement("div");
     const editor = createEditor({
       container,
@@ -442,7 +442,79 @@ describe("live preview", () => {
       livePreview: true
     });
 
+    // Cursor at 0 (start) — outside the --- range [6,9]
     expect(container.querySelector("hr")).not.toBeNull();
+    editor.destroy();
+  });
+
+  it("shows raw text for thematicBreak when cursor is on the line", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Text\n\n---\n\nMore",
+      livePreview: true
+    });
+
+    editor.setSelection(7);
+    expect(container.querySelector("hr")).toBeNull();
+    expect(container.textContent).toContain("---");
+    editor.destroy();
+  });
+
+  it("toggles between raw text and hr when cursor moves across thematicBreak", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Text\n\n---\n\nMore",
+      livePreview: true
+    });
+
+    // Cursor outside → HR widget
+    editor.setSelection(0);
+    expect(container.querySelector("hr")).not.toBeNull();
+
+    // Cursor inside → raw text
+    editor.setSelection(7);
+    expect(container.querySelector("hr")).toBeNull();
+    expect(container.textContent).toContain("---");
+
+    // Cursor back outside → HR widget
+    editor.setSelection(11);
+    expect(container.querySelector("hr")).not.toBeNull();
+    editor.destroy();
+  });
+
+  it("backspace on thematicBreak raw text removes the HR", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Text\n\n---\n\nMore",
+      livePreview: true
+    });
+
+    // Enter the HR line and delete one character (--- → --)
+    editor.setSelection(8);
+    editor.replaceRange(7, 8, "");
+
+    // `--` is not a valid thematicBreak (needs 3+ chars)
+    expect(container.querySelector("hr")).toBeNull();
+    editor.destroy();
+  });
+
+  it("enter on thematicBreak raw text removes the HR", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Text\n\n---\n\nMore",
+      livePreview: true
+    });
+
+    // Position cursor at the last dash and insert newline to split the line
+    editor.setSelection(8);
+    editor.replaceRange(8, 8, "\n");
+
+    // `--` before the newline is not a valid thematicBreak
+    expect(container.querySelector("hr")).toBeNull();
     editor.destroy();
   });
 
