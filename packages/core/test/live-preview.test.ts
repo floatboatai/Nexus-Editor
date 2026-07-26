@@ -518,6 +518,101 @@ describe("live preview", () => {
     editor.destroy();
   });
 
+  // ── thematicBreak with *** and **** ──
+
+  it("renders *** as hr when cursor is outside", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Text\n\n***\n\nMore",
+      livePreview: true
+    });
+
+    editor.setSelection(0);
+    expect(container.querySelector("hr")).not.toBeNull();
+    editor.destroy();
+  });
+
+  it("shows raw *** text when cursor is on the line", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Text\n\n***\n\nMore",
+      livePreview: true
+    });
+
+    editor.setSelection(7);
+    expect(container.querySelector("hr")).toBeNull();
+    expect(container.textContent).toContain("***");
+    editor.destroy();
+  });
+
+  it("toggles *** between raw text and hr when cursor moves across thematicBreak", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Text\n\n***\n\nMore",
+      livePreview: true
+    });
+
+    editor.setSelection(0);
+    expect(container.querySelector("hr")).not.toBeNull();
+
+    editor.setSelection(7);
+    expect(container.querySelector("hr")).toBeNull();
+    expect(container.textContent).toContain("***");
+
+    editor.setSelection(11);
+    expect(container.querySelector("hr")).not.toBeNull();
+    editor.destroy();
+  });
+
+  it("renders **** (autopair result) as hr when cursor is outside", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Text\n\n****\n\nMore",
+      livePreview: true
+    });
+
+    editor.setSelection(0);
+    expect(container.querySelector("hr")).not.toBeNull();
+    editor.destroy();
+  });
+
+  it("shows raw **** text when cursor is on the line (autopair cursor position)", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Text\n\n****\n\nMore",
+      livePreview: true
+    });
+
+    // Cursor at position 8 — between **|** (simulating autopair result)
+    editor.setSelection(8);
+    expect(container.querySelector("hr")).toBeNull();
+    expect(container.textContent).toContain("****");
+    editor.destroy();
+  });
+
+  it("typing inside **** autopair result converts from thematicBreak to bold", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Text\n\n****\n\nMore",
+      livePreview: true
+    });
+
+    // Cursor between **|** and type "hello"
+    editor.setSelection(8);
+    editor.replaceRange(8, 8, "hello");
+
+    // Content becomes "Text\n\n**hello**\n\nMore" — no longer a thematicBreak
+    expect(container.querySelector("hr")).toBeNull();
+    expect(container.textContent).toContain("**hello**");
+    editor.destroy();
+  });
+
   // ── Code blocks ──
 
   it("renders code blocks with syntax highlighting and language label", () => {
