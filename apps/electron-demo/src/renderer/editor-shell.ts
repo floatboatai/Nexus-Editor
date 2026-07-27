@@ -6,6 +6,7 @@ import {
 } from "@floatboat/nexus-core";
 import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
+import { createMathPlugin } from "@floatboat/nexus-plugin-math";
 import { createToolbarPlugin, createToolbarUI, type ToolbarUI } from "@floatboat/nexus-plugin-toolbar";
 import { createSearchPlugin } from "@floatboat/nexus-plugin-search";
 import { createSlashMenuUI, type SlashMenuUI } from "@floatboat/nexus-plugin-slash";
@@ -139,6 +140,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     plugins: [
       createGfmPreset(),
       createHistoryPlugin(),
+      createMathPlugin(),
       createToolbarPlugin(),
       createSearchPlugin(),
       wikilinksPlugin,

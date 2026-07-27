@@ -25,6 +25,8 @@ show a long list.
 
 ## Diagrams & Media
 
+- [[math-demo]] — inline and block KaTeX formulas with source editing
+
 - [[mermaid-demo]] — 7 种 mermaid 图表 + 语法错误兜底演示
 - [[image-demo]] — 本地图片 + Obsidian 风格 `|width` + hover chrome + drag-resize
 

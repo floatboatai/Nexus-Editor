@@ -56,6 +56,9 @@ importers:
       '@floatboat/nexus-plugin-history':
         specifier: workspace:*
         version: link:../../packages/plugin-history
+      '@floatboat/nexus-plugin-math':
+        specifier: workspace:*
+        version: link:../../packages/plugin-math
       '@floatboat/nexus-plugin-search':
         specifier: workspace:*
         version: link:../../packages/plugin-search
@@ -74,6 +77,9 @@ importers:
       highlight.js:
         specifier: ^11.11.0
         version: 11.11.1
+      katex:
+        specifier: ^0.16.0
+        version: 0.16.45
     devDependencies:
       electron:
         specifier: ^35.0.0
