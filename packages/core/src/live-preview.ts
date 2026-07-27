@@ -131,6 +131,24 @@ function createWidget(
   })();
 }
 
+function bindEnterEditMode(
+  element: HTMLElement,
+  viewRef: { current: EditorView | null },
+  anchor: number
+): void {
+  element.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const view = viewRef.current;
+    if (!view) return;
+
+    const safeAnchor = Math.max(0, Math.min(anchor, view.state.doc.length));
+    view.dispatch({ selection: { anchor: safeAnchor } });
+    view.focus();
+  });
+}
+
 class CodeCopyWidget extends WidgetType {
   constructor(private readonly code: string, private readonly lang: string) { super(); }
   eq(other: CodeCopyWidget): boolean { return other.code === this.code && other.lang === this.lang; }
@@ -1178,26 +1196,36 @@ function buildDecorations(
           .range(range.from, range.to)
       );
     } else if (range.node.type === "footnoteReference") {
+      if (selectionIntersects(range.from, range.to, selection, true)) {
+        continue;
+      }
       const ref = range.node as FootnoteReference;
       const sup = document.createElement("sup");
       sup.textContent = ref.identifier;
+      sup.setAttribute("data-live-preview-footnote-reference", ref.identifier);
       sup.style.cssText = "color:var(--nexus-accent);cursor:pointer;font-size:0.8em;vertical-align:super;";
+      bindEnterEditMode(sup, viewRef, range.from + 2);
       const fnRefKey = `fnref:${range.from}-${range.to}:${ref.identifier}`;
       decos.push(
         Decoration.replace({
-          widget: createWidget(sup, false, undefined, fnRefKey),
+          widget: createWidget(sup, true, undefined, fnRefKey),
         }).range(range.from, range.to)
       );
     } else if (range.node.type === "footnoteDefinition") {
+      if (selectionIntersects(range.from, range.to, selection, true)) {
+        continue;
+      }
       const def = range.node as FootnoteDefinition;
       const defText = range.source.replace(/^\[\^\w+\]:\s*/, "");
       const el = document.createElement("div");
+      el.setAttribute("data-live-preview-footnote-definition", def.identifier);
       el.style.cssText = "font-size:0.85em;color:var(--nexus-text-muted);border-top:1px solid var(--nexus-border);padding-top:8px;";
       const marker = document.createElement("sup");
       marker.textContent = def.identifier;
       marker.style.cssText = "color:var(--nexus-accent);margin-right:4px;";
       el.appendChild(marker);
       el.appendChild(document.createTextNode(defText));
+      bindEnterEditMode(el, viewRef, range.from + 2);
       // Use line decoration + widget for stable viewport height
       decos.push(Decoration.line({
         attributes: { style: "padding:0;margin:0;min-height:0;" }
@@ -1205,7 +1233,7 @@ function buildDecorations(
       const fnDefKey = `fndef:${range.from}-${range.to}:${def.identifier}:${range.source}`;
       decos.push(
         Decoration.replace({
-          widget: createWidget(el, false, undefined, fnDefKey),
+          widget: createWidget(el, true, undefined, fnDefKey),
         }).range(range.from, range.to)
       );
     } else {
