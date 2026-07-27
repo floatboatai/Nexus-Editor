@@ -27,6 +27,9 @@ added in the `add-wikilinks` change proposal.
 - **Autocomplete** — in a new note, type `[[me` and confirm the popup lists
   `Meeting` (twice, one per directory) plus other matches.
 
+- **Math rendering** — open [[math-demo]] and verify inline and block formulas,
+  invalid-input fallback, and keyboard access to the block edit button.
+
 ## Topology
 
 ```

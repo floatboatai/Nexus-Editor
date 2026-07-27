@@ -18,6 +18,22 @@ describe("createEditorShell", () => {
     shell.destroy();
   });
 
+  it("renders inline and block math through the demo plugin set", () => {
+    const container = document.createElement("div");
+    const state = createState();
+    state.content = "Inline $x^2$ formula.\n\n$$\ny = mx + b\n$$";
+    const shell = createEditorShell({
+      container,
+      state,
+      settings: defaultSettings(),
+      onStateChange: vi.fn(),
+    });
+
+    expect(container.querySelector(".nexus-math-inline .katex")).not.toBeNull();
+    expect(container.querySelector(".nexus-math-display .katex-display")).not.toBeNull();
+    shell.destroy();
+  });
+
   it("marks state dirty when the editor content changes", async () => {
     const container = document.createElement("div");
     const state = createState();

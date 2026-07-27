@@ -44,9 +44,28 @@ function attachBlockEditButton(
     "pointer-events:auto",
   ].join(";") + ";";
 
-  host.addEventListener("mouseenter", () => { btn.style.opacity = "1"; });
-  host.addEventListener("mouseleave", () => { btn.style.opacity = "0"; });
-  btn.addEventListener("mouseenter", () => { btn.style.opacity = "1"; });
+  let pointerInside = false;
+  let buttonFocused = false;
+  const updateVisibility = () => {
+    btn.style.opacity = pointerInside || buttonFocused ? "1" : "0";
+  };
+
+  host.addEventListener("mouseenter", () => {
+    pointerInside = true;
+    updateVisibility();
+  });
+  host.addEventListener("mouseleave", () => {
+    pointerInside = false;
+    updateVisibility();
+  });
+  btn.addEventListener("focus", () => {
+    buttonFocused = true;
+    updateVisibility();
+  });
+  btn.addEventListener("blur", () => {
+    buttonFocused = false;
+    updateVisibility();
+  });
 
   // Button events must escape the widget body's `ignoreEvents: true`
   // swallow. The button preventDefaults + stopPropagation so CM6 doesn't
