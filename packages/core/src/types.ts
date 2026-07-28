@@ -264,6 +264,19 @@ export interface EditorAPI {
    * 避免在合成过程中调用 setDocument 打断输入。
    */
   isComposing(): boolean;
+  /**
+   * Execute a set of editor operations as a single undoable unit. All
+   * mutations — replaceRange, replaceSelection, setDocument, etc. — are
+   * collected and dispatched as ONE CodeMirror transaction, producing
+   * exactly ONE undo entry.
+   *
+   * - If the callback throws, no changes are applied and any collected
+   *   specs are discarded.
+   * - Nested transact() calls throw an Error.
+   * - The callback receives no arguments; callers capture the editor
+   *   reference from the surrounding scope.
+   */
+  transact(fn: () => void): void;
   destroy(): void;
   on<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
   off<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;

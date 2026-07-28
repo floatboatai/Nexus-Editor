@@ -280,44 +280,43 @@ export function createSlashMenuUI(
     if (!isMenuOpen() || !currentState) return;
     const cmds = visibleCommands;
     if (cmds.length === 0 || highlight < 0 || highlight >= cmds.length) {
-      // Nothing valid to run; treat as dismiss so a stray Enter doesn't
-      // leave the menu visible.
       dismiss();
       return;
     }
     const cmd = cmds[highlight];
     const { from, to, query } = currentState;
-    // Remove the /query trigger before invoking run so commands that
-    // insert content at the caret don't have to know about the slash
-    // syntax. We select the trigger range first because
-    // `replaceSelection` operates on the current selection.
-    if (from !== null && to !== null) {
-      editor.setSelection(from, to);
-      editor.replaceSelection("");
-    }
-    editor.focus();
 
-    const ctx: SlashMenuCommandContext = {
-      trigger: { from: from ?? 0, to: to ?? 0, query },
-      editor,
-    };
-
-    // Hide eagerly. The natural slashMenuChange that follows the doc
-    // edit will also flip isOpen=false, but waiting for it would leave
-    // the menu visible for one frame after confirm — visible as a
-    // flash on slow paint paths.
+    // Dismiss the menu before mutating the document so the natural
+    // slashMenuChange that follows the edit doesn't flicker the menu.
     hide();
     currentState = null;
     visibleCommands = [];
     prevIsOpen = false;
 
-    commandHistory?.record(cmd.id);
+    // Combine trigger deletion and command execution into ONE CM6
+    // transaction → ONE undo entry. Use replaceRange (not setSelection
+    // + replaceSelection) because the selection is frozen during
+    // transact and replaceSelection would operate on the stale
+    // pre-transact selection.
+    editor.transact(() => {
+      if (from !== null && to !== null) {
+        editor.replaceRange(from, to, "");
+      }
+      editor.focus();
 
-    if (options.onCommand) {
-      options.onCommand(cmd, ctx);
-    } else if (cmd.run) {
-      cmd.run(editor);
-    }
+      const ctx: SlashMenuCommandContext = {
+        trigger: { from: from ?? 0, to: to ?? 0, query },
+        editor,
+      };
+
+      if (options.onCommand) {
+        options.onCommand(cmd, ctx);
+      } else if (cmd.run) {
+        cmd.run(editor);
+      }
+    });
+
+    commandHistory?.record(cmd.id);
   }
 
   // ── Event handlers ──────────────────────────────────────────────

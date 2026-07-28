@@ -1,4 +1,4 @@
-import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
+import { Annotation, EditorSelection, EditorState, type TransactionSpec } from "@codemirror/state";
 
 // Annotation attached to dispatches that load content programmatically (e.g.
 // setDocument from file open) so updateListener can skip the user-edit path —
@@ -284,6 +284,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
   let destroyed = false;
   let destroying = false;
   let focused = false;
+  let transacting = false;
   let parseTimer: ReturnType<typeof setTimeout> | undefined;
   let compositionFlushTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingCompositionMarkdown: string | null = null;
@@ -920,6 +921,71 @@ export function createEditor(config: EditorConfig): EditorAPI {
       const words = doc.trim() === "" ? 0 : doc.trim().split(/\s+/).length;
       const lines = view.state.doc.lines;
       return { characters, words, lines };
+    },
+    transact(fn: () => void): void {
+      if (destroyed) return;
+      if (transacting) {
+        throw new Error("Nested transactions are not supported");
+      }
+
+      transacting = true;
+      const originalDispatch = view.dispatch.bind(view);
+      const specs: TransactionSpec[] = [];
+
+      view.dispatch = ((spec: TransactionSpec): void => {
+        specs.push(spec);
+      }) as unknown as typeof view.dispatch;
+
+      try {
+        fn();
+      } catch (e) {
+        transacting = false;
+        view.dispatch = originalDispatch;
+        throw e;
+      }
+
+      transacting = false;
+      view.dispatch = originalDispatch;
+
+      if (specs.length === 0) return;
+
+      // All specs are relative to the original view.state, which was frozen
+      // during the callback (dispatch was intercepted). Because later specs'
+      // positions are NOT relative to earlier specs' results, we replay them
+      // sequentially against a string buffer and emit a single full-document
+      // replacement → exactly one undo entry.
+      let doc = view.state.doc.toString();
+      let finalSelection: { anchor: number; head: number } | undefined;
+      let needsScroll = false;
+
+      for (const spec of specs) {
+        if (spec.changes) {
+          const changeList = Array.isArray(spec.changes)
+            ? spec.changes
+            : [spec.changes];
+          for (const c of changeList) {
+            if (c && typeof c === "object" && "from" in c) {
+              const ch = c as { from: number; to?: number; insert?: string };
+              const to = ch.to ?? ch.from;
+              doc = doc.slice(0, ch.from) + (ch.insert ?? "") + doc.slice(to);
+            }
+          }
+        }
+        if (spec.selection) {
+          finalSelection = "ranges" in spec.selection
+            ? { anchor: spec.selection.main.anchor, head: spec.selection.main.head }
+            : { anchor: spec.selection.anchor, head: spec.selection.head ?? spec.selection.anchor };
+        }
+        if (spec.scrollIntoView) needsScroll = true;
+      }
+
+      originalDispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: doc },
+        selection: finalSelection
+          ? { anchor: finalSelection.anchor, head: finalSelection.head }
+          : undefined,
+        scrollIntoView: needsScroll,
+      });
     },
     destroy() {
       if (destroyed || destroying) return;

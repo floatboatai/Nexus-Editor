@@ -918,3 +918,158 @@ describe("createEditor — DOM event hook layer", () => {
     editor.destroy();
   });
 });
+
+describe("transact", () => {
+  it("combines multiple mutations into one undo entry", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "hello",
+      plugins: [createHistoryPlugin()],
+    });
+
+    editor.transact(() => {
+      editor.replaceRange(5, 5, " world");
+      editor.replaceRange(0, 5, "**hello**");
+    });
+
+    expect(editor.getDocument()).toBe("**hello** world");
+
+    // One undo reverts everything
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("hello");
+
+    editor.destroy();
+  });
+
+  it("produces one undo entry for slash-style trigger-delete + command", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "/bold",
+      plugins: [createHistoryPlugin()],
+    });
+
+    const original = editor.getDocument();
+
+    // Simulate slash confirm: delete trigger /bold, then wrap in markers
+    editor.transact(() => {
+      editor.replaceRange(0, 5, "");
+      editor.replaceRange(0, 0, "**bold**");
+    });
+
+    expect(editor.getDocument()).toBe("**bold**");
+
+    expect(editor.undo()).toBe(true);
+    // Should restore /bold — both the trigger deletion and the command
+    // were in the same CM6 transaction
+    expect(editor.getDocument()).toBe(original);
+
+    editor.destroy();
+  });
+
+  it("does not apply any changes if the callback throws", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "hello",
+      plugins: [createHistoryPlugin()],
+    });
+
+    const original = editor.getDocument();
+
+    try {
+      editor.transact(() => {
+        editor.replaceRange(0, 0, "world ");
+        throw new Error("boom");
+      });
+    } catch {
+      // expected
+    }
+
+    // Document must be unchanged
+    expect(editor.getDocument()).toBe(original);
+
+    // Verify editor is still usable
+    editor.replaceRange(5, 5, "!");
+    expect(editor.getDocument()).toBe("hello!");
+
+    editor.destroy();
+  });
+
+  it("works with multiple replaceRange calls inside transact", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "hello world",
+      plugins: [createHistoryPlugin()],
+    });
+
+    editor.transact(() => {
+      editor.replaceRange(0, 5, "hi");
+      editor.replaceRange(3, 8, "earth");
+    });
+
+    expect(editor.getDocument()).toBe("hi earth");
+
+    editor.undo();
+    expect(editor.getDocument()).toBe("hello world");
+
+    editor.destroy();
+  });
+
+  it("throws on nested transact", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "x" });
+
+    expect(() => {
+      editor.transact(() => {
+        editor.transact(() => {
+          editor.replaceSelection("y");
+        });
+      });
+    }).toThrow("Nested transactions are not supported");
+
+    // Outer transact was aborted, document unchanged
+    expect(editor.getDocument()).toBe("x");
+
+    editor.destroy();
+  });
+
+  it("selection-only ops inside transact do not create empty dispatch", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello" });
+
+    editor.transact(() => {
+      editor.setSelection(2);
+    });
+
+    // 0 changes → nothing dispatched, selection applied via spec
+    expect(editor.getDocument()).toBe("hello");
+    expect(editor.getSelection().anchor).toBe(2);
+
+    editor.destroy();
+  });
+
+  it("last setDocument inside transact wins and undo restores original", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "original",
+      plugins: [createHistoryPlugin()],
+    });
+
+    editor.transact(() => {
+      editor.setDocument("interim");
+      editor.setDocument("final");
+    });
+
+    expect(editor.getDocument()).toBe("final");
+
+    // One undo restores "original" (both setDocuments in one transaction)
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("original");
+
+    editor.destroy();
+  });
+});

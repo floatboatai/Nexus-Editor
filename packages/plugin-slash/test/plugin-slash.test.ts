@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { createEditor, type SlashCommandDef } from "@floatboat/nexus-core";
+import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
 import {
   createSlashPlugin,
   filterSlashCommands,
   getSlashState,
   getSlashMatch
 } from "../src/index";
+import { createSlashMenuUI } from "../src/menu-ui";
 
 describe("@floatboat/nexus-plugin-slash", () => {
   it("detects a slash query at the cursor position", () => {
@@ -97,5 +100,66 @@ describe("@floatboat/nexus-plugin-slash", () => {
       "head"
     );
     expect(filtered[0].run).toBe(run);
+  });
+});
+
+describe("@floatboat/nexus-plugin-slash transact undo", () => {
+  it("one Ctrl+Z after slash confirm restores /query and command effect", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+
+    const slashCommands: SlashCommandDef[] = [
+      {
+        id: "bold",
+        title: "Bold",
+        // Inside transact, view.state is frozen. getDocument() and
+        // replaceSelection use the original (pre-transact) state.
+        // Commands should use replaceRange with explicit positions
+        // instead of getDocument()/replaceSelection.
+        run: (editor) => {
+          editor.replaceRange(0, 0, "**bold**");
+        },
+      },
+    ];
+
+    const editor = createEditor({
+      container,
+      initialValue: "",
+      plugins: [
+        createHistoryPlugin(),
+        { name: "test-slash", slashCommands },
+      ],
+    });
+
+    const menu = createSlashMenuUI(editor);
+
+    // Mimic user typing "/bold": setDocument fires updateListener →
+    // computeSlashState → getSlashMatch("/bold", 5) → slashMenuChange
+    // → menu opens. Then press Enter to confirm.
+    editor.setDocument("/bold");
+    editor.setSelection(5);
+
+    // Small delay to let the menu state settle after setSelection
+    // dispatches the second updateListener callback.
+    const enterEvent = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    document.dispatchEvent(enterEvent);
+
+    // After confirm: trigger deleted, bold applied
+    expect(editor.getDocument()).toBe("**bold**");
+
+    // One undo reverts both trigger deletion AND command
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("/bold");
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("");
+
+    menu.destroy();
+    editor.destroy();
+    container.remove();
   });
 });
