@@ -84,6 +84,7 @@ This document maps every planned feature to **package ownership / priority / sta
 | 25 | End-to-end testing | repo infra | P1 | planned | No | Candidate: Playwright against electron-demo |
 | 26 | CI/CD pipeline polish | `.github/workflows` | P1 | in-progress | No | PR check / CI and publish workflow exist; missing e2e gate |
 | 28 | Markdown-aware word / reading-time stats | new `plugin-wordcount` | P1 | done | Yes | Walks editor AST (no double parse) + CJK-first + ARIA status bar — see `openspec/changes/add-plugin-wordcount` |
+| 30 | HTML-to-Markdown paste conversion | new `plugin-paste` | P2 | done | Yes | Rich-text clipboard → clean Markdown on paste via core's `handlers.paste` hook — see `openspec/changes/add-plugin-paste` |
 
 ---
 

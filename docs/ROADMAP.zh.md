@@ -84,6 +84,7 @@
 | 25 | End-to-End 测试 | 仓库基建 | P1 | planned | 否 | 候选：Playwright，跑 electron-demo |
 | 26 | CI/CD 流程完善 | `.github/workflows` | P1 | in-progress | 否 | 已有 PR check / CI 与 publish workflow，仍缺 e2e gate |
 | 28 | Markdown 感知字数 / 阅读时长统计 | 新包 `plugin-wordcount` | P1 | done | 是 | 复用编辑器 AST（不重复解析）+ 中日韩优先 + ARIA 状态栏 —— 见 `openspec/changes/add-plugin-wordcount` |
+| 30 | HTML 转 Markdown 粘贴 | 新包 `plugin-paste` | P2 | done | 是 | 富文本剪贴板 → 粘贴时转为干净的 Markdown，经 core 的 `handlers.paste` 钩子接入 —— 见 `openspec/changes/add-plugin-paste` |
 
 ---
 

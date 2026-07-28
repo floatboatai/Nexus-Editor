@@ -16,7 +16,8 @@
       "@floatboat/nexus-plugin-toolbar": ["packages/plugin-toolbar/src/index.ts"],
       "@floatboat/nexus-plugin-math": ["packages/plugin-math/src/index.ts"],
       "@floatboat/nexus-plugin-vim": ["packages/plugin-vim/src/index.ts"],
-      "@floatboat/nexus-plugin-wordcount": ["packages/plugin-wordcount/src/index.ts"]
+      "@floatboat/nexus-plugin-wordcount": ["packages/plugin-wordcount/src/index.ts"],
+      "@floatboat/nexus-plugin-paste": ["packages/plugin-paste/src/index.ts"]
     },
     "strict": true,
     "declaration": true,
