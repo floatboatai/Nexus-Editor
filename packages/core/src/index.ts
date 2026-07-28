@@ -5,10 +5,15 @@ export { markdownKeymap, handleMarkdownEnter } from "./markdown-keymap";
 export {
   addCursorAbove,
   addCursorBelow,
+  addCursorToLineEnds,
   collapseToMainSelection,
   multiCursorExtension,
   multiCursorKeymap,
+  selectAllOccurrences,
+  selectAllWordOccurrences,
   selectNextOccurrence,
+  skipNextOccurrence,
+  undoSkipOccurrence,
 } from "./multi-cursor";
 export { enLocale, zhLocale, resolveLocale, type NexusLocale } from "./locale";
 export {
