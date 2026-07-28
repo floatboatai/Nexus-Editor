@@ -623,6 +623,15 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function patternCanMatchEmptyString(pattern: RegExp): boolean {
+  try {
+    const probe = new RegExp(pattern.source, pattern.flags.replace(/g/g, ""));
+    return probe.test("");
+  } catch {
+    return false;
+  }
+}
+
 function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp | null {
   const flags = options.caseSensitive ? "g" : "gi";
 
@@ -635,7 +644,8 @@ function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp 
   }
 
   try {
-    return new RegExp(pattern, flags);
+    const compiled = new RegExp(pattern, flags);
+    return patternCanMatchEmptyString(compiled) ? null : compiled;
   } catch {
     return null;
   }
