@@ -69,9 +69,7 @@ function toggleLinePrefix(editor: EditorAPI, prefix: string): boolean {
   const line = doc.slice(lineStart, lineEnd);
 
   const newLine = line.startsWith(prefix) ? line.slice(prefix.length) : prefix + line;
-  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
-  editor.setDocument(newDoc);
-  editor.setSelection(lineStart + newLine.length);
+  editor.replaceRange(lineStart, lineEnd, newLine, { anchor: lineStart + newLine.length });
   return true;
 }
 
