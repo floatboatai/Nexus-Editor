@@ -1,5 +1,5 @@
 import type { Extension } from "@codemirror/state";
-import type { Blockquote, Code, Definition, Delete, Emphasis, FootnoteDefinition, FootnoteReference, Heading, Html, Image, InlineCode, Link, List, Root, Strong, Table, ThematicBreak } from "mdast";
+import type { Blockquote, Code, Definition, Delete, Emphasis, FootnoteDefinition, FootnoteReference, Heading, Html, Image, InlineCode, Link, List, Node, Root, Strong, Table, ThematicBreak } from "mdast";
 import type { Plugin } from "unified";
 
 export interface CodeHighlightToken {
@@ -321,8 +321,8 @@ export interface WidgetRenderContext {
 
 export interface WidgetDefinition {
   nodeType: string;
-  match?: (node: any) => boolean;
-  render: (node: any, source: string, ctx?: WidgetRenderContext) => HTMLElement;
+  match?: (node: Node) => boolean;
+  render: (node: Node, source: string, ctx?: WidgetRenderContext) => HTMLElement;
   destroy?: (element: HTMLElement) => void;
   /**
    * Whether the widget replaces a block-level range (occupies its own line)

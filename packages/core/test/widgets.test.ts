@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createEditor } from "../src/index";
+import type { Node } from "mdast";
 
 describe("widget extension", () => {
   it("renders a widget for a matching AST node type", () => {
@@ -77,7 +78,7 @@ describe("widget extension", () => {
           widgets: [
             {
               nodeType: "code",
-              match: (node: any) => node.lang === "mermaid",
+              match: (node: Node) => "lang" in node && node.lang === "mermaid",
               render() {
                 const el = document.createElement("div");
                 el.setAttribute("data-widget", "mermaid");
@@ -205,7 +206,7 @@ describe("widget extension", () => {
           widgets: [
             {
               nodeType: "inlineCode",
-              match: (node: any) => node.value === "TOKEN",
+              match: (node: Node) => "value" in node && node.value === "TOKEN",
               block: false,
               render() {
                 const el = document.createElement("span");

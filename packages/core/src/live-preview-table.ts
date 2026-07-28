@@ -1,5 +1,7 @@
+import type { Parent } from "mdast";
 import { EditorView, WidgetType, runScopeHandlers } from "@codemirror/view";
-import type { Table } from "mdast";
+import { Transaction } from "@codemirror/state";
+import type { Table, Node as MdastNode } from "mdast";
 
 import type { LivePreviewLabels } from "./types";
 
@@ -164,7 +166,7 @@ function sourceOffsetForCell(lines: string[], lineIdx: number, colIdx: number, t
 }
 
 function getNodeSourceOffsets(
-  node: any,
+  node: MdastNode,
   tableFrom: number,
   rawSourceStart: number,
   inlineCodeValue?: string
@@ -347,13 +349,13 @@ function selectRawSourceRange(td: HTMLElement, from: number, to: number): boolea
   return true;
 }
 
-function extractCellText(cell: any): string {
+function extractCellText(cell: MdastNode): string {
   if (!cell || !("children" in cell) || !Array.isArray(cell.children)) return "";
   return cell.children
-    .map((c: any) => {
+    .map((c: MdastNode) => {
       if ("value" in c && typeof c.value === "string") return c.value;
       if ("children" in c && Array.isArray(c.children))
-        return c.children.map((n: any) => ("value" in n ? n.value : "")).join("");
+        return c.children.map((n: MdastNode) => ("value" in n && typeof n.value === "string" ? n.value : "")).join("");
       return "";
     })
     .join("");
@@ -400,9 +402,9 @@ function estimateTableHeight(source: string): number {
  * ignored. Media-only cells render the image scaled to the cell width
  * so the user can grow / shrink the image by resizing the column.
  */
-function isCellMediaOnly(astCell: any): boolean {
-  if (!astCell || !Array.isArray(astCell.children)) return false;
-  const meaningful = astCell.children.filter((c: any) => {
+function isCellMediaOnly(astCell: MdastNode): boolean {
+  if (!astCell || !("children" in astCell) || !Array.isArray(astCell.children)) return false;
+  const meaningful = astCell.children.filter((c: MdastNode) => {
     if (!c) return false;
     if (c.type === "text") return typeof c.value === "string" && c.value.trim() !== "";
     return true;
@@ -410,8 +412,8 @@ function isCellMediaOnly(astCell: any): boolean {
   if (meaningful.length !== 1) return false;
   const only = meaningful[0];
   if (only.type === "image") return true;
-  if (only.type === "link" && Array.isArray(only.children)) {
-    const linkInner = only.children.filter((c: any) => {
+  if (only.type === "link" && "children" in only && Array.isArray(only.children)) {
+    const linkInner = only.children.filter((c: MdastNode) => {
       if (!c) return false;
       if (c.type === "text") return typeof c.value === "string" && c.value.trim() !== "";
       return true;
@@ -421,7 +423,7 @@ function isCellMediaOnly(astCell: any): boolean {
   return false;
 }
 
-function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourceStart = 0): Node {
+function renderInlineMdast(node: MdastNode, mediaOnly = false, tableFrom = 0, rawSourceStart = 0): Node {
   if (!node) return document.createTextNode("");
   switch (node.type) {
     case "text": {
@@ -532,14 +534,14 @@ function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourc
   }
 }
 
-function renderCellRich(td: HTMLElement, astCell: any, tableFrom = 0, rawSourceStart = 0): void {
+function renderCellRich(td: HTMLElement, astCell: MdastNode, tableFrom = 0, rawSourceStart = 0): void {
   td.textContent = "";
-  if (!astCell || !Array.isArray(astCell.children)) {
+  if (!astCell || !("children" in astCell) || !Array.isArray(astCell.children)) {
     writeRenderedSourceMap(td);
     return;
   }
   const mediaOnly = isCellMediaOnly(astCell);
-  for (const child of astCell.children) td.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart));
+  for (const child of astCell.children) td.appendChild(renderInlineMdast(child as MdastNode, mediaOnly, tableFrom, rawSourceStart));
   writeRenderedSourceMap(td);
 }
 
@@ -598,7 +600,10 @@ export class EditableTableWidget extends WidgetType {
     if (tableEnd > v.state.doc.length || v.state.doc.sliceString(this.tableFrom, tableEnd) !== this.source) {
       return;
     }
-    v.dispatch({ changes: { from: this.tableFrom, to: this.tableFrom + this.source.length, insert: newSource } });
+    v.dispatch({
+      changes: { from: this.tableFrom, to: this.tableFrom + this.source.length, insert: newSource },
+      annotations: Transaction.userEvent.of("nexus.table-edit")
+    });
   }
 
   private deleteColumn(colIdx: number): void {
@@ -629,11 +634,21 @@ export class EditableTableWidget extends WidgetType {
   }
 
   private addRow(): void {
-    const cc = (this.node.children?.[0] as any)?.children?.length ?? 2;
+    // The first child of a Table is a TableRow (Parent whose children are
+    // TableCells). A bare access would require a TableRow type from mdast,
+    // which the current @types/mdast does not export — so we narrow via
+    // the runtime-safe `"children" in` + Parent cast path.
+    const firstRow = this.node.children?.[0];
+    const cc = firstRow !== undefined && "children" in firstRow
+      ? (firstRow as Parent).children.length
+      : 2;
     const nr = "\n| " + Array(cc).fill("  ").join(" | ") + " |";
     const v = this.viewRef.current;
     if (!v) return;
-    v.dispatch({ changes: { from: this.tableFrom + this.source.length, insert: nr } });
+    v.dispatch({
+      changes: { from: this.tableFrom + this.source.length, insert: nr },
+      annotations: Transaction.userEvent.of("nexus.table-edit")
+    });
   }
 
   private moveColumn(from: number, to: number, source = this.source): void {
@@ -909,7 +924,8 @@ export class EditableTableWidget extends WidgetType {
           to: self.tableFrom + self.source.length,
           insert: snapshot.source
         },
-        selection: { anchor, head: anchor }
+        selection: { anchor, head: anchor },
+        annotations: Transaction.userEvent.of("nexus.table-edit")
       });
       v.requestMeasure();
       return true;
@@ -2419,11 +2435,17 @@ function showContextMenu(
   }
 
   if (!isHeader) {
-    addItem(labels.deleteRow, () => (widget as any).deleteRow(rowIdx));
+    // @ts-expect-error showContextMenu is tightly coupled to
+    // EditableTableWidget — both live in the same file and the widget
+    // instance is passed by reference. Private access is intentional.
+    addItem(labels.deleteRow, () => widget.deleteRow(rowIdx));
   }
-  addItem(labels.deleteColumn, () => (widget as any).deleteColumn(colIdx), colCount <= 1);
-  addItem(labels.insertRowBelow, () => (widget as any).addRow());
-  addItem(labels.insertColumnAfter, () => (widget as any).addColumn());
+  // @ts-expect-error see above — private method accessed from co-located helper
+  addItem(labels.deleteColumn, () => widget.deleteColumn(colIdx), colCount <= 1);
+  // @ts-expect-error see above — private method accessed from co-located helper
+  addItem(labels.insertRowBelow, () => widget.addRow());
+  // @ts-expect-error see above — private method accessed from co-located helper
+  addItem(labels.insertColumnAfter, () => widget.addColumn());
 
   mountTarget.appendChild(menu);
 
