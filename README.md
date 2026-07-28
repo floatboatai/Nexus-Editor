@@ -7,7 +7,7 @@
 Powered by [CodeMirror 6](https://codemirror.net/) + the [unified](https://unifiedjs.com/) ecosystem.
 Framework-agnostic core · Official React & Vue bindings · MIT licensed.
 
-[中文文档](./README.zh.md) · [Quick Start](#-quick-start) · [Why Nexus?](#-why-nexus-editor) · [Roadmap](#-roadmap) · [Contributing](#-contributing)
+[中文文档](./README.zh.md) · [Quick Start](#-quick-start) · [Why Nexus?](#-why-nexus-editor) · [Roadmap](#-roadmap-tldr) · [Contributing](#-contributing)
 
 </div>
 
