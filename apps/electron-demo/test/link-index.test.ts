@@ -32,6 +32,19 @@ describe("LinkIndex.resolve", () => {
     idx.rebuild([{ path: "/v/nested/a.md", content: "" }]);
     expect(idx.resolve("/v/nested/a.md", "/v/other.md")).toBe("/v/nested/a.md");
   });
+
+  it("resolves relative links when the vault is on a UNC share", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "\\\\server\\share\\vault\\Journal\\Notes\\Today.md", content: "" },
+      { path: "\\\\server\\share\\vault\\Archive\\Today.md", content: "" },
+      { path: "\\\\server\\share\\vault\\Journal\\Daily.md", content: "[[Notes/Today]]" },
+    ]);
+
+    expect(idx.resolve("Notes/Today", "\\\\server\\share\\vault\\Journal\\Daily.md")).toBe(
+      "//server/share/vault/Journal/Notes/Today.md"
+    );
+  });
 });
 
 describe("LinkIndex.backlinks", () => {

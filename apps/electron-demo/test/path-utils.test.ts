@@ -56,6 +56,12 @@ describe("joinPath", () => {
     expect(joinPath("foo//", "//bar")).toBe("foo/bar");
   });
 
+  it("preserves the leading double slash of a UNC path", () => {
+    expect(joinPath("//server/share/vault", "Notes/Today.md")).toBe(
+      "//server/share/vault/Notes/Today.md"
+    );
+  });
+
   it("handles single segment", () => {
     expect(joinPath("foo")).toBe("foo");
   });
