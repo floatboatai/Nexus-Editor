@@ -12,6 +12,7 @@ export function normalizeSlashes(path: string): string {
  */
 export function joinPath(...parts: string[]): string {
   const joined = parts.join("/").replace(/\\/g, "/");
-  const prefix = joined.startsWith("//") ? "//" : "";
+  const firstPart = parts[0]?.replace(/\\/g, "/") ?? "";
+  const prefix = firstPart.startsWith("//") ? "//" : "";
   return prefix + joined.slice(prefix.length).replace(/\/+/g, "/");
 }

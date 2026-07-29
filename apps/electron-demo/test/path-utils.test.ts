@@ -62,6 +62,10 @@ describe("joinPath", () => {
     );
   });
 
+  it("does not treat an empty segment followed by an absolute path as UNC", () => {
+    expect(joinPath("", "/Topics/AI")).toBe("/Topics/AI");
+  });
+
   it("handles single segment", () => {
     expect(joinPath("foo")).toBe("foo");
   });

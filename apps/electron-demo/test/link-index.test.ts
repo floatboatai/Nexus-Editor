@@ -45,6 +45,17 @@ describe("LinkIndex.resolve", () => {
       "//server/share/vault/Journal/Notes/Today.md"
     );
   });
+
+  it("resolves an extensionless absolute target from the vault root", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "/Topics/AI.md", content: "" },
+      { path: "/Archive/AI.md", content: "" },
+      { path: "/Daily.md", content: "[[/Topics/AI]]" },
+    ]);
+
+    expect(idx.resolve("/Topics/AI", "/Daily.md")).toBe("/Topics/AI.md");
+  });
 });
 
 describe("LinkIndex.backlinks", () => {
