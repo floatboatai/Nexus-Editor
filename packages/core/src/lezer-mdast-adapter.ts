@@ -86,6 +86,45 @@ function readSlice(source: Source, from: number, to: number): string {
 }
 
 /**
+ * Strip the optional `<…>` around a link destination. CommonMark allows the
+ * angle-bracket form so a url can contain spaces; the brackets are delimiters,
+ * not part of the url, and remark drops them.
+ */
+function unwrapUrl(raw: string): string {
+  return raw.startsWith("<") && raw.endsWith(">") ? raw.slice(1, -1) : raw;
+}
+
+/**
+ * mdast keys references by a case-folded `identifier` while keeping the
+ * author's casing in `label`, so `[Foo]` resolves against `[foo]: …`.
+ */
+function referenceIdentifier(label: string): string {
+  return label.toLowerCase();
+}
+
+/**
+ * Read the optional title out of a Link/Image destination.
+ *
+ * Lezer wraps it in a `LinkTitle` child that still carries its delimiters, and
+ * CommonMark allows three of them — `"…"`, `'…'`, `(…)`. remark strips the
+ * delimiters and collapses an empty title to `null`, so we match that: callers
+ * comparing against `remarkParse` output would otherwise see `""` vs `null`.
+ * Whitespace *inside* the title is significant and left alone.
+ */
+function readLinkTitle(source: Source, node: SyntaxNode): string | null {
+  const titleNode = findChildByName(node, "LinkTitle");
+  if (!titleNode) return null;
+  const raw = readSlice(source, titleNode.from, titleNode.to);
+  const opener = raw[0];
+  const closer = opener === "(" ? ")" : opener;
+  const unwrapped =
+    raw.length >= 2 && (opener === '"' || opener === "'" || opener === "(") && raw.endsWith(closer)
+      ? raw.slice(1, -1)
+      : raw;
+  return unwrapped === "" ? null : unwrapped;
+}
+
+/**
  * Locate the text span of a heading, excluding its syntax markers, so the
  * synthesized text node matches what remark emits.
  *
@@ -334,7 +373,9 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
       // Lezer Link: contains LinkMark `[`, label content, LinkMark `]`,
       // optional `(URL "title")`. We pull URL via child name.
       const url = findChildByName(node, "URL");
-      const urlText = url ? readSlice(source, url.from, url.to) : readSlice(source, node.from, node.to).replace(/^<|>$/g, "");
+      const urlText = url
+        ? unwrapUrl(readSlice(source, url.from, url.to))
+        : readSlice(source, node.from, node.to).replace(/^<|>$/g, "");
       // Walk children between the first `[` and the matching `]` and
       // recursively adapt nested inline nodes (Image, StrongEmphasis,
       // Emphasis, InlineCode, etc.) so things like
@@ -373,7 +414,7 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
       const out: Link = {
         type: "link",
         url: urlText,
-        title: null,
+        title: readLinkTitle(source, node),
         children: labelChildren as Link["children"],
         position: position(node.from, node.to),
       };
@@ -381,7 +422,7 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
     }
     case "Image": {
       const url = findChildByName(node, "URL");
-      const urlText = url ? readSlice(source, url.from, url.to) : "";
+      const urlText = url ? unwrapUrl(readSlice(source, url.from, url.to)) : "";
       // Image label sits between `![` and `]` — same structure as Link.
       let alt = "";
       const first = node.firstChild;
@@ -401,7 +442,7 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
         type: "image",
         url: urlText,
         alt,
-        title: null,
+        title: readLinkTitle(source, node),
         position: position(node.from, node.to),
       };
       return out;
@@ -664,16 +705,28 @@ function adaptBlockquote(source: Source, node: SyntaxNode): Blockquote {
   };
 }
 
+/**
+ * `[label]: url "title"` → mdast `definition`.
+ *
+ * Lezer already breaks this into `LinkLabel` / `URL` / `LinkTitle` children, so
+ * we read those instead of re-parsing the line. The previous single regex
+ * mis-handled three cases the node tree gets right: a `<…>` url containing
+ * spaces (`\S+` truncated it), a single-quoted or parenthesised title (only
+ * `"…"` was matched), and the case-folded `identifier` mdast keys references by.
+ */
 function adaptLinkReference(source: Source, node: SyntaxNode): Definition {
-  // Definition source: `[label]: url "title"`
-  const src = readSlice(source, node.from, node.to);
-  const m = /^\[([^\]]+)\]:\s*(\S+)(?:\s+"([^"]*)")?/.exec(src);
+  const labelNode = findChildByName(node, "LinkLabel");
+  // LinkLabel spans the brackets themselves — `[ref]` — so trim them off.
+  const label = labelNode
+    ? readSlice(source, labelNode.from, labelNode.to).replace(/^\[|\]$/g, "")
+    : "";
+  const urlNode = findChildByName(node, "URL");
   return {
     type: "definition",
-    identifier: m ? m[1] : "",
-    label: m ? m[1] : undefined,
-    url: m ? m[2] : "",
-    title: m ? m[3] ?? null : null,
+    identifier: referenceIdentifier(label),
+    label: labelNode ? label : undefined,
+    url: urlNode ? unwrapUrl(readSlice(source, urlNode.from, urlNode.to)) : "",
+    title: readLinkTitle(source, node),
     position: position(node.from, node.to),
   };
 }
