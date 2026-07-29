@@ -979,6 +979,8 @@ interface InlineMarkerStyle {
   attrs?: Record<string, string>;
 }
 
+const LINK_STYLE = "color:var(--nexus-accent);text-decoration:underline;cursor:pointer";
+
 function getInlineMarkerStyle(nodeType: string, source: string): InlineMarkerStyle | null {
   switch (nodeType) {
     case "strong":
@@ -996,6 +998,19 @@ function getInlineMarkerStyle(nodeType: string, source: string): InlineMarkerSty
         style: "font-family:monospace;background:var(--nexus-bg-muted);padding:1px 4px;border-radius:3px"
       };
     }
+    case "linkReference": {
+      // `[text][ref]` / `[text][]` / `[text]` — the destination lives in a
+      // separate definition, so there is no url to hang off the widget. Hide the
+      // brackets and style the text; resolving the target is the renderer's job.
+      // `][` starts the label run for the full and collapsed forms; the
+      // shortcut form `[text]` has only the single closing bracket.
+      const labelClose = source.indexOf("][");
+      return {
+        openLen: 1,
+        closeLen: labelClose >= 0 ? source.length - labelClose : 1,
+        style: LINK_STYLE,
+      };
+    }
     case "link": {
       // [text](url) — hide [ and ](url)
       const bracketClose = source.indexOf("](");
@@ -1004,7 +1019,7 @@ function getInlineMarkerStyle(nodeType: string, source: string): InlineMarkerSty
         return {
           openLen: 1,                            // hide [
           closeLen: source.length - bracketClose, // hide ](url)
-          style: "color:var(--nexus-accent);text-decoration:underline;cursor:pointer",
+          style: LINK_STYLE,
           attrs: { "data-link-url": url }
         };
       }
@@ -1012,14 +1027,14 @@ function getInlineMarkerStyle(nodeType: string, source: string): InlineMarkerSty
       if (source.startsWith("<") && source.endsWith(">")) {
         return {
           openLen: 1, closeLen: 1,
-          style: "color:var(--nexus-accent);text-decoration:underline;cursor:pointer",
+          style: LINK_STYLE,
           attrs: { "data-link-url": source.slice(1, -1) }
         };
       }
       // GFM autolink literal: bare URL, no markers to hide
       return {
         openLen: 0, closeLen: 0,
-        style: "color:var(--nexus-accent);text-decoration:underline;cursor:pointer",
+        style: LINK_STYLE,
         attrs: { "data-link-url": source }
       };
     }
@@ -1142,8 +1157,11 @@ function buildDecorations(
           }).range(range.to)
         );
       }
-    } else if (range.node.type === "link" && !config.renderers.link) {
-      const inlineStyle = getInlineMarkerStyle("link", range.source);
+    } else if (
+      (range.node.type === "link" || range.node.type === "linkReference") &&
+      !config.renderers.link
+    ) {
+      const inlineStyle = getInlineMarkerStyle(range.node.type, range.source);
       if (inlineStyle) {
         const { openLen, closeLen, style, attrs } = inlineStyle;
         const cursorOnLink = selectionIntersects(range.from, range.to, selection, true);
@@ -1161,7 +1179,7 @@ function buildDecorations(
         if (attrs) {
           for (const [k, v] of Object.entries(attrs)) span.setAttribute(k, v);
         }
-        const linkKey = `link:${range.from}-${range.to}:${range.source}`;
+        const linkKey = `${range.node.type}:${range.from}-${range.to}:${range.source}`;
         decos.push(
           Decoration.replace({
             widget: createWidget(span, false, undefined, linkKey),

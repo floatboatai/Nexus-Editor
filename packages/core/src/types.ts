@@ -1,5 +1,5 @@
 import type { Extension } from "@codemirror/state";
-import type { Blockquote, Code, Definition, Delete, Emphasis, FootnoteDefinition, FootnoteReference, Heading, Html, Image, InlineCode, Link, List, Root, Strong, Table, ThematicBreak } from "mdast";
+import type { Blockquote, Code, Definition, Delete, Emphasis, FootnoteDefinition, FootnoteReference, Heading, Html, Image, InlineCode, Link, LinkReference, List, Root, Strong, Table, ThematicBreak } from "mdast";
 import type { Plugin } from "unified";
 
 export interface CodeHighlightToken {
@@ -41,6 +41,7 @@ export type LivePreviewNode =
   | Image
   | InlineCode
   | Link
+  | LinkReference
   | List
   | Strong
   | Table

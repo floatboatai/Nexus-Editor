@@ -16,8 +16,10 @@ import type {
   Heading,
   Html,
   Image,
+  ImageReference,
   InlineCode,
   Link,
+  LinkReference,
   List,
   ListItem,
   Paragraph,
@@ -306,6 +308,83 @@ const MARKER_NODE_NAMES = new Set([
   "TableDelimiter",
 ]);
 
+/**
+ * Adapt the label of a Link/Autolink — the run between the first `[` and its
+ * matching `]` — recursively, so `[![logo](img)](page)` keeps its nested Image
+ * and `[**bold**](url)` keeps its Strong wrapper rather than collapsing to a
+ * single flat Text node.
+ */
+function readLinkLabelChildren(source: Source, node: SyntaxNode): PhrasingContent[] {
+  let labelStartMark: SyntaxNode | null = null;
+  let labelEndMark: SyntaxNode | null = null;
+  let seen = 0;
+  for (let c = node.firstChild; c; c = c.nextSibling) {
+    if (c.name !== "LinkMark") continue;
+    seen++;
+    if (seen === 1) labelStartMark = c;
+    else if (seen === 2) {
+      labelEndMark = c;
+      break;
+    }
+  }
+  if (!labelStartMark || !labelEndMark) {
+    // Autolink / bare URL — no `[]`, the whole node is the label.
+    return [emitText(source, node.from, node.to)];
+  }
+  const labelEnd = labelEndMark.from;
+  const out: PhrasingContent[] = [];
+  let cursor = labelStartMark.to;
+  for (let c = labelStartMark.nextSibling; c && c !== labelEndMark; c = c.nextSibling) {
+    if (c.from >= labelEnd) break;
+    if (c.from > cursor) out.push(emitText(source, cursor, c.from));
+    const adapted = adaptInlineNode(source, c);
+    if (adapted) out.push(adapted);
+    cursor = c.to;
+  }
+  if (cursor < labelEnd) out.push(emitText(source, cursor, labelEnd));
+  return out;
+}
+
+/**
+ * Classify a Link/Image node as one of mdast's three reference forms, or return
+ * null when it carries its own `(url)` and is a plain link.
+ *
+ *   full       `[text][ref]`  → LinkLabel `[ref]`
+ *   collapsed  `[text][]`     → LinkLabel `[]` (empty, so the text is the label)
+ *   shortcut   `[text]`       → no LinkLabel and no URL
+ *
+ * Known deviation from remark: CommonMark only treats these as references when
+ * a matching definition exists, and falls back to literal text otherwise.
+ * Resolving that needs every definition in the document up front, which would
+ * turn this adapter's single cheap pass into two — the whole reason it exists is
+ * to stay on the live-preview hot path. So an undefined reference is still
+ * emitted as a `linkReference`; consumers that care can check `identifier`
+ * against the document's `definition` nodes.
+ */
+function readReference(
+  source: Source,
+  node: SyntaxNode,
+): { identifier: string; label: string; referenceType: "full" | "collapsed" | "shortcut" } | null {
+  if (findChildByName(node, "URL")) return null;
+  const labelChildren = readLinkLabelChildren(source, node);
+  // The link text doubles as the label for the collapsed and shortcut forms.
+  const textLabel = labelChildren
+    .map((child) => readSlice(source, child.position?.start.offset ?? 0, child.position?.end.offset ?? 0))
+    .join("");
+
+  const labelNode = findChildByName(node, "LinkLabel");
+  if (!labelNode) {
+    if (textLabel === "") return null;
+    return { identifier: referenceIdentifier(textLabel), label: textLabel, referenceType: "shortcut" };
+  }
+  const inner = readSlice(source, labelNode.from, labelNode.to).replace(/^\[|\]$/g, "");
+  if (inner === "") {
+    if (textLabel === "") return null;
+    return { identifier: referenceIdentifier(textLabel), label: textLabel, referenceType: "collapsed" };
+  }
+  return { identifier: referenceIdentifier(inner), label: inner, referenceType: "full" };
+}
+
 /** Inline-only adapter — delimiter marks and structural wrappers are skipped. */
 function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | null {
   const name = node.name;
@@ -370,47 +449,28 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
     case "Link":
     case "Autolink":
     case "URL": {
+      const labelChildren = readLinkLabelChildren(source, node);
+      // `[text][ref]` / `[text][]` / `[text]` are references, not links: mdast
+      // leaves the destination in the companion `definition` node and expects a
+      // `linkReference` here.
+      const reference = name === "Link" ? readReference(source, node) : null;
+      if (reference) {
+        const out: LinkReference = {
+          type: "linkReference",
+          identifier: reference.identifier,
+          label: reference.label,
+          referenceType: reference.referenceType,
+          children: labelChildren as LinkReference["children"],
+          position: position(node.from, node.to),
+        };
+        return out;
+      }
       // Lezer Link: contains LinkMark `[`, label content, LinkMark `]`,
       // optional `(URL "title")`. We pull URL via child name.
       const url = findChildByName(node, "URL");
       const urlText = url
         ? unwrapUrl(readSlice(source, url.from, url.to))
         : readSlice(source, node.from, node.to).replace(/^<|>$/g, "");
-      // Walk children between the first `[` and the matching `]` and
-      // recursively adapt nested inline nodes (Image, StrongEmphasis,
-      // Emphasis, InlineCode, etc.) so things like
-      // `[![logo](imgUrl)](pageUrl)` keep their nested Image, and
-      // `[**bold link**](url)` keeps its Strong wrapper. The previous
-      // implementation emitted the label as a single flat Text node,
-      // which dropped every nested mdast node.
-      const labelChildren: PhrasingContent[] = (() => {
-        let labelStartMark: SyntaxNode | null = null;
-        let labelEndMark: SyntaxNode | null = null;
-        let seen = 0;
-        for (let c = node.firstChild; c; c = c.nextSibling) {
-          if (c.name !== "LinkMark") continue;
-          seen++;
-          if (seen === 1) labelStartMark = c;
-          else if (seen === 2) { labelEndMark = c; break; }
-        }
-        if (!labelStartMark || !labelEndMark) {
-          // Autolink / bare URL — no `[]`, the whole node is the label.
-          return [emitText(source, node.from, node.to)];
-        }
-        const labelFrom = labelStartMark.to;
-        const labelEnd = labelEndMark.from;
-        const out: PhrasingContent[] = [];
-        let cursor = labelFrom;
-        for (let c = labelStartMark.nextSibling; c && c !== labelEndMark; c = c.nextSibling) {
-          if (c.from >= labelEnd) break;
-          if (c.from > cursor) out.push(emitText(source, cursor, c.from));
-          const adapted = adaptInlineNode(source, c);
-          if (adapted) out.push(adapted);
-          cursor = c.to;
-        }
-        if (cursor < labelEnd) out.push(emitText(source, cursor, labelEnd));
-        return out;
-      })();
       const out: Link = {
         type: "link",
         url: urlText,
@@ -437,6 +497,20 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
           }
         }
         alt = readSlice(source, altFrom, altTo);
+      }
+      // `![alt][ref]` mirrors `[text][ref]` — mdast wants an `imageReference`,
+      // with `alt` standing in for the label the way link text does.
+      const reference = readReference(source, node);
+      if (reference) {
+        const out: ImageReference = {
+          type: "imageReference",
+          identifier: reference.identifier,
+          label: reference.label,
+          referenceType: reference.referenceType,
+          alt,
+          position: position(node.from, node.to),
+        };
+        return out;
       }
       const out: Image = {
         type: "image",

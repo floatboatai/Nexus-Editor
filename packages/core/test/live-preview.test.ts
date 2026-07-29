@@ -261,6 +261,30 @@ describe("live preview", () => {
     editor.destroy();
   });
 
+  it("hides the reference brackets of a reference link", () => {
+    // Reference links became `linkReference` nodes; they must keep their inline
+    // decoration and show only the link text, not `[text][ref]`.
+    for (const [source, visible] of [
+      ['Go [full][ref] on.\n\n[ref]: https://example.com "T"', "full"],
+      ["Go [collapsed][] on.\n\n[collapsed]: https://example.com", "collapsed"],
+      ["Go [shortcut] on.\n\n[shortcut]: https://example.com", "shortcut"],
+    ] as const) {
+      const container = document.createElement("div");
+      const editor = createEditor({ container, initialValue: source, livePreview: true });
+      editor.setSelection(editor.getDocument().length);
+
+      // Only the reference line matters — the definition line below it keeps its
+      // own `[label]:` brackets by design.
+      const referenceLine = container.querySelector(".cm-line")?.textContent ?? "";
+      expect(referenceLine).toBe(`Go ${visible} on.`);
+      // Regression: reference links used to fall through to the bare-URL branch,
+      // which hid nothing and published `data-link-url="[text][ref]"` — a dead
+      // link. The destination lives in the definition, so no url attribute.
+      expect(container.querySelector("[data-link-url]")).toBeNull();
+      editor.destroy();
+    }
+  });
+
   it("shows raw markdown so links can be edited when the cursor enters the link range", () => {
     const container = document.createElement("div");
     const source = "Click [here](https://example.com) now\n\nend";
