@@ -32,7 +32,7 @@ import type {
   ThematicBreak,
 } from "mdast";
 
-import { findChildByName, headingDepth } from "./lezer-helpers";
+import { findChildByName, headingDepth, isAtxHeading } from "./lezer-helpers";
 
 // Lezer markdown's Document tree → real mdast Root. Designed to be CHEAP
 // (one synchronous walk, viewport-agnostic) so it can fully replace the
@@ -86,33 +86,53 @@ function readSlice(source: Source, from: number, to: number): string {
 }
 
 /**
- * Strip the leading `#` markers (and a single trailing newline if any) from
- * an ATX heading source so the synthesized text node matches what remark
- * emits for `## title`.
+ * Locate the text span of a heading, excluding its syntax markers, so the
+ * synthesized text node matches what remark emits.
+ *
+ * The two heading forms place `HeaderMark` differently, and conflating them
+ * silently empties setext headings:
+ *
+ *   ATX     `## title ##`  → HeaderMark(opening) [, HeaderMark(closing)]
+ *   setext  `title\n=====` → HeaderMark(underline) only, AFTER the text
+ *
+ * So an ATX-shaped "skip leading marks, then trim trailing marks" walk reads
+ * the setext underline as both the opening and the closing mark, leaving
+ * `cursor` past `end`.
  */
 function headingTextRange(source: Source, node: SyntaxNode): { from: number; to: number } {
-  // Skip past the opening HeaderMark child(ren) (the `##`).
+  // setext: the sole HeaderMark is the underline, so the text is everything
+  // before it. Nothing to skip at the front.
+  if (!isAtxHeading(node.name)) {
+    let end = node.to;
+    const underline = findChildByName(node, "HeaderMark");
+    if (underline) end = underline.from;
+    let cursor = node.from;
+    while (cursor < end && /\s/.test(source.slice(cursor, cursor + 1))) cursor++;
+    while (end > cursor && /\s/.test(source.slice(end - 1, end))) end--;
+    return { from: cursor, to: end };
+  }
+
+  // Skip the opening `##`. Lezer emits the heading text as raw source rather
+  // than a child node, so in `## title ##` the closing run is the immediate
+  // next sibling — consuming every leading HeaderMark would swallow it too and
+  // leave the range empty.
   let cursor = node.from;
   let openingEnd = node.from;
-  let child = node.firstChild;
-  while (child && child.name === "HeaderMark") {
-    cursor = child.to;
-    openingEnd = child.to;
-    child = child.nextSibling;
+  const opening = node.firstChild;
+  if (opening && opening.name === "HeaderMark") {
+    cursor = opening.to;
+    openingEnd = opening.to;
   }
   // Trim leading whitespace.
   while (cursor < node.to && /\s/.test(source.slice(cursor, cursor + 1))) cursor++;
 
-  // Trim trailing closing `#` markers — but only if they are SEPARATE from
-  // the opening run (i.e. start past `openingEnd`). Without this guard a
-  // heading with a single HeaderMark child (the common case `# Title`) has
-  // its `lastChild` equal to the opening mark and we'd collapse the text
-  // range to nothing.
+  // Trim the optional closing `#` run. It must start past the opening run —
+  // otherwise it *is* the opening run (`# title`, a single HeaderMark child)
+  // and consuming it would collapse the range to nothing.
   let end = node.to;
-  let trailing = node.lastChild;
-  while (trailing && trailing.name === "HeaderMark" && trailing.from >= openingEnd) {
+  const trailing = node.lastChild;
+  if (trailing && trailing.name === "HeaderMark" && trailing.from >= openingEnd) {
     end = trailing.from;
-    trailing = trailing.prevSibling;
   }
   while (end > cursor && /\s/.test(source.slice(end - 1, end))) end--;
   return { from: cursor, to: end };
