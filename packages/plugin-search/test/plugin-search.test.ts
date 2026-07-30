@@ -243,6 +243,28 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("supports fuzzy search", () => {
+    expect(findSearchMatches("Nexus Editor", "nxe", { fuzzy: true })).toEqual([
+      { from: 0, to: 7, text: "Nexus E" }
+    ]);
+  });
+
+  it("supports case-sensitive fuzzy search", () => {
+    expect(findSearchMatches("Nexus Editor nexus", "ne", { fuzzy: true, caseSensitive: true })).toEqual([
+      { from: 13, to: 15, text: "ne" }
+    ]);
+  });
+
+  it("keeps fuzzy search opt-in", () => {
+    expect(findSearchMatches("Nexus Editor", "nxe")).toEqual([]);
+  });
+
+  it("ignores fuzzy mode for regexp searches", () => {
+    expect(findSearchMatches("abc123", "\\d+", { fuzzy: true, regexp: true })).toEqual([
+      { from: 3, to: 6, text: "123" }
+    ]);
+  });
+
   it("supports whole-word matching", () => {
     expect(findSearchMatches("cat cats catalog", "cat", { wholeWord: true })).toEqual([
       { from: 0, to: 3, text: "cat" }
