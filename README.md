@@ -122,6 +122,7 @@ editor.document.applyPatch({
   position: "last",
   content: { type: "paragraph", value: "A new paragraph." },
 });
+
 editor.document.applyPatch({ type: "delete", nodeId });
 ```
 
