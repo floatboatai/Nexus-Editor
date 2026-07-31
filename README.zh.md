@@ -96,6 +96,37 @@ export default function App() {
 > 💡 **不熟 CodeMirror？** 不需要懂。`<Editor />` 已经处理好生命周期，直接用就行。
 </details>
 
+## AI-ready 文档 API
+
+可选的 `editor.document` facade 允许 AI Agent 查询并修改单个 mdast 节点，
+无需替换整篇文档。节点 ID 只在当前 editor 生命周期内稳定，不会写入 Markdown。
+
+```ts
+const tree = editor.document.getTree();
+const paragraph = tree.children?.find((node) => node.type === "paragraph");
+
+if (paragraph) {
+  editor.document.applyPatch({
+    type: "replace",
+    nodeId: paragraph.id,
+    content: "由 AI Agent 更新的段落。",
+  });
+}
+
+editor.document.findNode(nodeId);
+editor.document.getPath(nodeId); // ["root", "paragraph"]
+editor.document.applyPatch({
+  type: "insert",
+  parentId: tree.id,
+  position: "last",
+  content: { type: "paragraph", value: "新增段落。" },
+});
+editor.document.applyPatch({ type: "delete", nodeId });
+```
+
+Patch 使用现有编辑 transaction，因此会触发原有 change 事件并进入 undo 历史。
+编辑器只提供确定性的文档操作能力，模型和 Agent 编排由宿主应用负责。
+
 <details>
 <summary><b>Vue 3</b></summary>
 

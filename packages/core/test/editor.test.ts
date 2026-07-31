@@ -15,6 +15,57 @@ afterEach(() => {
 });
 
 describe("createEditor", () => {
+  it("exposes stable document node ids, lookup, and paths", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "# Title\n\nFirst paragraph.\n\nSecond paragraph.",
+    });
+
+    const before = editor.document.getTree();
+    const first = before.children?.find((node) => node.type === "paragraph");
+    expect(first).toBeDefined();
+    expect(first && editor.document.findNode(first.id)).toEqual(first);
+    expect(first && editor.document.getPath(first.id)).toEqual(["root", "paragraph"]);
+
+    editor.setDocument("Intro\n\n# Title\n\nFirst paragraph.\n\nSecond paragraph.");
+    const after = editor.document.getTree();
+    const moved = after.children?.find((node) =>
+      node.type === "paragraph" && node.children?.some((child) => child.value === "First paragraph."));
+    expect(moved?.id).toBe(first?.id);
+    expect(new Set(after.children?.map((node) => node.id)).size).toBe(after.children?.length ?? 0);
+    editor.destroy();
+  });
+
+  it("applies replace, insert, and delete document patches", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "First paragraph.\n\nSecond paragraph." });
+    const initial = editor.document.getTree();
+    const first = initial.children?.[0];
+    const second = initial.children?.[1];
+    expect(first?.type).toBe("paragraph");
+    expect(second?.type).toBe("paragraph");
+    if (!first || !second) throw new Error("Expected two paragraphs");
+
+    editor.document.applyPatch({ type: "replace", nodeId: first.id, content: "Updated paragraph." });
+    expect(editor.getDocument()).toBe("Updated paragraph.\n\nSecond paragraph.");
+
+    editor.document.applyPatch({
+      type: "insert",
+      parentId: editor.document.getTree().id,
+      position: "last",
+      content: { type: "paragraph", value: "Inserted by an agent." },
+    });
+    expect(editor.getDocument()).toContain("Second paragraph.\n\nInserted by an agent.");
+
+    const updatedSecond = editor.document.findNode(second.id);
+    expect(updatedSecond).not.toBeNull();
+    editor.document.applyPatch({ type: "delete", nodeId: second.id });
+    expect(editor.getDocument()).not.toContain("Second paragraph.");
+    expect(editor.document.findNode(second.id)).toBeNull();
+    editor.destroy();
+  });
+
   it("creates an editor with the initial document", () => {
     const container = document.createElement("div");
     const editor = createEditor({ container, initialValue: "# Hello" });

@@ -1,4 +1,13 @@
 export { createEditor } from "./editor";
+export type {
+  DeletePatch,
+  DocumentManager,
+  DocumentNode,
+  DocumentNodeContent,
+  DocumentPatch,
+  InsertPatch,
+  ReplacePatch,
+} from "./document-operation";
 export { markdownAutoPair } from "./markdown-autopair";
 export { markdownFold, markdownFoldService } from "./markdown-fold";
 export { markdownKeymap, handleMarkdownEnter } from "./markdown-keymap";

@@ -190,3 +190,18 @@ body,
   color: var(--nexus-accent, #2563eb);
   font-weight: 500;
 }
+.demo-ai-tools {
+  display: flex;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-color, #ddd);
+}
+
+.demo-ai-tools button {
+  border: 1px solid var(--border-color, #bbb);
+  border-radius: 5px;
+  background: var(--panel-bg, transparent);
+  color: inherit;
+  cursor: pointer;
+  padding: 4px 9px;
+}

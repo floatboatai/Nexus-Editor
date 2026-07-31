@@ -41,6 +41,18 @@ import type {
   TocEntry,
 } from "./types";
 import { createWidgetExtension } from "./widget-extension";
+import {
+  createDocumentTree,
+  findNodeIndex,
+  getDocumentSnapshot,
+  getInternalNode,
+  getNodePath,
+  getNodeSnapshot,
+  serializeDocumentContent,
+  type DocumentManager,
+  type DocumentPatch,
+  type DocumentTreeState,
+} from "./document-operation";
 
 const FLOATBOAT_MARKDOWN_DEBUG_STORAGE_KEY = "floatboat:markdown-debug";
 const COMPOSITION_FLUSH_DELAY_MS = 60;
@@ -301,7 +313,76 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // Forward ref so emitChange/setDocument can run lezerTreeToMdast against
   // the live EditorState once the view is constructed.
   const viewRef: { current: EditorView | null } = { current: null };
+  let nextDocumentNodeId = 1;
+  let documentTree: DocumentTreeState;
   let api!: EditorAPI;
+
+  const rebuildDocumentTree = (ast: Root, source: string): void => {
+    documentTree = createDocumentTree(ast, source, documentTree, () => `node_${nextDocumentNodeId++}`);
+  };
+
+  rebuildDocumentTree(currentAst, config.initialValue ?? "");
+
+  const documentManager: DocumentManager = {
+    getTree() {
+      return getDocumentSnapshot(documentTree);
+    },
+    findNode(nodeId) {
+      return getNodeSnapshot(documentTree, nodeId);
+    },
+    getPath(nodeId) {
+      return getNodePath(documentTree, nodeId);
+    },
+    applyPatch(patch: DocumentPatch) {
+      if (destroyed) throw new Error("Cannot apply a document patch after destroy()");
+      const current = viewRef.current;
+      if (!current) throw new Error("Editor view is not ready");
+      const nodeId = patch.type === "insert" ? patch.parentId : patch.nodeId;
+      const target = getInternalNode(documentTree, nodeId);
+      if (!target) throw new Error(`Unknown document node: ${nodeId}`);
+
+      if (patch.type === "replace") {
+        if (target.id === documentTree.tree.id) {
+          performSetDocument(serializeDocumentContent(patch.content), undefined);
+          return;
+        }
+        applyDocumentRange(target.from, target.to, serializeDocumentContent(patch.content));
+        return;
+      }
+
+      if (patch.type === "delete") {
+        if (target.id === documentTree.tree.id) throw new Error("The root node cannot be deleted");
+        const from = target.from;
+        const to = target.to < current.state.doc.length && current.state.doc.sliceString(target.to, target.to + 2) === "\n\n"
+          ? target.to + 2
+          : target.to;
+        applyDocumentRange(from, to, "");
+        return;
+      }
+
+      const parent = target;
+      if (parent.type !== "root" && parent.children.length === 0 && (patch.position === "before" || patch.position === "after")) {
+        throw new Error("before/after insertion requires a referenceId or an existing sibling");
+      }
+      let index = parent.children.length;
+      if (patch.referenceId) {
+        const referenceIndex = findNodeIndex(parent, patch.referenceId);
+        if (referenceIndex < 0) throw new Error(`Reference node is not a child of ${parent.id}: ${patch.referenceId}`);
+        index = patch.position === "before" ? referenceIndex : referenceIndex + 1;
+      } else if (patch.position === "first") {
+        index = 0;
+      } else if (patch.position === "last" || patch.position === "after") {
+        index = parent.children.length;
+      } else {
+        throw new Error("before insertion requires referenceId");
+      }
+      const fragment = serializeDocumentContent(patch.content);
+      const separator = parent.children.length > 0 ? "\n\n" : "";
+      const insertionPoint = index < parent.children.length ? parent.children[index].from : target.to;
+      const insert = index < parent.children.length ? `${fragment}${separator}` : `${separator}${fragment}`;
+      applyDocumentRange(insertionPoint, insertionPoint, insert);
+    },
+  };
 
   function setFocused(next: boolean) {
     if (destroyed || focused === next) {
@@ -329,6 +410,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
     // mdast pipeline (e.g. with bespoke remark plugins).
     if (customParser) {
       currentAst = parseDocument(customParser, markdown);
+      rebuildDocumentTree(currentAst, markdown);
       config.onChange?.(markdown, currentAst);
       emitter.emit("change", markdown, currentAst);
       return;
@@ -339,6 +421,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
     // even on large docs). Falls back to a headless parse pre-view.
     // User remark transformer plugins (if any) run via transformAst.
     currentAst = transformAst(lezerAstFromAnywhere(viewRef, markdown));
+    rebuildDocumentTree(currentAst, markdown);
     config.onChange?.(markdown, currentAst);
     emitter.emit("change", markdown, currentAst);
   }
@@ -443,7 +526,20 @@ export function createEditor(config: EditorConfig): EditorAPI {
       } else {
         currentAst = transformAst(lezerAstFromAnywhere(viewRef, next));
       }
+      rebuildDocumentTree(currentAst, next);
     }
+  }
+
+  function applyDocumentRange(from: number, to: number, insert: string): void {
+    view.dispatch({
+      changes: { from, to, insert },
+      scrollIntoView: true,
+    });
+    const next = view.state.doc.toString();
+    currentAst = customParser
+      ? parseDocument(customParser, next)
+      : transformAst(lezerAstFromAnywhere(viewRef, next));
+    rebuildDocumentTree(currentAst, next);
   }
 
   // compositionend 时应用被推迟的文档回灌；整文档替换后排队中的组合输入变更已失效。
@@ -729,6 +825,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
   viewRef.current = view;
 
   api = {
+    document: documentManager,
     getDocument() {
       return view.state.doc.toString();
     },
@@ -842,6 +939,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
         } else {
           currentAst = transformAst(lezerAstFromAnywhere(viewRef, next));
         }
+        rebuildDocumentTree(currentAst, next);
       }
     },
     undo() {

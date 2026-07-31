@@ -1,6 +1,7 @@
 import type { Extension } from "@codemirror/state";
 import type { Blockquote, Code, Definition, Delete, Emphasis, FootnoteDefinition, FootnoteReference, Heading, Html, Image, InlineCode, Link, List, Root, Strong, Table, ThematicBreak } from "mdast";
 import type { Plugin } from "unified";
+import type { DocumentManager } from "./document-operation";
 
 export interface CodeHighlightToken {
   /** Absolute offset in the source markdown (beginning of the highlighted span). */
@@ -184,6 +185,8 @@ export interface SetDocumentOptions {
 }
 
 export interface EditorAPI {
+  /** Structured, node-addressable document operations for external tooling. */
+  document: DocumentManager;
   getDocument(): string;
   getAst(): Root;
   getTableOfContents(): TocEntry[];

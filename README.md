@@ -96,6 +96,39 @@ export default function App() {
 > 💡 **New to CodeMirror?** You don't need to know it. `<Editor />` handles the lifecycle — just drop it in.
 </details>
 
+## AI-ready Document API
+
+The optional `editor.document` facade lets an AI agent inspect and update
+individual mdast nodes without replacing the whole document. Node IDs are
+stable for the lifetime of the editor and are not written into Markdown.
+
+```ts
+const tree = editor.document.getTree();
+const paragraph = tree.children?.find((node) => node.type === "paragraph");
+
+if (paragraph) {
+  editor.document.applyPatch({
+    type: "replace",
+    nodeId: paragraph.id,
+    content: "Updated by an AI agent.",
+  });
+}
+
+editor.document.findNode(nodeId);
+editor.document.getPath(nodeId); // ["root", "paragraph"]
+editor.document.applyPatch({
+  type: "insert",
+  parentId: tree.id,
+  position: "last",
+  content: { type: "paragraph", value: "A new paragraph." },
+});
+editor.document.applyPatch({ type: "delete", nodeId });
+```
+
+Patches use the normal editor transaction, change events, and undo history.
+The editor provides deterministic document primitives only; the agent or host
+application supplies the model and decides when to call them.
+
 <details>
 <summary><b>Vue 3</b></summary>
 

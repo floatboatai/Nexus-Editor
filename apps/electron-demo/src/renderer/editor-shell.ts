@@ -335,6 +335,24 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   const toolbar = createToolbarUI(editor);
   container.insertBefore(toolbar.element, container.firstChild);
 
+  const aiTools = document.createElement("div");
+  aiTools.className = "demo-ai-tools";
+  const rewriteButton = document.createElement("button");
+  rewriteButton.type = "button";
+  rewriteButton.textContent = "Mock AI Rewrite";
+  rewriteButton.title = "Replace the first paragraph through the document operation API";
+  rewriteButton.addEventListener("click", () => {
+    const paragraph = editor.document.getTree().children?.find((node) => node.type === "paragraph");
+    if (!paragraph) return;
+    editor.document.applyPatch({
+      type: "replace",
+      nodeId: paragraph.id,
+      content: "This paragraph was updated by a mock AI agent.",
+    });
+  });
+  aiTools.appendChild(rewriteButton);
+  container.insertBefore(aiTools, toolbar.element.nextSibling);
+
   // The slash menu owns its own DOM root mounted on document.body so
   // it can overflow the editor's clipping context (panels, scroll
   // ancestors). Its lifecycle is tied to the shell — destroyed below.
@@ -373,6 +391,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
         `${(t1 - t0).toFixed(1)}ms`, { bytes: content.length });
     },
     destroy() {
+      aiTools.remove();
       wordcount.destroy();
       slashMenu.destroy();
       toolbar.destroy();
