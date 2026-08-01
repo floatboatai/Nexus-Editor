@@ -54,6 +54,7 @@ export interface ToolbarGroup {
 export interface ToolbarUIOptions {
   groups?: ToolbarGroup[];
   onFullscreen?: () => void;
+  onInsertImage?: (editor: EditorAPI) => void;
 }
 
 export interface ToolbarUI {
@@ -181,7 +182,7 @@ function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
     },
     {
       buttons: [
-        { id: "image", title: "Insert image", icon: iconImage, action: insertImage },
+        { id: "image", title: "Insert image", icon: iconImage, action: options?.onInsertImage ?? insertImage },
         { id: "fullscreen", title: "Fullscreen", icon: iconFullscreen, action: () => options?.onFullscreen?.() },
       ],
     },

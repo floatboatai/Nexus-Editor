@@ -42,27 +42,75 @@ function resolveImageSrc(
   vaultRoot: string | null
 ): string {
   if (/^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith("//")) return url;
-  if (!activeFile || !vaultRoot) return url;
 
-  const sep = activeFile.includes("\\") && !activeFile.includes("/") ? "\\" : "/";
-  const normActive = activeFile.replace(/\\/g, "/");
+  // Markdown image URLs are percent-encoded (paths may contain spaces). Decode
+  // to a real filesystem path before resolving, then re-encode for the URL.
+  let raw = url;
+  try {
+    raw = decodeURI(url);
+  } catch { /* malformed escape — use as-is */ }
+  raw = raw.replace(/\\/g, "/");
+
+  let absNorm: string;
+  if (raw.startsWith("/")) {
+    absNorm = normalizePath(raw);
+  } else {
+    if (!activeFile) return url;
+    const normActive = activeFile.replace(/\\/g, "/");
+    const lastSlash = normActive.lastIndexOf("/");
+    const activeDir = lastSlash >= 0 ? normActive.slice(0, lastSlash) : "";
+    absNorm = normalizePath(activeDir + "/" + raw);
+  }
+
+  if (!vaultRoot) {
+    return `nexus-vault://local${encodeURI(absNorm)}`;
+  }
+
   const normVault = vaultRoot.replace(/\\/g, "/").replace(/\/+$/, "");
-  const lastSlash = normActive.lastIndexOf("/");
-  const activeDir = lastSlash >= 0 ? normActive.slice(0, lastSlash) : "";
-  const joined = activeDir + "/" + url.replace(/\\/g, "/");
+  if (absNorm !== normVault && !absNorm.startsWith(normVault + "/")) {
+    return `nexus-vault://local${encodeURI(absNorm)}`;
+  }
+  const rel = absNorm.slice(normVault.length + 1);
+  const encoded = rel.split("/").map(encodeURIComponent).join("/");
+  return `nexus-vault://vault/${encoded}`;
+}
 
+/** Collapse `.` / `..` segments, preserving a leading slash. */
+function normalizePath(input: string): string {
   const parts: string[] = [];
-  for (const p of joined.split("/")) {
+  for (const p of input.split("/")) {
     if (p === "" || p === ".") continue;
     if (p === "..") parts.pop();
     else parts.push(p);
   }
-  const absNorm = (joined.startsWith("/") ? "/" : "") + parts.join("/");
+  return (input.startsWith("/") ? "/" : "") + parts.join("/");
+}
 
-  if (absNorm !== normVault && !absNorm.startsWith(normVault + "/")) return url;
-  const rel = absNorm.slice(normVault.length + 1);
-  const encoded = rel.split("/").map(encodeURIComponent).join("/");
-  return `nexus-vault://vault/${encoded}`;
+/**
+ * Rewrite the `|width` suffix inside the image's alt at [from, to).
+ * Returns the new end offset, or null when the range isn't an image.
+ */
+function writeImageWidth(
+  editor: EditorAPI,
+  from: number,
+  to: number,
+  width: number
+): number | null {
+  const doc = editor.getDocument();
+  const src = doc.slice(from, to);
+  const m = src.match(/^!\[([^\]]*)\](\([\s\S]*\))$/);
+  if (!m) return null;
+
+  const rawAlt = m[1];
+  const pipe = rawAlt.lastIndexOf("|");
+  const hasSize = pipe >= 0 && /^\d+(x\d+)?$/.test(rawAlt.slice(pipe + 1).trim());
+  const pureAlt = hasSize ? rawAlt.slice(0, pipe).trim() : rawAlt;
+  const nextAlt = pureAlt ? `${pureAlt}|${width}` : `|${width}`;
+  const nextSrc = `![${nextAlt}]${m[2]}`;
+  if (nextSrc === src) return to;
+
+  editor.replaceRange(from, to, nextSrc, { anchor: from + nextSrc.length });
+  return from + nextSrc.length;
 }
 
 export interface EditorShellOptions {
@@ -104,6 +152,24 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   // Forward ref so the image renderer (built BEFORE createEditor returns)
   // can dispatch selection changes through the editor API after it exists.
   const editorRef: { current: EditorAPI | null } = { current: null };
+
+  // Image selection lives outside the document, so CM6 won't rebuild the widget
+  // when it changes — the click handler toggles the live DOM directly. The
+  // offset is still tracked here so a rebuild triggered by something else (e.g.
+  // writing back `|width`) can restore the selected look. `from` is stable
+  // across our own rewrites because they only ever change the alt's length.
+  let selectedImageFrom: number | null = null;
+  let deselectSelectedImage: (() => void) | null = null;
+  const selectImage = (from: number, deselect: () => void) => {
+    if (deselectSelectedImage && deselectSelectedImage !== deselect) deselectSelectedImage();
+    selectedImageFrom = from;
+    deselectSelectedImage = deselect;
+  };
+  const clearImageSelection = () => {
+    deselectSelectedImage?.();
+    selectedImageFrom = null;
+    deselectSelectedImage = null;
+  };
 
   const wikilinksPlugin = createWikilinksPlugin({
     resolve: resolveWikilink ? (name) => resolveWikilink(name) : undefined,
@@ -250,23 +316,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
                 const finalW = Math.max(40, Math.round(startW + (e.clientX - startX)));
                 const ed = editorRef.current;
                 if (!ed) return;
-
-                const doc = ed.getDocument();
-                const src = doc.slice(nodeFrom, nodeTo);
-                const m = src.match(/^!\[([^\]]*)\](\([\s\S]*\))$/);
-                if (!m) return;
-                const rawAlt = m[1];
-                const pipe = rawAlt.lastIndexOf("|");
-                const hasSize = pipe >= 0 && /^\d+(x\d+)?$/.test(rawAlt.slice(pipe + 1).trim());
-                const pureAlt = hasSize ? rawAlt.slice(0, pipe).trim() : rawAlt;
-                const nextAlt = pureAlt ? `${pureAlt}|${finalW}` : `|${finalW}`;
-                const nextSrc = `![${nextAlt}]${m[2]}`;
-                if (nextSrc === src) return;
-
-                const before = doc.slice(0, nodeFrom);
-                const after = doc.slice(nodeTo);
-                ed.setDocument(before + nextSrc + after);
-                ed.setSelection(nodeFrom + nextSrc.length);
+                writeImageWidth(ed, nodeFrom, nodeTo, finalW);
               };
               resizeDot.addEventListener("mousedown", (e) => {
                 e.preventDefault();
@@ -278,19 +328,153 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
                 document.addEventListener("mouseup", onUp);
               });
 
+              let selected = false;
               const showChrome = () => {
                 wrapper.style.borderColor = "var(--nexus-accent,#7c6cf4)";
                 srcBtn.style.opacity = "1";
                 resizeDot.style.opacity = "1";
               };
               const hideChrome = () => {
-                if (dragging) return;
+                if (dragging || selected) return;
                 wrapper.style.borderColor = "transparent";
                 srcBtn.style.opacity = "0";
                 resizeDot.style.opacity = "0";
               };
               wrapper.addEventListener("mouseenter", showChrome);
               wrapper.addEventListener("mouseleave", hideChrome);
+
+              // Bottom-left action bar, revealed by clicking the image. Scale
+              // presets are a fraction of the image's intrinsic width; the
+              // trash button drops the image from the document.
+              const actionBar = document.createElement("span");
+              actionBar.style.cssText = [
+                "position:absolute",
+                "bottom:6px",
+                "left:6px",
+                "display:none",
+                "align-items:center",
+                "gap:2px",
+                "padding:2px",
+                "background:rgba(255,255,255,0.97)",
+                "border:1px solid var(--nexus-border-subtle,#ddd)",
+                "border-radius:6px",
+                "z-index:3",
+                "user-select:none",
+                "box-shadow:0 1px 4px rgba(0,0,0,0.12)",
+              ].join(";") + ";";
+              // CM6 resolves a click into a cursor position unless the press is
+              // stopped before it reaches the editor's own handler.
+              actionBar.addEventListener("mousedown", (e) => { e.stopPropagation(); }, true);
+
+              const barButton = (label: string, title: string): HTMLButtonElement => {
+                const b = document.createElement("button");
+                b.type = "button";
+                b.textContent = label;
+                b.title = title;
+                b.setAttribute("aria-label", title);
+                b.style.cssText = [
+                  "padding:2px 6px",
+                  "font-size:11px",
+                  "font-family:system-ui,-apple-system,sans-serif",
+                  "line-height:1.5",
+                  "background:transparent",
+                  "border:none",
+                  "border-radius:4px",
+                  "color:var(--nexus-text,#333)",
+                  "cursor:pointer",
+                ].join(";") + ";";
+                b.addEventListener("mouseenter", () => {
+                  b.style.background = "var(--nexus-bg-muted,#f0f0f0)";
+                });
+                b.addEventListener("mouseleave", () => {
+                  b.style.background = "transparent";
+                });
+                actionBar.appendChild(b);
+                return b;
+              };
+
+              for (const pct of [30, 50, 100]) {
+                const btn = barButton(`${pct}%`, `Scale to ${pct}% of original width`);
+                btn.addEventListener("click", (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const ed = editorRef.current;
+                  if (!ed) return;
+                  // naturalWidth is 0 until the bitmap decodes; fall back to the
+                  // laid-out width so an early click still does something sane.
+                  const base = img.naturalWidth || Math.round(img.getBoundingClientRect().width);
+                  if (!base) return;
+                  writeImageWidth(ed, nodeFrom, nodeTo, Math.max(40, Math.round(base * pct / 100)));
+                });
+              }
+
+              const barSep = document.createElement("span");
+              barSep.style.cssText =
+                "width:1px;height:14px;margin:0 2px;background:var(--nexus-border-subtle,#ddd);";
+              actionBar.appendChild(barSep);
+
+              const delBtn = barButton("🗑", "Delete image");
+              delBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const ed = editorRef.current;
+                if (!ed) return;
+                clearImageSelection();
+                // Swallow the newline the insert flow appends, so removing an
+                // image doesn't leave a blank line behind.
+                const doc = ed.getDocument();
+                const end = doc[nodeTo] === "\n" ? nodeTo + 1 : nodeTo;
+                ed.replaceRange(nodeFrom, end, "", { anchor: nodeFrom });
+                ed.focus();
+              });
+
+              // Self-cleaning global listeners: the widget has no destroy hook,
+              // so every dismissal path drops them once the wrapper is detached.
+              let onDocMouseDown: ((e: MouseEvent) => void) | null = null;
+              let onDocKeyDown: ((e: KeyboardEvent) => void) | null = null;
+              const unbindDismiss = () => {
+                if (onDocMouseDown) document.removeEventListener("mousedown", onDocMouseDown, true);
+                if (onDocKeyDown) document.removeEventListener("keydown", onDocKeyDown, true);
+                onDocMouseDown = null;
+                onDocKeyDown = null;
+              };
+              const bindDismiss = () => {
+                if (onDocMouseDown) return;
+                onDocMouseDown = (ev: MouseEvent) => {
+                  if (!wrapper.isConnected) { unbindDismiss(); return; }
+                  if (wrapper.contains(ev.target as Node)) return;
+                  clearImageSelection();
+                };
+                onDocKeyDown = (ev: KeyboardEvent) => {
+                  if (!wrapper.isConnected) { unbindDismiss(); return; }
+                  if (ev.key === "Escape") clearImageSelection();
+                };
+                document.addEventListener("mousedown", onDocMouseDown, true);
+                document.addEventListener("keydown", onDocKeyDown, true);
+              };
+              const deselect = () => {
+                unbindDismiss();
+                selected = false;
+                actionBar.style.display = "none";
+                hideChrome();
+              };
+              const select = () => {
+                selectImage(nodeFrom, deselect);
+                selected = true;
+                actionBar.style.display = "inline-flex";
+                showChrome();
+                bindDismiss();
+              };
+
+              img.addEventListener("mousedown", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!selected) select();
+              });
+
+              // A `|width` rewrite rebuilds this DOM; re-assert the selected
+              // look so the bar survives consecutive scale clicks.
+              if (selectedImageFrom === nodeFrom) select();
 
               // Obsidian-style: no visible caption. alt goes on the img (native
               // browser tooltip + a11y). Raw markdown source `![alt|size](url)`
@@ -309,6 +493,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
               wrapper.appendChild(img);
               wrapper.appendChild(srcBtn);
               wrapper.appendChild(resizeDot);
+              wrapper.appendChild(actionBar);
               return wrapper;
             },
           },
@@ -332,7 +517,27 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
 
   editorRef.current = editor;
 
-  const toolbar = createToolbarUI(editor);
+  const toolbar = createToolbarUI(editor, {
+    onInsertImage: (ed) => {
+      const activeFilePath = state.activeFile ?? "";
+      window.nexusDemo.pickImage(activeFilePath).then((result) => {
+        if (!result) return;
+        const doc = ed.getDocument();
+        const { anchor, head } = ed.getSelection();
+        const from = Math.min(anchor, head);
+        const to = Math.max(anchor, head);
+        const selected = doc.slice(from, to);
+        const alt = selected || result.fileName.replace(/\.[^.]+$/, "");
+        // Trailing newline moves the caret out of the image's source range.
+        // Live preview only collapses `![](...)` into an image widget when the
+        // selection does NOT intersect it (inclusive of its end offset), so a
+        // caret parked right after `)` would keep the raw markdown visible.
+        const md = `![${alt}](${result.relPath})\n`;
+        ed.replaceRange(from, to, md, { anchor: from + md.length });
+        ed.focus();
+      });
+    },
+  });
   container.insertBefore(toolbar.element, container.firstChild);
 
   // The slash menu owns its own DOM root mounted on document.body so
