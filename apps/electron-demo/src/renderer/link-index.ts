@@ -147,6 +147,48 @@ function snippetAround(content: string, from: number, to: number): string {
   return content.slice(lineStart, lineEnd).trim();
 }
 
+const UNICODE_WORD_CHAR_RE = /^[\p{L}\p{M}\p{N}\p{Pc}]$/u;
+const CJK_CHAR_RE = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]$/u;
+
+function codePointAt(value: string, index: number): string {
+  if (index < 0 || index >= value.length) return "";
+  return String.fromCodePoint(value.codePointAt(index)!);
+}
+
+function codePointBefore(value: string, index: number): string {
+  if (index <= 0 || index > value.length) return "";
+  let start = index - 1;
+  const lastUnit = value.charCodeAt(start);
+  if (lastUnit >= 0xdc00 && lastUnit <= 0xdfff && start > 0) {
+    const previousUnit = value.charCodeAt(start - 1);
+    if (previousUnit >= 0xd800 && previousUnit <= 0xdbff) start -= 1;
+  }
+  return codePointAt(value, start);
+}
+
+function hasUnicodeMentionBoundaries(
+  content: string,
+  from: number,
+  to: number,
+  needle: string,
+): boolean {
+  const first = codePointAt(needle, 0);
+  const last = codePointBefore(needle, needle.length);
+  const before = codePointBefore(content, from);
+  const after = codePointAt(content, to);
+
+  // CJK text commonly has no separators between words, so exact substring
+  // matches are meaningful there. Other scripts keep Unicode-aware word
+  // boundaries to avoid matching e.g. "Café" inside "Caféine".
+  const startsInsideWord = !CJK_CHAR_RE.test(first)
+    && UNICODE_WORD_CHAR_RE.test(first)
+    && UNICODE_WORD_CHAR_RE.test(before);
+  const endsInsideWord = !CJK_CHAR_RE.test(last)
+    && UNICODE_WORD_CHAR_RE.test(last)
+    && UNICODE_WORD_CHAR_RE.test(after);
+  return !startsInsideWord && !endsInsideWord;
+}
+
 /**
  * Vault-scoped bidirectional wiki-link index.
  *
@@ -270,7 +312,8 @@ export class LinkIndex {
   /**
    * Find plain-text occurrences of the target file's basename (sans extension)
    * across every other file in the vault, excluding any occurrence that falls
-   * inside an existing wiki link. Case-insensitive, word-boundary matched.
+   * inside an existing wiki link. Matching is case-insensitive and uses
+   * Unicode-aware boundaries, with exact substring semantics for CJK text.
    *
    * Corresponds to Obsidian's "Unlinked mentions" section.
    *
@@ -291,7 +334,7 @@ export class LinkIndex {
       return [];
     }
     const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const re = new RegExp(`\\b${escaped}\\b`, "gi");
+    const re = new RegExp(escaped, "giu");
 
     const out: BacklinkHit[] = [];
     for (const [source, content] of this.contents) {
@@ -302,6 +345,7 @@ export class LinkIndex {
       while ((m = re.exec(content)) !== null) {
         const start = m.index;
         const end = start + m[0].length;
+        if (!hasUnicodeMentionBoundaries(content, start, end, needle)) continue;
         // Skip if the match falls inside an existing wiki link range.
         const insideLink = wikiRanges.some((wl) => start >= wl.from && end <= wl.to);
         if (insideLink) continue;
