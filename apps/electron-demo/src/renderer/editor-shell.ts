@@ -42,27 +42,48 @@ function resolveImageSrc(
   vaultRoot: string | null
 ): string {
   if (/^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith("//")) return url;
-  if (!activeFile || !vaultRoot) return url;
 
-  const sep = activeFile.includes("\\") && !activeFile.includes("/") ? "\\" : "/";
-  const normActive = activeFile.replace(/\\/g, "/");
+  // Markdown image URLs are percent-encoded (paths may contain spaces). Decode
+  // to a real filesystem path before resolving, then re-encode for the URL.
+  let raw = url;
+  try {
+    raw = decodeURI(url);
+  } catch { /* malformed escape — use as-is */ }
+  raw = raw.replace(/\\/g, "/");
+
+  let absNorm: string;
+  if (raw.startsWith("/")) {
+    absNorm = normalizePath(raw);
+  } else {
+    if (!activeFile) return url;
+    const normActive = activeFile.replace(/\\/g, "/");
+    const lastSlash = normActive.lastIndexOf("/");
+    const activeDir = lastSlash >= 0 ? normActive.slice(0, lastSlash) : "";
+    absNorm = normalizePath(activeDir + "/" + raw);
+  }
+
+  if (!vaultRoot) {
+    return `nexus-vault://local${encodeURI(absNorm)}`;
+  }
+
   const normVault = vaultRoot.replace(/\\/g, "/").replace(/\/+$/, "");
-  const lastSlash = normActive.lastIndexOf("/");
-  const activeDir = lastSlash >= 0 ? normActive.slice(0, lastSlash) : "";
-  const joined = activeDir + "/" + url.replace(/\\/g, "/");
+  if (absNorm !== normVault && !absNorm.startsWith(normVault + "/")) {
+    return `nexus-vault://local${encodeURI(absNorm)}`;
+  }
+  const rel = absNorm.slice(normVault.length + 1);
+  const encoded = rel.split("/").map(encodeURIComponent).join("/");
+  return `nexus-vault://vault/${encoded}`;
+}
 
+/** Collapse `.` / `..` segments, preserving a leading slash. */
+function normalizePath(input: string): string {
   const parts: string[] = [];
-  for (const p of joined.split("/")) {
+  for (const p of input.split("/")) {
     if (p === "" || p === ".") continue;
     if (p === "..") parts.pop();
     else parts.push(p);
   }
-  const absNorm = (joined.startsWith("/") ? "/" : "") + parts.join("/");
-
-  if (absNorm !== normVault && !absNorm.startsWith(normVault + "/")) return url;
-  const rel = absNorm.slice(normVault.length + 1);
-  const encoded = rel.split("/").map(encodeURIComponent).join("/");
-  return `nexus-vault://vault/${encoded}`;
+  return (input.startsWith("/") ? "/" : "") + parts.join("/");
 }
 
 export interface EditorShellOptions {
@@ -332,7 +353,27 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
 
   editorRef.current = editor;
 
-  const toolbar = createToolbarUI(editor);
+  const toolbar = createToolbarUI(editor, {
+    onInsertImage: (ed) => {
+      const activeFilePath = state.activeFile ?? "";
+      window.nexusDemo.pickImage(activeFilePath).then((result) => {
+        if (!result) return;
+        const doc = ed.getDocument();
+        const { anchor, head } = ed.getSelection();
+        const from = Math.min(anchor, head);
+        const to = Math.max(anchor, head);
+        const selected = doc.slice(from, to);
+        const alt = selected || result.fileName.replace(/\.[^.]+$/, "");
+        // Trailing newline moves the caret out of the image's source range.
+        // Live preview only collapses `![](...)` into an image widget when the
+        // selection does NOT intersect it (inclusive of its end offset), so a
+        // caret parked right after `)` would keep the raw markdown visible.
+        const md = `![${alt}](${result.relPath})\n`;
+        ed.replaceRange(from, to, md, { anchor: from + md.length });
+        ed.focus();
+      });
+    },
+  });
   container.insertBefore(toolbar.element, container.firstChild);
 
   // The slash menu owns its own DOM root mounted on document.body so

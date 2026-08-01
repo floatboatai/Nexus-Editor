@@ -36,6 +36,7 @@ export interface DemoBridge {
   openFile(): Promise<DemoFileHandle | null>;
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
+  pickImage(activeFilePath: string): Promise<{ relPath: string; fileName: string } | null>;
   vault: VaultBridge;
 }
 
@@ -91,6 +92,9 @@ const bridge: DemoBridge = {
   },
   saveFileAs(content: string) {
     return ipcRenderer.invoke("demo:save-file-as", content);
+  },
+  pickImage(activeFilePath: string) {
+    return ipcRenderer.invoke("image:pick", activeFilePath);
   },
   vault: vaultBridge,
 };

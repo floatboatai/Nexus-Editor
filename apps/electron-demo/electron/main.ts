@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from "electron";
-import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promises";
+import { readFile, writeFile, readdir, mkdir, rename, stat, copyFile } from "node:fs/promises";
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -414,13 +414,61 @@ ipcMain.handle("vault:set-last", async (_event, vaultPath: string) => {
   return { ok: true };
 });
 
+ipcMain.handle("image:pick", async (_event, activeFilePath: string) => {
+  if (!mainWindow) return null;
+
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ["openFile"],
+    filters: [
+      { name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"] },
+    ],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) return null;
+
+  const srcPath = result.filePaths[0];
+  const ext = path.extname(srcPath);
+  const stem = path.basename(srcPath, ext);
+
+  const baseDir = activeVault ?? (activeFilePath ? path.dirname(activeFilePath) : null);
+
+  if (!baseDir) {
+    return { relPath: encodeURI(srcPath.replace(/\\/g, "/")), fileName: path.basename(srcPath) };
+  }
+
+  const assetsDir = path.join(baseDir, "assets");
+  await mkdir(assetsDir, { recursive: true });
+
+  let destPath = path.join(assetsDir, path.basename(srcPath));
+  let suffix = 1;
+  while (existsSync(destPath)) {
+    destPath = path.join(assetsDir, `${stem}-${suffix}${ext}`);
+    suffix++;
+  }
+
+  await copyFile(srcPath, destPath);
+
+  const activeDir = activeFilePath ? path.dirname(activeFilePath) : baseDir;
+  const relPath = path.relative(activeDir, destPath).replace(/\\/g, "/");
+  return { relPath: encodeURI(relPath), fileName: path.basename(destPath) };
+});
+
 app.whenReady().then(() => {
   // nexus-vault://vault/<rel> → read from activeVault/<rel>. Path is validated
   // so requests cannot escape the vault (same rule as the IPC handlers).
+  // nexus-vault://local/<abs> → read from an absolute path (no vault required).
   protocol.handle("nexus-vault", async (request) => {
     try {
-      if (!activeVault) return new Response("No active vault", { status: 404 });
       const url = new URL(request.url);
+
+      if (url.host === "local") {
+        const absPath = decodeURIComponent(url.pathname);
+        if (!absPath || absPath === "/") return new Response("Empty path", { status: 400 });
+        if (!existsSync(absPath)) return new Response("Not found", { status: 404 });
+        return net.fetch(pathToFileURL(absPath).toString());
+      }
+
+      if (!activeVault) return new Response("No active vault", { status: 404 });
       const relPath = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
       if (!relPath) return new Response("Empty path", { status: 400 });
       const abs = path.resolve(activeVault, relPath);
