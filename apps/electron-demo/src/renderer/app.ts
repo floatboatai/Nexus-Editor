@@ -6,6 +6,7 @@ import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
+import { buildAIContext } from "./ai-context";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
 
 installLongTaskWatch(50);
@@ -71,6 +72,13 @@ function createAppToolbar(): HTMLElement {
   searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
 
+  const aiContextBtn = document.createElement("button");
+  aiContextBtn.textContent = "AI";
+  aiContextBtn.title = "Copy AI context";
+  aiContextBtn.addEventListener("click", () => {
+    void handleCopyAIContext(aiContextBtn);
+  });
+
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "\u2699"; // ⚙
   settingsBtn.title = "Settings";
@@ -87,6 +95,7 @@ function createAppToolbar(): HTMLElement {
     outlineBtn,
     backlinksBtn,
     searchBtn,
+    aiContextBtn,
     settingsBtn
   );
   return toolbar;
@@ -179,6 +188,34 @@ function handleSettings(): void {
     settings = next;
     shell.applySettings(settings);
   });
+}
+
+async function handleCopyAIContext(button: HTMLButtonElement): Promise<void> {
+  try {
+    state.error = null;
+    const activeFile = state.activeFile ?? state.filePath;
+
+    const text = buildAIContext({
+      activeFile,
+      vaultPath: state.vaultPath,
+      document: shell.editor.getDocument(),
+      selectedText: shell.editor.getSelectedText(),
+      outline: shell.editor.getTableOfContents(),
+      stats: shell.editor.getDocumentStats(),
+      backlinks: activeFile ? linkIndex.getBacklinks(activeFile) : [],
+      unlinkedMentions: activeFile ? linkIndex.getUnlinkedMentions(activeFile) : [],
+    });
+
+    await window.nexusDemo.clipboard.writeText(text);
+    const previous = button.textContent ?? "AI";
+    button.textContent = "Copied";
+    window.setTimeout(() => {
+      button.textContent = previous;
+    }, 1200);
+  } catch (err) {
+    state.error = err instanceof Error ? err.message : String(err);
+  }
+  renderStatus();
 }
 
 function togglePanel(panel: HTMLElement, onShow?: () => void): void {

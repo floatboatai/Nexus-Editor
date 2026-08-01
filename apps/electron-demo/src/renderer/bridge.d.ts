@@ -34,6 +34,9 @@ interface DemoBridge {
   openFile(): Promise<DemoFileHandle | null>;
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
+  clipboard: {
+    writeText(text: string): Promise<void>;
+  };
   vault: VaultBridge;
 }
 

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { clipboard, contextBridge, ipcRenderer } from "electron";
 
 export interface DemoFileHandle {
   path: string;
@@ -36,6 +36,9 @@ export interface DemoBridge {
   openFile(): Promise<DemoFileHandle | null>;
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
+  clipboard: {
+    writeText(text: string): Promise<void>;
+  };
   vault: VaultBridge;
 }
 
@@ -91,6 +94,11 @@ const bridge: DemoBridge = {
   },
   saveFileAs(content: string) {
     return ipcRenderer.invoke("demo:save-file-as", content);
+  },
+  clipboard: {
+    async writeText(text: string) {
+      clipboard.writeText(text);
+    },
   },
   vault: vaultBridge,
 };
