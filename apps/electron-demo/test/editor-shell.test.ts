@@ -59,4 +59,25 @@ describe("createEditorShell", () => {
     expect(shell.editor.getDocument()).toBe("loaded from file");
     shell.destroy();
   });
+
+  it("ignores a debounced change superseded by a silent file load", async () => {
+    const container = document.createElement("div");
+    const state = createState();
+    const shell = createEditorShell({
+      container,
+      state,
+      settings: defaultSettings(),
+      onStateChange: vi.fn(),
+    });
+
+    shell.editor.setDocument("pending edit from the previous file");
+    shell.loadDocument("newly loaded file");
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(state.content).toBe("newly loaded file");
+    expect(state.savedContent).toBe("newly loaded file");
+    expect(state.dirty).toBe(false);
+    shell.destroy();
+  });
 });
