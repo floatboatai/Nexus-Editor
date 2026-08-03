@@ -1,5 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { createState } from "../src/renderer/state";
+import {
+  createState,
+  markContentLoaded,
+  markContentSaved,
+  syncEditorContent,
+} from "../src/renderer/state";
 
 function mockBridge() {
   const bridge = {
@@ -29,8 +34,7 @@ describe("open handler logic", () => {
 
     if (result) {
       state.filePath = result.path;
-      state.content = result.content;
-      state.dirty = false;
+      markContentLoaded(state, result.content);
     }
 
     expect(state.filePath).toBe("/tmp/test.md");
@@ -43,8 +47,8 @@ describe("open handler logic", () => {
 
     const state = createState();
     state.filePath = "/existing.md";
-    state.content = "existing";
-    state.dirty = true;
+    markContentLoaded(state, "existing");
+    syncEditorContent(state, "edited");
 
     const result = await window.nexusDemo.openFile();
     if (result) {
@@ -68,11 +72,12 @@ describe("save handler logic", () => {
 
     const state = createState();
     state.filePath = "/tmp/test.md";
-    state.content = "updated";
-    state.dirty = true;
+    markContentLoaded(state, "before");
+    syncEditorContent(state, "updated");
 
-    await window.nexusDemo.saveFile(state.filePath, state.content);
-    state.dirty = false;
+    const snapshot = state.content;
+    await window.nexusDemo.saveFile(state.filePath, snapshot);
+    markContentSaved(state, snapshot, state.content);
 
     expect(state.dirty).toBe(false);
     expect(bridge.saveFile).toHaveBeenCalledWith("/tmp/test.md", "updated");
@@ -82,13 +87,13 @@ describe("save handler logic", () => {
     bridge.saveFileAs.mockResolvedValue({ path: "/tmp/new.md" });
 
     const state = createState();
-    state.content = "new content";
-    state.dirty = true;
+    syncEditorContent(state, "new content");
 
-    const result = await window.nexusDemo.saveFileAs(state.content);
+    const snapshot = state.content;
+    const result = await window.nexusDemo.saveFileAs(snapshot);
     if (result) {
       state.filePath = result.path;
-      state.dirty = false;
+      markContentSaved(state, snapshot, state.content);
     }
 
     expect(state.filePath).toBe("/tmp/new.md");
@@ -99,8 +104,7 @@ describe("save handler logic", () => {
     bridge.saveFileAs.mockResolvedValue(null);
 
     const state = createState();
-    state.content = "content";
-    state.dirty = true;
+    syncEditorContent(state, "content");
 
     const result = await window.nexusDemo.saveFileAs(state.content);
     if (!result) {

@@ -14,7 +14,11 @@ import {
   createWordCountPlugin,
   type WordCountPlugin
 } from "@floatboat/nexus-plugin-wordcount";
-import type { AppState } from "./state";
+import {
+  markContentLoaded,
+  syncEditorContent,
+  type AppState,
+} from "./state";
 import { type EditorSettings, settingsToTheme } from "./settings";
 
 // Parse Obsidian-style size specifier from the alt text: `alt|width` or
@@ -319,8 +323,11 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     direction: settings.direction,
     indentGuides: settings.indentGuides,
     onChange(doc) {
-      state.content = doc;
-      state.dirty = true;
+      // parseDelayMs intentionally debounces this callback. Ignore a payload
+      // superseded by a silent file load or a newer edit before the timer ran.
+      if (editorRef.current?.getDocument() !== doc) return;
+
+      syncEditorContent(state, doc);
       // Keep the link index in sync with the buffer so the backlinks panel
       // reacts immediately when the user types `[[...]]`.
       if (state.linkIndex && state.activeFile) {
@@ -362,8 +369,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       const t0 = performance.now();
       editor.setDocument(content, { silent: true });
       const t1 = performance.now();
-      state.content = content;
-      state.dirty = false;
+      markContentLoaded(state, content);
       onStateChange();
       // Surfaced here because editor.setDocument triggers the whole CM6
       // decoration rebuild chain (live-preview buildDecorations), so this

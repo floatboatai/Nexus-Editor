@@ -1,4 +1,9 @@
-import { createState, type AppState } from "./state";
+import {
+  createState,
+  hasUnsavedChanges,
+  markContentSaved,
+  type AppState,
+} from "./state";
 import { createEditorShell, type EditorShell } from "./editor-shell";
 import { loadSettings, createSettingsPanel, type EditorSettings } from "./settings";
 import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
@@ -115,7 +120,7 @@ function renderStatus(): void {
 }
 
 async function confirmDiscardIfDirty(): Promise<boolean> {
-  if (!state.dirty) return true;
+  if (!hasUnsavedChanges(state, shell.editor.getDocument())) return true;
   return window.confirm("You have unsaved changes. Discard them and switch files?");
 }
 
@@ -142,12 +147,15 @@ async function handleSave(): Promise<void> {
     state.error = null;
     const targetPath = state.activeFile ?? state.filePath;
     if (targetPath) {
+      // Snapshot the editor directly: state.content follows the intentionally
+      // debounced AST/onChange pipeline and may still contain the previous edit.
+      const snapshot = shell.editor.getDocument();
       if (state.vaultPath && targetPath.startsWith(state.vaultPath)) {
-        await window.nexusDemo.vault.write(targetPath, state.content);
+        await window.nexusDemo.vault.write(targetPath, snapshot);
       } else {
-        await window.nexusDemo.saveFile(targetPath, state.content);
+        await window.nexusDemo.saveFile(targetPath, snapshot);
       }
-      state.dirty = false;
+      markContentSaved(state, snapshot, shell.editor.getDocument());
     } else {
       await handleSaveAs();
       return;
@@ -161,12 +169,13 @@ async function handleSave(): Promise<void> {
 async function handleSaveAs(): Promise<void> {
   try {
     state.error = null;
-    const result = await window.nexusDemo.saveFileAs(state.content);
+    const snapshot = shell.editor.getDocument();
+    const result = await window.nexusDemo.saveFileAs(snapshot);
     if (!result) return;
 
     state.filePath = result.path;
     state.activeFile = result.path;
-    state.dirty = false;
+    markContentSaved(state, snapshot, shell.editor.getDocument());
     vault.setActiveFile(result.path);
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
