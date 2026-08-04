@@ -6,7 +6,12 @@ import {
 } from "@floatboat/nexus-core";
 import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
-import { createToolbarPlugin, createToolbarUI, type ToolbarUI } from "@floatboat/nexus-plugin-toolbar";
+import {
+  createToolbarPlugin,
+  createToolbarUI,
+  insertImage as insertImageMarkdown,
+  type ToolbarUI,
+} from "@floatboat/nexus-plugin-toolbar";
 import { createSearchPlugin } from "@floatboat/nexus-plugin-search";
 import { createSlashMenuUI, type SlashMenuUI } from "@floatboat/nexus-plugin-slash";
 import {
@@ -15,7 +20,8 @@ import {
   type WordCountPlugin
 } from "@floatboat/nexus-plugin-wordcount";
 import type { AppState } from "./state";
-import { type EditorSettings, settingsToTheme } from "./settings";
+import { type EditorSettings, settingsToTheme, applyShellColorScheme } from "./settings";
+import { openImagePreview } from "./image-preview";
 
 // Parse Obsidian-style size specifier from the alt text: `alt|width` or
 // `alt|widthxheight`. Returns { alt, width, height } with the size stripped
@@ -133,9 +139,29 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     // edges across the vault). 150ms is imperceptible for typing UX but
     // batches bursts of keystrokes into one parse.
     parseDelayMs: 150,
+    lineNumbers: settings.lineNumbers,
+    tabSize: settings.tabSize,
+    direction: settings.direction,
+    indentGuides: settings.indentGuides,
     // Multi-cursor editing: Alt-click adds a cursor, Mod-d selects the next
     // occurrence, Mod-Alt-ArrowUp/Down stacks cursors (ROADMAP #6).
     multiCursor: true,
+    // Screenshot / clipboard paste & drag-drop images → vault/img (or data URL).
+    onAssetUpload: async (file: File) => {
+      try {
+        const buf = new Uint8Array(await file.arrayBuffer());
+        if (buf.byteLength === 0) return null;
+        const result = await window.nexusDemo.vault.writeImage({
+          name: file.name || undefined,
+          mime: file.type || "image/png",
+          bytes: buf,
+        });
+        return result.markdownPath;
+      } catch (err) {
+        console.warn("onAssetUpload failed:", err);
+        return null;
+      }
+    },
     plugins: [
       createGfmPreset(),
       createHistoryPlugin(),
@@ -162,7 +188,8 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
               const wrapper = document.createElement("span");
               wrapper.className = "nexus-image";
               wrapper.style.cssText =
-                "display:inline-block;position:relative;vertical-align:top;max-width:100%;" +
+                "display:inline-block;position:relative;vertical-align:top;" +
+                "max-width:100%;width:auto;box-sizing:border-box;" +
                 "border:1px solid transparent;border-radius:6px;padding:2px;transition:border-color .15s;";
               wrapper.setAttribute("data-live-preview-image", node.url);
 
@@ -173,10 +200,24 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
               img.referrerPolicy = "no-referrer";
               img.style.display = "block";
               img.style.maxWidth = "100%";
+              img.style.width = "auto";
               img.style.height = "auto";
               img.style.borderRadius = "4px";
-              if (typeof width === "number") img.style.width = width + "px";
+              img.style.cursor = "zoom-in";
+              img.style.boxSizing = "border-box";
+              // Explicit pixel width from |width syntax, still capped by max-width.
+              if (typeof width === "number") {
+                img.style.width = width + "px";
+                img.style.maxWidth = "100%";
+              }
               if (typeof height === "number") img.style.height = height + "px";
+
+              // Click image body → fullscreen preview (not source edit).
+              img.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                openImagePreview(img.src, alt || node.title || "");
+              });
 
               // Top-right action: jump cursor to image source.
               const srcBtn = document.createElement("button");
@@ -315,9 +356,6 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
         }
       : false,
     theme: settingsToTheme(settings),
-    tabSize: settings.tabSize,
-    direction: settings.direction,
-    indentGuides: settings.indentGuides,
     onChange(doc) {
       state.content = doc;
       state.dirty = true;
@@ -332,7 +370,35 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
 
   editorRef.current = editor;
 
-  const toolbar = createToolbarUI(editor);
+  async function insertImageWithPicker(ed: EditorAPI): Promise<void> {
+    try {
+      const picked = await window.nexusDemo.vault.importImage();
+      if (!picked) {
+        // User cancelled — fall back to markdown placeholder so the action
+        // still does something useful offline / without a vault.
+        insertImageMarkdown(ed);
+        return;
+      }
+      const doc = ed.getDocument();
+      const { anchor, head } = ed.getSelection();
+      const from = Math.min(anchor, head);
+      const to = Math.max(anchor, head);
+      const selected = doc.slice(from, to);
+      const alt = selected || "image";
+      const md = `![${alt}](${picked.markdownPath})`;
+      ed.setDocument(doc.slice(0, from) + md + doc.slice(to));
+      ed.setSelection(from + md.length);
+    } catch (err) {
+      console.warn("importImage failed:", err);
+      insertImageMarkdown(ed);
+    }
+  }
+
+  const toolbar = createToolbarUI(editor, {
+    onInsertImage: (ed) => {
+      void insertImageWithPicker(ed);
+    },
+  });
   container.insertBefore(toolbar.element, container.firstChild);
 
   // The slash menu owns its own DOM root mounted on document.body so
@@ -352,7 +418,9 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     slashMenu,
     wordcount,
     applySettings(next: EditorSettings) {
+      applyShellColorScheme(next.colorScheme);
       editor.setTheme(settingsToTheme(next));
+      editor.setLineNumbers(next.lineNumbers);
     },
     loadDocument(content: string) {
       // Load from disk is NOT a user edit — use silent mode to skip the
