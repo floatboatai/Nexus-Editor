@@ -10,21 +10,36 @@
 
 import hljsCore from "highlight.js/lib/core";
 import bash from "highlight.js/lib/languages/bash";
+import c from "highlight.js/lib/languages/c";
 import cpp from "highlight.js/lib/languages/cpp";
+import csharp from "highlight.js/lib/languages/csharp";
 import css from "highlight.js/lib/languages/css";
+import diff from "highlight.js/lib/languages/diff";
 import dockerfile from "highlight.js/lib/languages/dockerfile";
 import go from "highlight.js/lib/languages/go";
+import graphql from "highlight.js/lib/languages/graphql";
+import ini from "highlight.js/lib/languages/ini";
 import java from "highlight.js/lib/languages/java";
 import javascript from "highlight.js/lib/languages/javascript";
 import json from "highlight.js/lib/languages/json";
 import kotlin from "highlight.js/lib/languages/kotlin";
+import less from "highlight.js/lib/languages/less";
+import lua from "highlight.js/lib/languages/lua";
+import makefile from "highlight.js/lib/languages/makefile";
 import markdown from "highlight.js/lib/languages/markdown";
 import nginx from "highlight.js/lib/languages/nginx";
+import objectivec from "highlight.js/lib/languages/objectivec";
+import php from "highlight.js/lib/languages/php";
+import plaintext from "highlight.js/lib/languages/plaintext";
 import properties from "highlight.js/lib/languages/properties";
 import python from "highlight.js/lib/languages/python";
+import r from "highlight.js/lib/languages/r";
+import ruby from "highlight.js/lib/languages/ruby";
 import rust from "highlight.js/lib/languages/rust";
+import scss from "highlight.js/lib/languages/scss";
 import shell from "highlight.js/lib/languages/shell";
 import sql from "highlight.js/lib/languages/sql";
+import swift from "highlight.js/lib/languages/swift";
 import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
@@ -33,31 +48,64 @@ import type { CodeHighlightToken } from "./types";
 
 const hljs = hljsCore;
 hljs.registerLanguage("bash", bash);
+hljs.registerLanguage("c", c);
 hljs.registerLanguage("cpp", cpp);
+hljs.registerLanguage("csharp", csharp);
 hljs.registerLanguage("css", css);
+hljs.registerLanguage("diff", diff);
 hljs.registerLanguage("dockerfile", dockerfile);
 hljs.registerLanguage("go", go);
+hljs.registerLanguage("graphql", graphql);
+hljs.registerLanguage("ini", ini);
 hljs.registerLanguage("java", java);
 hljs.registerLanguage("javascript", javascript);
 hljs.registerLanguage("json", json);
 hljs.registerLanguage("kotlin", kotlin);
+hljs.registerLanguage("less", less);
+hljs.registerLanguage("lua", lua);
+hljs.registerLanguage("makefile", makefile);
 hljs.registerLanguage("markdown", markdown);
 hljs.registerLanguage("nginx", nginx);
+hljs.registerLanguage("objectivec", objectivec);
+hljs.registerLanguage("php", php);
+hljs.registerLanguage("plaintext", plaintext);
 hljs.registerLanguage("properties", properties);
 hljs.registerLanguage("python", python);
+hljs.registerLanguage("r", r);
+hljs.registerLanguage("ruby", ruby);
 hljs.registerLanguage("rust", rust);
+hljs.registerLanguage("scss", scss);
 hljs.registerLanguage("shell", shell);
 hljs.registerLanguage("sql", sql);
+hljs.registerLanguage("swift", swift);
 hljs.registerLanguage("typescript", typescript);
 hljs.registerLanguage("xml", xml);
 hljs.registerLanguage("yaml", yaml);
 hljs.registerAliases("html", { languageName: "xml" });
+hljs.registerAliases("htm", { languageName: "xml" });
+hljs.registerAliases("vue", { languageName: "xml" });
 hljs.registerAliases("sh", { languageName: "bash" });
 hljs.registerAliases("zsh", { languageName: "bash" });
+hljs.registerAliases("shell", { languageName: "bash" });
 hljs.registerAliases("ts", { languageName: "typescript" });
+hljs.registerAliases("tsx", { languageName: "typescript" });
 hljs.registerAliases("js", { languageName: "javascript" });
+hljs.registerAliases("jsx", { languageName: "javascript" });
+hljs.registerAliases("mjs", { languageName: "javascript" });
+hljs.registerAliases("cjs", { languageName: "javascript" });
 hljs.registerAliases("py", { languageName: "python" });
 hljs.registerAliases("yml", { languageName: "yaml" });
+hljs.registerAliases("cs", { languageName: "csharp" });
+hljs.registerAliases("c++", { languageName: "cpp" });
+hljs.registerAliases("rb", { languageName: "ruby" });
+hljs.registerAliases("rs", { languageName: "rust" });
+hljs.registerAliases("kt", { languageName: "kotlin" });
+hljs.registerAliases("md", { languageName: "markdown" });
+hljs.registerAliases("text", { languageName: "plaintext" });
+hljs.registerAliases("txt", { languageName: "plaintext" });
+hljs.registerAliases("objc", { languageName: "objectivec" });
+hljs.registerAliases("toml", { languageName: "ini" });
+hljs.registerAliases("env", { languageName: "ini" });
 
 // Cap on per-block highlight cost. hljs is fast on short snippets; arbitrarily
 // large code blocks (think a 500-line file pasted in) can still produce a
@@ -127,10 +175,61 @@ export function highlightCodeBlock(
   return tokens.map((t) => ({ from: t.from + contentStart, to: t.to + contentStart, className: t.className }));
 }
 
-// hljs's internal token stream walker. `_emitter.rootNode` is a TokenTree
-// whose leaves are strings (untagged spans) and whose branches carry a
-// `kind` (e.g. "string" or "string.regexp"). We accumulate position offsets
-// and emit one CodeHighlightToken per leaf string with non-empty scope.
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
+ * Highlight code to HTML (hljs class spans) for preview widgets.
+ * Falls back to escaped plain text when language is unknown.
+ */
+export function highlightCodeToHtml(lang: string | null | undefined, code: string): string {
+  if (!code) return "";
+  if (code.length > MAX_BLOCK_LEN) return escapeHtml(code);
+  const language = lang && hljs.getLanguage(lang) ? lang : null;
+  if (!language) return escapeHtml(code);
+  try {
+    return hljs.highlight(code, { language, ignoreIllegals: true }).value;
+  } catch {
+    return escapeHtml(code);
+  }
+}
+
+/** Best-effort format for a few common languages. Returns null if unchanged / unsupported. */
+export function formatCodeSource(lang: string | null | undefined, code: string): string | null {
+  const normalizedLang = (lang || "").toLowerCase();
+  if (normalizedLang === "json" || normalizedLang === "jsonc") {
+    try {
+      const parsed = JSON.parse(code);
+      const pretty = JSON.stringify(parsed, null, 2);
+      return pretty.endsWith("\n") ? pretty : `${pretty}\n`;
+    } catch {
+      return null;
+    }
+  }
+  // Generic tidy: trim trailing whitespace per line, collapse trailing blank lines.
+  const tidy = code
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+$/g, ""))
+    .join("\n")
+    .replace(/\n+$/g, "\n");
+  return tidy === code ? null : tidy;
+}
+
+// hljs v11 TokenTree: branches use `scope` (e.g. "keyword", "title.function").
+// Older internals used `kind` — accept both. Compound scopes map to the same
+// multi-class form as hljs HTML output: "title.function" → "hljs-title function_".
+function scopeToCssClass(scopeName: string): string {
+  if (!scopeName.includes(".")) return `hljs-${scopeName}`;
+  const parts = scopeName.split(".");
+  return [`hljs-${parts[0]}`, ...parts.slice(1).map((p) => `${p}_`)].join(" ");
+}
+
 function emit(emitter: unknown, offset: number, out: CodeHighlightToken[]): void {
   const root = emitter as { rootNode?: { children?: unknown[] } } | null;
   if (!root || !root.rootNode) return;
@@ -148,15 +247,17 @@ function walkNode(
   for (const c of n.children) {
     if (typeof c === "string") {
       if (c.length > 0 && scope.length > 0) {
-        const className = scope.map((s) => `hljs-${s}`).join(" ");
+        const className = scope.map(scopeToCssClass).join(" ");
         out.push({ from: pos, to: pos + c.length, className });
       }
       pos += c.length;
       continue;
     }
-    const child = c as { kind?: string; children?: unknown[] };
-    if (child && child.kind) {
-      pos = walkNode(child, pos, [...scope, child.kind], out);
+    const child = c as { kind?: string; scope?: string; children?: unknown[] };
+    // highlight.js v11 uses `scope`; some forks/older trees used `kind`.
+    const scopeName = child?.scope ?? child?.kind;
+    if (child && scopeName) {
+      pos = walkNode(child, pos, [...scope, scopeName], out);
     } else if (child && child.children) {
       pos = walkNode(child, pos, scope, out);
     }

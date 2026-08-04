@@ -1,0 +1,49 @@
+/*
+ * Map design tokens onto the shell's --nexus-* contract.
+ * Do NOT target `.cm-editor` here — CodeMirror owns those vars via setTheme(),
+ * and a stylesheet rule would permanently override dark theme switches.
+ */
+html,
+body,
+#app,
+.nexus-slash-menu {
+  --nexus-bg: var(--ds-surface-card);
+  --nexus-bg-subtle: var(--ds-canvas);
+  --nexus-bg-muted: var(--ds-surface-strong);
+  --nexus-text: var(--ds-ink);
+  --nexus-text-muted: var(--ds-muted);
+  --nexus-text-faint: var(--ds-muted-soft);
+  --nexus-border: var(--ds-hairline);
+  --nexus-border-subtle: var(--ds-hairline-soft);
+  --nexus-accent: var(--ds-primary);
+  --nexus-font: var(--ds-font-ui);
+  --nexus-surface: var(--ds-surface-glass);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  background: var(--ds-canvas);
+  color: var(--ds-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+#app,
+.nx-app {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--ds-font-ui);
+  background: var(--ds-canvas);
+  color: var(--ds-ink);
+}
+

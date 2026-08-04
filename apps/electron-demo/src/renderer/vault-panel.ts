@@ -1,3 +1,5 @@
+import { iconEl } from "./icons";
+
 export interface VaultPanelCallbacks {
   onOpenFile(filePath: string): void;
   onError(message: string): void;
@@ -11,102 +13,17 @@ export interface VaultPanel {
   refresh(): Promise<void>;
   setActiveFile(filePath: string | null): void;
   getVaultPath(): string | null;
+  /** Collapse/expand the sidebar (width → 0 or restored). */
+  setCollapsed(collapsed: boolean): void;
+  isCollapsed(): boolean;
   destroy(): void;
 }
 
-const PANEL_STYLES = `
-  width: 240px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--nexus-border, #eee);
-  background: var(--nexus-bg, #fff);
-  overflow: hidden;
-  font-family: system-ui, -apple-system, sans-serif;
-  font-size: 13px;
-  display: flex;
-  flex-direction: column;
-`;
-
-const HEADER_STYLES = `
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--nexus-border, #eee);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-`;
-
-const HEADER_TITLE_STYLES = `
-  flex: 1;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--nexus-text-muted, #888);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-`;
-
-const ICON_BTN_STYLES = `
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: 3px 7px;
-  font-size: 14px;
-  line-height: 1;
-  color: var(--nexus-text-muted, #555);
-  border-radius: 3px;
-  transition: background 0.12s;
-`;
-
-function attachIconBtnFeedback(btn: HTMLButtonElement): void {
-  btn.addEventListener("mouseenter", () => {
-    if (!btn.disabled) btn.style.background = "var(--nexus-bg-muted, #eef)";
-  });
-  btn.addEventListener("mouseleave", () => {
-    btn.style.background = "transparent";
-  });
-}
-
-const TREE_STYLES = `
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 4px 0;
-`;
-
-const EMPTY_STYLES = `
-  padding: 16px 12px;
-  color: var(--nexus-text-faint, #bbb);
-  font-size: 12px;
-  font-style: italic;
-  text-align: center;
-`;
-
-const ITEM_BASE = `
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-  border: none;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  padding: 3px 8px;
-  color: var(--nexus-text, #24292e);
-  font-size: 13px;
-  line-height: 1.5;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: inherit;
-  user-select: none;
-`;
-
-const ACTIVE_STYLES = `
-  background: var(--nexus-bg-active, #e7f0ff);
-  color: var(--nexus-text, #0366d6);
-`;
+const SIDEBAR_WIDTH_KEY = "nexus-sidebar-width";
+const SIDEBAR_DEFAULT_WIDTH = 260;
+const SIDEBAR_MIN_WIDTH = 160;
+const SIDEBAR_COLLAPSE_THRESHOLD = 100;
+const SIDEBAR_MAX_WIDTH = 480;
 
 interface ContextMenuItem {
   label: string;
@@ -118,43 +35,21 @@ function showContextMenu(x: number, y: number, items: ContextMenuItem[]): void {
   document.querySelectorAll(".nexus-vault-ctxmenu").forEach((el) => el.remove());
 
   const menu = document.createElement("div");
-  menu.className = "nexus-vault-ctxmenu";
-  menu.style.cssText = `
-    position: fixed;
-    left: ${x}px;
-    top: ${y}px;
-    background: var(--nexus-bg, #fff);
-    border: 1px solid var(--nexus-border, #ddd);
-    border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
-    padding: 4px 0;
-    z-index: 10000;
-    min-width: 160px;
-    font-size: 13px;
-  `;
+  menu.className = "nx-menu nexus-vault-ctxmenu";
+  menu.style.position = "fixed";
+  menu.style.zIndex = "10020";
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
 
   for (const item of items) {
     const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "nx-menu__item";
     btn.textContent = item.label;
-    btn.style.cssText = `
-      display: block;
-      width: 100%;
-      border: none;
-      background: transparent;
-      padding: 6px 12px;
-      cursor: pointer;
-      text-align: left;
-      color: ${item.destructive ? "#d73a49" : "inherit"};
-      font-size: 13px;
-      font-family: inherit;
-    `;
-    btn.addEventListener("mouseenter", () => {
-      btn.style.background = "var(--nexus-bg-muted, #f0f0f0)";
-    });
-    btn.addEventListener("mouseleave", () => {
-      btn.style.background = "transparent";
-    });
-    btn.addEventListener("click", () => {
+    if (item.destructive) btn.style.color = "var(--ds-semantic-error, #dc2626)";
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
       menu.remove();
       item.onClick();
     });
@@ -162,6 +57,15 @@ function showContextMenu(x: number, y: number, items: ContextMenuItem[]): void {
   }
 
   document.body.appendChild(menu);
+
+  // Keep menu inside viewport.
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth - 8) {
+    menu.style.left = `${Math.max(8, window.innerWidth - rect.width - 8)}px`;
+  }
+  if (rect.bottom > window.innerHeight - 8) {
+    menu.style.top = `${Math.max(8, window.innerHeight - rect.height - 8)}px`;
+  }
 
   setTimeout(() => {
     const close = (e: MouseEvent) => {
@@ -184,82 +88,140 @@ function fileIcon(): string {
 
 export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
   const panel = document.createElement("div");
-  panel.className = "nexus-vault-panel";
-  panel.style.cssText = PANEL_STYLES;
+  panel.className = "nx-sidebar nexus-vault-panel";
+
+  let storedWidth = SIDEBAR_DEFAULT_WIDTH;
+  try {
+    const raw = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+    if (raw) {
+      const n = Number(raw);
+      if (Number.isFinite(n) && n >= SIDEBAR_MIN_WIDTH && n <= SIDEBAR_MAX_WIDTH) {
+        storedWidth = n;
+      }
+    }
+  } catch { /* ignore */ }
+  panel.style.width = `${storedWidth}px`;
 
   const header = document.createElement("div");
-  header.style.cssText = HEADER_STYLES;
+  header.className = "nx-panel-header";
 
   const title = document.createElement("div");
-  title.style.cssText = HEADER_TITLE_STYLES;
-  title.textContent = "Vault";
+  title.className = "nx-panel-title";
+  title.textContent = "Files";
+
+  // `New file` / `New folder` gate on an open vault, but we DON'T use the
+  // native `disabled` attribute: a disabled button fires no pointer events, so
+  // the browser never shows its `title` tooltip and it reads as dead. Instead
+  // we mark it aria-disabled + `.is-inactive` (muted, not-allowed cursor) and
+  // let the click handler no-op — tooltips and hover feedback stay alive.
+  function setInactive(btn: HTMLButtonElement, inactive: boolean): void {
+    btn.classList.toggle("is-inactive", inactive);
+    btn.setAttribute("aria-disabled", inactive ? "true" : "false");
+  }
 
   const openBtn = document.createElement("button");
   openBtn.type = "button";
-  openBtn.style.cssText = ICON_BTN_STYLES;
-  openBtn.textContent = "\uD83D\uDCC1"; // 📁
+  openBtn.className = "nx-btn nx-btn--icon";
   openBtn.title = "Open vault…";
+  openBtn.setAttribute("aria-label", "Open vault");
+  openBtn.appendChild(iconEl("folder"));
 
   const newFileBtn = document.createElement("button");
   newFileBtn.type = "button";
-  newFileBtn.style.cssText = ICON_BTN_STYLES;
-  newFileBtn.textContent = "\u002B"; // +
+  newFileBtn.className = "nx-btn nx-btn--icon";
   newFileBtn.title = "New file at root";
-  newFileBtn.disabled = true;
+  newFileBtn.setAttribute("aria-label", "New file");
+  newFileBtn.appendChild(iconEl("filePlus"));
+  setInactive(newFileBtn, true);
 
   const newFolderBtn = document.createElement("button");
   newFolderBtn.type = "button";
-  newFolderBtn.style.cssText = ICON_BTN_STYLES;
-  newFolderBtn.textContent = "\uD83D\uDCC2"; // 📂
+  newFolderBtn.className = "nx-btn nx-btn--icon";
   newFolderBtn.title = "New folder at root";
-  newFolderBtn.disabled = true;
+  newFolderBtn.setAttribute("aria-label", "New folder");
+  newFolderBtn.appendChild(iconEl("folderPlus"));
+  setInactive(newFolderBtn, true);
 
   header.append(title, newFileBtn, newFolderBtn, openBtn);
-  attachIconBtnFeedback(openBtn);
-  attachIconBtnFeedback(newFileBtn);
-  attachIconBtnFeedback(newFolderBtn);
 
   function syncButtonEnabled(): void {
     const hasVault = vaultPath !== null;
-    newFileBtn.disabled = !hasVault;
-    newFolderBtn.disabled = !hasVault;
-    newFileBtn.style.opacity = hasVault ? "1" : "0.4";
-    newFolderBtn.style.opacity = hasVault ? "1" : "0.4";
-    newFileBtn.style.cursor = hasVault ? "pointer" : "not-allowed";
-    newFolderBtn.style.cursor = hasVault ? "pointer" : "not-allowed";
+    setInactive(newFileBtn, !hasVault);
+    setInactive(newFolderBtn, !hasVault);
   }
 
   const tree = document.createElement("div");
-  tree.style.cssText = TREE_STYLES;
+  tree.className = "nx-panel-body";
 
-  panel.append(header, tree);
+  // Drag handle on the right edge — resize / collapse past threshold.
+  const resizeHandle = document.createElement("div");
+  resizeHandle.className = "nx-sidebar-resize";
+  resizeHandle.title = "Drag to resize";
+  resizeHandle.setAttribute("role", "separator");
+  resizeHandle.setAttribute("aria-orientation", "vertical");
+  resizeHandle.setAttribute("aria-label", "Resize files sidebar");
+
+  panel.append(header, tree, resizeHandle);
 
   let vaultPath: string | null = null;
   let currentTree: VaultNode[] = [];
   let activeFile: string | null = null;
   const collapsed = new Set<string>();
   let unsubscribeChanged: (() => void) | null = null;
+  let sidebarCollapsed = false;
+  let widthBeforeCollapse = storedWidth;
 
-  function renderEmpty(message: string): void {
+  function renderEmptyState(kind: "no-vault" | "empty"): void {
     tree.innerHTML = "";
     const empty = document.createElement("div");
-    empty.style.cssText = EMPTY_STYLES;
-    empty.textContent = message;
+    empty.className = "nx-empty-state";
+
+    const titleEl = document.createElement("div");
+    titleEl.className = "nx-empty-state__title";
+    titleEl.textContent = kind === "no-vault" ? "Your workspace" : "Empty vault";
+
+    const body = document.createElement("div");
+    body.className = "nx-empty-state__body";
+    body.textContent =
+      kind === "no-vault"
+        ? "Open a folder as a knowledge base to start writing."
+        : "Create a note to get started.";
+
+    empty.append(titleEl, body);
+
+    if (kind === "no-vault") {
+      const cta = document.createElement("button");
+      cta.type = "button";
+      cta.className = "nx-btn nx-btn--primary";
+      cta.textContent = "打开知识库";
+      cta.addEventListener("click", () => void promptPickVault());
+      empty.appendChild(cta);
+    } else {
+      const cta = document.createElement("button");
+      cta.type = "button";
+      cta.className = "nx-btn nx-btn--primary";
+      cta.textContent = "New note";
+      cta.addEventListener("click", () => {
+        if (vaultPath) createFilePrompt(vaultPath);
+      });
+      empty.appendChild(cta);
+    }
+
     tree.appendChild(empty);
   }
 
   function renderNode(node: VaultNode, depth: number, parent: HTMLElement): void {
     const row = document.createElement("div");
-    row.style.cssText = ITEM_BASE;
-    row.style.paddingLeft = `${8 + depth * 14}px`;
+    row.className = "nx-tree-item";
+    row.style.paddingLeft = `${10 + depth * 14}px`;
     row.dataset.path = node.path;
     row.dataset.kind = node.kind;
 
     const isActive = node.kind === "file" && activeFile === node.path;
-    if (isActive) row.style.cssText = ITEM_BASE + ACTIVE_STYLES;
+    if (isActive) row.classList.add("is-active");
 
     const icon = document.createElement("span");
-    icon.style.cssText = "width: 12px; flex-shrink: 0; color: #888; font-size: 11px;";
+    icon.className = "nx-tree-item__icon";
     if (node.kind === "directory") {
       const open = !collapsed.has(node.path);
       icon.textContent = folderIcon(open);
@@ -268,18 +230,11 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     }
 
     const label = document.createElement("span");
+    label.className = "nx-tree-item__label";
     label.textContent = node.name;
-    label.style.cssText = "flex: 1; overflow: hidden; text-overflow: ellipsis;";
 
     row.append(icon, label);
     parent.appendChild(row);
-
-    row.addEventListener("mouseenter", () => {
-      if (!isActive) row.style.background = "var(--nexus-bg-muted, #f4f4f4)";
-    });
-    row.addEventListener("mouseleave", () => {
-      if (!isActive) row.style.background = "transparent";
-    });
 
     row.addEventListener("click", () => {
       if (node.kind === "directory") {
@@ -313,11 +268,11 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
   function renderTree(): void {
     tree.innerHTML = "";
     if (!vaultPath) {
-      renderEmpty("No vault opened. Click 📁 to choose a folder.");
+      renderEmptyState("no-vault");
       return;
     }
     if (currentTree.length === 0) {
-      renderEmpty("Vault is empty. Click + to create a note.");
+      renderEmptyState("empty");
       return;
     }
     for (const node of currentTree) renderNode(node, 0, tree);
@@ -327,15 +282,8 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     const input = document.createElement("input");
     input.type = "text";
     input.value = node.name;
-    input.style.cssText = `
-      flex: 1;
-      border: 1px solid var(--nexus-accent, #0366d6);
-      padding: 1px 4px;
-      font-size: 13px;
-      font-family: inherit;
-      background: var(--nexus-bg, #fff);
-      color: inherit;
-    `;
+    input.className = "nx-input";
+    input.style.cssText = "flex:1;width:auto;height:24px;padding:2px 6px;font-size:13px;";
     label.replaceWith(input);
     input.focus();
 
@@ -401,7 +349,7 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
       label: "Rename",
       onClick: () => {
         const row = tree.querySelector<HTMLElement>(`[data-path="${cssEscape(node.path)}"]`);
-        const label = row?.querySelector<HTMLElement>("span:last-child");
+        const label = row?.querySelector<HTMLElement>(".nx-tree-item__label");
         if (row && label) beginInlineRename(row, label, node);
       },
     });
@@ -422,25 +370,18 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     onCommit: (value: string) => Promise<void>;
   }): void {
     const row = document.createElement("div");
-    row.style.cssText = ITEM_BASE;
-    row.style.paddingLeft = "8px";
+    row.className = "nx-tree-item";
+    row.style.paddingLeft = "10px";
 
     const icon = document.createElement("span");
-    icon.style.cssText = "width: 12px; flex-shrink: 0; color: #888; font-size: 11px;";
+    icon.className = "nx-tree-item__icon";
     icon.textContent = opts.iconChar;
 
     const input = document.createElement("input");
     input.type = "text";
     input.value = opts.defaultValue;
-    input.style.cssText = `
-      flex: 1;
-      border: 1px solid var(--nexus-accent, #0366d6);
-      padding: 1px 4px;
-      font-size: 13px;
-      font-family: inherit;
-      background: var(--nexus-bg, #fff);
-      color: inherit;
-    `;
+    input.className = "nx-input";
+    input.style.cssText = "flex:1;width:auto;height:24px;padding:2px 6px;font-size:13px;";
 
     row.append(icon, input);
     tree.insertBefore(row, tree.firstChild);
@@ -564,6 +505,119 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     if (vaultPath) createFolderPrompt(vaultPath);
   });
 
+  // Right-click empty area / panel background → create file/folder at root.
+  function openBackgroundContextMenu(x: number, y: number): void {
+    if (!vaultPath) {
+      showContextMenu(x, y, [
+        {
+          label: "Open vault…",
+          onClick: () => void promptPickVault(),
+        },
+      ]);
+      return;
+    }
+    showContextMenu(x, y, [
+      {
+        label: "New file",
+        onClick: () => createFilePrompt(vaultPath!),
+      },
+      {
+        label: "New folder",
+        onClick: () => createFolderPrompt(vaultPath!),
+      },
+    ]);
+  }
+
+  tree.addEventListener("contextmenu", (e) => {
+    // Node rows handle their own context menu and stopPropagation.
+    // Background / empty state lands here.
+    if ((e.target as HTMLElement).closest(".nx-tree-item")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openBackgroundContextMenu(e.clientX, e.clientY);
+  });
+
+  // Resize drag
+  let resizing = false;
+  let startX = 0;
+  let startW = 0;
+
+  function setSidebarWidth(width: number, persist: boolean): void {
+    const w = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, width));
+    panel.style.width = `${w}px`;
+    panel.style.minWidth = `${w}px`;
+    widthBeforeCollapse = w;
+    if (persist) {
+      try {
+        localStorage.setItem(SIDEBAR_WIDTH_KEY, String(w));
+      } catch { /* ignore */ }
+    }
+  }
+
+  function setCollapsed(next: boolean): void {
+    sidebarCollapsed = next;
+    panel.classList.toggle("is-collapsed", next);
+    if (next) {
+      panel.style.width = "0px";
+      panel.style.minWidth = "0px";
+      panel.style.overflow = "hidden";
+      panel.style.borderRight = "none";
+      resizeHandle.style.display = "none";
+    } else {
+      panel.style.overflow = "";
+      panel.style.borderRight = "";
+      resizeHandle.style.display = "";
+      setSidebarWidth(widthBeforeCollapse || SIDEBAR_DEFAULT_WIDTH, false);
+    }
+  }
+
+  const onResizeMove = (e: MouseEvent) => {
+    if (!resizing) return;
+    const delta = e.clientX - startX;
+    const next = startW + delta;
+    if (next < SIDEBAR_COLLAPSE_THRESHOLD) {
+      // Snap to collapsed while dragging past the threshold.
+      panel.style.width = "0px";
+      panel.style.minWidth = "0px";
+      panel.classList.add("is-collapsing");
+      return;
+    }
+    panel.classList.remove("is-collapsing");
+    setSidebarWidth(next, false);
+  };
+
+  const onResizeUp = (e: MouseEvent) => {
+    if (!resizing) return;
+    resizing = false;
+    document.body.classList.remove("nx-resizing-sidebar");
+    document.removeEventListener("mousemove", onResizeMove);
+    document.removeEventListener("mouseup", onResizeUp);
+    const delta = e.clientX - startX;
+    const next = startW + delta;
+    panel.classList.remove("is-collapsing");
+    if (next < SIDEBAR_COLLAPSE_THRESHOLD) {
+      setCollapsed(true);
+      return;
+    }
+    setSidebarWidth(next, true);
+  };
+
+  resizeHandle.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    resizing = true;
+    startX = e.clientX;
+    startW = panel.getBoundingClientRect().width;
+    document.body.classList.add("nx-resizing-sidebar");
+    document.addEventListener("mousemove", onResizeMove);
+    document.addEventListener("mouseup", onResizeUp);
+  });
+
+  // Double-click handle toggles collapse.
+  resizeHandle.addEventListener("dblclick", () => {
+    setCollapsed(!sidebarCollapsed);
+  });
+
   syncButtonEnabled();
 
   return {
@@ -576,8 +630,12 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
       renderTree();
     },
     getVaultPath: () => vaultPath,
+    setCollapsed,
+    isCollapsed: () => sidebarCollapsed,
     destroy() {
       if (unsubscribeChanged) unsubscribeChanged();
+      document.removeEventListener("mousemove", onResizeMove);
+      document.removeEventListener("mouseup", onResizeUp);
       panel.remove();
     },
   };

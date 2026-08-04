@@ -115,7 +115,10 @@ const tableColumnWidths = new Map<string, number[]>();
 
 const ROW_GRIP_WIDTH = 16;
 const MIN_COLUMN_WIDTH = 48;
-const TABLE_WRAPPER_VERTICAL_PADDING = 16;
+// Vertical padding tracked in the height estimate: shell (8+8) + wrapper card
+// (8+8). Both are inline padding (not margin) so CM6's getBoundingClientRect
+// measures them; keeping the estimate in sync avoids a mount-time reflow.
+const TABLE_WRAPPER_VERTICAL_PADDING = 32;
 const TABLE_BASE_ROW_HEIGHT = 32;
 const TABLE_EXTRA_LINE_HEIGHT = 20;
 const TABLE_ESTIMATE_UNITS_PER_LINE = 34;
@@ -934,17 +937,36 @@ export class EditableTableWidget extends WidgetType {
     // CRITICAL: use padding, not margin. CM6 measures block widget height via
     // getBoundingClientRect which EXCLUDES margin. margin:8px caused 16px of
     // untracked height per table → cumulative click-drift below every table.
+    // Full-width card (block + width:100%) so the table lines up with fenced
+    // code blocks instead of shrinking to a narrow inline-block that hugs its
+    // columns. The inner <table> is width:100% of this, and because the wrapper
+    // now fills the shell's content box, overflow-x:auto no longer trips a
+    // spurious scrollbar on short tables (only genuinely wide tables scroll).
     wrapper.style.cssText =
-      "display:inline-block;position:relative;padding:8px 0;user-select:text;-webkit-user-select:text;";
+      "display:block;width:100%;box-sizing:border-box;position:relative;padding:8px 0;user-select:text;-webkit-user-select:text;";
     selectionChangeDocument = wrapper.ownerDocument;
     selectionChangeDocument.addEventListener("selectionchange", onDocumentSelectionChange);
+
+    // Outer shell owns the horizontal inset (12px) + vertical rhythm so tables
+    // line up with fenced code blocks, whose shell uses the same inset
+    // (CODE_BLOCK_INSET_PX in live-preview.ts). CRITICAL: use padding, not
+    // margin — CM6 measures block-widget height via getBoundingClientRect
+    // (excludes margin), and the old CSS `margin:12px 0` on the wrapper was
+    // untracked height that drifted click resolution below every table. The
+    // shell is what toDOM returns; all internal geometry still keys off
+    // `wrapper` (position:relative), so overlays/grips are unaffected.
+    const shell = document.createElement("div");
+    shell.className = "nexus-table-shell";
+    shell.style.cssText =
+      "display:block;margin:0;padding:8px 12px;box-sizing:border-box;width:100%;";
+    shell.appendChild(wrapper);
 
     // ── Table ──
     const table = document.createElement("table");
     table.setAttribute("role", "grid");
     table.setAttribute("aria-label", "Editable table");
     table.style.cssText = "border-collapse:collapse;display:table;";
-    if (rows.length === 0) { wrapper.appendChild(table); return wrapper; }
+    if (rows.length === 0) { wrapper.appendChild(table); return shell; }
 
     // ── Column-width persistence ──
     // Keyed by the table's header source line so widths stick across
@@ -1814,10 +1836,18 @@ export class EditableTableWidget extends WidgetType {
           // handle.
           const resizeHandle = document.createElement("div");
           resizeHandle.className = "nexus-col-resize";
+          // Interior columns let the handle straddle the border (right:-3px)
+          // for discoverability — harmless, it overlaps the next column. The
+          // LAST column's right edge IS the table/wrapper edge (table is
+          // width:100%), so a -3px overhang there pokes 3px past the wrapper's
+          // content box → scrollWidth > clientWidth → a permanent phantom
+          // horizontal scrollbar even when the table fits. Pull the last
+          // handle inward (right:0) so nothing overflows.
+          const isLastCol = colIdx === colCount - 1;
           resizeHandle.style.cssText = [
             "position:absolute",
             "top:0",
-            "right:-3px",
+            isLastCol ? "right:0" : "right:-3px",
             "width:7px",
             "height:100%",
             "cursor:col-resize",
@@ -2361,7 +2391,7 @@ export class EditableTableWidget extends WidgetType {
     wrapper.tabIndex = -1;
     wrapper.style.outline = "none";
 
-    return wrapper;
+    return shell;
   }
 }
 

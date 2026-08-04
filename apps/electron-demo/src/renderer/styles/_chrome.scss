@@ -1,0 +1,112 @@
+/* ── Chrome / top bar (frameless drag region) ─────────────────── */
+
+.nx-chrome,
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-xs);
+  height: var(--ds-chrome-height);
+  padding: 0 var(--ds-space-sm);
+  background: var(--ds-canvas);
+  border-bottom: 1px solid var(--ds-hairline);
+  flex-shrink: 0;
+  /* Entire header is a window drag surface */
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
+}
+
+/* Interactive children must opt out of drag or clicks never fire */
+.nx-chrome .nx-no-drag,
+.nx-chrome button,
+.nx-chrome a,
+.nx-chrome input,
+.nx-chrome select,
+.nx-chrome textarea,
+.nx-chrome .nx-btn,
+.nx-chrome .nx-window-controls {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.nx-chrome__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ds-ink);
+  letter-spacing: 0.01em;
+  /* Keep title in the drag region (double-click maximize still works) */
+  -webkit-app-region: drag;
+  app-region: drag;
+  height: 100%;
+  cursor: default;
+}
+
+.nx-chrome__filename {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 42vw;
+  pointer-events: none;
+}
+
+.nx-chrome__dirty {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ds-primary);
+  flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.nx-chrome__dirty.is-dirty {
+  opacity: 1;
+}
+
+.nx-chrome__right,
+.nx-chrome__left {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  height: 100%;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.nx-chrome__left {
+  min-width: 120px;
+}
+
+.nx-chrome__right {
+  min-width: 120px;
+  justify-content: flex-end;
+}
+
+/* macOS: leave room for native traffic lights (hiddenInset) */
+body.platform-darwin .nx-chrome,
+body.has-native-traffic-lights .nx-chrome {
+  padding-left: 78px;
+}
+
+body.platform-darwin .nx-chrome__left,
+body.has-native-traffic-lights .nx-chrome__left {
+  min-width: 72px;
+}
+
+/* Windows/Linux: flush custom window controls to the right edge */
+body.has-custom-window-controls .nx-chrome {
+  padding-right: 0;
+}
+
+body.has-custom-window-controls .nx-chrome__right {
+  min-width: 0;
+  margin-right: 4px;
+}
+

@@ -1,0 +1,101 @@
+/* ── Buttons ──────────────────────────────────────────────────── */
+
+.nx-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--ds-ink);
+  background: transparent;
+  border-radius: var(--ds-radius-sm);
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.nx-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.nx-btn--icon {
+  width: var(--ds-icon-btn);
+  height: var(--ds-icon-btn);
+  padding: 0;
+  color: var(--ds-muted);
+  border-radius: var(--ds-radius-sm);
+}
+
+.nx-btn--icon:hover:not(:disabled) {
+  background: var(--ds-surface-strong);
+  color: var(--ds-ink);
+}
+
+.nx-btn--icon.is-active {
+  background: var(--ds-surface-strong);
+  color: var(--ds-ink);
+}
+
+/* Soft-disabled: looks inactive but still receives hover/tooltip events (see
+   setInactive in vault-panel). Placed after :hover so it wins on equal
+   specificity and the button doesn't light up on hover while inactive. */
+.nx-btn.is-inactive {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.nx-btn--icon.is-inactive:hover {
+  background: transparent;
+  color: var(--ds-muted);
+}
+
+.nx-btn--ghost {
+  padding: 6px 10px;
+  color: var(--ds-body);
+}
+
+.nx-btn--ghost:hover:not(:disabled) {
+  background: var(--ds-surface-strong);
+  color: var(--ds-ink);
+}
+
+.nx-btn--primary {
+  padding: 8px 16px;
+  height: 36px;
+  background: var(--ds-primary);
+  color: var(--ds-on-primary);
+  border-radius: var(--ds-radius-pill);
+}
+
+.nx-btn--primary:hover:not(:disabled) {
+  background: var(--ds-primary-active);
+}
+
+.nx-btn--outline {
+  padding: 7px 14px;
+  height: 36px;
+  background: transparent;
+  color: var(--ds-ink);
+  border: 1px solid var(--ds-hairline-strong);
+  border-radius: var(--ds-radius-pill);
+}
+
+.nx-btn--outline:hover:not(:disabled) {
+  background: var(--ds-surface-strong);
+}
+
+.nx-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.nx-icon svg {
+  display: block;
+}
+

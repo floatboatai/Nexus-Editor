@@ -4,12 +4,13 @@ import {
   insertCodeBlock,
   insertHorizontalRule,
   insertImage,
+  insertTable,
   toggleBlockquote,
   toggleOrderedList,
   toggleUnorderedList,
 } from "./formatting";
 
-export { toggleBlockquote, toggleOrderedList, toggleUnorderedList, insertCodeBlock, insertImage, insertHorizontalRule, applyTextColor, applyHighlight } from "./formatting";
+export { toggleBlockquote, toggleOrderedList, toggleUnorderedList, insertCodeBlock, insertImage, insertHorizontalRule, insertTable, applyTextColor, applyHighlight } from "./formatting";
 export { createToolbarUI } from "./toolbar-ui";
 export { colorDecorationExtension } from "./color-decoration";
 export type { ToolbarUI, ToolbarUIOptions, ToolbarButton, ToolbarGroup } from "./toolbar-ui";
@@ -213,6 +214,13 @@ export const toolbarSlashCommands: SlashCommandDef[] = [
     description: "Insert a horizontal rule",
     keywords: ["hr", "rule", "divider", "separator", "---"],
     run: insertHorizontalRule,
+  },
+  {
+    id: "table",
+    title: "Table",
+    description: "Insert a table",
+    keywords: ["table", "grid", "excel", "表格", "sheet"],
+    run: (e) => insertTable(e),
   },
 ];
 

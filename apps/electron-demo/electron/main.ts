@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from "electron";
-import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promises";
+import { readFile, writeFile, readdir, mkdir, rename, stat, copyFile } from "node:fs/promises";
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -29,26 +29,53 @@ interface VaultState {
 
 const SUPPORTED_EXT = new Set([".md", ".markdown", ".txt"]);
 const SKIP_DIRS = new Set(["node_modules", ".git", ".svn", ".hg", ".DS_Store"]);
+const isMac = process.platform === "darwin";
 
 let activeVault: string | null = null;
 let activeWatcher: FSWatcher | null = null;
 
+function windowFromEvent(event: Electron.IpcMainInvokeEvent): BrowserWindow | null {
+  return BrowserWindow.fromWebContents(event.sender);
+}
+
 function createWindow(): void {
+  // Custom chrome: macOS keeps native traffic lights via hiddenInset;
+  // Windows/Linux use a fully frameless window with renderer-drawn controls.
   mainWindow = new BrowserWindow({
-    width: 1024,
-    height: 768,
-    // Hide until the renderer has painted — avoids the white-flash window and
-    // stops the dock bounce earlier (macOS treats `ready-to-show` as "app
-    // finished launching"). Default behavior shows a blank window the moment
-    // the BrowserWindow is created, and the dock keeps bouncing until the
-    // renderer reports first paint anyway.
+    width: 1100,
+    height: 760,
+    minWidth: 720,
+    minHeight: 480,
     show: false,
-    backgroundColor: "#ffffff",
+    backgroundColor: "#f5f5f5",
+    ...(isMac
+      ? {
+          titleBarStyle: "hiddenInset" as const,
+          trafficLightPosition: { x: 14, y: 14 },
+          // Allow the custom header to own the full width; traffic lights float
+          // over the drag region with padding applied in the renderer.
+        }
+      : {
+          frame: false,
+        }),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       preload: path.join(__dirname, "preload.js"),
     },
+  });
+
+  const emitMaximized = () => {
+    mainWindow?.webContents.send("window:maximized-changed", mainWindow.isMaximized());
+  };
+  mainWindow.on("maximize", emitMaximized);
+  mainWindow.on("unmaximize", emitMaximized);
+  // Windows restores via snap/unmaximize; also cover enter/leave full screen.
+  mainWindow.on("enter-full-screen", () => {
+    mainWindow?.webContents.send("window:fullscreen-changed", true);
+  });
+  mainWindow.on("leave-full-screen", () => {
+    mainWindow?.webContents.send("window:fullscreen-changed", false);
   });
 
   mainWindow.once("ready-to-show", () => {
@@ -74,6 +101,30 @@ function createWindow(): void {
     }
   });
 }
+
+// -- window chrome (frameless / custom titlebar) ------------------------------
+
+ipcMain.handle("window:platform", () => process.platform);
+
+ipcMain.handle("window:minimize", (event) => {
+  windowFromEvent(event)?.minimize();
+});
+
+ipcMain.handle("window:toggle-maximize", (event) => {
+  const win = windowFromEvent(event);
+  if (!win) return false;
+  if (win.isMaximized()) win.unmaximize();
+  else win.maximize();
+  return win.isMaximized();
+});
+
+ipcMain.handle("window:close", (event) => {
+  windowFromEvent(event)?.close();
+});
+
+ipcMain.handle("window:is-maximized", (event) => {
+  return windowFromEvent(event)?.isMaximized() ?? false;
+});
 
 // -- single-file legacy handlers (kept for back-compat) -----------------------
 
@@ -249,6 +300,109 @@ ipcMain.handle("vault:pick", async () => {
   return { path: result.filePaths[0] };
 });
 
+/**
+ * Write a pasted / dropped binary image into the vault under `img/`.
+ * `bytes` is a Uint8Array (structured-clone over IPC).
+ */
+ipcMain.handle(
+  "vault:write-image",
+  async (
+    _event,
+    payload: { name?: string; mime?: string; bytes: Uint8Array | number[] }
+  ) => {
+    const raw = payload?.bytes;
+    if (!raw) throw new Error("No image data");
+    const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+
+    const mime = payload.mime || "image/png";
+    const extFromMime: Record<string, string> = {
+      "image/png": ".png",
+      "image/jpeg": ".jpg",
+      "image/jpg": ".jpg",
+      "image/gif": ".gif",
+      "image/webp": ".webp",
+      "image/svg+xml": ".svg",
+      "image/bmp": ".bmp",
+    };
+    let ext = extFromMime[mime] || path.extname(payload.name || "") || ".png";
+    if (!ext.startsWith(".")) ext = `.${ext}`;
+
+    const baseName = (payload.name || `paste-${Date.now()}${ext}`).replace(
+      /[^\w.\-()+@ ]+/g,
+      "_"
+    );
+    const safeName = baseName.includes(".") ? baseName : `${baseName}${ext}`;
+
+    if (!activeVault) {
+      // No vault — return a data URL so the image still previews in-editor.
+      const b64 = Buffer.from(bytes).toString("base64");
+      return {
+        markdownPath: `data:${mime};base64,${b64}`,
+        absolutePath: null,
+        relative: false,
+      };
+    }
+
+    const imgDir = path.join(activeVault, "img");
+    await mkdir(imgDir, { recursive: true });
+    let dest = path.join(imgDir, safeName);
+    if (existsSync(dest)) {
+      const stem = path.basename(safeName, path.extname(safeName));
+      dest = path.join(imgDir, `${stem}-${Date.now()}${path.extname(safeName)}`);
+    }
+    await writeFile(dest, Buffer.from(bytes));
+    const rel = path.relative(activeVault, dest).split(path.sep).join("/");
+    return {
+      markdownPath: rel,
+      absolutePath: dest,
+      relative: true,
+    };
+  }
+);
+
+/**
+ * Pick an image from disk and copy it into the active vault (under `img/`).
+ * Returns a vault-relative markdown path suitable for `![](path)`.
+ * Without an open vault, returns a `file://` URL for the selected path.
+ */
+ipcMain.handle("vault:import-image", async () => {
+  if (!mainWindow) return null;
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ["openFile"],
+    filters: [
+      { name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"] },
+      { name: "All Files", extensions: ["*"] },
+    ],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+
+  const src = result.filePaths[0];
+  if (!activeVault) {
+    return {
+      markdownPath: pathToFileURL(src).href,
+      absolutePath: src,
+      relative: false,
+    };
+  }
+
+  const imgDir = path.join(activeVault, "img");
+  await mkdir(imgDir, { recursive: true });
+  const base = path.basename(src);
+  let dest = path.join(imgDir, base);
+  if (existsSync(dest)) {
+    const ext = path.extname(base);
+    const stem = path.basename(base, ext);
+    dest = path.join(imgDir, `${stem}-${Date.now()}${ext}`);
+  }
+  await copyFile(src, dest);
+  const rel = path.relative(activeVault, dest).split(path.sep).join("/");
+  return {
+    markdownPath: rel,
+    absolutePath: dest,
+    relative: true,
+  };
+});
+
 ipcMain.handle("vault:list", async (_event, vaultPath: string) => {
   const abs = path.resolve(vaultPath);
   const info = await stat(abs);
@@ -411,6 +565,34 @@ ipcMain.handle("vault:set-last", async (_event, vaultPath: string) => {
   const current = await readVaultState();
   const recents = [vaultPath, ...current.recents.filter((r) => r !== vaultPath)].slice(0, 10);
   await writeVaultState({ lastVault: vaultPath, recents });
+  return { ok: true };
+});
+
+/**
+ * List recent vaults for the project switcher WITHOUT pruning. Unlike
+ * `vault:get-last` (which silently drops dead paths on the auto-restore path),
+ * this keeps missing entries and flags them `exists: false` so the UI can show
+ * a friendly "moved or deleted" hint and let the user remove them explicitly.
+ */
+ipcMain.handle("vault:list-recents", async () => {
+  const state = await readVaultState();
+  return {
+    recents: state.recents.map((p) => ({
+      path: p,
+      name: path.basename(p) || p,
+      exists: existsSync(p),
+    })),
+    activeVault,
+  };
+});
+
+/** Remove a single path from the recents list (e.g. a dead project the user
+ *  dismissed). Never touches `lastVault` beyond clearing it if it matched. */
+ipcMain.handle("vault:remove-recent", async (_event, vaultPath: string) => {
+  const current = await readVaultState();
+  const recents = current.recents.filter((r) => r !== vaultPath);
+  const lastVault = current.lastVault === vaultPath ? null : current.lastVault;
+  await writeVaultState({ lastVault, recents });
   return { ok: true };
 });
 

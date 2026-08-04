@@ -1,0 +1,30 @@
+@use "variables" as v;
+
+/* ── Wordcount pill ───────────────────────────────────────────── */
+
+.nexus-wordcount__bar {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  display: inline-flex;
+  gap: 12px;
+  align-items: center;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family: var(--ds-font-ui);
+  color: var(--ds-muted);
+  background: var(--ds-surface-glass);
+  border: 1px solid var(--ds-hairline);
+  border-radius: var(--ds-radius-pill);
+  pointer-events: none;
+  user-select: none;
+  z-index: v.$z-wordcount;
+  backdrop-filter: blur(8px);
+  box-shadow: var(--ds-shadow-soft);
+}
+
+.nexus-wordcount__selection {
+  color: var(--ds-ink);
+  font-weight: 500;
+}
+

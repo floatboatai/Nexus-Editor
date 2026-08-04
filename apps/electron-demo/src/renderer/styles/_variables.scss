@@ -1,0 +1,18 @@
+// Sass-level design constants. These are compile-time values (not CSS custom
+// properties) — they give the previously-scattered magic numbers a shared
+// vocabulary. Every value matches the pre-refactor CSS exactly, so compiling
+// with these substituted produces identical output.
+//
+// Runtime theme values (colors, spacing, radii) stay as --ds-* custom
+// properties in _tokens.scss so they can flip with light/dark at runtime.
+
+// Stacking order, low → high. Names describe intent so a new overlay can be
+// slotted relative to siblings instead of guessing a bigger number.
+$z-wordcount: 2;
+$z-panel-sticky: 5;
+$z-graph: 20;
+$z-slash-menu: 1000;
+$z-modal: 9999;
+$z-menu: 10000;
+$z-resize-guide: 10050;
+$z-overlay: 20000; // fullscreen lightbox + project switcher

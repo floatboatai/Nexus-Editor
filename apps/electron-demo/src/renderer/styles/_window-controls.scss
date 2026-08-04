@@ -1,0 +1,50 @@
+/* ── Windows / Linux window controls ──────────────────────────── */
+
+.nx-window-controls {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  margin-left: 4px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.nx-window-controls__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ds-body);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.nx-window-controls__btn:hover {
+  background: var(--ds-surface-strong);
+  color: var(--ds-ink);
+}
+
+.nx-window-controls__btn:active {
+  background: var(--ds-hairline);
+}
+
+.nx-window-controls__btn--close:hover {
+  background: #e81123;
+  color: #ffffff;
+}
+
+.nx-window-controls__btn--close:active {
+  background: #c50f1f;
+  color: #ffffff;
+}
+
+body.is-window-fullscreen .nx-window-controls {
+  display: none;
+}
+

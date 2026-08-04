@@ -1,0 +1,58 @@
+@use "variables" as v;
+
+/* ── Slash menu ───────────────────────────────────────────────── */
+
+.nexus-slash-menu {
+  --nexus-slash-bg: var(--ds-surface-card);
+  --nexus-slash-border: var(--ds-hairline);
+  --nexus-slash-text: var(--ds-ink);
+  --nexus-slash-text-muted: var(--ds-muted);
+  --nexus-slash-accent: var(--ds-primary);
+  --nexus-slash-active-bg: var(--ds-surface-strong);
+
+  min-width: 240px;
+  max-width: 320px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--nexus-slash-bg);
+  color: var(--nexus-slash-text);
+  border: 1px solid var(--nexus-slash-border);
+  border-radius: var(--ds-radius-lg);
+  box-shadow: var(--ds-shadow-menu);
+  padding: 4px;
+  font-family: var(--ds-font-ui);
+  font-size: 13px;
+  line-height: 1.4;
+  z-index: v.$z-slash-menu;
+}
+
+.nexus-slash-menu__item {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px;
+  border-radius: var(--ds-radius-sm);
+  cursor: pointer;
+  user-select: none;
+}
+
+.nexus-slash-menu__item.is-active {
+  background: var(--nexus-slash-active-bg);
+}
+
+.nexus-slash-menu__title {
+  font-weight: 500;
+  color: var(--nexus-slash-text);
+}
+
+.nexus-slash-menu__description {
+  font-size: 12px;
+  color: var(--nexus-slash-text-muted);
+  margin-top: 1px;
+}
+
+.nexus-slash-menu__empty {
+  padding: 12px 10px;
+  color: var(--nexus-slash-text-muted);
+  text-align: center;
+}
+

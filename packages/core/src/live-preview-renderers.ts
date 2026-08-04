@@ -192,14 +192,16 @@ export function createDefaultRenderer(context: LivePreviewRenderContext): HTMLEl
     }
     case "image": {
       const wrapper = document.createElement("span");
-      const label = document.createElement("span");
       const element = document.createElement("img");
       wrapper.setAttribute("data-live-preview-image", context.node.url);
+      wrapper.style.cssText =
+        "display:inline-block;max-width:100%;vertical-align:top;line-height:0;";
       element.src = context.node.url;
       element.alt = context.node.alt ?? "";
       element.referrerPolicy = "no-referrer";
-      label.textContent = context.node.alt ?? context.node.url;
-      wrapper.appendChild(label);
+      // Never let intrinsic image width expand the editor content area.
+      element.style.cssText =
+        "display:block;max-width:100%;height:auto;border-radius:4px;";
       wrapper.appendChild(element);
       return wrapper;
     }

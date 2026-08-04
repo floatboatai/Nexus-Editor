@@ -1,4 +1,4 @@
-import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
+import { Annotation, Compartment, EditorSelection, EditorState } from "@codemirror/state";
 
 // Annotation attached to dispatches that load content programmatically (e.g.
 // setDocument from file open) so updateListener can skip the user-edit path —
@@ -499,6 +499,11 @@ export function createEditor(config: EditorConfig): EditorAPI {
   }
 
   const themeExt = createThemeExtension(config.theme ?? lightTheme);
+  const lineNumberCompartment = new Compartment();
+  const lineNumbersEnabled = config.lineNumbers !== false;
+  // Soft-wrap by default so long tokens (base64 data URLs, long links)
+  // cannot expand the content area past the viewport.
+  const lineWrappingExt = config.lineWrapping === false ? [] : [EditorView.lineWrapping];
   const tabSizeExt = config.tabSize && config.tabSize !== 4
     ? EditorState.tabSize.of(config.tabSize)
     : [];
@@ -658,7 +663,8 @@ export function createEditor(config: EditorConfig): EditorAPI {
         // steps will switch the decoration handlers over to read from this
         // tree and remove the mdast worker round-trip.
         createMarkdownLanguageSupport(),
-        lineNumbers(),
+        lineNumberCompartment.of(lineNumbersEnabled ? lineNumbers() : []),
+        ...lineWrappingExt,
         themeExt.extension,
         tabSizeExt,
         readOnlyExt,
@@ -744,6 +750,12 @@ export function createEditor(config: EditorConfig): EditorAPI {
     setTheme(theme: NexusTheme) {
       if (destroyed) return;
       view.dispatch(themeExt.reconfigure(theme));
+    },
+    setLineNumbers(enabled: boolean) {
+      if (destroyed) return;
+      view.dispatch({
+        effects: lineNumberCompartment.reconfigure(enabled ? lineNumbers() : []),
+      });
     },
     getSelection() {
       const sel = view.state.selection.main;

@@ -1,0 +1,39 @@
+/* ── Search bar ───────────────────────────────────────────────── */
+
+.nexus-search-bar,
+.nx-search-bar {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--ds-canvas-soft);
+  border-bottom: 1px solid var(--ds-hairline);
+  font-family: var(--ds-font-ui);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.nx-input {
+  padding: 7px 12px;
+  border: 1px solid var(--ds-hairline-strong);
+  border-radius: var(--ds-radius-md);
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--ds-surface-card);
+  color: var(--ds-ink);
+  outline: none;
+  width: 200px;
+  height: 32px;
+}
+
+.nx-input:focus {
+  border-color: var(--ds-ink);
+  box-shadow: 0 0 0 1px var(--ds-ink);
+}
+
+.nx-search-count {
+  color: var(--ds-muted);
+  font-size: 12px;
+  min-width: 56px;
+}
+

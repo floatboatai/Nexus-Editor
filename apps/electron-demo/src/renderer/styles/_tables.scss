@@ -1,0 +1,64 @@
+/* ── Tables (Notion / 语雀 card look — CSS only) ──────────────── */
+
+/* The card. Vertical rhythm + horizontal inset live on `.nexus-table-shell`
+   (inline-styled in the widget, mirroring the fenced-code-block shell) so the
+   card lines up with code blocks and CM6 tracks the full height. */
+/* The wrapper is a STRUCTURAL container only — position:relative anchor for the
+   selection/drag overlays + the getBoundingClientRect target (see the widget).
+   It carries no card chrome: the table's own collapsed cell borders draw the
+   grid, so a border/radius/shadow here just double-framed it. Kept free of
+   `overflow` too — the table is width:100% (columns flex, cells wrap) so it
+   never overflows from content; an overflow container here only ever produced
+   phantom scrollbars (dual-axis, self-feeding) and would clip drag pills. */
+.nexus-table-wrapper {
+  background: var(--ds-surface-card);
+}
+
+.nexus-table-wrapper table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: var(--ds-font-ui);
+  font-size: 13.5px;
+}
+
+.nexus-table-wrapper .nexus-cell {
+  border: 1px solid var(--ds-hairline);
+  padding: 8px 12px;
+  min-width: 72px;
+  vertical-align: top;
+  color: var(--ds-ink);
+  background: var(--ds-surface-card);
+}
+
+.nexus-table-wrapper tr:first-child .nexus-cell,
+.nexus-table-wrapper thead .nexus-cell {
+  background: var(--ds-surface-strong);
+  font-weight: 500;
+  color: var(--ds-body-strong);
+}
+
+.nexus-table-wrapper .nexus-cell:focus,
+.nexus-table-wrapper .nexus-cell:focus-within {
+  outline: none;
+  box-shadow: inset 0 0 0 1.5px var(--ds-primary);
+  background: rgba(41, 37, 36, 0.04);
+}
+
+.nexus-col-grip,
+.nexus-row-grip {
+  color: var(--ds-muted-soft);
+}
+
+.nexus-col-grip:hover,
+.nexus-row-grip:hover {
+  color: var(--ds-ink);
+}
+
+.nexus-table-ctx {
+  background: var(--ds-surface-card) !important;
+  border: 1px solid var(--ds-hairline) !important;
+  border-radius: var(--ds-radius-md) !important;
+  box-shadow: var(--ds-shadow-menu) !important;
+  font-family: var(--ds-font-ui) !important;
+}
+

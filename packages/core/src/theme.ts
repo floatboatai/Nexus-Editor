@@ -110,9 +110,14 @@ function themeToEditorTheme(theme: NexusTheme): Extension {
   const fontFamilyMono = theme.fontFamilyMono ?? "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
   const contentMaxWidth = theme.contentMaxWidth;
 
-  const contentStyles: Record<string, string> = { padding: "16px 0" };
+  // Always bound content width so long unbreakable tokens (base64 data
+  // URLs, huge images) cannot expand the editor past its container.
+  const contentStyles: Record<string, string> = {
+    padding: "16px 0",
+    maxWidth: contentMaxWidth ?? "100%",
+    boxSizing: "border-box",
+  };
   if (contentMaxWidth) {
-    contentStyles.maxWidth = contentMaxWidth;
     contentStyles.marginLeft = "auto";
     contentStyles.marginRight = "auto";
   }
@@ -123,10 +128,36 @@ function themeToEditorTheme(theme: NexusTheme): Extension {
       color: "var(--nexus-text)",
       fontSize,
       fontFamily,
+      // Flex/grid parents need this so the editor can shrink below its
+      // content's intrinsic min-width (long lines, wide images).
+      minWidth: "0",
+      maxWidth: "100%",
       ...vars
     },
+    ".cm-scroller": {
+      // Keep horizontal overflow inside the scroller; never grow the shell.
+      overflowX: "auto",
+      maxWidth: "100%",
+    },
     ".cm-content": contentStyles,
-    ".cm-line": { padding: "0 20px" },
+    ".cm-line": {
+      padding: "0 20px",
+      // Break mid-token when a single run (base64, long URL) exceeds the
+      // viewport — pre-wrap alone only wraps at whitespace.
+      overflowWrap: "anywhere",
+      wordBreak: "break-word",
+    },
+    // Live-preview images must never force the content wider than the editor.
+    "& .cm-content img, & .cm-content [data-live-preview-image]": {
+      maxWidth: "100%",
+      height: "auto",
+      boxSizing: "border-box",
+    },
+    "& .cm-content [data-live-preview-image]": {
+      display: "inline-block",
+      maxWidth: "100%",
+      verticalAlign: "top",
+    },
     ".cm-gutters": {
       borderRight: "1px solid var(--nexus-border)",
       background: "var(--nexus-bg-subtle)",

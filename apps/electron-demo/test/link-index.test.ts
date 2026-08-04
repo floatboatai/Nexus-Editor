@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LinkIndex, stripAnchor, parseAnchor, findAnchorPosition } from "../src/renderer/link-index";
+import { LinkIndex, stripAnchor, parseAnchor, findAnchorPosition, type GraphNode } from "../src/renderer/link-index";
 
 describe("LinkIndex.resolve", () => {
   it("resolves a globally unique basename", () => {
@@ -296,5 +296,61 @@ describe("LinkIndex.subscribe", () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(count).toBeGreaterThanOrEqual(1);
     expect(count).toBeLessThanOrEqual(3);
+  });
+});
+
+describe("LinkIndex.getGraph", () => {
+  const byId = (nodes: GraphNode[]) => new Map(nodes.map((n) => [n.id, n]));
+
+  it("emits a resolved node per file and a directed edge per resolved link", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "/v/AI.md", content: "# AI" },
+      { path: "/v/Notes.md", content: "see [[AI]]" },
+    ]);
+    const { nodes, edges } = idx.getGraph();
+    expect(nodes).toHaveLength(2);
+    expect(byId(nodes).get("/v/AI.md")).toMatchObject({ label: "AI", resolved: true });
+    expect(edges).toEqual([{ source: "/v/Notes.md", target: "/v/AI.md" }]);
+  });
+
+  it("creates a ghost node for an unresolved link target", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([{ path: "/v/Notes.md", content: "[[Ghost Note]]" }]);
+    const { nodes, edges } = idx.getGraph();
+    const ghost = nodes.find((n) => !n.resolved);
+    expect(ghost).toMatchObject({ id: "unresolved:ghost note", label: "Ghost Note", resolved: false });
+    expect(edges).toEqual([{ source: "/v/Notes.md", target: "unresolved:ghost note" }]);
+  });
+
+  it("counts degree across both directions and collapses duplicate edges", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "/v/Hub.md", content: "" },
+      { path: "/v/A.md", content: "[[Hub]] and again [[Hub]]" },
+      { path: "/v/B.md", content: "[[Hub]]" },
+    ]);
+    const { nodes, edges } = idx.getGraph();
+    // Duplicate A→Hub link collapses to one edge; Hub has two inbound.
+    expect(edges).toHaveLength(2);
+    expect(byId(nodes).get("/v/Hub.md")!.degree).toBe(2);
+    expect(byId(nodes).get("/v/A.md")!.degree).toBe(1);
+  });
+
+  it("ignores self-links and pure-anchor links", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([{ path: "/v/A.md", content: "[[A]] and [[#Heading]]" }]);
+    const { edges } = idx.getGraph();
+    expect(edges).toEqual([]);
+  });
+
+  it("resolves links through Obsidian anchors to the underlying file", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "/v/Spec.md", content: "## Goals" },
+      { path: "/v/Plan.md", content: "[[Spec#Goals]]" },
+    ]);
+    const { edges } = idx.getGraph();
+    expect(edges).toEqual([{ source: "/v/Plan.md", target: "/v/Spec.md" }]);
   });
 });

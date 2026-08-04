@@ -1,0 +1,9 @@
+// Reusable style fragments. Kept declaration-order stable so `@include`
+// expands to the same property sequence the hand-written rules used.
+
+/// Single-line text that clips to its container with an ellipsis.
+@mixin truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

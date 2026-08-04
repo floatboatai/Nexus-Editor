@@ -6,6 +6,16 @@ function mockBridge() {
     openFile: vi.fn(),
     saveFile: vi.fn(),
     saveFileAs: vi.fn(),
+    window: {
+      platform: "darwin",
+      usesCustomWindowControls: false,
+      minimize: vi.fn(),
+      toggleMaximize: vi.fn().mockResolvedValue(false),
+      close: vi.fn(),
+      isMaximized: vi.fn().mockResolvedValue(false),
+      onMaximizedChange: vi.fn(() => () => undefined),
+      onFullscreenChange: vi.fn(() => () => undefined),
+    },
   };
   (globalThis as Record<string, unknown>).window = { nexusDemo: bridge };
   return bridge;
