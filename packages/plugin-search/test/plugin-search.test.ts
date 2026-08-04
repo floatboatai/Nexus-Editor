@@ -307,7 +307,7 @@ describe("@floatboat/nexus-plugin-search", () => {
     const plugin = createSearchPlugin();
 
     expect(plugin.name).toBe("plugin-search");
-    expect(plugin.cmExtensions).toHaveLength(4);
+    expect(plugin.cmExtensions).toHaveLength(7);
   });
 
   it("highlights rendered table cell matches through CSS Highlight ranges", () => {
@@ -883,6 +883,108 @@ describe("@floatboat/nexus-plugin-search", () => {
     expect(replaceTooltip?.textContent).toBe("Replace");
     expect(replaceAllButton?.getAttribute("aria-label")).toBe("Replace all");
     expect(replaceAllTooltip?.textContent).toBe("Replace all");
+
+    editor.destroy();
+    container.remove();
+  });
+
+  it("navigates to a fuzzy match when the fuzzy toggle is enabled", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({
+      container,
+      initialValue: "hello world\nfoo bar",
+      plugins: [createSearchPlugin()]
+    });
+
+    const content = container.querySelector<HTMLElement>(".cm-content");
+    content?.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "f",
+        code: "KeyF",
+        metaKey: true,
+        bubbles: true,
+        cancelable: true
+      })
+    );
+    if (!container.querySelector('[data-test-id="markdown-search-bar"]')) {
+      content?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "f",
+          code: "KeyF",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true
+        })
+      );
+    }
+
+    const fuzzyField = container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
+    );
+    expect(fuzzyField).not.toBeNull();
+    fuzzyField!.checked = true;
+    fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+
+    const input = container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-input"]');
+    expect(input).not.toBeNull();
+    input!.value = "hwd";
+    input!.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    input!.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true })
+    );
+
+    const selection = editor.getSelection();
+    expect(Math.min(selection.anchor, selection.head)).toBe(0);
+    expect(Math.max(selection.anchor, selection.head)).toBe(11);
+
+    const highlighted = container.querySelector('[style*="120, 255"]');
+    expect(highlighted).not.toBeNull();
+
+    editor.destroy();
+    container.remove();
+  });
+
+  it("does not apply fuzzy highlighting when the fuzzy toggle is off", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({
+      container,
+      initialValue: "hello world",
+      plugins: [createSearchPlugin()]
+    });
+
+    const content = container.querySelector<HTMLElement>(".cm-content");
+    content?.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "f",
+        code: "KeyF",
+        metaKey: true,
+        bubbles: true,
+        cancelable: true
+      })
+    );
+    if (!container.querySelector('[data-test-id="markdown-search-bar"]')) {
+      content?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "f",
+          code: "KeyF",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true
+        })
+      );
+    }
+
+    const input = container.querySelector<HTMLInputElement>('[data-test-id="markdown-search-input"]');
+    input!.value = "hwd";
+    input!.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    input!.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true })
+    );
+
+    const highlighted = container.querySelector('[style*="120, 255"]');
+    expect(highlighted).toBeNull();
 
     editor.destroy();
     container.remove();
