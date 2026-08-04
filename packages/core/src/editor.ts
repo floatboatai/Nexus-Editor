@@ -210,23 +210,117 @@ function createParser(plugins: NexusPlugin[]): ParserLike {
 }
 
 /**
- * Transform-only processor: runs the user's remark transformer plugins
- * against an already-parsed mdast Root (one produced by the Lezer adapter).
- * No remark-parse, so the cost is whatever the user plugins cost — and it's
- * a no-op when no plugins are attached.
+ * Clone the data graph stored in an mdast tree without corrupting values added
+ * by remark plugins. The cache below crosses two mutable consumer boundaries
+ * (the public API and widgets), so a shallow copy would still allow one side to
+ * change nested nodes observed by the other.
+ *
+ * mdast itself is made of arrays and plain records; common built-ins sometimes
+ * placed in `node.data` are copied explicitly, preserving cycles and shared
+ * references through `seen`. Unknown class instances are deliberately kept by
+ * reference because manufacturing an object with the same prototype would omit
+ * its private/internal state and create an invalid instance.
  */
-function createTransformProcessor(plugins: NexusPlugin[]): { runSync(tree: Root): Root } | null {
-  let attached = 0;
-  const processor = unified();
-  for (const plugin of plugins) {
-    for (const remarkPlugin of plugin.remarkPlugins ?? []) {
-      processor.use(remarkPlugin);
-      attached++;
-    }
+function cloneAst<T>(value: T, seen = new WeakMap<object, unknown>()): T {
+  if (typeof value !== "object" || value === null) return value;
+
+  if (seen.has(value)) return seen.get(value) as T;
+
+  if (value instanceof Date) {
+    const copy = new Date(value.getTime());
+    seen.set(value, copy);
+    return copy as T;
   }
-  if (attached === 0) return null;
-  processor.freeze();
-  return { runSync: (tree) => processor.runSync(tree) as Root };
+
+  if (value instanceof RegExp) {
+    const copy = new RegExp(value.source, value.flags);
+    copy.lastIndex = value.lastIndex;
+    seen.set(value, copy);
+    return copy as T;
+  }
+
+  if (value instanceof Map) {
+    const copy = new Map();
+    seen.set(value, copy);
+    for (const [key, item] of value) {
+      copy.set(cloneAst(key, seen), cloneAst(item, seen));
+    }
+    return copy as T;
+  }
+
+  if (value instanceof Set) {
+    const copy = new Set();
+    seen.set(value, copy);
+    for (const item of value) copy.add(cloneAst(item, seen));
+    return copy as T;
+  }
+
+  if (value instanceof ArrayBuffer) {
+    const copy = value.slice(0);
+    seen.set(value, copy);
+    return copy as T;
+  }
+
+  if (ArrayBuffer.isView(value)) {
+    const copy = value instanceof DataView
+      ? new DataView(value.buffer.slice(0), value.byteOffset, value.byteLength)
+      : (value as unknown as { slice(): ArrayBufferView }).slice();
+    seen.set(value, copy);
+    return copy as T;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  // mdast is composed of arrays and plain records. Preserve opaque plugin
+  // values by reference instead of fabricating instances without internal state.
+  if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) {
+    return value;
+  }
+
+  const copy: object = Array.isArray(value)
+    ? []
+    : Object.create(prototype);
+  seen.set(value, copy);
+
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor) continue;
+    if ("value" in descriptor) {
+      descriptor.value = cloneAst(descriptor.value, seen);
+    }
+    Object.defineProperty(copy, key, descriptor);
+  }
+
+  return copy as T;
+}
+
+/**
+ * Reuse the most recent full remark parse when multiple editor consumers ask
+ * for the same Markdown source. A document update can make both the widget
+ * extension and the public AST path parse synchronously; keeping one entry
+ * avoids running every remark transformer twice without retaining stale source
+ * versions.
+ *
+ * The parsed tree is cloned when it enters the cache and whenever it leaves.
+ * This prevents a transformer that retained its input, `getAst()` consumers,
+ * or widget callbacks from mutating the cache shared by the other consumers.
+ */
+function memoizeParser(parser: ParserLike): ParserLike {
+  let cachedSource: string | undefined;
+  let cachedAst: Root | undefined;
+
+  return {
+    parse(markdown) {
+      if (markdown !== cachedSource || !cachedAst) {
+        // The transformer that produced this tree may retain its argument.
+        // Clone on entry so later plugin mutations cannot alter the cache.
+        cachedAst = cloneAst(parser.parse(markdown));
+        cachedSource = markdown;
+      }
+      // Public AST consumers and widgets may mutate nodes. Keep the cached
+      // parse private so one consumer cannot corrupt another consumer's tree.
+      return cloneAst(cachedAst);
+    }
+  };
 }
 
 export function createEditor(config: EditorConfig): EditorAPI {
@@ -238,11 +332,8 @@ export function createEditor(config: EditorConfig): EditorAPI {
     direction: config.direction ?? "ltr",
   });
   // `parser` is retained as an optional escape hatch for tests / consumers
-  // that pass a custom mdast pipeline. It is NO LONGER on the editor's hot
-  // path — the default code path uses lezerAstFromAnywhere which runs a
-  // synchronous Lezer parse against the live EditorState. Custom parsers
-  // (when provided) win, so existing test contracts that swap in mock
-  // parsers stay green.
+  // that pass a custom mdast pipeline. Custom parsers always win over the
+  // built-in Lezer and plugin-aware remark paths.
   const customParser = config.parser;
   const shortcuts = plugins.flatMap((plugin) => plugin.shortcuts ?? []);
   const slashCommands = plugins.flatMap((plugin) => plugin.slashCommands ?? []);
@@ -265,19 +356,15 @@ export function createEditor(config: EditorConfig): EditorAPI {
     .map((plugin) => plugin.handlers?.keydown)
     .filter((handler): handler is EditorEventHandler<KeyboardEvent> => Boolean(handler));
 
-  // The sync remark parser is only needed for the legacy WidgetDefinition
-  // extension. Live preview, getAst(), table-of-contents, and normal change
-  // events all use the Lezer path below, so avoid paying this startup cost in
-  // the common no-widget case (including the Electron demo).
-  const fallbackParser = !customParser && widgetDefs.length > 0 ? createParser(plugins) : null;
-  const widgetParser: ParserLike | null = customParser ?? fallbackParser;
-  // Built only when the user passes remarkPlugins AND no custom parser.
-  // Custom-parser callers run their plugins inside `parser.parse`, so the
-  // transform pass would double-apply.
   const hasRemarkPlugins = plugins.some((plugin) => (plugin.remarkPlugins?.length ?? 0) > 0);
-  const transformProcessor = !customParser && hasRemarkPlugins ? createTransformProcessor(plugins) : null;
-  const transformAst = (ast: Root): Root =>
-    transformProcessor ? transformProcessor.runSync(ast) : ast;
+  // Syntax-extending remark plugins must participate while Markdown is parsed;
+  // running them later against a Lezer-derived tree cannot create their nodes.
+  // Widgets and the public AST share this one-entry cache for each source value.
+  const pluginAwareParser =
+    !customParser && (hasRemarkPlugins || widgetDefs.length > 0)
+      ? memoizeParser(createParser(plugins))
+      : null;
+  const widgetParser: ParserLike | null = customParser ?? pluginAwareParser;
   const locale = resolveLocale(config.locale);
   const parseDelayMs = config.parseDelayMs ?? 0;
   const emitter = new EventEmitter<EditorEventMap>();
@@ -291,16 +378,28 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // 推迟到 compositionend 再应用，避免整文档替换打断输入法、丢失合成中文字、视口跳顶。
   let composing = false;
   let pendingDocumentLoad: { next: string; opts?: SetDocumentOptions } | null = null;
-  // Initial AST: when a custom parser is provided, honour it (tests rely on
-  // this — they install plugins that mutate the tree). Otherwise use the
-  // Lezer string parser, which is dramatically faster than remark and
-  // produces a structurally compatible mdast Root.
-  let currentAst = customParser
-    ? parseDocument(customParser, config.initialValue ?? "")
-    : transformAst(lezerStringToMdast(config.initialValue ?? ""));
   // Forward ref so emitChange/setDocument can run lezerTreeToMdast against
   // the live EditorState once the view is constructed.
   const viewRef: { current: EditorView | null } = { current: null };
+
+  /**
+   * Build the authoritative AST exposed by `getAst()`, change events, and
+   * outline consumers. Custom parsers retain their documented precedence;
+   * remark plugins use the full parse pipeline because syntax extensions must
+   * participate before nodes are created; the common plugin-free path keeps
+   * using CodeMirror's incremental Lezer tree for lower editing latency.
+   */
+  function parsePublicAst(markdown: string): Root {
+    if (customParser) return parseDocument(customParser, markdown);
+    if (hasRemarkPlugins && pluginAwareParser) {
+      return parseDocument(pluginAwareParser, markdown);
+    }
+    return lezerAstFromAnywhere(viewRef, markdown);
+  }
+
+  // The common no-plugin case stays on the incremental Lezer path. When remark
+  // plugins are present, the public AST must come from their full parse pipeline.
+  let currentAst = parsePublicAst(config.initialValue ?? "");
   let api!: EditorAPI;
 
   function setFocused(next: boolean) {
@@ -325,29 +424,24 @@ export function createEditor(config: EditorConfig): EditorAPI {
       return;
     }
 
-    // Custom parser path: respected for tests / consumers that pass their own
-    // mdast pipeline (e.g. with bespoke remark plugins).
-    if (customParser) {
-      currentAst = parseDocument(customParser, markdown);
-      config.onChange?.(markdown, currentAst);
-      emitter.emit("change", markdown, currentAst);
-      return;
-    }
-
-    // Default path: Lezer-driven, synchronous, no worker. We read the live
-    // EditorState via viewRef so we get the incremental Lezer tree (cheap
-    // even on large docs). Falls back to a headless parse pre-view.
-    // User remark transformer plugins (if any) run via transformAst.
-    currentAst = transformAst(lezerAstFromAnywhere(viewRef, markdown));
+    currentAst = parsePublicAst(markdown);
     config.onChange?.(markdown, currentAst);
     emitter.emit("change", markdown, currentAst);
   }
 
+  /**
+   * Invalidate a pending debounced change before another operation supersedes
+   * its captured Markdown. Silent document loads use this to prevent an older
+   * edit from later replacing `currentAst` or emitting a stale change event.
+   */
+  function cancelScheduledChange(): void {
+    if (!parseTimer) return;
+    clearTimeout(parseTimer);
+    parseTimer = undefined;
+  }
+
   function scheduleChange(markdown: string) {
-    if (parseTimer) {
-      clearTimeout(parseTimer);
-      parseTimer = undefined;
-    }
+    cancelScheduledChange();
 
     if (parseDelayMs <= 0) {
       emitChange(markdown);
@@ -362,17 +456,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
 
   function flushScheduledChangeNow(): void {
     if (!parseTimer) return;
-    clearTimeout(parseTimer);
-    parseTimer = undefined;
+    cancelScheduledChange();
     emitChange(view.state.doc.toString());
   }
 
   function queueCompositionChange(markdown: string) {
     pendingCompositionMarkdown = markdown;
-    if (parseTimer) {
-      clearTimeout(parseTimer);
-      parseTimer = undefined;
-    }
+    cancelScheduledChange();
   }
 
   function flushCompositionChange(view: EditorView, reason: string) {
@@ -411,6 +501,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
     if (tableEditFlushed) flushScheduledChangeNow();
     const beforeSelection = view.state.selection.main;
     const silent = opts?.silent === true;
+    if (silent) cancelScheduledChange();
     const selection = resolveDocumentSelection(
       { anchor: beforeSelection.anchor, head: beforeSelection.head },
       next.length,
@@ -438,11 +529,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
 
     // silent 模式下仍同步 currentAst，使 getAst() / getTableOfContents() 反映已载入文件。
     if (silent) {
-      if (customParser) {
-        currentAst = parseDocument(customParser, next);
-      } else {
-        currentAst = transformAst(lezerAstFromAnywhere(viewRef, next));
-      }
+      currentAst = parsePublicAst(next);
     }
   }
 
@@ -836,12 +923,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
         annotations: silent ? silentDocChange.of(true) : undefined,
       });
       if (silent) {
+        cancelScheduledChange();
         const next = view.state.doc.toString();
-        if (customParser) {
-          currentAst = parseDocument(customParser, next);
-        } else {
-          currentAst = transformAst(lezerAstFromAnywhere(viewRef, next));
-        }
+        currentAst = parsePublicAst(next);
       }
     },
     undo() {
