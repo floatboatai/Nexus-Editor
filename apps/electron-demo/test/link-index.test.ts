@@ -278,6 +278,21 @@ describe("LinkIndex.getUnlinkedMentions", () => {
     expect(hits).toHaveLength(1);
     expect(hits[0].snippet).toBe("I love C++ notes and also Cxx notes");
   });
+
+  it("finds Chinese plain-text mentions and excludes wiki links",()=>{
+    const idx = new LinkIndex();
+    const sourceContent = '我正在学习人工智能。详见[[人工智能]]。';
+    idx.rebuild([
+      { path:"/v/人工智能.md", content:""},
+      { path:"/v/学习笔记.md", content: sourceContent}
+    ])
+    const hits = idx.getUnlinkedMentions("/v/人工智能.md");
+
+    expect(hits).toHaveLength(1);
+    expect(hits[0].sourcePath).toBe("/v/学习笔记.md")
+    expect(hits[0].target).toBe("人工智能");
+    expect(sourceContent.slice(hits[0].from, hits[0].to)).toBe("人工智能")
+  });
 });
 
 describe("LinkIndex.subscribe", () => {

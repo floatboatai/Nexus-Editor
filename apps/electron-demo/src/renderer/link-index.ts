@@ -147,6 +147,10 @@ function snippetAround(content: string, from: number, to: number): string {
   return content.slice(lineStart, lineEnd).trim();
 }
 
+function containsChinese(text: string): boolean {
+  return /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/.test(text);
+}
+
 /**
  * Vault-scoped bidirectional wiki-link index.
  *
@@ -270,7 +274,7 @@ export class LinkIndex {
   /**
    * Find plain-text occurrences of the target file's basename (sans extension)
    * across every other file in the vault, excluding any occurrence that falls
-   * inside an existing wiki link. Case-insensitive, word-boundary matched.
+   * inside an existing wiki link. Case-insensitive, word-boundary matched for non-Chinese names; Chinese names are matched as plain-text substrings.
    *
    * Corresponds to Obsidian's "Unlinked mentions" section.
    *
@@ -291,7 +295,9 @@ export class LinkIndex {
       return [];
     }
     const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const re = new RegExp(`\\b${escaped}\\b`, "gi");
+    // Chinese note names use substring matching while other names remain word-bounded.
+    const pattern = containsChinese(needle) ? escaped : `\\b${escaped}\\b`;
+    const re = new RegExp(pattern, "gi");
 
     const out: BacklinkHit[] = [];
     for (const [source, content] of this.contents) {
