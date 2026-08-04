@@ -1,4 +1,4 @@
-import type { Root } from "mdast";
+import type { Parent, Root } from "mdast";
 import { EditorView, ViewPlugin } from "@codemirror/view";
 import type { Plugin } from "unified";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -242,6 +242,142 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("runs remark transforms once when public AST and widgets share a source", () => {
+    const container = document.createElement("div");
+    let transformCalls = 0;
+    const countTransforms: Plugin<[], Root, Root> = function () {
+      return (tree) => {
+        transformCalls += 1;
+        return tree;
+      };
+    };
+    const editor = createEditor({
+      container,
+      initialValue: "paragraph",
+      plugins: [
+        {
+          name: "remark-widget",
+          remarkPlugins: [countTransforms],
+          widgets: [
+            {
+              nodeType: "paragraph",
+              render() {
+                return document.createElement("span");
+              }
+            }
+          ]
+        }
+      ]
+    });
+
+    expect(transformCalls).toBe(1);
+
+    editor.setDocument("next paragraph");
+    expect(transformCalls).toBe(2);
+
+    editor.setSelection(1);
+    expect(transformCalls).toBe(2);
+    editor.destroy();
+  });
+
+  it("isolates the cached remark AST from public and widget mutations", () => {
+    const container = document.createElement("div");
+    let matchCalls = 0;
+    const noOpTransform: Plugin<[], Root, Root> = function () {
+      return () => undefined;
+    };
+    const editor = createEditor({
+      container,
+      initialValue: "before **bold** after",
+      plugins: [
+        {
+          name: "mutating-widget",
+          remarkPlugins: [noOpTransform],
+          widgets: [
+            {
+              nodeType: "strong",
+              block: false,
+              match(node) {
+                matchCalls += 1;
+                node.data = { widgetTouched: true };
+                return true;
+              },
+              render() {
+                return document.createElement("strong");
+              }
+            }
+          ]
+        }
+      ]
+    });
+
+    const publicParagraph = editor.getAst().children[0] as Parent;
+    const publicStrong = publicParagraph.children[1];
+    expect(publicStrong.type).toBe("strong");
+    expect(publicStrong.data).toBeUndefined();
+
+    publicStrong.type = "text";
+    editor.setSelection(1);
+
+    expect(matchCalls).toBe(2);
+    editor.destroy();
+  });
+
+  it("preserves plugin data while keeping the cached tree private", () => {
+    const container = document.createElement("div");
+    const source = "paragraph";
+    const timestamp = Date.UTC(2024, 0, 2);
+    let retainedTree: Root | null = null;
+    const attachData: Plugin<[], Root, Root> = function () {
+      return (tree) => {
+        const shared = { value: "shared" };
+        const cyclic: { self?: unknown } = {};
+        cyclic.self = cyclic;
+        tree.data = {
+          createdAt: new Date(timestamp),
+          values: new Map([["entry", shared]]),
+          first: shared,
+          second: shared,
+          cyclic
+        } as unknown as NonNullable<Root["data"]>;
+        retainedTree = tree;
+      };
+    };
+    const editor = createEditor({
+      container,
+      initialValue: source,
+      plugins: [{ name: "plugin-data", remarkPlugins: [attachData] }]
+    });
+
+    const firstData = editor.getAst().data as {
+      createdAt: Date;
+      values: Map<string, { value: string }>;
+      first: { value: string };
+      second: { value: string };
+      cyclic: { self: unknown };
+    };
+    expect(firstData.createdAt).toBeInstanceOf(Date);
+    expect(firstData.createdAt.getTime()).toBe(timestamp);
+    expect(firstData.values).toBeInstanceOf(Map);
+    expect(firstData.values.get("entry")).toBe(firstData.first);
+    expect(firstData.second).toBe(firstData.first);
+    expect(firstData.cyclic.self).toBe(firstData.cyclic);
+
+    firstData.createdAt.setUTCFullYear(2030);
+    firstData.values.get("entry")!.value = "public mutation";
+    const retainedData = retainedTree!.data as typeof firstData;
+    retainedData.values.get("entry")!.value = "transformer mutation";
+
+    editor.setDocument(source, { silent: true });
+    const refreshedData = editor.getAst().data as typeof firstData;
+    expect(refreshedData.createdAt.getTime()).toBe(timestamp);
+    expect(refreshedData.values.get("entry")?.value).toBe("shared");
+    expect(refreshedData.values.get("entry")).toBe(refreshedData.first);
+    expect(refreshedData.second).toBe(refreshedData.first);
+    expect(refreshedData.cyclic.self).toBe(refreshedData.cyclic);
+    editor.destroy();
+  });
+
   it("debounces parsing and emits only the latest document version", () => {
     vi.useFakeTimers();
 
@@ -272,6 +408,61 @@ describe("createEditor", () => {
     vi.advanceTimersByTime(20);
 
     expect(docs).toEqual(["second"]);
+    editor.destroy();
+  });
+
+  it("cancels a delayed remark change when silently loading a document", () => {
+    vi.useFakeTimers();
+
+    const container = document.createElement("div");
+    const docs: string[] = [];
+    const noOpTransform: Plugin<[], Root, Root> = function () {
+      return () => undefined;
+    };
+    const editor = createEditor({
+      container,
+      parseDelayMs: 20,
+      plugins: [{ name: "remark", remarkPlugins: [noOpTransform] }],
+      onChange(doc) {
+        docs.push(doc);
+      }
+    });
+
+    editor.setDocument("# queued");
+    editor.setDocument("# loaded", { silent: true });
+    vi.advanceTimersByTime(20);
+
+    expect(docs).toEqual([]);
+    expect(editor.getDocument()).toBe("# loaded");
+    expect(editor.getTableOfContents()[0]?.text).toBe("loaded");
+    editor.destroy();
+  });
+
+  it("cancels a delayed remark change after a silent range replacement", () => {
+    vi.useFakeTimers();
+
+    const container = document.createElement("div");
+    const docs: string[] = [];
+    const noOpTransform: Plugin<[], Root, Root> = function () {
+      return () => undefined;
+    };
+    const editor = createEditor({
+      container,
+      initialValue: "draft",
+      parseDelayMs: 20,
+      plugins: [{ name: "remark", remarkPlugins: [noOpTransform] }],
+      onChange(doc) {
+        docs.push(doc);
+      }
+    });
+
+    editor.setDocument("# queued");
+    editor.replaceRange(0, "# queued".length, "# loaded", undefined, { silent: true });
+    vi.advanceTimersByTime(20);
+
+    expect(docs).toEqual([]);
+    expect(editor.getDocument()).toBe("# loaded");
+    expect(editor.getTableOfContents()[0]?.text).toBe("loaded");
     editor.destroy();
   });
 
