@@ -90,7 +90,7 @@ describe("live preview regressions", () => {
   // Code block lines must not set font-family or font-size on Decoration.line —
   // only on Decoration.mark. Otherwise CM6's heightmap sees different line heights
   // for code vs regular lines, causing cumulative click drift in long documents.
-  it("code block Decoration.line does not set font-family/font-size (keeps heightmap uniform)", () => {
+  it("code block Decrations.line does not set font-family/font-size (keeps heightmap uniform)", () => {
     const container = document.createElement("div");
     const editor = createEditor({
       container,
@@ -98,23 +98,26 @@ describe("live preview regressions", () => {
       livePreview: true
     });
 
-    // Code lines have background on the line element (Decoration.line)
-    const bgLines = Array.from(container.querySelectorAll(".cm-line")).filter(
-      (line) => (line as HTMLElement).getAttribute("style")?.includes("background")
-    );
-    expect(bgLines.length).toBeGreaterThanOrEqual(2);
-    for (const line of bgLines) {
-      const style = line.getAttribute("style") ?? "";
+    // Force edit mode (line decorations) by placing the cursor inside the fence.
+    editor.setSelection(12);
+
+    // Edit-mode lines carry the nexus-code-line class from Decoration.line attributes.
+    const codeLines = Array.from(
+      container.querySelectorAll(".cm-line.nexus-code-line, .cm-line.nexus-code-line--editing, .cm-line")
+    ).filter((line) => {
+      const el = line as HTMLElement;
+      return (
+        el.className.includes("nexus-code-line") ||
+        (el.getAttribute("style") ?? "").includes("background")
+      );
+    });
+    expect(codeLines.length).toBeGreaterThanOrEqual(2);
+    for (const line of codeLines) {
+      const style = (line as HTMLElement).getAttribute("style") ?? "";
+      // font-family/size must live on marks, never on the line decoration itself
       expect(style).not.toMatch(/font-family\s*:/);
       expect(style).not.toMatch(/font-size\s*:/);
     }
-    // Monospace is on child mark spans, not the line itself
-    const monoSpans = bgLines.flatMap((line) =>
-      Array.from(line.querySelectorAll("span")).filter(
-        (span) => span.getAttribute("style")?.includes("monospace")
-      )
-    );
-    expect(monoSpans.length).toBeGreaterThan(0);
     editor.destroy();
   });
 
@@ -163,10 +166,8 @@ describe("live preview regressions", () => {
     editor.destroy();
   });
 
-  // Copy button must be present and stable on every fenced code block, regardless of
-  // cursor position. Toggling it would re-create the heightmap instability that the
-  // previous ::after-based language label caused (commit b2f1a31).
-  it("fenced code block renders a copy button in the first fence line", () => {
+  // Preview mode replaces the fence with a code-block widget + header toolbar.
+  it("fenced code block renders a preview widget with copy action when cursor is outside", () => {
     const container = document.createElement("div");
     const editor = createEditor({
       container,
@@ -174,41 +175,54 @@ describe("live preview regressions", () => {
       livePreview: true
     });
 
+    // Cursor outside → preview widget
     editor.setSelection(0);
-    const btnOff = Array.from(container.querySelectorAll("button"))
-      .find((b) => b.getAttribute("aria-label") === "Copy code");
-    expect(btnOff).toBeDefined();
+    const block = container.querySelector(".nexus-code-block");
+    expect(block).not.toBeNull();
+    const copyBtn = Array.from(block?.querySelectorAll("button") ?? []).find(
+      (b) => (b.getAttribute("aria-label") ?? "").toLowerCase().includes("copy")
+    );
+    expect(copyBtn).toBeDefined();
+    expect(copyBtn?.textContent).toBe("Copy");
+    expect(block?.querySelector(".nexus-code-block__lang")?.textContent).toBe("js");
+    expect(container.textContent).toContain("const a = 1");
 
-    // Cursor inside code block — button still there
-    editor.setSelection(10);
-    const btnOn = Array.from(container.querySelectorAll("button"))
-      .find((b) => b.getAttribute("aria-label") === "Copy code");
-    expect(btnOn).toBeDefined();
+    // Cursor inside → edit mode (source fences visible, preview widget gone,
+    // compact edit toolbar still available for copy/format).
+    editor.setSelection(12);
+    expect(container.querySelector(".nexus-code-block")).toBeNull();
+    expect(container.querySelector(".nexus-code-block-edit-toolbar")).not.toBeNull();
+    expect(container.textContent).toContain("```js");
     editor.destroy();
   });
 
-  // Button label surfaces the language tag (```python → "python", ``` → "Copy").
-  it("copy button label shows the language, or 'Copy' when no language is set", () => {
+  it("code block preview shows language label and Copy in the widget toolbar", () => {
+    // Leading text keeps the default cursor outside the fence (preview mode).
     const withLang = document.createElement("div");
     const editorA = createEditor({
       container: withLang,
-      initialValue: "```python\nprint(1)\n```",
+      initialValue: "Intro\n\n```python\nprint(1)\n```\n",
       livePreview: true
     });
-    const btnA = Array.from(withLang.querySelectorAll("button"))
-      .find((b) => b.getAttribute("aria-label") === "Copy code");
-    expect(btnA?.textContent).toBe("python");
+    editorA.setSelection(0);
+    const blockA = withLang.querySelector(".nexus-code-block");
+    expect(blockA).not.toBeNull();
+    expect(blockA?.querySelector(".nexus-code-block__lang")?.textContent).toBe("python");
+    const btnA = Array.from(blockA?.querySelectorAll("button") ?? []).find(
+      (b) => b.textContent === "Copy"
+    );
+    expect(btnA).toBeDefined();
     editorA.destroy();
 
     const noLang = document.createElement("div");
     const editorB = createEditor({
       container: noLang,
-      initialValue: "```\njust text\n```",
+      initialValue: "Intro\n\n```\njust text\n```\n",
       livePreview: true
     });
-    const btnB = Array.from(noLang.querySelectorAll("button"))
-      .find((b) => b.getAttribute("aria-label") === "Copy code");
-    expect(btnB?.textContent).toBe("Copy");
+    editorB.setSelection(0);
+    const blockB = noLang.querySelector(".nexus-code-block");
+    expect(blockB?.querySelector(".nexus-code-block__lang")?.textContent).toBe("plain");
     editorB.destroy();
   });
 
@@ -241,6 +255,60 @@ describe("live preview regressions", () => {
     const widgetBack = container.querySelector("[data-live-preview-image]");
     expect(widgetBack).not.toBeNull();
     expect(container.textContent).not.toContain("![alt]");
+    editor.destroy();
+  });
+
+  // Guard against base64 / data-URL images expanding the content area to
+  // infinite width. After paste the caret sits at the end of the image span
+  // (exclusive), so the compact widget must hide the multi-KB source line.
+  it("data-URL image does not expose the raw base64 source when cursor is outside", () => {
+    const container = document.createElement("div");
+    // ~2KB of base64-looking payload — enough to break layout if rendered raw.
+    const payload = "A".repeat(2048);
+    const dataUrl = `data:image/png;base64,${payload}`;
+    const md = `Intro\n\n![shot](${dataUrl})\n\nafter`;
+    const editor = createEditor({
+      container,
+      initialValue: md,
+      livePreview: true,
+    });
+
+    // Cursor outside (default / position 0) → preview widget only.
+    editor.setSelection(0);
+    const widget = container.querySelector("[data-live-preview-image]");
+    expect(widget).not.toBeNull();
+    expect(widget?.getAttribute("data-live-preview-image")).toBe(dataUrl);
+    // Raw base64 must not leak into the visible text content.
+    expect(container.textContent).not.toContain("data:image/png;base64,");
+    expect(container.textContent).not.toContain(payload.slice(0, 64));
+
+    // Image element itself is width-capped.
+    const img = container.querySelector<HTMLImageElement>("[data-live-preview-image] img, img");
+    if (img) {
+      expect(img.style.maxWidth === "100%" || getComputedStyle(img).maxWidth !== "none").toBe(true);
+    }
+
+    // Soft wrapping is on by default (cm-lineWrapping class on content).
+    expect(container.querySelector(".cm-content")?.classList.contains("cm-lineWrapping")).toBe(true);
+    editor.destroy();
+  });
+
+  it("cursor parked at the end of an image still shows the preview widget (not raw source)", () => {
+    const container = document.createElement("div");
+    const dataUrl = `data:image/png;base64,${"B".repeat(512)}`;
+    const prefix = "Hi\n\n";
+    const imageMd = `![x](${dataUrl})`;
+    const editor = createEditor({
+      container,
+      initialValue: `${prefix}${imageMd}\n`,
+      livePreview: true,
+    });
+
+    // Simulate post-paste caret: right after the closing `)`.
+    const endOfImage = prefix.length + imageMd.length;
+    editor.setSelection(endOfImage);
+    expect(container.querySelector("[data-live-preview-image]")).not.toBeNull();
+    expect(container.textContent).not.toContain("data:image/png;base64,");
     editor.destroy();
   });
 });

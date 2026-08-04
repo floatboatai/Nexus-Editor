@@ -5,7 +5,11 @@ import type { Code, FootnoteDefinition, FootnoteReference, Heading, Html, List, 
 
 import type { CodeHighlightToken } from "./types";
 import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
-import { highlightCodeBlock } from "./live-preview-highlight";
+import {
+  formatCodeSource,
+  highlightCodeBlock,
+  highlightCodeToHtml,
+} from "./live-preview-highlight";
 
 import { createLivePreviewDiagnostics } from "./live-preview-diag";
 import { collectLivePreviewRanges, selectionIntersects, selectionOnSameLine } from "./live-preview-ranges";
@@ -131,64 +135,319 @@ function createWidget(
   })();
 }
 
-class CodeCopyWidget extends WidgetType {
-  constructor(private readonly code: string, private readonly lang: string) { super(); }
-  eq(other: CodeCopyWidget): boolean { return other.code === this.code && other.lang === this.lang; }
-  ignoreEvent(): boolean { return true; }
-  toDOM(): HTMLElement {
-    // CM6 measures inline widget DOM elements via offsetHeight and uses that to
-    // size the line box. A <button> with position:absolute still has a measurable
-    // offsetHeight (~18px), which CM6 treats as the widget's contribution to line
-    // height. This makes fence lines 18px instead of the default 21px, causing
-    // cumulative click-drift in long documents.
-    //
-    // Fix: wrap in a zero-height span. The span has line-height:0 + no flow content
-    // → offsetHeight=0 → CM6 sees 0 contribution. The button overflows visually
-    // via overflow:visible and is anchored by the parent line's position:relative.
-    const wrapper = document.createElement("span");
-    wrapper.style.cssText = "line-height:0;font-size:0;overflow:visible;display:inline;";
+/**
+ * Horizontal inset for fenced code chrome (px).
+ * Slightly less than `.cm-line` padding (20px) so the card sits inside the
+ * content area with a few pixels of breathing room around the monospace text,
+ * without painting flush to the editor edges.
+ */
+const CODE_BLOCK_INSET_PX = 12;
 
-    const btn = document.createElement("button");
-    btn.type = "button";
-    const defaultLabel = this.lang || "Copy";
-    btn.textContent = defaultLabel;
-    btn.title = "Copy code";
-    btn.setAttribute("aria-label", "Copy code");
-    btn.style.cssText = [
-      "position:absolute",
-      "top:4px",
-      "right:8px",
-      "padding:1px 8px",
-      "font-size:11px",
-      "font-family:system-ui,sans-serif",
-      "line-height:1.6",
-      "background:var(--nexus-bg)",
-      "border:1px solid var(--nexus-border-subtle)",
-      "border-radius:3px",
-      "color:var(--nexus-text-muted)",
-      "cursor:pointer",
-      "opacity:0.7",
-      "z-index:1",
-      "user-select:none",
-      "transition:opacity .15s"
-    ].join(";");
-    btn.addEventListener("mouseenter", () => { btn.style.opacity = "1"; });
-    btn.addEventListener("mouseleave", () => { btn.style.opacity = "0.7"; });
-    btn.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); });
-    btn.addEventListener("click", async (e) => {
+const CODE_TOOLBAR_BTN_STYLE =
+  "appearance:none;border:1px solid var(--nexus-border-subtle,#ddd);background:var(--nexus-bg,#fff);" +
+  "color:var(--nexus-text-muted,#666);font-size:11px;font-family:system-ui,sans-serif;font-weight:500;" +
+  "line-height:1;padding:5px 8px;border-radius:6px;cursor:pointer;height:24px;box-sizing:border-box;";
+
+function makeCodeToolbarButton(label: string, title: string): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = label;
+  b.title = title;
+  b.setAttribute("aria-label", title);
+  b.style.cssText = CODE_TOOLBAR_BTN_STYLE;
+  b.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+  b.addEventListener("mouseenter", () => {
+    b.style.background = "var(--nexus-bg-muted,#f0f0f0)";
+    b.style.color = "var(--nexus-text,#111)";
+  });
+  b.addEventListener("mouseleave", () => {
+    b.style.background = "var(--nexus-bg,#fff)";
+    b.style.color = "var(--nexus-text-muted,#666)";
+  });
+  return b;
+}
+
+function flashCodeToolbarButton(btn: HTMLButtonElement, text: string, restore: string, ms = 1200): void {
+  btn.textContent = text;
+  setTimeout(() => {
+    btn.textContent = restore;
+  }, ms);
+}
+
+async function copyCodeToClipboard(code: string, copyBtn: HTMLButtonElement): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(code);
+    flashCodeToolbarButton(copyBtn, "Copied", "Copy");
+  } catch {
+    flashCodeToolbarButton(copyBtn, "Failed", "Copy");
+  }
+}
+
+function applyFormattedCode(
+  viewRef: { current: EditorView | null },
+  lang: string,
+  code: string,
+  contentStartInDoc: number,
+  formatBtn: HTMLButtonElement,
+): void {
+  const next = formatCodeSource(lang || null, code);
+  if (next == null) {
+    flashCodeToolbarButton(formatBtn, "—", "Format", 900);
+    return;
+  }
+  const v = viewRef.current;
+  if (!v) return;
+  const from = contentStartInDoc;
+  const to = from + code.length;
+  if (from < 0 || to > v.state.doc.length) return;
+  v.dispatch({
+    changes: { from, to, insert: next },
+    selection: { anchor: from },
+  });
+  v.focus();
+}
+
+function buildCodeBlockToolbar(
+  lang: string,
+  actions: HTMLElement[],
+): { toolbar: HTMLElement; langLabel: HTMLElement } {
+  const toolbar = document.createElement("div");
+  toolbar.className = "nexus-code-block__toolbar";
+  toolbar.style.cssText = [
+    "display:flex",
+    "align-items:center",
+    "gap:8px",
+    "padding:6px 10px",
+    "border-bottom:1px solid var(--nexus-border, #e7e5e4)",
+    "background:var(--nexus-bg, #fff)",
+    "min-height:32px",
+    "box-sizing:border-box",
+    "user-select:none",
+  ].join(";") + ";";
+
+  const langLabel = document.createElement("span");
+  langLabel.className = "nexus-code-block__lang";
+  langLabel.textContent = lang || "plain";
+  langLabel.style.cssText =
+    "font-size:11px;font-weight:600;letter-spacing:0.04em;text-transform:lowercase;" +
+    "color:var(--nexus-text-muted,#777);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;";
+
+  const actionsEl = document.createElement("div");
+  actionsEl.className = "nexus-code-block__actions";
+  actionsEl.style.cssText = "display:flex;align-items:center;gap:4px;margin-left:auto;";
+  for (const action of actions) actionsEl.appendChild(action);
+
+  toolbar.append(langLabel, actionsEl);
+  return { toolbar, langLabel };
+}
+
+/**
+ * Preview-mode fenced code block: full block widget with its own header toolbar
+ * (language · wrap · format · copy · edit). When the cursor enters the source
+ * range, buildCodeBlockDecorations falls through to raw markdown editing.
+ */
+class CodeBlockWidget extends WidgetType {
+  constructor(
+    private readonly code: string,
+    private readonly lang: string,
+    private readonly viewRef: { current: EditorView | null },
+    private readonly blockFrom: number,
+    private readonly contentStartInDoc: number,
+  ) {
+    super();
+  }
+
+  eq(other: CodeBlockWidget): boolean {
+    return other.code === this.code && other.lang === this.lang && other.blockFrom === this.blockFrom;
+  }
+
+  ignoreEvent(): boolean {
+    return true;
+  }
+
+  get estimatedHeight(): number {
+    const lines = Math.max(1, this.code.split("\n").length);
+    // outer vertical pad (8+8) + header ~34 + line ~20 + pre pad ~24
+    return 16 + 34 + lines * 20 + 24;
+  }
+
+  toDOM(): HTMLElement {
+    // Outer shell provides horizontal inset matching `.cm-line` padding.
+    // CRITICAL: use padding (not margin) so CM6 heightmap measures full height.
+    const shell = document.createElement("div");
+    shell.className = "nexus-code-block-shell";
+    shell.style.cssText = [
+      "display:block",
+      "margin:0",
+      `padding:8px ${CODE_BLOCK_INSET_PX}px`,
+      "box-sizing:border-box",
+      "width:100%",
+    ].join(";") + ";";
+
+    const root = document.createElement("div");
+    root.className = "nexus-code-block";
+    root.setAttribute("role", "figure");
+    if (this.lang) root.setAttribute("data-lang", this.lang);
+    root.style.cssText = [
+      "display:block",
+      "margin:0",
+      "padding:0",
+      "border:1px solid var(--nexus-border, #e7e5e4)",
+      "border-radius:10px",
+      "background:var(--nexus-bg-subtle, #f5f5f5)",
+      "overflow:hidden",
+      "font-family:system-ui,-apple-system,sans-serif",
+    ].join(";") + ";";
+
+    const wrapBtn = makeCodeToolbarButton("Wrap", "Toggle line wrap");
+    const formatBtn = makeCodeToolbarButton("Format", "Format code (JSON + tidy whitespace)");
+    const copyBtn = makeCodeToolbarButton("Copy", this.lang ? `Copy ${this.lang} code` : "Copy code");
+    const editBtn = makeCodeToolbarButton("Edit", "Edit source");
+    const { toolbar } = buildCodeBlockToolbar(this.lang, [wrapBtn, formatBtn, copyBtn, editBtn]);
+
+    const pre = document.createElement("pre");
+    pre.className = "nexus-code-block__pre";
+    pre.style.cssText = [
+      "margin:0",
+      "padding:12px 14px",
+      "overflow:auto",
+      "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",
+      "font-size:13px",
+      "line-height:1.55",
+      "color:var(--nexus-text,#111)",
+      "background:transparent",
+      "white-space:pre",
+      "tab-size:2",
+    ].join(";") + ";";
+
+    const codeEl = document.createElement("code");
+    codeEl.className = "hljs nexus-code-block__code";
+    codeEl.innerHTML = highlightCodeToHtml(this.lang || null, this.code);
+    pre.appendChild(codeEl);
+
+    let wrapped = false;
+    wrapBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      try {
-        await navigator.clipboard.writeText(this.code);
-        btn.textContent = "Copied";
-        setTimeout(() => { btn.textContent = defaultLabel; }, 1200);
-      } catch {
-        btn.textContent = "Failed";
-        setTimeout(() => { btn.textContent = defaultLabel; }, 1200);
-      }
+      wrapped = !wrapped;
+      pre.style.whiteSpace = wrapped ? "pre-wrap" : "pre";
+      wrapBtn.style.borderColor = wrapped
+        ? "var(--nexus-accent,#292524)"
+        : "var(--nexus-border-subtle,#ddd)";
     });
-    wrapper.appendChild(btn);
-    return wrapper;
+
+    formatBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      applyFormattedCode(this.viewRef, this.lang, this.code, this.contentStartInDoc, formatBtn);
+    });
+
+    copyBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      void copyCodeToClipboard(this.code, copyBtn);
+    });
+
+    editBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const v = this.viewRef.current;
+      if (!v) return;
+      const target = Math.min(this.contentStartInDoc, v.state.doc.length);
+      v.dispatch({ selection: { anchor: target } });
+      v.focus();
+    });
+
+    root.append(toolbar, pre);
+    shell.appendChild(root);
+    return shell;
+  }
+}
+
+/**
+ * Edit-mode header that sits above the fenced source while the cursor is
+ * inside the block. Provides the same copy / format actions as the preview
+ * widget so the toolbar is always available.
+ */
+class CodeBlockEditToolbar extends WidgetType {
+  constructor(
+    private readonly code: string,
+    private readonly lang: string,
+    private readonly viewRef: { current: EditorView | null },
+    private readonly contentStartInDoc: number,
+    private readonly blockFrom: number,
+  ) {
+    super();
+  }
+
+  eq(other: CodeBlockEditToolbar): boolean {
+    return (
+      other.code === this.code &&
+      other.lang === this.lang &&
+      other.blockFrom === this.blockFrom &&
+      other.contentStartInDoc === this.contentStartInDoc
+    );
+  }
+
+  ignoreEvent(): boolean {
+    return true;
+  }
+
+  get estimatedHeight(): number {
+    // outer top pad + toolbar height (no bottom pad — source lines follow)
+    return 8 + 34;
+  }
+
+  toDOM(): HTMLElement {
+    const shell = document.createElement("div");
+    shell.className = "nexus-code-block-shell nexus-code-block-shell--editing";
+    shell.style.cssText = [
+      "display:block",
+      "margin:0",
+      `padding:8px ${CODE_BLOCK_INSET_PX}px 0`,
+      "box-sizing:border-box",
+      "width:100%",
+    ].join(";") + ";";
+
+    const card = document.createElement("div");
+    // Distinct from `.nexus-code-block` (preview widget) so callers can tell
+    // edit-chrome from the full replace widget.
+    card.className = "nexus-code-block-edit-toolbar";
+    card.style.cssText = [
+      "display:block",
+      "margin:0",
+      "border:1px solid var(--nexus-border, #e7e5e4)",
+      "border-bottom:0",
+      "border-radius:10px 10px 0 0",
+      "background:var(--nexus-bg, #fff)",
+      "overflow:hidden",
+      "font-family:system-ui,-apple-system,sans-serif",
+    ].join(";") + ";";
+
+    const formatBtn = makeCodeToolbarButton("Format", "Format code (JSON + tidy whitespace)");
+    const copyBtn = makeCodeToolbarButton("Copy", this.lang ? `Copy ${this.lang} code` : "Copy code");
+    const { toolbar } = buildCodeBlockToolbar(this.lang, [formatBtn, copyBtn]);
+    // Editing header has no code body below it in this widget — drop the
+    // bottom rule so it blends into the source lines that follow.
+    toolbar.style.borderBottom = "0";
+
+    formatBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      applyFormattedCode(this.viewRef, this.lang, this.code, this.contentStartInDoc, formatBtn);
+    });
+    copyBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      void copyCodeToClipboard(this.code, copyBtn);
+    });
+
+    card.appendChild(toolbar);
+    shell.appendChild(card);
+    return shell;
   }
 }
 
@@ -866,37 +1125,53 @@ function buildCodeBlockDecorations(
   const cursorOnCode = selectionIntersects(range.from, range.to, selection, true);
   const firstNewline = source.indexOf("\n");
   const isFenced = /^[ \t]*(`{3,}|~{3,})/.test(source);
+  const codeValue = range.node.value ?? "";
+  const lang = range.node.lang ?? "";
+  const contentStart = firstNewline >= 0 ? range.from + firstNewline + 1 : range.from;
 
-  // Mermaid: render as block widget when cursor is NOT in the block. When the
-  // cursor enters (e.g. via edit-icon dispatch or click outside of swallowed
-  // widget), fall through to normal source rendering so the user can edit.
-  if (range.node.lang === "mermaid" && !cursorOnCode && firstNewline >= 0) {
+  // Mermaid: dedicated diagram widget when cursor is outside.
+  if (lang === "mermaid" && !cursorOnCode && firstNewline >= 0) {
     decos.push(
       Decoration.replace({
-        widget: new MermaidWidget(range.node.value ?? "", viewRef, range.from, firstNewline + 1),
+        widget: new MermaidWidget(codeValue, viewRef, range.from, firstNewline + 1),
         block: true,
       }).range(range.from, range.to)
     );
     return;
   }
 
-  // ── CRITICAL: line decorations must NOT change font-family/font-size ──
-  // CM6's heightmap estimates offscreen lines using the default line height
-  // (derived from cm-content's font). If Decoration.line sets font-family:monospace,
-  // measured code lines may differ from the default, and offscreen code lines are
-  // estimated at the default height → cumulative click-drift that scales linearly
-  // with the number of offscreen code lines.
+  // Preview mode: full code-block widget with header toolbar.
+  if (isFenced && !cursorOnCode && firstNewline >= 0) {
+    decos.push(
+      Decoration.replace({
+        widget: new CodeBlockWidget(codeValue, lang, viewRef, range.from, contentStart),
+        block: true,
+      }).range(range.from, range.to)
+    );
+    return;
+  }
+
+  // Edit mode (cursor inside): height-safe line decorations + toolbar above.
+  // Line decorations must NOT change font-family/font-size (CM6 heightmap).
   //
-  // Fix: background + border-radius on Decoration.line (height-neutral).
-  //      font-family:monospace on Decoration.mark (affects glyph rendering only;
-  //      inline box height still equals inherited line-height × font-size = default).
-  // line-height:1.4em locks the line box to exactly the same height as regular text lines.
-  // Without it, fence lines whose entire content is inside a monospace Decoration.mark
-  // can render 2-3px shorter (font metric difference), causing cumulative click drift.
-  const LINE_BG = "background:var(--nexus-bg-subtle);line-height:1.4em;";
-  const MONO_MARK = "font-family:monospace;";
-  const codeValue = range.node.value;
-  const lang = range.node.lang;
+  // Card fill + side borders are drawn as centered background layers inset by
+  // CODE_BLOCK_INSET_PX so the chrome aligns with prose and never paints flush
+  // to the content edges. Prefer background-image over margin/position —
+  // those break CM6 click mapping and height measurement.
+  const inset = CODE_BLOCK_INSET_PX;
+  const cardWidth = `calc(100% - ${inset * 2}px)`;
+  const MONO_MARK = "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;";
+
+  // Toolbar above the fence while editing (copy / format always available).
+  if (isFenced) {
+    decos.push(
+      Decoration.widget({
+        widget: new CodeBlockEditToolbar(codeValue, lang, viewRef, contentStart, range.from),
+        block: true,
+        side: -1,
+      }).range(range.from)
+    );
+  }
 
   let lineOffset = range.from;
   for (let li = 0; li < lines.length; li++) {
@@ -905,66 +1180,92 @@ function buildCodeBlockDecorations(
     const isFirstLine = li === 0;
     const isLastLine = li === lines.length - 1;
 
-    // Line decoration: ONLY background + border-radius (no font changes).
-    // position:relative on first fence line anchors the absolute copy button.
-    const radius = isFirstLine ? "border-radius:4px 4px 0 0;" : isLastLine ? "border-radius:0 0 4px 4px;" : "";
-    const firstLineExtra = isFirstLine && isFenced ? "position:relative;" : "";
-    const lineAttrs: Record<string, string> = { style: LINE_BG + radius + firstLineExtra };
+    // Layers: fill, left hairline, right hairline, optional bottom hairline.
+    const images = [
+      "linear-gradient(var(--nexus-bg-subtle),var(--nexus-bg-subtle))",
+      "linear-gradient(var(--nexus-border,#e7e5e4),var(--nexus-border,#e7e5e4))",
+      "linear-gradient(var(--nexus-border,#e7e5e4),var(--nexus-border,#e7e5e4))",
+    ];
+    const sizes = [`${cardWidth} 100%`, "1px 100%", "1px 100%"];
+    const positions = [
+      "center top",
+      `${inset}px top`,
+      `calc(100% - ${inset + 1}px) top`,
+    ];
+    if (isLastLine || (!isFenced && isFirstLine && isLastLine)) {
+      images.push("linear-gradient(var(--nexus-border,#e7e5e4),var(--nexus-border,#e7e5e4))");
+      sizes.push(`${cardWidth} 1px`);
+      positions.push("center bottom");
+    }
+    if (!isFenced && isFirstLine) {
+      images.push("linear-gradient(var(--nexus-border,#e7e5e4),var(--nexus-border,#e7e5e4))");
+      sizes.push(`${cardWidth} 1px`);
+      positions.push("center top");
+    }
+
+    let radius = "";
+    if (isFenced) {
+      // Toolbar already draws the top of the card; only round the bottom.
+      if (isLastLine) radius = "border-radius:0 0 10px 10px;";
+    } else if (isFirstLine && isLastLine) {
+      radius = "border-radius:10px;";
+    } else if (isFirstLine) {
+      radius = "border-radius:10px 10px 0 0;";
+    } else if (isLastLine) {
+      radius = "border-radius:0 0 10px 10px;";
+    }
+
+    const lineStyle =
+      "background-color:transparent;" +
+      `background-image:${images.join(",")};` +
+      `background-size:${sizes.join(",")};` +
+      `background-position:${positions.join(",")};` +
+      "background-repeat:no-repeat;" +
+      "line-height:1.4em;" +
+      radius;
+
+    const lineAttrs: Record<string, string> = {
+      style: lineStyle,
+      class:
+        "nexus-code-line nexus-code-line--editing" +
+        (isFirstLine ? " nexus-code-line--first" : "") +
+        (isLastLine ? " nexus-code-line--last" : ""),
+    };
     if (isFirstLine) {
       lineAttrs.role = "code";
       if (lang) lineAttrs["aria-label"] = `Code block: ${lang}`;
     }
     decos.push(Decoration.line({ attributes: lineAttrs }).range(lineStart));
 
-    // Fence lines: transparent + monospace via mark; visible when cursor in block.
     if (isFenced && (isFirstLine || isLastLine) && lineEnd > lineStart) {
-      decos.push(Decoration.mark({
-        attributes: {
-          style: MONO_MARK + (cursorOnCode
-            ? "color:var(--nexus-text-faint,#bbb);"
-            : "color:transparent;cursor:text;")
-        }
-      }).range(lineStart, lineEnd));
-    }
-
-    // Content lines (non-fence): monospace via mark.
-    if (!(isFenced && (isFirstLine || isLastLine)) && lineEnd > lineStart) {
-      decos.push(Decoration.mark({
-        attributes: { style: MONO_MARK }
-      }).range(lineStart, lineEnd));
-    }
-
-    // Copy button: always present, absolute-positioned inside first fence line.
-    if (isFenced && isFirstLine && codeValue) {
       decos.push(
-        Decoration.widget({
-          widget: new CodeCopyWidget(codeValue, lang ?? ""),
-          side: 1
-        }).range(lineEnd)
+        Decoration.mark({
+          attributes: {
+            style: MONO_MARK + "color:var(--nexus-text-faint,#bbb);",
+          },
+        }).range(lineStart, lineEnd)
+      );
+    }
+
+    if (!(isFenced && (isFirstLine || isLastLine)) && lineEnd > lineStart) {
+      decos.push(
+        Decoration.mark({
+          attributes: { style: MONO_MARK },
+        }).range(lineStart, lineEnd)
       );
     }
 
     lineOffset = lineEnd + 1;
   }
 
-  // Syntax highlighting — NEVER run on the main thread any more. The parser
-  // worker pre-computes highlight spans and hands them in via `codeTokens`
-  // (filtered to this block's range below). If no tokens are available yet
-  // (worker hasn't responded for this document), the code block renders
-  // unstyled and gets coloured on the next buildDecorations pass once the
-  // worker response has been merged into the AST cache.
-  if (codeTokens && codeTokens.length > 0 && firstNewline >= 0 && range.node.value) {
-    // Tokens are sorted by `from` in the worker; still filter since one
-    // code block gets decorations for only its subrange.
-    const contentStart = range.from + firstNewline + 1;
+  // Token highlights while editing source.
+  if (codeTokens && codeTokens.length > 0 && firstNewline >= 0 && codeValue) {
     const contentEnd = range.to;
     for (const tok of codeTokens) {
       if (tok.from >= contentEnd) break;
       if (tok.to <= contentStart) continue;
       if (tok.from < range.from || tok.to > range.to) continue;
-      decos.push(
-        Decoration.mark({ class: tok.className }).range(tok.from, tok.to)
-      );
+      decos.push(Decoration.mark({ class: tok.className }).range(tok.from, tok.to));
     }
   }
 }
@@ -1118,7 +1419,10 @@ function buildDecorations(
       // the custom renderer, which dispatches setSelection(range.from).
       // swallowEvents=true so interactive chrome inside a custom image renderer
       // isn't preempted by CM6's cursor-placement handler.
-      const cursorOnImage = selectionIntersects(range.from, range.to, selection, true);
+      // Exclusive end: cursor parked right after the image (typical after
+      // paste/insert) shows the compact preview widget instead of expanding
+      // the line with a multi-kilobyte data: URL.
+      const cursorOnImage = selectionIntersects(range.from, range.to, selection, false);
       // Stable identity keyed by content + position lets CM6 reuse the existing
       // DOM across cursor-only updates and unrelated edits — image renderers
       // are heavy (50+ DOM nodes with inline styles), so skipping the rebuild

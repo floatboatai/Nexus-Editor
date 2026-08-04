@@ -30,6 +30,9 @@ describe("accessibility", () => {
       livePreview: true
     });
 
+    // Preview widget when cursor outside
+    expect(container.querySelector(".nexus-code-block")).not.toBeNull();
+
     // Move cursor into the code block to see editing mode (role=code on first line)
     editor.setSelection(12);
     const codeLine = container.querySelector("[role='code']");
