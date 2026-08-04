@@ -177,6 +177,8 @@ interface ProseSegment {
   text: string;
   /** True for the synthetic `\n\n` separator between prose blocks. */
   isParagraphBreak: boolean;
+  /** Separate lexical runs without adding synthetic characters to the result. */
+  isWordBoundary?: boolean;
 }
 
 function computeFromAst(source: string, ast: Root, options: WordCountOptions): WordCountStats {
@@ -206,6 +208,14 @@ function computeFromAst(source: string, ast: Root, options: WordCountOptions): W
         if (alt) segments.push({ text: alt, isParagraphBreak: false });
         return;
       }
+      case "tableCell": {
+        const children = (node as { children?: RootContent[] }).children;
+        if (children) {
+          for (const child of children) visit(child);
+        }
+        segments.push({ text: "", isParagraphBreak: false, isWordBoundary: true });
+        return;
+      }
       case "link":
       case "linkReference":
       case "emphasis":
@@ -219,7 +229,6 @@ function computeFromAst(source: string, ast: Root, options: WordCountOptions): W
       case "list":
       case "blockquote":
       case "tableRow":
-      case "tableCell":
       case "table":
       case "root": {
         if (type === "paragraph") paragraphs += 1;
@@ -254,12 +263,20 @@ function computeFromAst(source: string, ast: Root, options: WordCountOptions): W
   // Strip trailing whitespace introduced by the synthetic paragraph
   // breaks pushed after each block-level container, otherwise a single
   // paragraph reports 2 extra characters than the source text.
-  const prose = segments
-    .map((segment) => (segment.isParagraphBreak ? "\n\n" : segment.text))
-    .join("")
-    .replace(/[\s\u00A0]+$/, "");
+  const proseParts: string[] = [];
+  const lexicalSegments: string[] = [""];
+  for (const segment of segments) {
+    if (segment.isWordBoundary) {
+      lexicalSegments.push("");
+      continue;
+    }
+    const text = segment.isParagraphBreak ? "\n\n" : segment.text;
+    proseParts.push(text);
+    lexicalSegments[lexicalSegments.length - 1] += text;
+  }
+  const prose = proseParts.join("").replace(/[\s\u00A0]+$/, "");
 
-  const wordStats = analyseProse(prose, cjkUnit);
+  const wordStats = analyseProse(prose, cjkUnit, lexicalSegments);
   const sentences = countSentences(prose);
   const lines = countLines(source);
   const readingTimeSeconds = computeReadingTime(wordStats.latinWords, wordStats.cjkCharacters, options.readingSpeed);
@@ -328,7 +345,11 @@ const CJK_REGEX = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Scrip
 const CJK_RUN_REGEX = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
 const WHITESPACE_REGEX = /\s+/g;
 
-function analyseProse(text: string, cjkUnit: CjkUnit): ProseAnalysis {
+function analyseProse(
+  text: string,
+  cjkUnit: CjkUnit,
+  lexicalSegments: readonly string[] = [text]
+): ProseAnalysis {
   if (text.length === 0) {
     return { words: 0, latinWords: 0, cjkCharacters: 0, characters: 0, charactersNoSpaces: 0 };
   }
@@ -337,11 +358,18 @@ function analyseProse(text: string, cjkUnit: CjkUnit): ProseAnalysis {
   // pass — otherwise a Han ideograph would be matched as a one-letter
   // Latin "word" by `\p{L}`.
   const cjkCharacters = (text.match(CJK_REGEX) ?? []).length;
-  const cjkContribution = cjkUnit === "char" ? cjkCharacters : (text.match(CJK_RUN_REGEX) ?? []).length;
+  const cjkContribution = cjkUnit === "char"
+    ? cjkCharacters
+    : lexicalSegments.reduce(
+        (total, segment) => total + (segment.match(CJK_RUN_REGEX) ?? []).length,
+        0
+      );
 
   // Strip CJK before counting Latin runs to keep the buckets disjoint.
-  const latinSource = text.replace(CJK_REGEX, " ");
-  const latinWords = (latinSource.match(LATIN_WORD_REGEX) ?? []).length;
+  const latinWords = lexicalSegments.reduce((total, segment) => {
+    const latinSource = segment.replace(CJK_REGEX, " ");
+    return total + (latinSource.match(LATIN_WORD_REGEX) ?? []).length;
+  }, 0);
 
   const characters = [...text].length; // count by code point, not UTF-16 unit
   const charactersNoSpaces = characters - countWhitespaceCodePoints(text);
