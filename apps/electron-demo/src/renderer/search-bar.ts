@@ -9,113 +9,68 @@ export interface SearchBar {
   destroy(): void;
 }
 
-const BAR_STYLES = `
-  display: none;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: var(--nexus-bg-subtle, #f6f8fa);
-  border-bottom: 1px solid var(--nexus-border, #eee);
-  font-family: system-ui, -apple-system, sans-serif;
-  font-size: 13px;
-  flex-shrink: 0;
-`;
-
-const INPUT_STYLES = `
-  padding: 4px 8px;
-  border: 1px solid var(--nexus-border, #ddd);
-  border-radius: 4px;
-  font-size: 13px;
-  font-family: inherit;
-  background: var(--nexus-bg, #fff);
-  color: var(--nexus-text, #24292e);
-  outline: none;
-  width: 200px;
-`;
-
-const BTN_STYLES = `
-  padding: 4px 10px;
-  border: 1px solid var(--nexus-border, #ddd);
-  border-radius: 4px;
-  background: var(--nexus-bg, #fff);
-  color: var(--nexus-text, #24292e);
-  cursor: pointer;
-  font-size: 12px;
-  font-family: inherit;
-  transition: background 0.1s;
-`;
-
-const COUNT_STYLES = `
-  color: var(--nexus-text-muted, #888);
-  font-size: 12px;
-  min-width: 60px;
-`;
-
-const CLOSE_BTN_STYLES = `
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 16px;
-  color: var(--nexus-text-muted, #888);
-  padding: 2px 6px;
-  border-radius: 4px;
-  line-height: 1;
-`;
-
 export function createSearchBar(editor: EditorAPI): SearchBar {
   const bar = document.createElement("div");
-  bar.className = "nexus-search-bar";
-  bar.style.cssText = BAR_STYLES;
+  bar.className = "nx-search-bar nexus-search-bar";
 
-  // Find input
   const findInput = document.createElement("input");
   findInput.type = "text";
-  findInput.placeholder = "Find...";
-  findInput.style.cssText = INPUT_STYLES;
+  findInput.placeholder = "Find…";
+  findInput.className = "nx-input";
 
-  // Replace input
   const replaceInput = document.createElement("input");
   replaceInput.type = "text";
-  replaceInput.placeholder = "Replace...";
-  replaceInput.style.cssText = INPUT_STYLES;
+  replaceInput.placeholder = "Replace…";
+  replaceInput.className = "nx-input";
   replaceInput.style.width = "160px";
 
-  // Buttons
   const prevBtn = document.createElement("button");
-  prevBtn.textContent = "\u2191"; // ↑
+  prevBtn.type = "button";
+  prevBtn.className = "nx-btn nx-btn--ghost";
+  prevBtn.textContent = "↑";
   prevBtn.title = "Previous match";
-  prevBtn.style.cssText = BTN_STYLES;
 
   const nextBtn = document.createElement("button");
-  nextBtn.textContent = "\u2193"; // ↓
+  nextBtn.type = "button";
+  nextBtn.className = "nx-btn nx-btn--ghost";
+  nextBtn.textContent = "↓";
   nextBtn.title = "Next match";
-  nextBtn.style.cssText = BTN_STYLES;
 
   const replaceBtn = document.createElement("button");
+  replaceBtn.type = "button";
+  replaceBtn.className = "nx-btn nx-btn--ghost";
   replaceBtn.textContent = "Replace";
-  replaceBtn.style.cssText = BTN_STYLES;
 
   const replaceAllBtn = document.createElement("button");
+  replaceAllBtn.type = "button";
+  replaceAllBtn.className = "nx-btn nx-btn--ghost";
   replaceAllBtn.textContent = "All";
   replaceAllBtn.title = "Replace all";
-  replaceAllBtn.style.cssText = BTN_STYLES;
 
-  // Count label
   const countLabel = document.createElement("span");
-  countLabel.style.cssText = COUNT_STYLES;
+  countLabel.className = "nx-search-count";
 
-  // Close
   const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "nx-btn nx-btn--icon";
   closeBtn.innerHTML = "&times;";
   closeBtn.title = "Close (Esc)";
-  closeBtn.style.cssText = CLOSE_BTN_STYLES;
 
   const spacer = document.createElement("div");
   spacer.style.flex = "1";
 
-  bar.append(findInput, prevBtn, nextBtn, countLabel, replaceInput, replaceBtn, replaceAllBtn, spacer, closeBtn);
+  bar.append(
+    findInput,
+    prevBtn,
+    nextBtn,
+    countLabel,
+    replaceInput,
+    replaceBtn,
+    replaceAllBtn,
+    spacer,
+    closeBtn
+  );
 
-  // State
   let matches: Array<{ from: number; to: number }> = [];
   let currentIdx = -1;
   let visible = false;
@@ -134,11 +89,13 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       currentIdx = -1;
       countLabel.textContent = "0 results";
     } else {
-      // Find nearest match to current cursor
       const { anchor } = editor.getSelection();
       currentIdx = 0;
       for (let i = 0; i < matches.length; i++) {
-        if (matches[i].from >= anchor) { currentIdx = i; break; }
+        if (matches[i].from >= anchor) {
+          currentIdx = i;
+          break;
+        }
       }
       highlightCurrent();
     }
@@ -183,15 +140,20 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     updateMatches();
   }
 
-  // Event handlers
   findInput.addEventListener("input", updateMatches);
   findInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.shiftKey ? goPrev() : goNext(); e.preventDefault(); }
-    if (e.key === "Escape") { close(); }
+    if (e.key === "Enter") {
+      e.shiftKey ? goPrev() : goNext();
+      e.preventDefault();
+    }
+    if (e.key === "Escape") close();
   });
   replaceInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { doReplace(); e.preventDefault(); }
-    if (e.key === "Escape") { close(); }
+    if (e.key === "Enter") {
+      doReplace();
+      e.preventDefault();
+    }
+    if (e.key === "Escape") close();
   });
   nextBtn.addEventListener("click", goNext);
   prevBtn.addEventListener("click", goPrev);
@@ -200,11 +162,14 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   closeBtn.addEventListener("click", close);
 
   function open() {
-    if (visible) { findInput.focus(); findInput.select(); return; }
+    if (visible) {
+      findInput.focus();
+      findInput.select();
+      return;
+    }
     visible = true;
     bar.style.display = "flex";
     findInput.focus();
-    // Pre-fill with selected text
     const { anchor, head } = editor.getSelection();
     if (anchor !== head) {
       const doc = editor.getDocument();
