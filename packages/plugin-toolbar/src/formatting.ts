@@ -208,3 +208,37 @@ export function insertHorizontalRule(editor: EditorAPI): boolean {
   editor.setSelection(anchor + hr.length);
   return true;
 }
+
+/**
+ * Insert a GFM pipe table at the cursor.
+ * Defaults to 3 columns × 3 rows (1 header + 2 body rows).
+ */
+export function insertTable(editor: EditorAPI, rows = 3, cols = 3): boolean {
+  const safeCols = Math.max(1, Math.min(cols, 12));
+  const safeRows = Math.max(2, Math.min(rows, 40)); // at least header + 1 body
+  const bodyRows = safeRows - 1;
+
+  const headerCells = Array.from({ length: safeCols }, (_, i) => `Column ${i + 1}`);
+  const separatorCells = Array.from({ length: safeCols }, () => "---");
+  const emptyCells = Array.from({ length: safeCols }, () => " ");
+
+  const lines = [
+    `| ${headerCells.join(" | ")} |`,
+    `| ${separatorCells.join(" | ")} |`,
+    ...Array.from({ length: bodyRows }, () => `| ${emptyCells.join(" | ")} |`),
+  ];
+
+  const doc = editor.getDocument();
+  const { anchor } = editor.getSelection();
+  const needsLeadingNewline = anchor > 0 && doc[anchor - 1] !== "\n";
+  const block = (needsLeadingNewline ? "\n\n" : "") + lines.join("\n") + "\n\n";
+
+  const newDoc = doc.slice(0, anchor) + block + doc.slice(anchor);
+  editor.setDocument(newDoc);
+
+  // Place cursor in the first header cell content.
+  const prefix = needsLeadingNewline ? "\n\n" : "";
+  const cursorPos = anchor + prefix.length + 2; // after "| "
+  editor.setSelection(cursorPos, cursorPos + headerCells[0].length);
+  return true;
+}

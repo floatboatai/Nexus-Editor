@@ -445,10 +445,27 @@ describe("createToolbarPlugin", () => {
     // Spot-check the four user-facing categories; the full catalogue is
     // documented in src/index.ts and intentionally not pinned here so
     // adding more commands later isn't a test churn.
-    expect(ids).toEqual(expect.arrayContaining(["h1", "h2", "bold", "image", "hr"]));
+    expect(ids).toEqual(expect.arrayContaining(["h1", "h2", "bold", "image", "hr", "table"]));
     for (const cmd of plugin.slashCommands ?? []) {
       expect(typeof cmd.run).toBe("function");
     }
+  });
+
+  it("inserts a GFM table via the table slash command", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "",
+      plugins: [createToolbarPlugin()],
+    });
+
+    const table = editor.getSlashCommands().find((c) => c.id === "table");
+    expect(table).toBeDefined();
+    expect(table?.run?.(editor)).toBe(true);
+    const doc = editor.getDocument();
+    expect(doc).toContain("| Column 1 | Column 2 | Column 3 |");
+    expect(doc).toContain("| --- | --- | --- |");
+    editor.destroy();
   });
 
   it("executes a slash command through the editor's command list", () => {
