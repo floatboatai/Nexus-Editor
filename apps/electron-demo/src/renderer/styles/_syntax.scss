@@ -1,0 +1,91 @@
+/* ── Syntax highlighting (warm, restrained) ───────────────────── */
+
+/* Fallback when data-theme is unset (should not happen after boot) */
+.cm-editor .hljs-keyword,
+.cm-editor .hljs-selector-tag,
+.cm-editor .hljs-built_in,
+.cm-editor .hljs-name,
+.cm-editor .hljs-doctag { color: #9f1239; }
+.cm-editor .hljs-string,
+.cm-editor .hljs-attr,
+.cm-editor .hljs-symbol,
+.cm-editor .hljs-bullet,
+.cm-editor .hljs-addition,
+.cm-editor .hljs-regexp,
+.cm-editor .hljs-link { color: #3f6212; }
+.cm-editor .hljs-title,
+.cm-editor .hljs-section,
+.cm-editor .hljs-title.function_,
+.cm-editor .function_ { color: #44403c; font-weight: 600; }
+.cm-editor .hljs-comment,
+.cm-editor .hljs-quote,
+.cm-editor .hljs-meta { color: #a8a29e; font-style: italic; }
+.cm-editor .hljs-number,
+.cm-editor .hljs-literal { color: #b45309; }
+.cm-editor .hljs-type,
+.cm-editor .hljs-params,
+.cm-editor .hljs-variable,
+.cm-editor .hljs-template-variable,
+.cm-editor .language_ { color: #57534e; }
+.cm-editor .hljs-deletion { color: #dc2626; }
+.cm-editor .hljs-property,
+.cm-editor .hljs-attribute { color: #0f766e; }
+.cm-editor .hljs-punctuation,
+.cm-editor .hljs-operator { color: #78716c; }
+
+html[data-theme="light"] .cm-editor .hljs-keyword,
+html[data-theme="light"] .cm-editor .hljs-selector-tag,
+html[data-theme="light"] .cm-editor .hljs-built_in,
+html[data-theme="light"] .cm-editor .hljs-name,
+html[data-theme="light"] .cm-editor .hljs-doctag { color: #9f1239; }
+html[data-theme="light"] .cm-editor .hljs-string,
+html[data-theme="light"] .cm-editor .hljs-attr,
+html[data-theme="light"] .cm-editor .hljs-symbol,
+html[data-theme="light"] .cm-editor .hljs-bullet,
+html[data-theme="light"] .cm-editor .hljs-addition,
+html[data-theme="light"] .cm-editor .hljs-regexp,
+html[data-theme="light"] .cm-editor .hljs-link { color: #3f6212; }
+html[data-theme="light"] .cm-editor .hljs-title,
+html[data-theme="light"] .cm-editor .hljs-section { color: #44403c; font-weight: 600; }
+html[data-theme="light"] .cm-editor .hljs-comment,
+html[data-theme="light"] .cm-editor .hljs-quote,
+html[data-theme="light"] .cm-editor .hljs-meta { color: #a8a29e; font-style: italic; }
+html[data-theme="light"] .cm-editor .hljs-number,
+html[data-theme="light"] .cm-editor .hljs-literal { color: #b45309; }
+html[data-theme="light"] .cm-editor .hljs-type,
+html[data-theme="light"] .cm-editor .hljs-params { color: #57534e; }
+html[data-theme="light"] .cm-editor .hljs-deletion { color: #dc2626; }
+html[data-theme="light"] .cm-editor .hljs-variable,
+html[data-theme="light"] .cm-editor .hljs-template-variable { color: #78716c; }
+
+html[data-theme="dark"] .cm-editor .hljs-keyword,
+html[data-theme="dark"] .cm-editor .hljs-selector-tag,
+html[data-theme="dark"] .cm-editor .hljs-built_in,
+html[data-theme="dark"] .cm-editor .hljs-name,
+html[data-theme="dark"] .cm-editor .hljs-doctag { color: #fb7185; }
+html[data-theme="dark"] .cm-editor .hljs-string,
+html[data-theme="dark"] .cm-editor .hljs-attr,
+html[data-theme="dark"] .cm-editor .hljs-symbol,
+html[data-theme="dark"] .cm-editor .hljs-bullet,
+html[data-theme="dark"] .cm-editor .hljs-addition,
+html[data-theme="dark"] .cm-editor .hljs-regexp,
+html[data-theme="dark"] .cm-editor .hljs-link { color: #a3e635; }
+html[data-theme="dark"] .cm-editor .hljs-title,
+html[data-theme="dark"] .cm-editor .hljs-section { color: #e7e5e4; font-weight: 600; }
+html[data-theme="dark"] .cm-editor .hljs-comment,
+html[data-theme="dark"] .cm-editor .hljs-quote,
+html[data-theme="dark"] .cm-editor .hljs-meta { color: #78716c; font-style: italic; }
+html[data-theme="dark"] .cm-editor .hljs-number,
+html[data-theme="dark"] .cm-editor .hljs-literal { color: #fbbf24; }
+html[data-theme="dark"] .cm-editor .hljs-type,
+html[data-theme="dark"] .cm-editor .hljs-params { color: #a8a29e; }
+html[data-theme="dark"] .cm-editor .hljs-deletion { color: #f87171; }
+html[data-theme="dark"] .cm-editor .hljs-variable,
+html[data-theme="dark"] .cm-editor .hljs-template-variable { color: #d6d3d1; }
+
+/* Back-compat aliases used by older class names */
+.toolbar button {
+  /* superseded by .nx-btn; keep clickable if any raw buttons remain */
+  cursor: pointer;
+}
+

@@ -1,0 +1,26 @@
+// Nexus demo shell styles — modular SCSS entry point.
+//
+// Loaded from app.ts via `import "./styles/main.scss"`. Partials are pulled in
+// the exact cascade order the old monolithic style.css used, so specificity
+// ties still resolve by source order. Design tokens first (they define the
+// --ds-* custom properties everything else consumes), then base, then
+// components roughly in DOM/paint order.
+@use "tokens";
+@use "scrollbars";
+@use "base";
+@use "chrome";
+@use "window-controls";
+@use "buttons";
+@use "menu";
+@use "layout";
+@use "panels";
+@use "status";
+@use "search";
+@use "modal";
+@use "slash-menu";
+@use "wordcount";
+@use "tables";
+@use "code-block";
+@use "syntax";
+@use "graph";
+@use "switcher";

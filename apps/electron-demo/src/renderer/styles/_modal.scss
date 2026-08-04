@@ -1,0 +1,71 @@
+@use "variables" as v;
+
+/* ── Modal / settings ─────────────────────────────────────────── */
+
+.nx-modal {
+  position: fixed;
+  inset: 0;
+  z-index: v.$z-modal;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ds-overlay);
+  font-family: var(--ds-font-ui);
+}
+
+.nx-modal__dialog {
+  background: var(--ds-surface-card);
+  color: var(--ds-ink);
+  border: 1px solid var(--ds-hairline);
+  border-radius: var(--ds-radius-xl);
+  box-shadow: var(--ds-shadow-menu);
+  width: 520px;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.nx-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--ds-hairline);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.nx-modal__body {
+  padding: 8px 24px 20px;
+}
+
+.nx-modal__section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.96px;
+  color: var(--ds-muted);
+  padding: 14px 0 6px;
+}
+
+.nx-modal__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--ds-hairline-soft);
+  gap: 12px;
+}
+
+.nx-modal__label-title {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.nx-modal__label-desc {
+  font-size: 12px;
+  color: var(--ds-muted);
+  line-height: 1.4;
+}
+

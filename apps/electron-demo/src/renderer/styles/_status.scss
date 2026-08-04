@@ -1,0 +1,38 @@
+/* ── Status bar ───────────────────────────────────────────────── */
+
+.nx-status,
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  height: 28px;
+  font-size: 12px;
+  color: var(--ds-muted);
+  background: var(--ds-canvas-soft);
+  border-top: 1px solid var(--ds-hairline);
+  flex-shrink: 0;
+  font-family: var(--ds-font-ui);
+}
+
+.nx-status__left {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nx-status__right {
+  flex-shrink: 0;
+  color: var(--ds-muted);
+}
+
+.nx-status__error {
+  color: var(--ds-semantic-error);
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+

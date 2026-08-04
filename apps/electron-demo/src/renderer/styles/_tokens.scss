@@ -1,0 +1,108 @@
+/**
+ * Design tokens from DESIGN.md, productized for the editor shell.
+ * Marketing density (64px nav, 96px sections) is tightened for chrome use.
+ *
+ * Color scheme is driven by `html[data-theme="light"|"dark"]` (see applyShellColorScheme).
+ */
+:root,
+html[data-theme="light"] {
+  /* Brand & text */
+  --ds-primary: #292524;
+  --ds-primary-active: #0c0a09;
+  --ds-ink: #0c0a09;
+  --ds-body: #4e4e4e;
+  --ds-body-strong: #292524;
+  --ds-muted: #777169;
+  --ds-muted-soft: #a8a29e;
+  --ds-on-primary: #ffffff;
+
+  /* Surfaces */
+  --ds-canvas: #f5f5f5;
+  --ds-canvas-soft: #fafafa;
+  --ds-surface-card: #ffffff;
+  --ds-surface-strong: #f0efed;
+  --ds-surface-dark: #0c0a09;
+  --ds-surface-dark-elevated: #1c1917;
+
+  /* Hairlines */
+  --ds-hairline: #e7e5e4;
+  --ds-hairline-soft: #f0efed;
+  --ds-hairline-strong: #d6d3d1;
+
+  /* Semantic */
+  --ds-semantic-error: #dc2626;
+  --ds-semantic-success: #16a34a;
+
+  /* Atmospheric (decoration only) */
+  --ds-gradient-mint: #a7e5d3;
+  --ds-gradient-peach: #f4c5a8;
+  --ds-gradient-lavender: #c8b8e0;
+
+  /* Overlays */
+  --ds-overlay: rgba(12, 10, 9, 0.36);
+  --ds-surface-glass: rgba(255, 255, 255, 0.92);
+
+  /* Spacing */
+  --ds-space-xxs: 4px;
+  --ds-space-xs: 8px;
+  --ds-space-sm: 12px;
+  --ds-space-base: 16px;
+  --ds-space-md: 20px;
+  --ds-space-lg: 24px;
+  --ds-space-xl: 32px;
+
+  /* Radius */
+  --ds-radius-xs: 4px;
+  --ds-radius-sm: 6px;
+  --ds-radius-md: 8px;
+  --ds-radius-lg: 12px;
+  --ds-radius-xl: 16px;
+  --ds-radius-pill: 9999px;
+
+  /* Type */
+  --ds-font-ui: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ds-font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --ds-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Chrome density */
+  --ds-chrome-height: 48px;
+  /* Shared height for Files / format toolbar / Outline headers so borders align */
+  --ds-panel-header-height: 40px;
+  --ds-icon-btn: 32px;
+  --ds-sidebar-width: 260px;
+  --ds-outline-width: 220px;
+  --ds-shadow-soft: 0 4px 16px rgba(0, 0, 0, 0.04);
+  --ds-shadow-menu: 0 8px 24px rgba(12, 10, 9, 0.12);
+}
+
+/* Dark scheme — DESIGN surface-dark / on-dark family */
+html[data-theme="dark"] {
+  --ds-primary: #fafaf9;
+  --ds-primary-active: #ffffff;
+  --ds-ink: #fafaf9;
+  --ds-body: #d6d3d1;
+  --ds-body-strong: #f5f5f4;
+  --ds-muted: #a8a29e;
+  --ds-muted-soft: #78716c;
+  --ds-on-primary: #0c0a09;
+
+  --ds-canvas: #0c0a09;
+  --ds-canvas-soft: #141211;
+  --ds-surface-card: #1c1917;
+  --ds-surface-strong: #292524;
+  --ds-surface-dark: #0c0a09;
+  --ds-surface-dark-elevated: #1c1917;
+
+  --ds-hairline: #292524;
+  --ds-hairline-soft: #1c1917;
+  --ds-hairline-strong: #44403c;
+
+  --ds-semantic-error: #f87171;
+  --ds-semantic-success: #4ade80;
+
+  --ds-overlay: rgba(0, 0, 0, 0.55);
+  --ds-surface-glass: rgba(28, 25, 23, 0.92);
+
+  --ds-shadow-soft: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --ds-shadow-menu: 0 8px 28px rgba(0, 0, 0, 0.45);
+}

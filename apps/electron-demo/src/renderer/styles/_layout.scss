@@ -1,0 +1,230 @@
+@use "variables" as v;
+
+/* ── Main layout ──────────────────────────────────────────────── */
+
+.main-area {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  background: var(--ds-canvas);
+  min-height: 0;
+}
+
+.editor-column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--ds-surface-card);
+  min-width: 0;
+  border-left: 1px solid var(--ds-hairline);
+  border-right: 1px solid var(--ds-hairline);
+  /* Positioning context for the knowledge-graph overlay. */
+  position: relative;
+}
+
+.editor-container {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  background: var(--ds-surface-card);
+}
+
+.editor-container > .nexus-toolbar,
+.editor-container > [data-nexus-toolbar],
+.editor-container > [role="toolbar"] {
+  flex-shrink: 0;
+}
+
+.editor-container .cm-editor {
+  flex: 1;
+  min-height: 0;
+  /* Allow the editor to shrink inside flex layout even when a line/image
+     has a huge intrinsic min-content width (base64 data URLs, large PNGs). */
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  overflow: hidden;
+}
+
+.editor-container .cm-scroller {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.editor-container .cm-content {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Live-preview images must stay within the note column. */
+.editor-container .cm-content img,
+.editor-container .cm-content .nexus-image,
+.editor-container .cm-content [data-live-preview-image] {
+  max-width: 100% !important;
+  height: auto;
+  box-sizing: border-box;
+}
+
+/* Format bar: same height as Files / Outline panel headers for border alignment */
+.editor-container .nexus-toolbar,
+.editor-container [role="toolbar"].nexus-toolbar {
+  background: var(--ds-surface-card) !important;
+  border-bottom: 1px solid var(--ds-hairline) !important;
+  height: var(--ds-panel-header-height) !important;
+  min-height: var(--ds-panel-header-height) !important;
+  max-height: var(--ds-panel-header-height) !important;
+  padding: 0 10px !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  align-items: center !important;
+}
+
+.editor-container .nexus-toolbar-btn {
+  color: var(--ds-muted) !important;
+  border-radius: 6px !important;
+  /* Keep geometry fixed — hover must never change size/box model */
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  max-width: 28px !important;
+  max-height: 28px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 0 !important;
+  flex: 0 0 28px !important;
+}
+
+.editor-container .nexus-toolbar-btn:hover {
+  background: var(--ds-surface-strong) !important;
+  color: var(--ds-ink) !important;
+}
+
+.editor-container .nexus-toolbar-btn > span,
+.editor-container .nexus-toolbar-btn svg {
+  display: block;
+  margin: 0 auto;
+  pointer-events: none;
+}
+
+.editor-container .nexus-toolbar-separator {
+  background: var(--ds-hairline) !important;
+}
+
+.editor-container .nexus-toolbar-overflow-slot {
+  display: none;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: auto;
+  height: 100%;
+}
+
+.editor-container .nexus-toolbar-overflow-btn {
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.5px !important;
+  line-height: 1 !important;
+}
+
+/* Toolbar tooltips (mounted on body) — position set in JS (no translate offset) */
+.nexus-toolbar-tooltip {
+  position: fixed;
+  z-index: v.$z-resize-guide;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--ds-ink, #0c0a09);
+  color: var(--ds-on-primary, #fff);
+  border-radius: var(--ds-radius-sm, 6px);
+  font-family: var(--ds-font-ui, system-ui, sans-serif);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  pointer-events: none;
+  box-shadow: var(--ds-shadow-menu, 0 8px 24px rgba(0, 0, 0, 0.12));
+  white-space: nowrap;
+  transform: none;
+}
+
+.nexus-toolbar-tooltip__shortcut {
+  font-family: var(--ds-font-ui, system-ui, sans-serif);
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.72;
+  letter-spacing: 0.02em;
+}
+
+.nexus-toolbar-overflow-menu {
+  max-height: min(360px, 70vh);
+  overflow-y: auto;
+}
+
+/* Image lightbox */
+.nx-image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: v.$z-overlay;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(12, 10, 9, 0.82);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  padding: 48px;
+  box-sizing: border-box;
+}
+
+.nx-image-lightbox.is-open {
+  opacity: 1;
+}
+
+.nx-image-lightbox__img {
+  max-width: min(96vw, 1200px);
+  max-height: 86vh;
+  object-fit: contain;
+  border-radius: var(--ds-radius-md, 8px);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  background: var(--ds-surface-card, #fff);
+}
+
+.nx-image-lightbox__close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px !important;
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #fff !important;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.nx-image-lightbox__close:hover {
+  background: rgba(255, 255, 255, 0.22) !important;
+}
+
+.nx-image-lightbox__caption {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+  max-width: 80vw;
+  text-align: center;
+}
+
+.nexus-image img {
+  cursor: zoom-in;
+}
+

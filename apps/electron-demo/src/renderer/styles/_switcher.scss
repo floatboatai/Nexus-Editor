@@ -1,0 +1,152 @@
+@use "variables" as v;
+@use "mixins" as m;
+
+// Recent-projects quick switcher (centered modal). BEM blocks nested under the
+// root so the structure reads top-down; compiles to the same flat selectors.
+.nx-switcher {
+  position: fixed;
+  inset: 0;
+  z-index: v.$z-overlay;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 24px 24px;
+  box-sizing: border-box;
+  background: var(--ds-overlay);
+  opacity: 0;
+  transition: opacity 0.14s ease;
+
+  &.is-open {
+    opacity: 1;
+  }
+
+  &__panel {
+    width: 100%;
+    max-width: 520px;
+    max-height: 70vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--ds-surface-card);
+    border: 1px solid var(--ds-hairline);
+    border-radius: var(--ds-radius-lg);
+    box-shadow: var(--ds-shadow-menu);
+    overflow: hidden;
+    transform: translateY(-6px);
+    transition: transform 0.14s ease;
+  }
+
+  &.is-open &__panel {
+    transform: translateY(0);
+  }
+
+  &__header {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--ds-hairline);
+  }
+
+  &__title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.96px;
+    color: var(--ds-muted);
+  }
+
+  &__list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px;
+    min-height: 0;
+  }
+
+  &__row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    border-radius: var(--ds-radius-md);
+    cursor: pointer;
+
+    &[data-selectable="1"]:hover,
+    &.is-active {
+      background: var(--ds-surface-strong);
+    }
+
+    &.is-missing {
+      cursor: default;
+      opacity: 0.6;
+    }
+  }
+
+  &__icon {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ds-muted);
+  }
+
+  &__row.is-missing &__icon {
+    color: var(--ds-semantic-error);
+  }
+
+  &__text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ds-ink);
+    @include m.truncate;
+  }
+
+  &__path {
+    font-size: 12px;
+    color: var(--ds-muted-soft);
+    @include m.truncate;
+    direction: rtl;
+    text-align: left;
+  }
+
+  &__row.is-missing &__path {
+    direction: ltr;
+    color: var(--ds-semantic-error);
+  }
+
+  &__tag {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ds-muted);
+    background: var(--ds-surface-strong);
+    border-radius: var(--ds-radius-pill);
+    padding: 2px 8px;
+  }
+
+  &__remove {
+    flex-shrink: 0;
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+
+  &__footer {
+    padding: 8px 12px;
+    border-top: 1px solid var(--ds-hairline);
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  &__empty {
+    padding: 28px 16px;
+    text-align: center;
+    color: var(--ds-muted-soft);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+}

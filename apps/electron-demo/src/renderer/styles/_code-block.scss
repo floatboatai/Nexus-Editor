@@ -1,0 +1,56 @@
+/* ── Fenced code block widget ─────────────────────────────────── */
+
+/* Outer shell owns the horizontal inset (matches .cm-line padding). */
+.cm-editor .nexus-code-block-shell {
+  box-sizing: border-box;
+}
+
+.cm-editor .nexus-code-block {
+  margin: 0 !important;
+  border-color: var(--ds-hairline) !important;
+  background: var(--ds-canvas) !important;
+  box-shadow: var(--ds-shadow-soft);
+}
+
+.cm-editor .nexus-code-block-edit-toolbar {
+  box-shadow: none;
+  background: var(--ds-surface-card) !important;
+  border-color: var(--ds-hairline) !important;
+}
+
+.cm-editor .nexus-code-block__toolbar {
+  background: var(--ds-surface-card) !important;
+  border-bottom-color: var(--ds-hairline) !important;
+}
+
+.cm-editor .nexus-code-block__toolbar button {
+  border-color: var(--ds-hairline) !important;
+  color: var(--ds-muted) !important;
+  background: var(--ds-surface-card) !important;
+}
+
+.cm-editor .nexus-code-block__toolbar button:hover {
+  background: var(--ds-surface-strong) !important;
+  color: var(--ds-ink) !important;
+}
+
+.cm-editor .nexus-code-block__lang {
+  color: var(--ds-muted) !important;
+}
+
+.cm-editor .nexus-code-block__pre {
+  color: var(--ds-ink) !important;
+  background: transparent !important;
+}
+
+.cm-editor .nexus-code-block__code.hljs {
+  background: transparent !important;
+  padding: 0 !important;
+  display: block;
+}
+
+/* Edit-mode line chrome (cursor inside the fence) */
+.cm-editor .nexus-code-line--editing {
+  box-decoration-break: clone;
+}
+

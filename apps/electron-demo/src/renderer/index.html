@@ -8,7 +8,8 @@
       content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' https: http: data: nexus-vault:"
     />
     <title>Nexus Editor Demo</title>
-    <link rel="stylesheet" href="./style.css" />
+    <!-- Styles are imported from app.ts (./styles/main.scss) so Vite compiles
+         and bundles the SCSS. -->
   </head>
   <body>
     <div id="app"></div>

@@ -1,0 +1,126 @@
+@use "variables" as v;
+
+/* ============================================================
+   Knowledge Graph overlay
+   Force-directed view of the vault's wikilink network. Sits
+   on top of the editor column and fades in when toggled.
+   ============================================================ */
+.nx-graph {
+  position: absolute;
+  inset: 0;
+  z-index: v.$z-graph;
+  background: var(--ds-surface-card);
+  overflow: hidden;
+  animation: nx-graph-fade 160ms ease both;
+}
+
+@keyframes nx-graph-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.nx-graph__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.nx-graph__canvas:active {
+  cursor: grabbing;
+}
+
+.nx-graph__header {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.nx-graph__heading {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ds-body);
+}
+
+.nx-graph__meta {
+  font-size: 12px;
+  color: var(--ds-muted-soft);
+  flex: 1;
+}
+
+.nx-graph__close {
+  pointer-events: auto;
+}
+
+.nx-graph__controls {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 12px;
+  background: var(--ds-surface-card);
+  border: 1px solid var(--ds-hairline);
+  border-radius: var(--ds-radius-pill);
+  box-shadow: var(--ds-shadow-soft);
+}
+
+.nx-graph__legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ds-muted-soft);
+}
+
+.nx-graph__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: -2px;
+}
+
+.nx-graph__dot--note {
+  background: var(--ds-body);
+}
+
+.nx-graph__dot--ghost {
+  background: transparent;
+  border: 1.5px dashed var(--ds-muted-soft);
+}
+
+.nx-graph__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  padding: 24px;
+  pointer-events: none;
+}
+
+.nx-graph__empty-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ds-body);
+}
+
+.nx-graph__empty-body {
+  font-size: 13px;
+  color: var(--ds-muted-soft);
+  max-width: 320px;
+  line-height: 1.5;
+}
+
