@@ -91,6 +91,19 @@ export interface EditorConfig {
   direction?: "ltr" | "rtl";
   /** Show indentation guide lines. Default: false */
   indentGuides?: boolean;
+  /**
+   * Show line numbers in the gutter. Default: true.
+   * Can be toggled at runtime via {@link EditorAPI.setLineNumbers}.
+   */
+  lineNumbers?: boolean;
+  /**
+   * Soft-wrap long lines to the editor width. Default: true.
+   *
+   * Markdown notes commonly contain long unbreakable tokens (base64
+   * `data:` image URLs, long links). Without wrapping those lines expand
+   * the content area indefinitely and break the layout.
+   */
+  lineWrapping?: boolean;
   /** Prevent user edits while preserving selection and scrolling. Default: false */
   readOnly?: boolean;
   /**
@@ -189,6 +202,8 @@ export interface EditorAPI {
   getTableOfContents(): TocEntry[];
   exportHTML(): string;
   setTheme(theme: import("./theme").NexusTheme): void;
+  /** Show or hide the line-number gutter. */
+  setLineNumbers(enabled: boolean): void;
   getSelection(): { anchor: number; head: number };
   /** All selection ranges plus the main-range index. Single-range editors return one entry. */
   getSelections(): SelectionState;
