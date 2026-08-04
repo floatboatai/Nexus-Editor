@@ -16,11 +16,76 @@ export interface EditorSettings {
 
 const STORAGE_KEY = "nexus-editor-settings";
 
+/** Editorial light palette from DESIGN.md — injected only in the demo shell. */
+const designLightTheme: Partial<NexusTheme> = {
+  bg: "#ffffff",
+  bgSubtle: "#f5f5f5",
+  bgMuted: "#f0efed",
+  text: "#0c0a09",
+  textMuted: "#777169",
+  textFaint: "#a8a29e",
+  border: "#e7e5e4",
+  borderSubtle: "#f0efed",
+  accent: "#292524",
+  tooltipBg: "#0c0a09",
+  tooltipText: "#ffffff",
+  hlKeyword: "#9f1239",
+  hlString: "#3f6212",
+  hlTitle: "#44403c",
+  hlComment: "#a8a29e",
+  hlNumber: "#b45309",
+  hlType: "#57534e",
+  hlDeletion: "#dc2626",
+  hlVariable: "#78716c",
+};
+
+/** Editorial dark palette aligned with DESIGN surface-dark tokens. */
+const designDarkTheme: Partial<NexusTheme> = {
+  bg: "#1c1917",
+  bgSubtle: "#0c0a09",
+  bgMuted: "#292524",
+  text: "#fafaf9",
+  textMuted: "#a8a29e",
+  textFaint: "#78716c",
+  border: "#292524",
+  borderSubtle: "#1c1917",
+  accent: "#fafaf9",
+  tooltipBg: "#292524",
+  tooltipText: "#fafaf9",
+  hlKeyword: "#fb7185",
+  hlString: "#a3e635",
+  hlTitle: "#e7e5e4",
+  hlComment: "#78716c",
+  hlNumber: "#fbbf24",
+  hlType: "#a8a29e",
+  hlDeletion: "#f87171",
+  hlVariable: "#d6d3d1",
+};
+
+/**
+ * Drive shell chrome CSS (`html[data-theme]`) so panels / titlebar / menus
+ * follow color scheme. The editor theme is applied separately via setTheme().
+ */
+export function applyShellColorScheme(scheme: "light" | "dark"): void {
+  const root = document.documentElement;
+  root.dataset.theme = scheme;
+  root.classList.toggle("theme-dark", scheme === "dark");
+  root.classList.toggle("theme-light", scheme === "light");
+  document.body?.classList.toggle("theme-dark", scheme === "dark");
+  document.body?.classList.toggle("theme-light", scheme === "light");
+
+  // Keep OS window chrome / overscroll tint roughly in sync.
+  const canvas = scheme === "dark" ? "#0c0a09" : "#f5f5f5";
+  document.body.style.background = canvas;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", canvas);
+}
+
 export function defaultSettings(): EditorSettings {
   return {
     colorScheme: "light",
     fontSize: 15,
-    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+    fontFamily: "Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
     fontFamilyMono: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
     contentMaxWidth: "",
     tabSize: 4,
@@ -46,7 +111,10 @@ export function saveSettings(settings: EditorSettings): void {
 }
 
 export function settingsToTheme(settings: EditorSettings): NexusTheme {
-  const base = settings.colorScheme === "dark" ? darkTheme : lightTheme;
+  const base =
+    settings.colorScheme === "dark"
+      ? { ...darkTheme, ...designDarkTheme }
+      : { ...lightTheme, ...designLightTheme };
   return {
     ...base,
     fontSize: settings.fontSize,
@@ -57,68 +125,6 @@ export function settingsToTheme(settings: EditorSettings): NexusTheme {
 }
 
 // ── Settings Panel UI ──
-
-const PANEL_STYLES = `
-  position: fixed; inset: 0; z-index: 9999;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.4);
-  font-family: system-ui, -apple-system, sans-serif;
-`;
-
-const DIALOG_STYLES = `
-  background: var(--nexus-bg, #fff);
-  color: var(--nexus-text, #24292e);
-  border: 1px solid var(--nexus-border, #eee);
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
-  width: 520px; max-height: 80vh;
-  overflow-y: auto;
-  padding: 0;
-`;
-
-const HEADER_STYLES = `
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--nexus-border, #eee);
-  font-size: 16px; font-weight: 600;
-`;
-
-const SECTION_STYLES = `
-  padding: 8px 24px 16px;
-`;
-
-const SECTION_TITLE_STYLES = `
-  font-size: 12px; font-weight: 600; text-transform: uppercase;
-  color: var(--nexus-text-muted, #888);
-  letter-spacing: 0.5px;
-  padding: 12px 0 4px;
-`;
-
-const ROW_STYLES = `
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--nexus-border-subtle, #f0f0f0);
-  gap: 12px;
-`;
-
-const LABEL_STYLES = `
-  flex: 1; min-width: 0;
-`;
-
-const LABEL_TITLE_STYLES = `
-  font-size: 14px; font-weight: 500; line-height: 1.4;
-`;
-
-const LABEL_DESC_STYLES = `
-  font-size: 12px; color: var(--nexus-text-muted, #888); line-height: 1.4;
-`;
-
-const CLOSE_BTN_STYLES = `
-  background: none; border: none; cursor: pointer;
-  font-size: 20px; color: var(--nexus-text-muted, #888);
-  width: 32px; height: 32px; border-radius: 6px;
-  display: flex; align-items: center; justify-content: center;
-`;
 
 interface SettingsPanelResult {
   element: HTMLElement;
@@ -216,17 +222,17 @@ function createTextInput(value: string, placeholder: string, onChange: (v: strin
 
 function row(title: string, desc: string, control: HTMLElement): HTMLElement {
   const el = document.createElement("div");
-  el.style.cssText = ROW_STYLES;
+  el.className = "nx-modal__row";
 
   const labelWrap = document.createElement("div");
-  labelWrap.style.cssText = LABEL_STYLES;
+  labelWrap.style.cssText = "flex:1;min-width:0;";
 
   const t = document.createElement("div");
-  t.style.cssText = LABEL_TITLE_STYLES;
+  t.className = "nx-modal__label-title";
   t.textContent = title;
 
   const d = document.createElement("div");
-  d.style.cssText = LABEL_DESC_STYLES;
+  d.className = "nx-modal__label-desc";
   d.textContent = desc;
 
   labelWrap.append(t, d);
@@ -236,32 +242,33 @@ function row(title: string, desc: string, control: HTMLElement): HTMLElement {
 
 function sectionTitle(text: string): HTMLElement {
   const el = document.createElement("div");
-  el.style.cssText = SECTION_TITLE_STYLES;
+  el.className = "nx-modal__section-title";
   el.textContent = text;
   return el;
 }
 
 export function createSettingsPanel(settings: EditorSettings, onChange: OnChange): SettingsPanelResult {
   const backdrop = document.createElement("div");
-  backdrop.style.cssText = PANEL_STYLES;
+  backdrop.className = "nx-modal";
 
   const dialog = document.createElement("div");
-  dialog.style.cssText = DIALOG_STYLES;
+  dialog.className = "nx-modal__dialog";
 
   // Header
   const header = document.createElement("div");
-  header.style.cssText = HEADER_STYLES;
+  header.className = "nx-modal__header";
   const titleEl = document.createElement("span");
   titleEl.textContent = "Settings";
   const closeBtn = document.createElement("button");
-  closeBtn.style.cssText = CLOSE_BTN_STYLES;
+  closeBtn.type = "button";
+  closeBtn.className = "nx-btn nx-btn--icon";
   closeBtn.innerHTML = "&times;";
   closeBtn.title = "Close";
   header.append(titleEl, closeBtn);
 
   // Body
   const body = document.createElement("div");
-  body.style.cssText = SECTION_STYLES;
+  body.className = "nx-modal__body";
 
   const s = { ...settings };
   const emit = () => { saveSettings(s); onChange(s); };
