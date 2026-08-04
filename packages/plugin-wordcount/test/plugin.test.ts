@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import remarkMath from "remark-math";
 
 import { createEditor, type EditorAPI } from "@floatboat/nexus-core";
 
@@ -38,6 +39,25 @@ describe("createWordCountPlugin", () => {
 
     const expected = countMarkdown("Hello world.\n\nSecond paragraph.", { ast: editor.getAst() });
     expect(wordcount.getStats()).toEqual(expected);
+  });
+
+  it("excludes remark syntax-extension nodes consistently in editor mode", async () => {
+    const source = "Before $x squared plus y$ after";
+    const wordcount = createWordCountPlugin();
+    editor = createEditor({
+      container,
+      initialValue: source,
+      plugins: [
+        { name: "math-syntax", remarkPlugins: [remarkMath] },
+        wordcount
+      ]
+    });
+    attachWordCountPlugin(wordcount, editor);
+
+    await flushMicrotasks();
+
+    expect(wordcount.getStats().words).toBe(2);
+    expect(wordcount.getStats()).toEqual(countMarkdown(source));
   });
 
   it("emits initial state synchronously on subscribe", async () => {
