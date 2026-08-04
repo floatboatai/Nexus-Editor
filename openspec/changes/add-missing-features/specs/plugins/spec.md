@@ -54,3 +54,18 @@ List items SHALL have grip handles (similar to table rows) that allow drag-and-d
 #### Scenario: Drag preserves indentation
 - **WHEN** a nested list item is dragged
 - **THEN** its indentation level SHALL be preserved after the move
+
+#### Scenario: Drag preserves list item content
+- **WHEN** a list item containing task state or a nested list is dragged
+- **THEN** the complete item subtree SHALL move as one atomic editor change
+- **AND** task checkbox state SHALL be preserved
+
+#### Scenario: Reorder an ordered list
+- **WHEN** an ordered list item is moved to another position
+- **THEN** the destination slot numbering style SHALL be preserved
+
+#### Scenario: Reorder with the keyboard
+- **GIVEN** a list item grip has focus
+- **WHEN** the user presses ArrowUp or ArrowDown
+- **THEN** the item SHALL move one position in that direction when possible
+- **AND** focus SHALL follow the moved item

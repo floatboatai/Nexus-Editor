@@ -8,9 +8,11 @@ import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
 import { highlightCodeBlock } from "./live-preview-highlight";
 
 import { createLivePreviewDiagnostics } from "./live-preview-diag";
+import { buildListDecorations } from "./live-preview-list";
 import { collectLivePreviewRanges, selectionIntersects, selectionOnSameLine } from "./live-preview-ranges";
 import { renderLivePreviewNode } from "./live-preview-renderers";
 import { EditableTableWidget, isTableEditing } from "./live-preview-table";
+import { createWidget } from "./live-preview-widget";
 import type {
   LivePreviewConfig,
   LivePreviewLabels,
@@ -33,6 +35,7 @@ const DEFAULT_LABELS: Required<LivePreviewLabels> = {
   deleteRow: "Delete row",
   insertColumnAfter: "Insert column after",
   insertRowBelow: "Insert row below",
+  reorderListItem: "Reorder list item",
 };
 
 function createEmptyAst(): Root {
@@ -94,41 +97,6 @@ function normalizeConfig(
     renderers: config.renderers ?? {},
     labels: { ...DEFAULT_LABELS, ...config.labels }
   };
-}
-
-function createWidget(
-  source: HTMLElement | (() => HTMLElement),
-  swallowEvents = false,
-  heightHint?: number,
-  eqKey?: string,
-): WidgetType {
-  // Eager path: caller already built the element. Lazy path: caller passes a
-  // builder closure and we defer DOM construction to first toDOM(), so widgets
-  // outside the CM6 viewport pay nothing until scrolled in.
-  let element: HTMLElement | null = typeof source === "function" ? null : source;
-  const builder = typeof source === "function" ? source : null;
-  return new (class extends WidgetType {
-    /** Stable identity used by eq() so CM6 reuses old DOM across rebuilds. */
-    readonly _eqKey = eqKey;
-    toDOM(): HTMLElement {
-      if (element) return element;
-      element = builder!();
-      return element;
-    }
-    eq(other: WidgetType): boolean {
-      // Without a key we fall back to CM6's default (object identity → false),
-      // forcing a rebuild every transaction. That's the old behavior and is
-      // safe; only opt-in callers that pass a stable eqKey get DOM reuse.
-      if (this._eqKey === undefined) return false;
-      const otherKey = (other as { _eqKey?: string })._eqKey;
-      return otherKey === this._eqKey;
-    }
-    ignoreEvent() { return swallowEvents; }
-    // For block widgets, giving CM6 a pre-measure height prevents the heightmap
-    // from assigning 0 and then jumping to the real height on first measure.
-    // That jump shifts every click resolution below the widget until remeasured.
-    get estimatedHeight(): number { return heightHint ?? -1; }
-  })();
 }
 
 class CodeCopyWidget extends WidgetType {
@@ -467,113 +435,6 @@ function buildHeadingDecorations(
         }
       }).range(textStart, range.to)
     );
-  }
-}
-
-const LIST_MARKER_RE = /^(\s*)([-*+]|\d+[.)]) /;
-const CHECKBOX_RE = /^\[([ xX])\] /;
-
-function buildListDecorations(
-  range: { from: number; to: number; node: List },
-  doc: string,
-  selection: readonly SelectionRange[],
-  decos: Range<Decoration>[],
-  viewRef: { current: EditorView | null }
-): void {
-  // Iterate ListItems via mdast structure (not regex over flat source lines).
-  // Nested sub-lists are children of a ListItem, not of the outer list, so
-  // walking list.children visits only this level \u2014 no double-decoration of
-  // nested markers and no off-by-N ordered numbering caused by counting
-  // nested-list lines as siblings.
-  const list = range.node;
-  const isOrdered = list.ordered === true;
-  let orderNum = list.start ?? 1;
-
-  for (const item of list.children) {
-    const itemFrom = item.position?.start.offset;
-    if (typeof itemFrom !== "number") continue;
-
-    const newlineIdx = doc.indexOf("\n", itemFrom);
-    const headLineEnd = newlineIdx === -1 ? doc.length : newlineIdx;
-    const headLine = doc.slice(itemFrom, headLineEnd);
-    const markerMatch = LIST_MARKER_RE.exec(headLine);
-    if (!markerMatch) continue;
-
-    // 预先占用本项的序号：即便下面因光标落在本行而露出原始 marker，
-    // 它仍占一个序号，避免兄弟项被重新编号。
-    const ordinal = orderNum;
-    if (isOrdered) orderNum++;
-
-    // Obsidian 式实时预览：光标落在本项首行时，显示原始 `- [ ] ` / `1. `
-    // 源码以便直接编辑；其余项保持渲染后的圆点 / 复选框。inclusiveEnd
-    // 让光标停在行尾（按 End 后）也算在行内。
-    if (selectionIntersects(itemFrom, headLineEnd, selection, true)) continue;
-
-    const indent = markerMatch[1];
-    const markerStart = itemFrom + indent.length;
-    const markerEnd = itemFrom + markerMatch[0].length;
-
-    const bullet = document.createElement("span");
-    let bulletKey: string;
-    if (isOrdered) {
-      bullet.textContent = `${ordinal}. `;
-      bullet.style.color = "var(--nexus-text-muted)";
-      bulletKey = `bullet:ord:${ordinal}:${markerStart}-${markerEnd}`;
-    } else {
-      bullet.textContent = "\u2022 ";
-      bullet.style.color = "var(--nexus-text-muted)";
-      bulletKey = `bullet:ul:${markerStart}-${markerEnd}`;
-    }
-    decos.push(
-      Decoration.replace({
-        widget: createWidget(bullet, false, undefined, bulletKey),
-      }).range(markerStart, markerEnd)
-    );
-
-    const afterMarker = headLine.slice(markerMatch[0].length);
-    const checkMatch = CHECKBOX_RE.exec(afterMarker);
-    if (checkMatch) {
-      const checkStart = markerEnd;
-      const checkEnd = markerEnd + checkMatch[0].length;
-      const isChecked = checkMatch[1] !== " ";
-
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.checked = isChecked;
-      checkbox.style.marginRight = "4px";
-      checkbox.style.verticalAlign = "middle";
-      checkbox.style.cursor = "pointer";
-
-      const toggleFrom = checkStart + 1;
-      // mousedown 先于 click：阻止 CM6 在 widget 上启动选区拖拽 / 移动光标，
-      // 否则点击会被解读成"把光标放到该行"而非切换复选框。
-      checkbox.addEventListener("mousedown", (e) => { e.preventDefault(); });
-      checkbox.addEventListener("click", (e) => {
-        e.preventDefault();
-        const v = viewRef.current;
-        if (!v) return;
-        v.dispatch({
-          changes: { from: toggleFrom, to: toggleFrom + 1, insert: isChecked ? " " : "x" }
-        });
-      });
-
-      const taskKey = `task:${checkStart}-${checkEnd}:${isChecked ? "x" : " "}`;
-      decos.push(
-        Decoration.replace({
-          // swallowEvents=true → ignoreEvent() 返回 true，CM6 不再抢占点击，
-          // 复选框自身的 click 处理器得以触发完成切换。
-          widget: createWidget(checkbox, true, undefined, taskKey),
-        }).range(checkStart, checkEnd)
-      );
-
-      if (isChecked && checkEnd < headLineEnd) {
-        decos.push(
-          Decoration.mark({
-            attributes: { style: "text-decoration: line-through; color: var(--nexus-text-muted)" }
-          }).range(checkEnd, headLineEnd)
-        );
-      }
-    }
   }
 }
 
@@ -1093,7 +954,14 @@ function buildDecorations(
         viewRef
       );
     } else if (range.node.type === "list") {
-      buildListDecorations(range as { from: number; to: number; node: List }, doc, selection, decos, viewRef);
+      buildListDecorations(
+        range as { from: number; to: number; node: List },
+        doc,
+        selection,
+        decos,
+        viewRef,
+        config.labels.reorderListItem,
+      );
     } else if (range.node.type === "blockquote") {
       const alertInfo = buildBlockquoteDecorations(
         range as { from: number; to: number; source: string },
