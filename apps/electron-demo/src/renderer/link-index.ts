@@ -23,6 +23,33 @@ export interface BacklinkHit {
   snippet: string;
 }
 
+/**
+ * A single node in the vault link graph. Real notes are keyed by their
+ * absolute path; wiki links that point at a file which doesn't exist yet are
+ * surfaced as "ghost" nodes (resolved === false) keyed `unresolved:<name>` so
+ * the graph can hint at notes worth creating.
+ */
+export interface GraphNode {
+  id: string;
+  /** Display label — basename without extension for real notes, raw name for ghosts. */
+  label: string;
+  /** false when the node is an unresolved wiki-link target (a note that doesn't exist). */
+  resolved: boolean;
+  /** Number of distinct incident edges — used by the view to size the node. */
+  degree: number;
+}
+
+/** A directed edge: `source` links to `target` (both are {@link GraphNode} ids). */
+export interface GraphEdge {
+  source: string;
+  target: string;
+}
+
+export interface LinkGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
 export type LinkIndexListener = () => void;
 
 interface IndexSnapshot {
@@ -321,6 +348,71 @@ export class LinkIndex {
   /** All source files (absolute paths) currently in the index. */
   getAllFiles(): string[] {
     return [...this.contents.keys()];
+  }
+
+  /**
+   * Build the whole-vault link graph from the current forward edges.
+   *
+   * - Every indexed file becomes a resolved node (id = absolute path).
+   * - Each forward wiki link is resolved; when it points at a real file we
+   *   emit a directed edge to that file. When it resolves to nothing we emit a
+   *   single "ghost" node (id = `unresolved:<lowercased bare name>`) plus an
+   *   edge to it, so notes-yet-to-be-created still show up in the graph.
+   * - Duplicate edges between the same pair are collapsed; `degree` counts the
+   *   distinct incident edges so the view can size hubs larger.
+   *
+   * Pure w.r.t. the current index state — no mutation, safe to call on every
+   * `subscribe` notification.
+   */
+  getGraph(): LinkGraph {
+    const nodes = new Map<string, GraphNode>();
+    const degree = new Map<string, number>();
+    const seenEdge = new Set<string>();
+    const edges: GraphEdge[] = [];
+
+    const ensureNode = (id: string, label: string, resolved: boolean): void => {
+      const existing = nodes.get(id);
+      if (existing) {
+        // A ghost can be "promoted" if the file later appears; prefer resolved.
+        if (resolved && !existing.resolved) existing.resolved = true;
+        return;
+      }
+      nodes.set(id, { id, label, resolved, degree: 0 });
+    };
+
+    // 1. Seed a resolved node for every real file.
+    for (const path of this.contents.keys()) {
+      ensureNode(path, stripExt(basename(path)), true);
+    }
+
+    // 2. Walk forward edges, resolving each link to a real file or a ghost.
+    for (const [source, matches] of this.forward) {
+      for (const m of matches) {
+        // Strip the anchor here because we need the bare name for the ghost
+        // node's id/label. resolveFromMaps strips again internally (it must,
+        // for its other caller `resolve()`), but on an already-bare string
+        // that second strip is a harmless no-op.
+        const bare = stripAnchor(m.target);
+        if (!bare) continue; // pure anchor like [[#Heading]] — not a node
+        const resolved = this.resolveFromMaps(bare, source, this.contents, this.byBasename);
+        const targetId = resolved ?? `unresolved:${bare.toLowerCase()}`;
+        if (!resolved) ensureNode(targetId, bare, false);
+        if (targetId === source) continue; // ignore self-links
+
+        const key = `${source} ${targetId}`;
+        if (seenEdge.has(key)) continue;
+        seenEdge.add(key);
+        edges.push({ source, target: targetId });
+        degree.set(source, (degree.get(source) ?? 0) + 1);
+        degree.set(targetId, (degree.get(targetId) ?? 0) + 1);
+      }
+    }
+
+    for (const node of nodes.values()) {
+      node.degree = degree.get(node.id) ?? 0;
+    }
+
+    return { nodes: [...nodes.values()], edges };
   }
 
   /**
