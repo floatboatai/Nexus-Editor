@@ -168,6 +168,9 @@ importers:
       '@codemirror/search':
         specifier: ^6.6.0
         version: 6.6.0
+      '@codemirror/state':
+        specifier: ^6.6.0
+        version: 6.6.0
       '@codemirror/view':
         specifier: ^6.41.0
         version: 6.41.0

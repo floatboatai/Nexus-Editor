@@ -303,6 +303,261 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  /**
+   * Fuzzy find semantics (ROADMAP #17) — shortest **word** first:
+   * - Split the document into words (whitespace-separated tokens).
+   * - A word matches when the query is a subsequence (two-pointer, in order).
+   * - Among matching words, prefer the **shortest** word; ties → leftmost.
+   * - The reported span is the **whole word**; scanning resumes after it.
+   * - `fuzzy: true` wins over `regexp` / `wholeWord`.
+   * - Replace is unsupported while fuzzy is on (document unchanged).
+   */
+  describe("fuzzy search", () => {
+    it("matches a word when the query is a subsequence of that word", () => {
+      expect(findSearchMatches("hello fuzzy search", "fzy", { fuzzy: true })).toEqual([
+        { from: 6, to: 11, text: "fuzzy" }
+      ]);
+    });
+
+    it("prefers the shortest matching word over a longer earlier word", () => {
+      // Both "axxb" and "ab" contain subsequence "ab"; shortest word wins.
+      expect(findSearchMatches("axxb ab", "ab", { fuzzy: true })).toEqual([
+        { from: 5, to: 7, text: "ab" }
+      ]);
+    });
+
+    it("prefers a shorter matching word later in the document", () => {
+      expect(findSearchMatches("aXbY aY", "aY", { fuzzy: true })).toEqual([
+        { from: 5, to: 7, text: "aY" }
+      ]);
+    });
+
+    it("breaks equal-length word ties by leftmost position", () => {
+      expect(findSearchMatches("ab ab", "ab", { fuzzy: true })).toEqual([
+        { from: 0, to: 2, text: "ab" },
+        { from: 3, to: 5, text: "ab" }
+      ]);
+    });
+
+    it("selects the whole shortest word, not an inner character span", () => {
+      // Character-span shortest for "its" inside "invariants" would be "iants";
+      // word-first must return the entire word.
+      expect(findSearchMatches("invariants", "its", { fuzzy: true })).toEqual([
+        { from: 0, to: 10, text: "invariants" }
+      ]);
+    });
+
+    it("prefers invariants over a longer token that can also consume the query", () => {
+      // "click-drift" has no "s", so it fails; "invariants" is the shortest hit.
+      // Guards against cross-token character spans like "ick-drift invariants".
+      const doc = "click-drift invariants and the backlinks";
+      expect(findSearchMatches(doc, "its", { fuzzy: true })).toEqual([
+        { from: 12, to: 22, text: "invariants" }
+      ]);
+    });
+
+    it("returns no matches for an empty fuzzy query", () => {
+      expect(findSearchMatches("hello fuzzy search", "", { fuzzy: true })).toEqual([]);
+    });
+
+    it("returns no matches when no word contains the subsequence", () => {
+      expect(findSearchMatches("hello world", "xyz", { fuzzy: true })).toEqual([]);
+    });
+
+    it("matches case-insensitively by default", () => {
+      expect(findSearchMatches("hello Fuzzy search", "fzy", { fuzzy: true })).toEqual([
+        { from: 6, to: 11, text: "Fuzzy" }
+      ]);
+    });
+
+    it("supports case-sensitive fuzzy matching", () => {
+      expect(
+        findSearchMatches("hello Fuzzy search", "Fzy", { fuzzy: true, caseSensitive: true })
+      ).toEqual([{ from: 6, to: 11, text: "Fuzzy" }]);
+      expect(
+        findSearchMatches("hello Fuzzy search", "fzy", { fuzzy: true, caseSensitive: true })
+      ).toEqual([]);
+    });
+
+    it("finds a subsequence that literal substring search misses", () => {
+      expect(findSearchMatches("hello fuzzy search", "fzy")).toEqual([]);
+      expect(findSearchMatches("hello fuzzy search", "fzy", { fuzzy: true })).toEqual([
+        { from: 6, to: 11, text: "fuzzy" }
+      ]);
+    });
+
+    it("treats fuzzy query characters literally within a whitespace token", () => {
+      // Whole token "$5.00" (whitespace-separated), not an inner "$5." slice.
+      expect(findSearchMatches("cost is $5.00 today", "$.", { fuzzy: true })).toEqual([
+        { from: 8, to: 13, text: "$5.00" }
+      ]);
+      expect(findSearchMatches("aaa", "a+", { fuzzy: true })).toEqual([]);
+    });
+
+    it("ignores regexp and wholeWord when fuzzy is enabled", () => {
+      expect(
+        findSearchMatches("hello fuzzy search", "fzy", {
+          fuzzy: true,
+          regexp: true,
+          wholeWord: true
+        })
+      ).toEqual([{ from: 6, to: 11, text: "fuzzy" }]);
+    });
+
+    it("leaves replaceAllMatches unchanged when fuzzy is enabled", () => {
+      expect(replaceAllMatches("fuzzy", "fuzzy", "X", { fuzzy: true })).toBe("fuzzy");
+      expect(replaceAllMatches("hello fuzzy search", "fzy", "X", { fuzzy: true })).toBe(
+        "hello fuzzy search"
+      );
+    });
+  });
+
+  it("finds a fuzzy subsequence from the search panel", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({
+      container,
+      initialValue: "hello fuzzy search",
+      plugins: [createSearchPlugin()]
+    });
+
+    try {
+      const input = openSearchPanel(container);
+      const fuzzyField = container.querySelector<HTMLInputElement>(
+        '[data-test-id="markdown-search-fuzzy-toggle"]'
+      );
+      expect(fuzzyField).not.toBeNull();
+      fuzzyField!.checked = true;
+      fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+
+      submitSearch(input, "fzy");
+      expect(editor.getSelectedText()).toBe("fuzzy");
+      // Typed query stays literal — not the compiled regexp.
+      expect(input.value).toBe("fzy");
+    } finally {
+      editor.destroy();
+      container.remove();
+    }
+  });
+
+  it("uses shortest-word fuzzy matching from the search panel", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({
+      container,
+      initialValue: "click-drift invariants and the backlinks",
+      plugins: [createSearchPlugin()]
+    });
+
+    try {
+      const input = openSearchPanel(container);
+      const fuzzyField = container.querySelector<HTMLInputElement>(
+        '[data-test-id="markdown-search-fuzzy-toggle"]'
+      );
+      fuzzyField!.checked = true;
+      fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+
+      submitSearch(input, "its");
+      expect(editor.getSelectedText()).toBe("invariants");
+    } finally {
+      editor.destroy();
+      container.remove();
+    }
+  });
+
+  it("makes fuzzy and regexp panel toggles mutually exclusive", () => {
+    const harness = setupSearchPanel();
+    const fuzzyField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
+    );
+    const regexpField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-regexp-toggle"]'
+    );
+    const wholeWordField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-word-toggle"]'
+    );
+    const replaceToggle = harness.container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-toggle-replace"]'
+    );
+
+    expect(fuzzyField).not.toBeNull();
+    expect(regexpField).not.toBeNull();
+
+    regexpField!.checked = true;
+    regexpField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    expect(regexpField!.checked).toBe(true);
+    expect(fuzzyField!.checked).toBe(false);
+
+    fuzzyField!.checked = true;
+    fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    expect(fuzzyField!.checked).toBe(true);
+    expect(regexpField!.checked).toBe(false);
+    expect(regexpField!.disabled).toBe(false);
+    expect(wholeWordField!.disabled).toBe(true);
+    expect(replaceToggle!.disabled).toBe(true);
+
+    fuzzyField!.checked = false;
+    fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    expect(fuzzyField!.checked).toBe(false);
+    expect(regexpField!.disabled).toBe(false);
+    expect(wholeWordField!.disabled).toBe(false);
+    expect(replaceToggle!.disabled).toBe(false);
+
+    regexpField!.checked = true;
+    regexpField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    expect(regexpField!.checked).toBe(true);
+    expect(fuzzyField!.checked).toBe(false);
+
+    harness.destroy();
+  });
+
+  it("switches from fuzzy to regexp in one click and commits", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({
+      container,
+      initialValue: "hello fuzzy search",
+      plugins: [createSearchPlugin()]
+    });
+
+    try {
+      const input = openSearchPanel(container);
+      const fuzzyField = container.querySelector<HTMLInputElement>(
+        '[data-test-id="markdown-search-fuzzy-toggle"]'
+      );
+      const regexpField = container.querySelector<HTMLInputElement>(
+        '[data-test-id="markdown-search-regexp-toggle"]'
+      );
+      expect(fuzzyField).not.toBeNull();
+      expect(regexpField).not.toBeNull();
+
+      fuzzyField!.checked = true;
+      fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+      expect(fuzzyField!.checked).toBe(true);
+      // Regexp must stay clickable so Fuzzy → Regexp mirrors Regexp → Fuzzy.
+      expect(regexpField!.disabled).toBe(false);
+
+      submitSearch(input, "fzy");
+      expect(editor.getSelectedText()).toBe("fuzzy");
+
+      // One-click switch: enable Regexp while Fuzzy is still on.
+      regexpField!.checked = true;
+      regexpField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+      expect(fuzzyField!.checked).toBe(false);
+      expect(regexpField!.checked).toBe(true);
+      // Typed query stays in the field; commit should leave a usable regexp query.
+      expect(input.value).toBe("fzy");
+
+      submitSearch(input, "fuzzy");
+      expect(editor.getSelectedText()).toBe("fuzzy");
+      expect(fuzzyField!.checked).toBe(false);
+      expect(regexpField!.checked).toBe(true);
+    } finally {
+      editor.destroy();
+      container.remove();
+    }
+  });
+
   it("creates a search plugin descriptor", () => {
     const plugin = createSearchPlugin();
 

@@ -2,11 +2,11 @@ import { createState, type AppState } from "./state";
 import { createEditorShell, type EditorShell } from "./editor-shell";
 import { loadSettings, createSettingsPanel, type EditorSettings } from "./settings";
 import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
-import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
+import { openNexusSearchPanel } from "@floatboat/nexus-plugin-search";
 
 installLongTaskWatch(50);
 
@@ -14,9 +14,10 @@ const state: AppState = createState();
 let settings: EditorSettings = loadSettings();
 let shell: EditorShell;
 let outline: OutlinePanel;
-let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+/** Opens the plugin-search panel (with Fuzzy). Set in boot() once the editor exists. */
+let openPluginSearch: () => void = () => {};
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
@@ -69,7 +70,7 @@ function createAppToolbar(): HTMLElement {
   searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
   searchBtn.title = "Search (Ctrl+F)";
   searchBtn.style.fontSize = "14px";
-  searchBtn.addEventListener("click", () => searchBar.open());
+  searchBtn.addEventListener("click", () => openPluginSearch());
 
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "\u2699"; // ⚙
@@ -400,15 +401,22 @@ function boot(): void {
   };
 
   outline = createOutlinePanel(shell.editor);
-  searchBar = createSearchBar(shell.editor);
   backlinks = createBacklinksPanel({
     index: linkIndex,
     onOpenFile: (filePath) => void handleVaultFileOpen(filePath),
     getActiveFile: () => state.activeFile,
   });
 
-  editorColumn.append(searchBar.element, editorContainer);
+  editorColumn.append(editorContainer);
   mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
+
+  // Route Ctrl+F / toolbar 🔍 to plugin-search (Fuzzy lives there). Call
+  // openSearchPanel via the plugin helper — synthetic Mod-f key events often
+  // need two presses in Electron.
+  openPluginSearch = () => {
+    shell.editor.focus();
+    openNexusSearchPanel(editorContainer);
+  };
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {
@@ -416,9 +424,9 @@ function boot(): void {
   });
 
   document.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+    if ((e.ctrlKey || e.metaKey) && e.key === "f" && !e.altKey && !e.shiftKey) {
       e.preventDefault();
-      searchBar.open();
+      openPluginSearch();
     }
   });
 
