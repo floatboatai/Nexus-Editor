@@ -19,10 +19,12 @@ We ship in priority tiers — **P0 is what we're working on right now**.
 
 | Tier | Theme | Highlights |
 |---|---|---|
-| **P0 — Now** | Core API completeness | `getSelectedText()`, slash command sorting, `<Editor />` `onReady`, TS strict coverage |
-| **P1 — Next** | Power-user features | Multi-cursor, regex search, undo/redo grouping, widget API standardization, Electron packaging |
-| **P2 — Mid-term** | UX & ecosystem | Advanced toolbar (emoji / table / color), fuzzy search, sync-scroll preview, web-component wrapper |
+| **P0 — Now** | Type safety | Repository-wide TypeScript strict coverage |
+| **P1 — Next** | Reliability & packaging | Undo/redo grouping, widget API standardization, Electron packaging, end-to-end tests |
+| **P2 — Mid-term** | UX & ecosystem | Advanced toolbar, AST extensions, fuzzy search, plugin event bus, sync-scroll preview, web-component wrapper |
 | **P3 — Long-term** | Collaboration | Realtime CRDT collab, shared comments / @mention, plugin hot-reload |
+
+Recently completed work includes `getSelectedText()`, slash-command sorting and UI, multi-cursor editing, regex search, controlled React/Vue documents, and `<Editor />` `onReady`.
 
 👉 **Full roadmap with package ownership, status, and OpenSpec linkage:** [`docs/ROADMAP.md`](./docs/ROADMAP.md)
 

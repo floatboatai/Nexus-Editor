@@ -16,24 +16,24 @@
 
 ### 2.1 Monorepo 包结构划分
 
-项目采用 `pnpm workspaces` + `Turborepo` 进行管理，彻底贯彻模块化：
+项目采用 `pnpm workspaces` 管理包边界，并由根目录脚本按依赖顺序执行构建与验证：
 
 | 包名 (Package)        | 职责描述                                                                       | 依赖的核心库                 |
 | :-------------------- | :----------------------------------------------------------------------------- | :--------------------------- |
-| `@floatboat/nexus-core`         | **核心引擎层**。封装 CM6 实例、状态机、AST 解析管道以及核心的扩展/插件注册表。 | `codemirror`, `remark-parse` |
+| `@floatboat/nexus-core`         | **核心引擎层**。封装 CM6 实例、状态机、Lezer → mdast 管道以及核心的扩展/插件注册表。 | CodeMirror 6、Lezer、Unified |
 | `@floatboat/nexus-react`        | **React 绑定层**。提供 `useEditor` Hook 和无头 `<Editor />` 组件。             | `@floatboat/nexus-core`, `react`       |
 | `@floatboat/nexus-vue`          | **Vue 3 绑定层**。提供 `useEditor` Composable。                                | `@floatboat/nexus-core`, `vue`         |
 | `@floatboat/nexus-preset-gfm`   | **官方预设插件**。提供 GitHub Flavored Markdown 支持（表格、任务列表等）。     | `remark-gfm`                 |
-| `@floatboat/nexus-plugin-slash` | **斜杠菜单逻辑**。提供输入 `/` 触发命令的底层位置计算和状态逻辑（不含 UI）。   | `@floatboat/nexus-core`                |
+| `@floatboat/nexus-plugin-slash` | **斜杠菜单能力**。提供输入 `/` 触发命令的状态、排序和坐标计算，以及可选的原生 DOM 浮层 UI。 | `@floatboat/nexus-core`                |
 
 ### 2.2 核心数据流转 (Data Flow)
 
 编辑器内部的数据流是单向且极度确定的：
 
 1.  **用户输入** -> CM6 触发 `Transaction` -> 更新 `EditorState`。
-2.  **状态映射** -> 内部防抖调用 Unified 将当前文本当作输入生成 AST。
-3.  **视图装饰 (Decorations)** -> 根据 AST 节点类型（如图片、自定义块），CM6 计算出 `Widget` 或 `Mark`，将原生 Markdown 语法替换为宿主框架的组件（实现 Live Preview）。
-4.  **向外输出** -> 触发 `onChange(markdown, ast)`，宿主应用接管数据持久化。
+2.  **增量语法树** -> `@codemirror/lang-markdown` 在 `EditorState` 中维护 Lezer 语法树；核心通过 Lezer → mdast 适配器生成公开 AST，并在配置了 remark 插件时追加转换。
+3.  **视图装饰 (Decorations)** -> Live Preview 根据当前语法范围计算 `Widget` 或 `Mark`；光标进入对应范围时恢复 Markdown 源码，离开后显示内联预览。
+4.  **向外输出** -> `parseDelayMs` 对变更管道进行防抖，随后触发 `onChange(markdown, ast)`，由宿主应用接管持久化。
 
 ## 3. 核心 API 与接口规范 (Technical Spec)
 
@@ -51,15 +51,21 @@ export interface EditorConfig {
     initialValue?: string;
     /** 插件系统入口 */
     plugins?: NexusPlugin[];
-    /** 统一的主题变量前缀 (用于隔离样式) */
-    themePrefix?: string; // 默认 'nx-'
+    /** 可选的内联实时预览 */
+    livePreview?: boolean | LivePreviewConfig;
+    /** 变更通知防抖时长 */
+    parseDelayMs?: number;
+    theme?: NexusTheme;
+    locale?: Partial<NexusLocale>;
+    readOnly?: boolean;
+    multiCursor?: boolean;
 
     /** 生命周期与 IO 钩子 */
-    onChange?: (doc: string) => void;
+    onChange?: (doc: string, ast: Root) => void;
     onFocus?: () => void;
     onBlur?: () => void;
     /** 拦截并处理图片/文件拖拽上传，返回最终的资源 URL */
-    onAssetUpload?: (file: File) => Promise<string>;
+    onAssetUpload?: (file: File) => Promise<string | null>;
 }
 ```
 
@@ -94,23 +100,23 @@ export interface NexusPlugin {
 弃用传统的双栏模式。
 
 - **实现路径**：利用 CodeMirror 的 `ViewPlugin` 和 `Decoration.replace`。当光标**不在**某个特定的 Markdown 结构（如 `**加粗**` 或 `![图片](url)`）内部时，将其折叠并替换为一个 Widget；当光标移入时，展开为源码供编辑。
-- **自定义渲染桥接**：对于使用 React 的宿主，提供一个内部渲染通道，允许开发者使用 `createPortal` 将 React 组件挂载到 CM6 内部生成的 Widget DOM 节点上。
+- **自定义渲染桥接**：`LivePreviewConfig.renderers` 与 `WidgetDefinition.render` 接收语法节点及源码范围，并返回 `HTMLElement`；React/Vue 等框架的 Portal 集成由宿主层负责。
 
 ### 4.2 安全与零信任机制 (Security)
 
 Markdown 渲染天然带有 XSS 风险，尤其是面向未知来源的内容。
 
-- 内部强制经过 `rehype-sanitize` 清洗。
+- Live Preview 的内嵌 HTML 默认经过保守清洗：移除可执行标签、内联事件处理器和 `javascript:` URL；高安全场景可通过自定义 renderer 接入 DOMPurify 等完整清洗器。
 - 所有的点击事件（例如外部链接）默认添加 `rel="noopener noreferrer"`。
-- 对于执行型代码块，严格隔离运行环境，绝对不向内部暴露宿主（如 Electron 的 Node 环境）的高权限 API。
+- `exportHTML()` 默认不透传 Markdown 中的原始危险 HTML；Electron Demo 同时启用 `contextIsolation` 并关闭 `nodeIntegration`，仅通过 preload 暴露窄化的 IPC 接口。
 
 ### 4.3 模块化 UI 委托 (UI Delegation)
 
 既然是 Headless，诸如“悬浮工具栏 (Bubble Menu)”、“斜杠菜单 (Slash Menu)”该如何实现？
 
-- `@floatboat/nexus-core` 只负责计算**坐标（BoundingClientRect）**和**选区状态**。
-- 向外暴露一个状态订阅：`editor.on('slashMenuChange', ({ isOpen, x, y, query }) => {...})`。
-- 宿主框架（如 React）接收到这些状态后，在最外层渲染自己的绝对定位组件，彻底摆脱编辑器内部 DOM 层级的束缚（完美解决弹窗被 `overflow: hidden` 截断的问题）。
+- `@floatboat/nexus-core` 负责计算坐标、查询、候选命令和选区状态。
+- 向外暴露状态订阅：`editor.on('slashMenuChange', ({ isOpen, query, commands, coords }) => {...})`。
+- `@floatboat/nexus-plugin-slash` 提供可选的 `createSlashMenuUI()` 原生 DOM 浮层；React/Vue 等宿主也可以只订阅状态并渲染自己的菜单。
 
 ## 5. 项目演进路线图 (Roadmap)
 

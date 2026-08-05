@@ -19,10 +19,12 @@
 
 | 优先级 | 主题 | 关键项 |
 |---|---|---|
-| **P0 — 当前** | 核心 API 完善 | `getSelectedText()`、斜杠命令排序、`<Editor />` `onReady`、TS 严格类型覆盖 |
-| **P1 — 下一阶段** | 进阶功能 | 多光标、正则搜索、撤销/重做分组、Widget API 标准化、Electron 打包优化 |
-| **P2 — 中期** | 体验与生态 | 高级工具栏（emoji / 表格 / 颜色）、模糊搜索、滚动同步预览、Web Component 包装 |
+| **P0 — 当前** | 类型安全 | 全仓库 TypeScript 严格类型覆盖 |
+| **P1 — 下一阶段** | 可靠性与打包 | 撤销/重做分组、Widget API 标准化、Electron 打包优化、端到端测试 |
+| **P2 — 中期** | 体验与生态 | 高级工具栏、AST 扩展、模糊搜索、插件事件总线、滚动同步预览、Web Component 包装 |
 | **P3 — 长期** | 协作能力 | 实时 CRDT 协作、共享评论 / @提醒、插件热重载 |
+
+近期已完成 `getSelectedText()`、斜杠命令排序与菜单 UI、多光标编辑、正则搜索、React/Vue 受控文档，以及 `<Editor />` `onReady`。
 
 👉 **完整路线图（含包归属、状态、OpenSpec 关联）：** [`docs/ROADMAP.zh.md`](./docs/ROADMAP.zh.md)
 
