@@ -401,14 +401,19 @@ export function createEditor(config: EditorConfig): EditorAPI {
     }, COMPOSITION_FLUSH_DELAY_MS);
   }
 
+  // Table widgets stage text in the DOM; external document actions must commit it first.
+  function finishPendingTableEdits(): void {
+    const tableEditFlushed = flushPendingTableEdits(view, true);
+    if (tableEditFlushed) flushScheduledChangeNow();
+  }
+
   // 整文档替换的实际执行体。setDocument（公开 API）在组合输入中会推迟调用本函数。
   function performSetDocument(next: string, opts?: SetDocumentOptions) {
     // Table cells intentionally keep their DOM edits local until blur so the
     // live-preview widget stays stable while typing. Commit that pending text
     // before an external whole-document replacement, then release the widget's
     // editing lock so the replacement rebuilds decorations from the new doc.
-    const tableEditFlushed = flushPendingTableEdits(view, true);
-    if (tableEditFlushed) flushScheduledChangeNow();
+    finishPendingTableEdits();
     const beforeSelection = view.state.selection.main;
     const silent = opts?.silent === true;
     const selection = resolveDocumentSelection(
@@ -846,10 +851,12 @@ export function createEditor(config: EditorConfig): EditorAPI {
     },
     undo() {
       if (destroyed) return false;
+      finishPendingTableEdits();
       return cmUndo(view);
     },
     redo() {
       if (destroyed) return false;
+      finishPendingTableEdits();
       return cmRedo(view);
     },
     focus() {
@@ -929,8 +936,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
       let firstError: unknown;
       let hasError = false;
       try {
-        const tableEditFlushed = flushPendingTableEdits(view, true);
-        if (tableEditFlushed) flushScheduledChangeNow();
+        finishPendingTableEdits();
       } catch (error) {
         firstError = error;
         hasError = true;

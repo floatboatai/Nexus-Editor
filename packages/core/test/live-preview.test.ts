@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 
+import { createHistoryPlugin } from "../../plugin-history/src/index";
 import { createGfmPreset } from "../../preset-gfm/src/index";
 import { createEditor } from "../src/index";
 
@@ -893,6 +894,79 @@ describe("live preview", () => {
     cell!.dispatchEvent(new Event("blur"));
     await Promise.resolve();
     expect(editor.getDocument()).toBe("replacement");
+
+    editor.destroy();
+    container.remove();
+  });
+
+  it("flushes a dirty table cell before programmatic undo", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const source = "| A | B |\n| --- | --- |\n| old | 2 |";
+    const editor = createEditor({
+      container,
+      initialValue: source,
+      livePreview: true,
+      plugins: [createGfmPreset(), createHistoryPlugin()]
+    });
+    const cell = container.querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    expect(cell).not.toBeUndefined();
+    activateTableCell(cell!);
+    cell!.textContent = "edited";
+    cell!.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      inputType: "insertText",
+      data: "edited"
+    }));
+
+    expect(editor.getDocument()).toBe(source);
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe(source);
+
+    // A late blur from the finished table session must not restore the edit.
+    cell!.dispatchEvent(new Event("blur"));
+    await Promise.resolve();
+    expect(editor.getDocument()).toBe(source);
+
+    editor.destroy();
+    container.remove();
+  });
+
+  it("flushes a dirty table cell before programmatic redo", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const source = "| A | B |\n| --- | --- |\n| old | 2 |";
+    const changed = source.replace("old", "changed");
+    const editor = createEditor({
+      container,
+      initialValue: source,
+      livePreview: true,
+      plugins: [createGfmPreset(), createHistoryPlugin()]
+    });
+
+    editor.setDocument(changed);
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe(source);
+
+    const cell = container.querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    expect(cell).not.toBeUndefined();
+    activateTableCell(cell!);
+    cell!.textContent = "local edit";
+    cell!.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      inputType: "insertText",
+      data: "local edit"
+    }));
+
+    // The pending cell input is a new edit, so it invalidates the redo branch.
+    expect(editor.redo()).toBe(false);
+    expect(editor.getDocument()).toContain("| local edit | 2 |");
+
+    cell!.dispatchEvent(new Event("blur"));
+    await Promise.resolve();
+    expect(editor.getDocument()).toContain("| local edit | 2 |");
 
     editor.destroy();
     container.remove();
