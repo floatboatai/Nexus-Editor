@@ -304,26 +304,55 @@ describe("@floatboat/nexus-plugin-search", () => {
   });
 
   /**
-   * Fuzzy find semantics (ROADMAP #17):
-   * - Subsequence match: query chars appear in order; the reported span is the
-   *   contiguous slice from the first matched char to the last (leftmost start,
-   *   then shortest end among ties).
+   * Fuzzy find semantics (ROADMAP #17) — shortest **word** first:
+   * - Split the document into words (whitespace-separated tokens).
+   * - A word matches when the query is a subsequence (two-pointer, in order).
+   * - Among matching words, prefer the **shortest** word; ties → leftmost.
+   * - The reported span is the **whole word**; scanning resumes after it.
    * - `fuzzy: true` wins over `regexp` / `wholeWord`.
    * - Replace is unsupported while fuzzy is on (document unchanged).
    */
   describe("fuzzy search", () => {
-    it("matches subsequence characters as a contiguous span", () => {
+    it("matches a word when the query is a subsequence of that word", () => {
       expect(findSearchMatches("hello fuzzy search", "fzy", { fuzzy: true })).toEqual([
         { from: 6, to: 11, text: "fuzzy" }
       ]);
     });
 
-    it("prefers the leftmost shortest span when multiple ends fit", () => {
-      // Query "ab" in "axxb" — leftmost 'a' with shortest path to a later 'b'
-      // is the whole "axxb". A later "ab" literal would be shorter but starts later.
+    it("prefers the shortest matching word over a longer earlier word", () => {
+      // Both "axxb" and "ab" contain subsequence "ab"; shortest word wins.
       expect(findSearchMatches("axxb ab", "ab", { fuzzy: true })).toEqual([
-        { from: 0, to: 4, text: "axxb" },
         { from: 5, to: 7, text: "ab" }
+      ]);
+    });
+
+    it("prefers a shorter matching word later in the document", () => {
+      expect(findSearchMatches("aXbY aY", "aY", { fuzzy: true })).toEqual([
+        { from: 5, to: 7, text: "aY" }
+      ]);
+    });
+
+    it("breaks equal-length word ties by leftmost position", () => {
+      expect(findSearchMatches("ab ab", "ab", { fuzzy: true })).toEqual([
+        { from: 0, to: 2, text: "ab" },
+        { from: 3, to: 5, text: "ab" }
+      ]);
+    });
+
+    it("selects the whole shortest word, not an inner character span", () => {
+      // Character-span shortest for "its" inside "invariants" would be "iants";
+      // word-first must return the entire word.
+      expect(findSearchMatches("invariants", "its", { fuzzy: true })).toEqual([
+        { from: 0, to: 10, text: "invariants" }
+      ]);
+    });
+
+    it("prefers invariants over a longer token that can also consume the query", () => {
+      // "click-drift" has no "s", so it fails; "invariants" is the shortest hit.
+      // Guards against cross-token character spans like "ick-drift invariants".
+      const doc = "click-drift invariants and the backlinks";
+      expect(findSearchMatches(doc, "its", { fuzzy: true })).toEqual([
+        { from: 12, to: 22, text: "invariants" }
       ]);
     });
 
@@ -331,7 +360,7 @@ describe("@floatboat/nexus-plugin-search", () => {
       expect(findSearchMatches("hello fuzzy search", "", { fuzzy: true })).toEqual([]);
     });
 
-    it("returns no matches when the subsequence cannot be found", () => {
+    it("returns no matches when no word contains the subsequence", () => {
       expect(findSearchMatches("hello world", "xyz", { fuzzy: true })).toEqual([]);
     });
 
@@ -357,9 +386,10 @@ describe("@floatboat/nexus-plugin-search", () => {
       ]);
     });
 
-    it("treats fuzzy query characters literally (not as a regexp)", () => {
+    it("treats fuzzy query characters literally within a whitespace token", () => {
+      // Whole token "$5.00" (whitespace-separated), not an inner "$5." slice.
       expect(findSearchMatches("cost is $5.00 today", "$.", { fuzzy: true })).toEqual([
-        { from: 8, to: 11, text: "$5." }
+        { from: 8, to: 13, text: "$5.00" }
       ]);
       expect(findSearchMatches("aaa", "a+", { fuzzy: true })).toEqual([]);
     });
@@ -404,6 +434,31 @@ describe("@floatboat/nexus-plugin-search", () => {
       expect(editor.getSelectedText()).toBe("fuzzy");
       // Typed query stays literal — not the compiled regexp.
       expect(input.value).toBe("fzy");
+    } finally {
+      editor.destroy();
+      container.remove();
+    }
+  });
+
+  it("uses shortest-word fuzzy matching from the search panel", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({
+      container,
+      initialValue: "click-drift invariants and the backlinks",
+      plugins: [createSearchPlugin()]
+    });
+
+    try {
+      const input = openSearchPanel(container);
+      const fuzzyField = container.querySelector<HTMLInputElement>(
+        '[data-test-id="markdown-search-fuzzy-toggle"]'
+      );
+      fuzzyField!.checked = true;
+      fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+
+      submitSearch(input, "its");
+      expect(editor.getSelectedText()).toBe("invariants");
     } finally {
       editor.destroy();
       container.remove();

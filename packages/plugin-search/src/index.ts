@@ -22,6 +22,7 @@ import {
   type Panel,
   type ViewUpdate
 } from "@codemirror/view";
+import { EditorSelection } from "@codemirror/state";
 
 import type { NexusPlugin } from "@floatboat/nexus-core";
 
@@ -36,7 +37,8 @@ export interface SearchOptions {
   wholeWord?: boolean;
   regexp?: boolean;
   /**
-   * Subsequence (fzf-style) matching. When true, `regexp` and `wholeWord`
+   * Subsequence (fzf-style) matching over whitespace-separated words.
+   * Prefers the shortest matching word. When true, `regexp` and `wholeWord`
    * are ignored. Replace helpers no-op while fuzzy is enabled.
    */
   fuzzy?: boolean;
@@ -630,14 +632,6 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Build a CM6-safe subsequence regexp from a literal fuzzy query (`fzy` → `f.*?z.*?y`). */
-function buildFuzzyRegexpSource(query: string): string {
-  if (!query) return "";
-  return Array.from(query)
-    .map((ch) => escapeRegExp(ch))
-    .join(".*?");
-}
-
 function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp | null {
   const flags = options.caseSensitive ? "g" : "gi";
 
@@ -660,9 +654,46 @@ function charsMatch(a: string, b: string, caseSensitive: boolean): boolean {
   return caseSensitive ? a === b : a.toLowerCase() === b.toLowerCase();
 }
 
+interface FuzzyWordToken {
+  from: number;
+  to: number;
+  text: string;
+}
+
+/** Split `doc` into whitespace-separated tokens with absolute offsets. */
+function tokenizeWhitespace(doc: string): FuzzyWordToken[] {
+  const tokens: FuzzyWordToken[] = [];
+  let i = 0;
+  while (i < doc.length) {
+    while (i < doc.length && /\s/.test(doc[i]!)) {
+      i++;
+    }
+    if (i >= doc.length) {
+      break;
+    }
+    const from = i;
+    while (i < doc.length && !/\s/.test(doc[i]!)) {
+      i++;
+    }
+    tokens.push({ from, to: i, text: doc.slice(from, i) });
+  }
+  return tokens;
+}
+
+/** Two-pointer: every query char appears in order inside `word`. */
+function isSubsequenceOf(word: string, query: string, caseSensitive: boolean): boolean {
+  let qi = 0;
+  for (let wi = 0; wi < word.length && qi < query.length; wi++) {
+    if (charsMatch(word[wi]!, query[qi]!, caseSensitive)) {
+      qi++;
+    }
+  }
+  return qi === query.length;
+}
+
 /**
- * Leftmost start, then earliest completion (shortest span for that start).
- * Scanning resumes at `to` so successive hits are non-overlapping.
+ * Shortest matching word with `from >= searchFrom`; ties break leftmost.
+ * Caller resumes at `to` for the next hit.
  */
 function findNextFuzzyMatch(
   doc: string,
@@ -674,32 +705,24 @@ function findNextFuzzyMatch(
     return null;
   }
 
-  for (let start = searchFrom; start < doc.length; start++) {
-    if (!charsMatch(doc[start]!, query[0]!, caseSensitive)) {
+  let best: SearchMatch | null = null;
+  let bestLen = Infinity;
+
+  for (const token of tokenizeWhitespace(doc)) {
+    if (token.from < searchFrom) {
       continue;
     }
-
-    let pos = start + 1;
-    let matched = true;
-    for (let qi = 1; qi < query.length; qi++) {
-      const needle = query[qi]!;
-      while (pos < doc.length && !charsMatch(doc[pos]!, needle, caseSensitive)) {
-        pos++;
-      }
-      if (pos >= doc.length) {
-        matched = false;
-        break;
-      }
-      pos++;
+    if (!isSubsequenceOf(token.text, query, caseSensitive)) {
+      continue;
     }
-
-    if (matched) {
-      const to = pos;
-      return { from: start, to, text: doc.slice(start, to) };
+    const len = token.to - token.from;
+    if (best === null || len < bestLen || (len === bestLen && token.from < best.from)) {
+      bestLen = len;
+      best = { from: token.from, to: token.to, text: token.text };
     }
   }
 
-  return null;
+  return best;
 }
 
 function findFuzzyMatches(
@@ -997,6 +1020,8 @@ class NexusSearchPanel implements Panel {
   private replaceExpanded = false;
   /** Panel-local: CM6 SearchQuery has no fuzzy bit, so we keep UI state here. */
   private fuzzyEnabled = false;
+  private fuzzyMatches: SearchMatch[] = [];
+  private fuzzyMatchIndex = -1;
 
   constructor(
     private readonly view: EditorView,
@@ -1061,13 +1086,13 @@ class NexusSearchPanel implements Panel {
     navigationGroup.className = "nexus-search-button-group";
     navigationGroup.append(
       createIconButton("markdown-search-prev", "prev", resolvedLabels.previous, "previous", () =>
-        this.submitSearch(() => findPrevious(view))
+        this.submitSearch(() => findPrevious(view), "prev")
       ),
       createIconButton("markdown-search-next", "next", resolvedLabels.next, "next", () =>
-        this.submitSearch(() => findNext(view))
+        this.submitSearch(() => findNext(view), "next")
       ),
       createIconButton("markdown-search-all", "select", resolvedLabels.all, "all", () =>
-        this.submitSearch(() => selectMatches(view))
+        this.submitSearch(() => selectMatches(view), "all")
       )
     );
 
@@ -1198,6 +1223,10 @@ class NexusSearchPanel implements Panel {
       this.regexpField.checked = false;
       this.wholeWordField.checked = false;
       this.setReplaceExpanded(false);
+      this.fuzzyMatchIndex = -1;
+    } else {
+      this.fuzzyMatches = [];
+      this.fuzzyMatchIndex = -1;
     }
     this.syncFuzzyUi();
     this.commit();
@@ -1228,14 +1257,92 @@ class NexusSearchPanel implements Panel {
     }
   }
 
+  private refreshFuzzyMatches(): void {
+    const raw = this.searchField.value;
+    if (!this.fuzzyEnabled || !raw) {
+      this.fuzzyMatches = [];
+      this.fuzzyMatchIndex = -1;
+      return;
+    }
+    this.fuzzyMatches = findSearchMatches(this.view.state.doc.toString(), raw, {
+      fuzzy: true,
+      caseSensitive: this.caseField.checked
+    });
+    this.fuzzyMatchIndex = -1;
+  }
+
+  private goToFuzzyMatch(direction: "next" | "prev"): void {
+    if (this.fuzzyMatches.length === 0) {
+      return;
+    }
+
+    const anchor = this.view.state.selection.main.anchor;
+    if (this.fuzzyMatchIndex < 0) {
+      if (direction === "next") {
+        const idx = this.fuzzyMatches.findIndex((m) => m.from >= anchor);
+        this.fuzzyMatchIndex = idx >= 0 ? idx : 0;
+      } else {
+        let idx = -1;
+        for (let i = 0; i < this.fuzzyMatches.length; i++) {
+          if (this.fuzzyMatches[i]!.from < anchor) {
+            idx = i;
+          }
+        }
+        this.fuzzyMatchIndex = idx >= 0 ? idx : this.fuzzyMatches.length - 1;
+      }
+    } else if (direction === "next") {
+      this.fuzzyMatchIndex = (this.fuzzyMatchIndex + 1) % this.fuzzyMatches.length;
+    } else {
+      this.fuzzyMatchIndex =
+        (this.fuzzyMatchIndex - 1 + this.fuzzyMatches.length) % this.fuzzyMatches.length;
+    }
+
+    const match = this.fuzzyMatches[this.fuzzyMatchIndex]!;
+    this.view.dispatch({
+      selection: { anchor: match.from, head: match.to },
+      scrollIntoView: true
+    });
+  }
+
+  private selectAllFuzzyMatches(): void {
+    if (this.fuzzyMatches.length === 0) {
+      return;
+    }
+    this.view.dispatch({
+      selection: EditorSelection.create(
+        this.fuzzyMatches.map((m) => EditorSelection.range(m.from, m.to))
+      ),
+      scrollIntoView: true
+    });
+    this.fuzzyMatchIndex = 0;
+  }
+
   private commit(): void {
     const raw = this.searchField.value;
     const fuzzy = this.fuzzyEnabled;
+
+    if (fuzzy) {
+      this.refreshFuzzyMatches();
+      const query = new SearchQuery({
+        // Keep CM6 search inactive — navigation uses findSearchMatches word logic.
+        search: "",
+        caseSensitive: this.caseField.checked,
+        regexp: false,
+        wholeWord: false,
+        replace: this.replaceField.value
+      });
+      if (!query.eq(this.query)) {
+        this.query = query;
+        this.view.dispatch({ effects: setSearchQuery.of(query) });
+      }
+      return;
+    }
+
     const query = new SearchQuery({
-      search: fuzzy ? buildFuzzyRegexpSource(raw) : raw,
+      search: raw,
       caseSensitive: this.caseField.checked,
-      regexp: fuzzy ? true : this.regexpField.checked,
-      wholeWord: fuzzy ? false : this.wholeWordField.checked,
+      regexp: this.regexpField.checked,
+      wholeWord: this.wholeWordField.checked,
       replace: this.replaceField.value
     });
 
@@ -1245,9 +1352,22 @@ class NexusSearchPanel implements Panel {
     }
   }
 
-  private submitSearch(runSearchCommand: () => void): void {
+  private submitSearch(
+    runSearchCommand: () => void,
+    fuzzyDirection?: "next" | "prev" | "all"
+  ): void {
     this.commit();
     this.history.record(this.searchField.value);
+    if (this.fuzzyEnabled) {
+      if (fuzzyDirection === "all") {
+        this.selectAllFuzzyMatches();
+      } else if (fuzzyDirection === "prev") {
+        this.goToFuzzyMatch("prev");
+      } else {
+        this.goToFuzzyMatch("next");
+      }
+      return;
+    }
     runSearchCommand();
   }
 
@@ -1278,7 +1398,10 @@ class NexusSearchPanel implements Panel {
 
     if (event.key === "Enter" && event.target === this.searchField) {
       event.preventDefault();
-      this.submitSearch(() => (event.shiftKey ? findPrevious : findNext)(this.view));
+      this.submitSearch(
+        () => (event.shiftKey ? findPrevious : findNext)(this.view),
+        event.shiftKey ? "prev" : "next"
+      );
       return;
     }
 
@@ -1309,7 +1432,6 @@ class NexusSearchPanel implements Panel {
 
   private setQuery(query: SearchQuery): void {
     this.query = query;
-    // When fuzzy is on, `query.search` is the compiled regexp — keep the typed literal in the field.
     if (!this.fuzzyEnabled) {
       this.searchField.value = query.search;
       this.regexpField.checked = query.regexp;
