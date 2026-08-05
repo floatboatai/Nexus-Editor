@@ -259,6 +259,11 @@ describe("@floatboat/nexus-plugin-search", () => {
     expect(replaceAllMatches("cat scatter cat", "cat", "dog")).toBe("dog sdogter dog");
   });
 
+  it("treats replacement patterns literally for plain-text search", () => {
+    expect(replaceAllMatches("cat cat", "cat", "$&-$1-$$-$`-$'"))
+      .toBe("$&-$1-$$-$`-$' $&-$1-$$-$`-$'");
+  });
+
   it("replaces only whole-word matches", () => {
     expect(replaceAllMatches("cat catalog cat concatenate", "cat", "dog", { wholeWord: true })).toBe(
       "dog catalog dog concatenate"
