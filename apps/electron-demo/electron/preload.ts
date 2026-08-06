@@ -37,6 +37,7 @@ export interface DemoBridge {
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
   vault: VaultBridge;
+  copyFileOrDir: (srcPath: string, destDir: string) => Promise<void>;
 }
 
 const vaultBridge: VaultBridge = {
@@ -93,6 +94,8 @@ const bridge: DemoBridge = {
     return ipcRenderer.invoke("demo:save-file-as", content);
   },
   vault: vaultBridge,
+  copyFileOrDir: (srcPath: string, destDir: string) =>
+    ipcRenderer.invoke("copy-file-or-dir", srcPath, destDir),
 };
 
 contextBridge.exposeInMainWorld("nexusDemo", bridge);

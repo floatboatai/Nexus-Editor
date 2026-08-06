@@ -29,9 +29,11 @@
     "@floatboat/nexus-plugin-toolbar": "workspace:*",
     "@floatboat/nexus-plugin-wordcount": "workspace:*",
     "@floatboat/nexus-preset-gfm": "workspace:*",
+    "fs-extra": "^11.4.0",
     "highlight.js": "^11.11.0"
   },
   "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
     "electron": "^35.0.0",
     "electron-builder": "^25.1.8",
     "npm-run-all2": "^7.0.0",
