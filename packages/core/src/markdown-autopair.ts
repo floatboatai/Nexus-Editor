@@ -20,6 +20,37 @@ const DOUBLE_PAIRS: Array<{ char: string; open: string; close: string }> = [
   { char: "~", open: "~~", close: "~~" },
 ];
 
+function dispatchSinglePairWithSkippedCloses(
+  view: EditorView,
+  pair: { open: string; close: string }
+): void {
+  const { state } = view;
+
+  view.dispatch(
+    state.changeByRange((range) => {
+      if (!range.empty) {
+        const selected = state.sliceDoc(range.from, range.to);
+        return {
+          changes: { from: range.from, to: range.to, insert: pair.open + selected + pair.close },
+          range: EditorSelection.range(
+            range.from + pair.open.length,
+            range.from + pair.open.length + selected.length
+          )
+        };
+      }
+
+      if (state.sliceDoc(range.from, range.from + pair.close.length) === pair.close) {
+        return { range: EditorSelection.cursor(range.from + pair.close.length) };
+      }
+
+      return {
+        changes: { from: range.from, insert: pair.open + pair.close },
+        range: EditorSelection.cursor(range.from + pair.open.length)
+      };
+    })
+  );
+}
+
 export function markdownAutoPair(): Extension {
   return EditorView.inputHandler.of((view, _from, _to, text) => {
     if (view.composing || view.compositionStarted) return false;
@@ -30,27 +61,7 @@ export function markdownAutoPair(): Extension {
     for (const pair of PAIRS) {
       if (text !== pair.trigger) continue;
 
-      view.dispatch(
-        state.changeByRange((range) => {
-          if (!range.empty) {
-            // Wrap selection
-            const selected = state.sliceDoc(range.from, range.to);
-            return {
-              changes: { from: range.from, to: range.to, insert: pair.open + selected + pair.close },
-              range: EditorSelection.range(
-                range.from + pair.open.length,
-                range.from + pair.open.length + selected.length
-              ),
-            };
-          }
-
-          // Insert pair and place cursor between
-          return {
-            changes: { from: range.from, insert: pair.open + pair.close },
-            range: EditorSelection.cursor(range.from + pair.open.length),
-          };
-        })
-      );
+      dispatchSinglePairWithSkippedCloses(view, pair);
       return true;
     }
 
@@ -86,6 +97,13 @@ export function markdownAutoPair(): Extension {
                 range.from - 1 + pair.open.length,
                 range.from - 1 + pair.open.length + selected.length
               ),
+            };
+          }
+
+          if (state.sliceDoc(range.from, range.from + pair.close.length) === pair.close) {
+            return {
+              changes: { from: range.from - 1, to: range.from, insert: "" },
+              range: EditorSelection.cursor(range.from - 1 + pair.close.length),
             };
           }
 
