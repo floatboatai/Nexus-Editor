@@ -10,6 +10,14 @@ import {
   toggleHeading,
   toggleOrderedList,
   toggleUnorderedList,
+  toggleBlockquote,
+  toggleStrikethrough,
+  insertCodeBlock,
+  insertImage,
+  insertHorizontalRule,
+  applyTextColor,
+  applyHighlight,
+  toggleWrap,
   createToolbarPlugin,
   createToolbarUI,
 } from "../src/index";
@@ -603,6 +611,97 @@ describe("toggleUnorderedList — atomic undo", () => {
 
     editor.undo();
     expect(editor.getDocument()).toBe(original);
+    editor.destroy();
+  });
+});
+
+describe("additional formatting helpers", () => {
+  it("toggleBlockquote adds and removes the > prefix", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello" });
+    toggleBlockquote(editor);
+    expect(editor.getDocument()).toBe("> hello");
+    toggleBlockquote(editor);
+    expect(editor.getDocument()).toBe("hello");
+    editor.destroy();
+  });
+
+  it("insertCodeBlock wraps the selection in a fenced block", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "code" });
+    editor.setSelection(0, 4);
+    insertCodeBlock(editor);
+    expect(editor.getDocument()).toBe("```\ncode\n```");
+    editor.destroy();
+  });
+
+  it("insertImage inserts a markdown image and selects the url", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "pic" });
+    editor.setSelection(0, 3);
+    insertImage(editor);
+    expect(editor.getDocument()).toBe("![pic](url)");
+    editor.destroy();
+  });
+
+  it("insertHorizontalRule inserts --- at the cursor", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "ab" });
+    editor.setSelection(2, 2);
+    insertHorizontalRule(editor);
+    expect(editor.getDocument()).toBe("ab\n---\n");
+    editor.destroy();
+  });
+
+  it("applyTextColor wraps the selection and returns true", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "red" });
+    editor.setSelection(0, 3);
+    const ok = applyTextColor(editor, "#f00");
+    expect(ok).toBe(true);
+    expect(editor.getDocument()).toBe('<span style="color:#f00">red</span>');
+    editor.destroy();
+  });
+
+  it("applyTextColor returns false on an empty selection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "red" });
+    editor.setSelection(1, 1);
+    const ok = applyTextColor(editor, "#f00");
+    expect(ok).toBe(false);
+    expect(editor.getDocument()).toBe("red");
+    editor.destroy();
+  });
+
+  it("applyHighlight wraps the selection in a mark", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hi" });
+    editor.setSelection(0, 2);
+    const ok = applyHighlight(editor, "#ff0");
+    expect(ok).toBe(true);
+    expect(editor.getDocument()).toBe('<mark style="background:#ff0">hi</mark>');
+    editor.destroy();
+  });
+
+  it("toggleStrikethrough wraps and unwraps ~~", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "text" });
+    editor.setSelection(0, 4);
+    toggleStrikethrough(editor);
+    expect(editor.getDocument()).toBe("~~text~~");
+    toggleStrikethrough(editor);
+    expect(editor.getDocument()).toBe("text");
+    editor.destroy();
+  });
+
+  it("toggleWrap wraps and unwraps an arbitrary marker", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "x" });
+    editor.setSelection(0, 1);
+    toggleWrap(editor, "==");
+    expect(editor.getDocument()).toBe("==x==");
+    toggleWrap(editor, "==");
+    expect(editor.getDocument()).toBe("x");
     editor.destroy();
   });
 });
