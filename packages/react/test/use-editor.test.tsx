@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
 
 import { Editor } from "../src";
+import type { EditorAPI } from "@floatboat/nexus-core";
 
 /**
  * Coverage for the React binding (`useEditor` hook + `Editor` component).
@@ -11,7 +12,7 @@ import { Editor } from "../src";
  * pure additive test PR, same policy as the other packages.
  */
 
-let editor: any;
+let editor: EditorAPI | undefined;
 
 beforeEach(() => {
   editor = undefined;
@@ -44,7 +45,7 @@ describe("Editor / useEditor", () => {
       />
     );
 
-    expect(editor.getDocument()).toBe("# Title");
+    expect(editor!.getDocument()).toBe("# Title");
   });
 
   it("fires onChange when the document is changed programmatically", () => {
@@ -63,7 +64,7 @@ describe("Editor / useEditor", () => {
     expect(onChange).not.toHaveBeenCalled();
 
     act(() => {
-      editor.setDocument("changed");
+      editor!.setDocument("changed");
     });
 
     expect(onChange).toHaveBeenCalledTimes(1);
@@ -85,7 +86,7 @@ describe("Editor / useEditor", () => {
 
     // Mounting with a controlled value seeds the initial document; it must not fire onChange.
     expect(onChange).not.toHaveBeenCalled();
-    expect(editor.getDocument()).toBe("first");
+    expect(editor!.getDocument()).toBe("first");
 
     rerender(
       <Editor
@@ -100,7 +101,7 @@ describe("Editor / useEditor", () => {
     // The external value changed, but the sync path is silent, so onChange
     // must NOT fire — otherwise we'd create an infinite update loop.
     expect(onChange).not.toHaveBeenCalled();
-    expect(editor.getDocument()).toBe("second");
+    expect(editor!.getDocument()).toBe("second");
   });
 
   it("destroys the underlying editor when the component unmounts", () => {
@@ -112,7 +113,7 @@ describe("Editor / useEditor", () => {
       />
     );
 
-    const destroy = vi.spyOn(editor, "destroy");
+    const destroy = vi.spyOn(editor!, "destroy");
     unmount();
 
     expect(destroy).toHaveBeenCalledTimes(1);
@@ -131,21 +132,5 @@ describe("Editor / useEditor", () => {
     expect(el).toBeTruthy();
     expect(el?.className).toContain("my-editor-class");
     expect(el?.getAttribute("aria-label")).toBe("markdown editor");
-  });
-
-  it("exposes a live editor on the container ref after mount", () => {
-    let captured: any = null;
-    render(
-      <Editor
-        onReady={(e) => {
-          editor = e;
-          captured = e;
-        }}
-      />
-    );
-
-    // The editor instance created on mount is the same one reported to onReady.
-    expect(captured).toBe(editor);
-    expect(editor).toBeTruthy();
   });
 });

@@ -122,15 +122,18 @@ describe("cross-package integration: core + math + toolbar + wordcount", () => {
     editors.push(editor);
     attachWordCountPlugin(wordcount, editor);
 
-    // Initial microtask compute for an empty doc.
-    await tick(0);
     const words = (): string =>
       statusBarHost.querySelector('[data-test-id="nexus-wordcount-words"]')?.textContent ?? "";
-    expect(words()).toContain("0");
+
+    // Initial microtask compute for an empty doc.
+    await vi.waitFor(() => {
+      expect(words()).toContain("0");
+    });
 
     // A real edit flows: core change event -> wordcount recompute -> status bar DOM.
     editor.setDocument("alpha beta gamma");
-    await tick(0);
-    expect(words()).toContain("3");
+    await vi.waitFor(() => {
+      expect(words()).toContain("3");
+    });
   });
 });

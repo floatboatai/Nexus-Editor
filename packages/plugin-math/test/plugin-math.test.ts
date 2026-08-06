@@ -4,12 +4,13 @@ import type { WidgetRenderContext } from "@floatboat/nexus-core";
 
 // A minimal mock of the widget render context. The block-math edit button
 // calls `setSelection(from)` + `focus()` when clicked, so we spy on those.
-function makeCtx(from = 0): WidgetRenderContext {
+function makeCtx(from = 0, to = from): WidgetRenderContext {
   return {
     from,
+    to,
     setSelection: vi.fn(),
     focus: vi.fn(),
-  } as unknown as WidgetRenderContext;
+  };
 }
 
 describe("createMathPlugin", () => {
