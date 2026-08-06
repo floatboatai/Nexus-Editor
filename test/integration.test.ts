@@ -7,12 +7,6 @@ import {
   createWordCountPlugin,
 } from "@floatboat/nexus-plugin-wordcount";
 
-/** Flush microtasks + macrotasks so CodeMirror measures / plugin
- *  microtask recomputes have a chance to run in jsdom. */
-function tick(ms = 0): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 const MATH_DOC = `$$\nx = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}\n$$`;
 
 describe("cross-package integration: core + math + toolbar + wordcount", () => {
