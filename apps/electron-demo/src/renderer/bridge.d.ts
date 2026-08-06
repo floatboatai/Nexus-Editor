@@ -35,6 +35,7 @@ interface DemoBridge {
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
   vault: VaultBridge;
+  copyFileOrDir: (srcPath: string, destDir: string) => Promise<void>;
 }
 
 interface Window {

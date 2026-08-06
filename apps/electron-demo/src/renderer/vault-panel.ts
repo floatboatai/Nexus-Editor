@@ -373,48 +373,89 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
     input.addEventListener("blur", () => finish(true));
   }
 
-  function openNodeContextMenu(x: number, y: number, node: VaultNode): void {
-    const parentDir = node.kind === "directory" ? node.path : node.path.replace(/[\\/][^\\/]+$/, "");
+function openNodeContextMenu(x: number, y: number, node: VaultNode): void {
+    console.log("右键节点 kind =", node.kind, node);
+    const parentDir = node.path.replace(/[\\/][^\\/]+$/, "");
     const items: ContextMenuItem[] = [];
 
-    if (node.kind === "directory") {
-      items.push({
-        label: "New file here",
-        onClick: () => createFilePrompt(node.path),
-      });
-      items.push({
-        label: "New folder here",
-        onClick: () => createFolderPrompt(node.path),
-      });
-    } else {
-      items.push({
+    items.push({
         label: "Open",
         onClick: () => callbacks.onOpenFile(node.path),
-      });
-      items.push({
+    });
+    items.push({
         label: "New file in same folder",
         onClick: () => createFilePrompt(parentDir),
-      });
-    }
-
-    items.push({
-      label: "Rename",
-      onClick: () => {
-        const row = tree.querySelector<HTMLElement>(`[data-path="${cssEscape(node.path)}"]`);
-        const label = row?.querySelector<HTMLElement>("span:last-child");
-        if (row && label) beginInlineRename(row, label, node);
-      },
     });
 
     items.push({
-      label: "Delete",
-      destructive: true,
-      onClick: () => deleteNode(node),
+        label: "Copy content",
+        onClick: async () => {
+            try {
+                const vault = (window as any).nexusDemo.vault;
+                const allFiles = await vault.readAll();
+                const targetFile = allFiles.find((f: any) => f.path === node.path);
+                if (!targetFile) {
+                    console.warn("文件未找到：", node.path);
+                    return;
+                }
+                await navigator.clipboard.writeText(targetFile.content);
+                console.log("✅文件内容复制完成");
+            } catch (err) {
+                console.error("❌复制文件内容失败", err);
+            }
+        },
+    });
+
+    items.push({
+        label: "Copy file",
+        onClick: () => {
+            (window as any).clipboardSourcePath = node.path;
+            console.log("📁已复制文件实体：", node.path);
+        },
+    });
+
+    items.push({
+    label: "Paste",
+    onClick: async () => {
+        try {
+            const src = (window as any).clipboardSourcePath;
+            console.log("【Paste】源路径 src =", src);
+            if (!src) {
+                console.warn("【Paste】clipboardSourcePath为空，请先Copy file");
+                return;
+            }
+            const slashIdx = Math.max(src.lastIndexOf("/"), src.lastIndexOf("\\"));
+            const baseName = src.substring(slashIdx + 1);
+            const extDot = baseName.lastIndexOf(".");
+            let nameNoExt, ext;
+            if(extDot > 0){
+                nameNoExt = baseName.substring(0, extDot);
+                ext = baseName.substring(extDot);
+            }else{
+                nameNoExt = baseName;
+                ext = "";
+            }
+            // 生成副本文件名：xxx - 副本.txt
+            const copyFileName = `${nameNoExt} - 副本${ext}`;
+            const dest = parentDir + "\\" + copyFileName;
+
+            console.log("【Paste】目标路径 dest =", dest);
+            await (window as any).nexusDemo.copyFileOrDir(src, dest);
+            console.log("【Paste】复制调用完成，请刷新文件列表查看结果");
+        } catch (e) {
+            console.error("【Paste】执行出错：", e);
+        }
+    },
+});
+
+    items.push({
+        label: "Delete",
+        destructive: true,
+        onClick: () => deleteNode(node),
     });
 
     showContextMenu(x, y, items);
-  }
-
+}
   function inlineInputRow(opts: {
     defaultValue: string;
     selectExt: boolean;
