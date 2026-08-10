@@ -7,7 +7,7 @@ export interface FuzzyMatch {
 interface MatchState {
   score: number;
   from: number;
-  to: number;
+  last: number;
 }
 
 function isWordBoundary(text: string, index: number): boolean {
@@ -28,45 +28,64 @@ function characterScore(text: string, index: number, previousIndex: number): num
 function better(candidate: MatchState, current: MatchState | undefined): boolean {
   if (!current) return true;
   if (candidate.score !== current.score) return candidate.score > current.score;
-  return candidate.to - candidate.from < current.to - current.from;
+  return candidate.last - candidate.from < current.last - current.from;
 }
 
+/**
+ * Find the highest-scoring subsequence beginning at `start`.
+ * The dynamic program keeps the best predecessor score for each query
+ * character, so the result is not dependent on a greedy character choice.
+ */
 function matchFrom(text: string, query: string, start: number): FuzzyMatch | null {
   const lowerText = text.toLocaleLowerCase();
   const lowerQuery = query.toLocaleLowerCase();
   if (!lowerQuery || start >= text.length || lowerText[start] !== lowerQuery[0]) return null;
 
-  let state: MatchState = {
+  let states: Array<MatchState | undefined> = Array(text.length).fill(undefined);
+  states[start] = {
     score: characterScore(text, start, -1),
     from: start,
-    to: start + 1
+    last: start
   };
 
   for (let queryIndex = 1; queryIndex < lowerQuery.length; queryIndex += 1) {
+    const next: Array<MatchState | undefined> = Array(text.length).fill(undefined);
+    let bestPredecessor: MatchState | undefined;
+    let bestPredecessorValue = Number.NEGATIVE_INFINITY;
     const queryChar = lowerQuery[queryIndex];
-    let index = state.to;
-    let best: MatchState | undefined;
 
-    while (index < text.length) {
-      if (lowerText[index] === queryChar) {
-        const candidate: MatchState = {
-          score:
-            state.score +
-            characterScore(text, index, state.to - 1) -
-            Math.max(0, index - state.to - 1),
-          from: state.from,
-          to: index + 1
-        };
-        if (better(candidate, best)) best = candidate;
+    for (let index = start + 1; index < text.length; index += 1) {
+      const predecessor = states[index - 1];
+      if (predecessor) {
+        const value = predecessor.score + predecessor.last;
+        if (value > bestPredecessorValue) {
+          bestPredecessor = predecessor;
+          bestPredecessorValue = value;
+        }
       }
-      index += 1;
+
+      if (lowerText[index] !== queryChar || !bestPredecessor) continue;
+
+      const gapPenalty = index - bestPredecessor.last - 1;
+      next[index] = {
+        score:
+          bestPredecessor.score +
+          characterScore(text, index, bestPredecessor.last) -
+          gapPenalty,
+        from: bestPredecessor.from,
+        last: index
+      };
     }
 
-    if (!best) return null;
-    state = best;
+    states = next;
   }
 
-  return { from: state.from, to: state.to, score: state.score };
+  let best: MatchState | undefined;
+  for (const state of states) {
+    if (state && better(state, best)) best = state;
+  }
+
+  return best ? { from: best.from, to: best.last + 1, score: best.score } : null;
 }
 
 /**
