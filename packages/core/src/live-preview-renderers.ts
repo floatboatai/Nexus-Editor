@@ -66,8 +66,8 @@ export function createDefaultRenderer(context: LivePreviewRenderContext): HTMLEl
       element.rel = "noopener noreferrer";
       element.title = `${url} (Ctrl+Click to open)`;
       element.addEventListener("click", (e) => {
+        e.preventDefault();
         if (e.ctrlKey || e.metaKey) {
-          e.preventDefault();
           window.open(url, "_blank", "noopener,noreferrer");
         }
       });
