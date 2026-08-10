@@ -1,5 +1,5 @@
 import type { EditorAPI } from "@floatboat/nexus-core";
-import { findSearchMatches, replaceAllMatches } from "@floatboat/nexus-plugin-search";
+import { findFuzzyMatches, findSearchMatches, replaceAllMatches } from "@floatboat/nexus-plugin-search";
 
 export interface SearchBar {
   element: HTMLElement;
@@ -67,27 +67,31 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   bar.className = "nexus-search-bar";
   bar.style.cssText = BAR_STYLES;
 
-  // Find input
   const findInput = document.createElement("input");
   findInput.type = "text";
   findInput.placeholder = "Find...";
   findInput.style.cssText = INPUT_STYLES;
 
-  // Replace input
+  const fuzzyBtn = document.createElement("button");
+  fuzzyBtn.type = "button";
+  fuzzyBtn.textContent = "Fuzzy";
+  fuzzyBtn.title = "Toggle fuzzy subsequence matching";
+  fuzzyBtn.setAttribute("aria-pressed", "false");
+  fuzzyBtn.style.cssText = BTN_STYLES;
+
   const replaceInput = document.createElement("input");
   replaceInput.type = "text";
   replaceInput.placeholder = "Replace...";
   replaceInput.style.cssText = INPUT_STYLES;
   replaceInput.style.width = "160px";
 
-  // Buttons
   const prevBtn = document.createElement("button");
-  prevBtn.textContent = "\u2191"; // ↑
+  prevBtn.textContent = "\u2191";
   prevBtn.title = "Previous match";
   prevBtn.style.cssText = BTN_STYLES;
 
   const nextBtn = document.createElement("button");
-  nextBtn.textContent = "\u2193"; // ↓
+  nextBtn.textContent = "\u2193";
   nextBtn.title = "Next match";
   nextBtn.style.cssText = BTN_STYLES;
 
@@ -100,11 +104,9 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   replaceAllBtn.title = "Replace all";
   replaceAllBtn.style.cssText = BTN_STYLES;
 
-  // Count label
   const countLabel = document.createElement("span");
   countLabel.style.cssText = COUNT_STYLES;
 
-  // Close
   const closeBtn = document.createElement("button");
   closeBtn.innerHTML = "&times;";
   closeBtn.title = "Close (Esc)";
@@ -113,12 +115,37 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   const spacer = document.createElement("div");
   spacer.style.flex = "1";
 
-  bar.append(findInput, prevBtn, nextBtn, countLabel, replaceInput, replaceBtn, replaceAllBtn, spacer, closeBtn);
+  bar.append(
+    findInput,
+    fuzzyBtn,
+    prevBtn,
+    nextBtn,
+    countLabel,
+    replaceInput,
+    replaceBtn,
+    replaceAllBtn,
+    spacer,
+    closeBtn
+  );
 
-  // State
   let matches: Array<{ from: number; to: number }> = [];
   let currentIdx = -1;
   let visible = false;
+  let fuzzyMode = false;
+
+  function updateControls() {
+    const replaceDisabled = fuzzyMode;
+    replaceInput.disabled = replaceDisabled;
+    replaceBtn.disabled = replaceDisabled;
+    replaceAllBtn.disabled = replaceDisabled;
+    replaceInput.title = replaceDisabled ? "Replacement is disabled for fuzzy matches" : "";
+    replaceBtn.title = replaceDisabled ? "Replacement is disabled for fuzzy matches" : "Replace";
+    replaceAllBtn.title = replaceDisabled
+      ? "Replacement is disabled for fuzzy matches"
+      : "Replace all";
+    fuzzyBtn.setAttribute("aria-pressed", String(fuzzyMode));
+    fuzzyBtn.style.fontWeight = fuzzyMode ? "600" : "400";
+  }
 
   function updateMatches() {
     const query = findInput.value;
@@ -128,28 +155,32 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       countLabel.textContent = "";
       return;
     }
+
     const doc = editor.getDocument();
-    matches = findSearchMatches(doc, query);
+    matches = fuzzyMode ? findFuzzyMatches(doc, query) : findSearchMatches(doc, query);
     if (matches.length === 0) {
       currentIdx = -1;
       countLabel.textContent = "0 results";
-    } else {
-      // Find nearest match to current cursor
-      const { anchor } = editor.getSelection();
-      currentIdx = 0;
-      for (let i = 0; i < matches.length; i++) {
-        if (matches[i].from >= anchor) { currentIdx = i; break; }
-      }
-      highlightCurrent();
+      return;
     }
+
+    const { anchor } = editor.getSelection();
+    currentIdx = 0;
+    for (let i = 0; i < matches.length; i++) {
+      if (matches[i].from >= anchor) {
+        currentIdx = i;
+        break;
+      }
+    }
+    highlightCurrent();
   }
 
   function highlightCurrent() {
     if (currentIdx < 0 || currentIdx >= matches.length) return;
-    const m = matches[currentIdx];
-    editor.setSelection(m.from, m.to);
+    const match = matches[currentIdx];
+    editor.setSelection(match.from, match.to);
     editor.focus();
-    countLabel.textContent = `${currentIdx + 1} / ${matches.length}`;
+    countLabel.textContent = `${currentIdx + 1} / ${matches.length}${fuzzyMode ? " fuzzy" : ""}`;
   }
 
   function goNext() {
@@ -165,16 +196,17 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   }
 
   function doReplace() {
-    if (currentIdx < 0 || currentIdx >= matches.length) return;
-    const m = matches[currentIdx];
+    if (fuzzyMode || currentIdx < 0 || currentIdx >= matches.length) return;
+    const match = matches[currentIdx];
     const doc = editor.getDocument();
-    const newDoc = doc.slice(0, m.from) + replaceInput.value + doc.slice(m.to);
+    const newDoc = doc.slice(0, match.from) + replaceInput.value + doc.slice(match.to);
     editor.setDocument(newDoc);
-    editor.setSelection(m.from + replaceInput.value.length);
+    editor.setSelection(match.from + replaceInput.value.length);
     updateMatches();
   }
 
   function doReplaceAll() {
+    if (fuzzyMode) return;
     const query = findInput.value;
     if (!query) return;
     const doc = editor.getDocument();
@@ -183,15 +215,25 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     updateMatches();
   }
 
-  // Event handlers
   findInput.addEventListener("input", updateMatches);
-  findInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.shiftKey ? goPrev() : goNext(); e.preventDefault(); }
-    if (e.key === "Escape") { close(); }
+  findInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.shiftKey ? goPrev() : goNext();
+      event.preventDefault();
+    }
+    if (event.key === "Escape") close();
   });
-  replaceInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { doReplace(); e.preventDefault(); }
-    if (e.key === "Escape") { close(); }
+  replaceInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      doReplace();
+      event.preventDefault();
+    }
+    if (event.key === "Escape") close();
+  });
+  fuzzyBtn.addEventListener("click", () => {
+    fuzzyMode = !fuzzyMode;
+    updateControls();
+    updateMatches();
   });
   nextBtn.addEventListener("click", goNext);
   prevBtn.addEventListener("click", goPrev);
@@ -199,20 +241,25 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   replaceAllBtn.addEventListener("click", doReplaceAll);
   closeBtn.addEventListener("click", close);
 
+  updateControls();
+
   function open() {
-    if (visible) { findInput.focus(); findInput.select(); return; }
+    if (visible) {
+      findInput.focus();
+      findInput.select();
+      return;
+    }
     visible = true;
     bar.style.display = "flex";
     findInput.focus();
-    // Pre-fill with selected text
     const { anchor, head } = editor.getSelection();
     if (anchor !== head) {
       const doc = editor.getDocument();
       const from = Math.min(anchor, head);
       const to = Math.max(anchor, head);
-      const sel = doc.slice(from, to);
-      if (sel.length < 100 && !sel.includes("\n")) {
-        findInput.value = sel;
+      const selection = doc.slice(from, to);
+      if (selection.length < 100 && !selection.includes("\n")) {
+        findInput.value = selection;
         updateMatches();
       }
     }
@@ -236,6 +283,6 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     destroy() {
       close();
       bar.remove();
-    },
+    }
   };
 }
