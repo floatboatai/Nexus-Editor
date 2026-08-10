@@ -715,6 +715,8 @@ export function createEditor(config: EditorConfig): EditorAPI {
           deleteRow: locale.deleteRow,
           insertColumnAfter: locale.insertColumnAfter,
           insertRowBelow: locale.insertRowBelow,
+          codeBlockLabel: locale.codeBlockLabel,
+          openLink: locale.openLink,
         }),
         ...(widgetParser ? createWidgetExtension(widgetParser, widgetDefs) : []),
         ...shortcutExtensions,

@@ -43,7 +43,7 @@ export const enLocale: NexusLocale = {
   foldHeading: "Fold section",
   unfoldHeading: "Unfold section",
   openLink: "Open link",
-  codeBlockLabel: "Code",
+  codeBlockLabel: "Code block",
 };
 
 export const zhLocale: NexusLocale = {
@@ -63,7 +63,7 @@ export const zhLocale: NexusLocale = {
   foldHeading: "折叠章节",
   unfoldHeading: "展开章节",
   openLink: "打开链接",
-  codeBlockLabel: "代码",
+  codeBlockLabel: "代码块",
 };
 
 /** Merge a partial locale with English defaults. */
