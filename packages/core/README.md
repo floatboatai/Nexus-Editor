@@ -71,6 +71,27 @@ editor.on("selectionChange", ({ anchor, head, ranges, mainIndex }) => {
 
 Multiple ranges in `setSelections` require `multiCursor: true` — without the flag CodeMirror collapses the selection to its main range.
 
+### Document stats
+
+```ts
+const { characters, words, lines } = editor.getDocumentStats();
+```
+
+A lightweight, synchronous stats query. It is **Markdown-aware** and
+**CJK-aware**:
+
+- code fences, inline code, frontmatter, HTML, math and link
+  definitions are excluded from the prose counts;
+- CJK scripts count per character (`你好世界` → 4 words), Latin /
+  numeric runs count per word;
+- characters are counted by Unicode code point (emoji = 1 character),
+  not UTF-16 units;
+- `lines` matches CodeMirror's own line count.
+
+The counting rules are shared with
+[`@floatboat/nexus-plugin-wordcount`](../plugin-wordcount/README.md), so
+the two APIs always agree on the same document.
+
 ## Other config highlights
 
 See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.

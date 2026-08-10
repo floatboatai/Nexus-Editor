@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { computeDocumentStats } from "@floatboat/nexus-core";
 import { countMarkdown, countMarkdownAsync, type WordCountStats } from "../src/count";
 
 const zeroStats = (): WordCountStats => ({
@@ -222,5 +223,29 @@ describe("countMarkdownAsync", () => {
   it("forwards options", async () => {
     const stats = await countMarkdownAsync("你好", { cjkUnit: "word" });
     expect(stats.words).toBe(1);
+  });
+});
+
+describe("countMarkdown — consistency with core getDocumentStats", () => {
+  it("agrees with computeDocumentStats on plain-text fallback inputs", () => {
+    // Plain-text inputs only: for these the remark AST path and the
+    // core strip path produce identical prose, so the stats must agree
+    // exactly. Inputs with Markdown structure are covered by the shared
+    // implementation itself (wordcount reuses core's helpers).
+    const sources = [
+      "Hello, World!",
+      "你好世界",
+      "Hello 世界，质量保障。",
+      "😀 emoji here",
+      "Don\u2019t can't won't",
+      "",
+    ];
+    for (const source of sources) {
+      const wordcount = countMarkdown(source);
+      const core = computeDocumentStats(source);
+      expect(core.words).toBe(wordcount.words);
+      expect(core.characters).toBe(wordcount.characters);
+      expect(core.lines).toBe(wordcount.lines);
+    }
   });
 });

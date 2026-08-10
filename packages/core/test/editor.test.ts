@@ -554,6 +554,61 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  // ── getDocumentStats ──
+
+  it("reports characters, words and lines for an English document", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "Hello, World!\nSecond line" });
+
+    expect(editor.getDocumentStats()).toEqual({
+      characters: 25,
+      words: 4,
+      lines: 2,
+    });
+    editor.destroy();
+  });
+
+  it("counts CJK prose per character instead of one whitespace-delimited word", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "你好世界\n质量保障" });
+
+    const stats = editor.getDocumentStats();
+    expect(stats.words).toBe(8);
+    expect(stats.lines).toBe(2);
+    editor.destroy();
+  });
+
+  it("excludes code fences and inline code from the counts", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "text\n\n```js\nconst x = 1;\n```\n\n`inline words` tail",
+    });
+
+    const stats = editor.getDocumentStats();
+    expect(stats.words).toBe(2); // text + tail; the fenced and inline code are excluded
+    expect(stats.lines).toBe(7);
+    editor.destroy();
+  });
+
+  it("tracks live edits made through replaceRange", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.replaceRange(0, 11, "你好世界");
+    expect(editor.getDocumentStats().words).toBe(4);
+    editor.destroy();
+  });
+
+  it("returns zeros for an empty document", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "" });
+
+    expect(editor.getDocumentStats()).toEqual({ characters: 0, words: 0, lines: 0 });
+    editor.destroy();
+  });
+
+
   // ── replaceRange ──
 
   it("replaceRange: replaces document content in the given range", () => {

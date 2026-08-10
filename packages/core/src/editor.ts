@@ -22,6 +22,7 @@ import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
 import { markdownFoldService } from "./markdown-fold";
 import { resolveLocale } from "./locale";
 import { markdownAutoPair } from "./markdown-autopair";
+import { computeDocumentStats } from "./document-stats";
 import { markdownKeymap } from "./markdown-keymap";
 import { multiCursorExtension } from "./multi-cursor";
 import { indentationMarkers } from "@replit/codemirror-indentation-markers";
@@ -915,11 +916,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
       }
     },
     getDocumentStats() {
-      const doc = view.state.doc.toString();
-      const characters = doc.length;
-      const words = doc.trim() === "" ? 0 : doc.trim().split(/\s+/).length;
-      const lines = view.state.doc.lines;
-      return { characters, words, lines };
+      // CJK-aware, Markdown-aware stats — shares its text-level rules
+      // with `@floatboat/nexus-plugin-wordcount` so the two APIs answer
+      // consistently (see document-stats.ts).
+      return computeDocumentStats(view.state.doc.toString());
     },
     destroy() {
       if (destroyed || destroying) return;
