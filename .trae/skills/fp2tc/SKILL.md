@@ -66,7 +66,7 @@ FP-{全局批次序号}-{二级序号}-{类型后缀}{序号}
 | [Live Preview] | Vitest | Decoration / DOM 查询 |
 | [插件能力] | Vitest | 插件注册逻辑 |
 | [数据IO] | Playwright | Electron 文件系统 |
-| [无障碍] | Playwright | ARIA / 真实键盘 |
+| [无障碍] | Vitest | ARIA 查询（jsdom）；真实键盘交互可选用 Playwright |
 | [安全] | Vitest | XSS 注入测试 |
 | [性能] | Vitest | 大文档 benchmark |
 多标签时: 若含[数据IO]或[无障碍]且同时含其他标签，可拆分为多个用例分别用不同框架

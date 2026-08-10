@@ -33,22 +33,28 @@ describe("feature name", () => {
 ### 1.2 获取内部 EditorView
 
 ```typescript
-import type { EditorView } from "@codemirror/view";
+import { ViewPlugin, type EditorView } from "@codemirror/view";
+import { createEditor } from "@floatboat/nexus-core";
 
 function requireEditorView(view: EditorView | null): EditorView {
   if (!view) throw new Error("Expected CodeMirror view to be captured");
   return view;
 }
 
-// 通过 ViewPlugin 捕获 view
+// 通过 ViewPlugin 捕获 view（cmExtensions 是 NexusPlugin 字段，需通过 plugins 传入）
 let capturedView: EditorView | null = null;
 const editor = createEditor({
   container,
   initialValue: "text",
-  cmExtensions: [
-    ViewPlugin.fromClass(class {
-      constructor(v: EditorView) { capturedView = v; }
-    }),
+  plugins: [
+    {
+      name: "view-capture",
+      cmExtensions: [
+        ViewPlugin.fromClass(class {
+          constructor(v: EditorView) { capturedView = v; }
+        }),
+      ],
+    },
   ],
 });
 const view = requireEditorView(capturedView);
@@ -125,8 +131,9 @@ expect(ast.children[0]?.depth).toBe(1);
 // round-trip 无损测试
 const md1 = "# Hello\n\nWorld";
 const editor1 = createEditor({ container, initialValue: md1 });
-const ast1 = editor1.getAst();
-// 重新序列化应保持一致
+// getDocument() 应返回与输入一致的 markdown
+expect(editor1.getDocument()).toBe(md1);
+editor1.destroy();
 ```
 
 ### 1.7 事件回调测试
@@ -219,8 +226,8 @@ await page.keyboard.press("Shift+Tab");
 | 包名 | import 路径 | 主要导出 |
 |------|-----------|---------|
 | 核心引擎 | `@floatboat/nexus-core` | createEditor, EditorConfig, EditorAPI |
-| React 绑定 | `@floatboat/nexus-react` | NexusEditor, useEditor |
-| Vue 绑定 | `@floatboat/nexus-vue` | NexusEditor, useEditor |
+| React 绑定 | `@floatboat/nexus-react` | Editor, useEditor |
+| Vue 绑定 | `@floatboat/nexus-vue` | Editor, useEditor |
 | GFM 预设 | `@floatboat/nexus-preset-gfm` | createGfmPreset |
 | 斜杠菜单 | `@floatboat/nexus-plugin-slash` | createSlashPlugin |
 | 历史记录 | `@floatboat/nexus-plugin-history` | createHistoryPlugin |
