@@ -2,12 +2,15 @@ export interface FuzzyMatch {
   from: number;
   to: number;
   score: number;
+  /** UTF-16 offsets of the characters selected by the fuzzy match. */
+  indices: number[];
 }
 
 interface MatchState {
   score: number;
   from: number;
   last: number;
+  previous?: MatchState;
 }
 
 function isWordBoundary(text: string, index: number): boolean {
@@ -29,6 +32,19 @@ function better(candidate: MatchState, current: MatchState | undefined): boolean
   if (!current) return true;
   if (candidate.score !== current.score) return candidate.score > current.score;
   return candidate.last - candidate.from < current.last - current.from;
+}
+
+function collectIndices(state: MatchState): number[] {
+  const indices: number[] = [];
+  let current: MatchState | undefined = state;
+
+  while (current) {
+    indices.push(current.last);
+    current = current.previous;
+  }
+
+  indices.reverse();
+  return indices;
 }
 
 /**
@@ -73,7 +89,8 @@ function matchFrom(text: string, query: string, start: number): FuzzyMatch | nul
           characterScore(text, index, bestPredecessor.last) -
           gapPenalty,
         from: bestPredecessor.from,
-        last: index
+        last: index,
+        previous: bestPredecessor
       };
     }
 
@@ -85,7 +102,13 @@ function matchFrom(text: string, query: string, start: number): FuzzyMatch | nul
     if (state && better(state, best)) best = state;
   }
 
-  return best ? { from: best.from, to: best.last + 1, score: best.score } : null;
+  if (!best) return null;
+  return {
+    from: best.from,
+    to: best.last + 1,
+    score: best.score,
+    indices: collectIndices(best)
+  };
 }
 
 /**
