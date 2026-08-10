@@ -14,7 +14,15 @@ import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 
+import {
+  analyseProse,
+  countLines,
+  stripMarkdownNoise,
+  type CjkUnit,
+} from "@floatboat/nexus-core";
 import type { ParserLike } from "@floatboat/nexus-core";
+
+export type { CjkUnit } from "@floatboat/nexus-core";
 
 /** Mdast node types that contribute prose by default. */
 const DEFAULT_EXCLUDE: ReadonlyArray<string> = [
@@ -32,9 +40,6 @@ const DEFAULT_EXCLUDE: ReadonlyArray<string> = [
 /** Reading-speed defaults — overridable via {@link WordCountOptions.readingSpeed}. */
 const DEFAULT_WPM = 238;
 const DEFAULT_CPM = 500;
-
-/** Per-character vs. per-run treatment for CJK scripts. */
-export type CjkUnit = "char" | "word";
 
 export interface ReadingSpeed {
   /** Words per minute for Latin / Cyrillic / Greek / numeric runs. */
@@ -280,16 +285,10 @@ function computeFromAst(source: string, ast: Root, options: WordCountOptions): W
 function computeFromPlainText(source: string, options: WordCountOptions): WordCountStats {
   const cjkUnit = options.cjkUnit ?? "char";
   // Best-effort strip of common markdown noise so the fallback isn't
-  // wildly off when the caller couldn't supply an AST.
-  const stripped = source
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/`[^`]*`/g, " ")
-    .replace(/^---\n[\s\S]*?\n---\n?/m, " ")
-    .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\$\$[\s\S]*?\$\$/g, " ")
-    .replace(/\$[^$\n]+\$/g, " ")
-    .replace(/^\[[^\]]+\]:[^\n]*$/gm, " ");
+  // wildly off when the caller couldn't supply an AST. Reuses the core
+  // helper so this fallback and `editor.getDocumentStats()` can never
+  // drift apart.
+  const stripped = stripMarkdownNoise(source);
 
   const wordStats = analyseProse(stripped, cjkUnit);
   const sentences = countSentences(stripped);
@@ -313,56 +312,6 @@ function computeFromPlainText(source: string, options: WordCountOptions): WordCo
   };
 }
 
-interface ProseAnalysis {
-  words: number;
-  latinWords: number;
-  cjkCharacters: number;
-  characters: number;
-  charactersNoSpaces: number;
-}
-
-// Unicode property-escape regex literals — supported by ES2018+ and
-// safely runnable in our ES2022 target.
-const LATIN_WORD_REGEX = /[\p{L}\p{M}\p{N}](?:[\p{L}\p{M}\p{N}\u2019']*[\p{L}\p{M}\p{N}])?/gu;
-const CJK_REGEX = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu;
-const CJK_RUN_REGEX = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
-const WHITESPACE_REGEX = /\s+/g;
-
-function analyseProse(text: string, cjkUnit: CjkUnit): ProseAnalysis {
-  if (text.length === 0) {
-    return { words: 0, latinWords: 0, cjkCharacters: 0, characters: 0, charactersNoSpaces: 0 };
-  }
-
-  // Count CJK first so we can subtract its characters from the Latin
-  // pass — otherwise a Han ideograph would be matched as a one-letter
-  // Latin "word" by `\p{L}`.
-  const cjkCharacters = (text.match(CJK_REGEX) ?? []).length;
-  const cjkContribution = cjkUnit === "char" ? cjkCharacters : (text.match(CJK_RUN_REGEX) ?? []).length;
-
-  // Strip CJK before counting Latin runs to keep the buckets disjoint.
-  const latinSource = text.replace(CJK_REGEX, " ");
-  const latinWords = (latinSource.match(LATIN_WORD_REGEX) ?? []).length;
-
-  const characters = [...text].length; // count by code point, not UTF-16 unit
-  const charactersNoSpaces = characters - countWhitespaceCodePoints(text);
-
-  return {
-    words: latinWords + cjkContribution,
-    latinWords,
-    cjkCharacters,
-    characters,
-    charactersNoSpaces
-  };
-}
-
-function countWhitespaceCodePoints(text: string): number {
-  let count = 0;
-  for (const run of text.match(WHITESPACE_REGEX) ?? []) {
-    count += [...run].length;
-  }
-  return count;
-}
-
 const SENTENCE_TERMINATOR_REGEX = /[.!?。！？]+/gu;
 
 function countSentences(text: string): number {
@@ -373,14 +322,6 @@ function countSentences(text: string): number {
   // No terminator found — any non-empty prose still counts as one
   // sentence (a heading "Introduction", a single fragment, etc.).
   return 1;
-}
-
-function countLines(source: string): number {
-  if (source.length === 0) return 0;
-  // Match Codemirror's `state.doc.lines` convention: trailing newline
-  // does NOT add an empty line.
-  const withoutTrailingNewline = source.endsWith("\n") ? source.slice(0, -1) : source;
-  return withoutTrailingNewline.split("\n").length;
 }
 
 function computeReadingTime(latinWords: number, cjkCharacters: number, speed: ReadingSpeed | undefined): number {

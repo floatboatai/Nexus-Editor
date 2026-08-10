@@ -1,4 +1,13 @@
 export { createEditor } from "./editor";
+export {
+  analyseProse,
+  computeDocumentStats,
+  countLines,
+  stripMarkdownNoise,
+  type CjkUnit,
+  type DocumentStats,
+  type ProseAnalysis,
+} from "./document-stats";
 export { markdownAutoPair } from "./markdown-autopair";
 export { markdownFold, markdownFoldService } from "./markdown-fold";
 export { markdownKeymap, handleMarkdownEnter } from "./markdown-keymap";

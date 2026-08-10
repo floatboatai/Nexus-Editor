@@ -274,6 +274,15 @@ export interface EditorAPI {
    * 而不是依赖渲染时捕获、可能因上方编辑而过期的固定 from/to。无法解析时返回 null。
    */
   getPosAtDOM(node: HTMLElement): number | null;
+  /**
+   * Lightweight document statistics (characters / words / lines).
+   * Markdown-aware and CJK-aware — code fences, inline code,
+   * frontmatter, HTML, math and link definitions are excluded from the
+   * prose counts, CJK scripts count per character, and characters are
+   * counted by Unicode code point. Shares its counting rules with
+   * `@floatboat/nexus-plugin-wordcount`, so the two APIs stay
+   * consistent.
+   */
   getDocumentStats(): { characters: number; words: number; lines: number };
 }
 
