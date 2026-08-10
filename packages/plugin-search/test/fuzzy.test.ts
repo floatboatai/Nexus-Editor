@@ -42,7 +42,7 @@ describe("findFuzzyMatches", () => {
   });
 
   it("supports Unicode letters in word-boundary scoring", () => {
-    const matches = findFuzzyMatches("你好 世界", "sj");
+    const matches = findFuzzyMatches("你好 世界", "世");
     expect(matches).toHaveLength(1);
     expect(matches[0].from).toBe(3);
   });
