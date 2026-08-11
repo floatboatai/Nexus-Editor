@@ -34,6 +34,15 @@ final class FoundationModelsCoreTests: XCTestCase {
         XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("unsupported-os"))
     }
 
+    func testAppleSiliconWithoutFoundationModelsDoesNotReportUnsupportedArchitecture() async {
+        #if os(macOS) && arch(arm64) && !canImport(FoundationModels)
+        let availability = await FoundationModelsService().availability()
+
+        XCTAssertFalse(availability.available)
+        XCTAssertEqual(availability.reason, .modelUnavailable)
+        #endif
+    }
+
     func testSuggestionCollapsesLineBreaksToSpaces() {
         XCTAssertEqual(
             SuggestionNormalization.normalize("First\n\nsecond\r\nthird"),

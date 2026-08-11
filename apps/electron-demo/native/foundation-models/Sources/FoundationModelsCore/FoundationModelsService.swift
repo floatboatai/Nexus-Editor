@@ -111,7 +111,11 @@ public actor FoundationModelsService {
             }
         }
         #elseif os(macOS)
+        #if arch(arm64)
+        return AvailabilityResult(available: false, reason: .modelUnavailable)
+        #else
         return AvailabilityResult(available: false, reason: .unsupportedArchitecture)
+        #endif
         #else
         return AvailabilityResult(available: false, reason: .unsupportedOS)
         #endif
