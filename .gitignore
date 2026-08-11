@@ -10,6 +10,7 @@ release/
 .worktrees/
 apps/electron-demo/native/foundation-models/.build/
 apps/electron-demo/native/foundation-models/.swiftpm/
+apps/electron-demo/native/foundation-models/build/
 apps/electron-demo/native/foundation-models/DerivedData/
 apps/electron-demo/native/foundation-models/Package.resolved
 apps/electron-demo/native/foundation-models/.DS_Store
