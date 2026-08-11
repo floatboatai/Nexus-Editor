@@ -3,6 +3,7 @@ import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promi
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { savePastedImage, type PastedImageData } from "./asset-storage";
 
 // Must be called before app ready — declares our custom scheme as privileged
 // so images served via nexus-vault:// pass fetch/<img> with credentials / CORS.
@@ -315,6 +316,14 @@ ipcMain.handle("vault:write", async (_event, filePath: string, content: string) 
   await writeFile(abs, content, "utf-8");
   return { path: abs };
 });
+
+ipcMain.handle(
+  "vault:save-pasted-image",
+  async (_event, sourcePath: string, image: PastedImageData) => {
+    if (!activeVault) throw new Error("No active vault");
+    return savePastedImage(activeVault, sourcePath, image);
+  }
+);
 
 ipcMain.handle(
   "vault:create-file",

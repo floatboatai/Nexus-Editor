@@ -158,7 +158,7 @@ pnpm install
 pnpm dev:electron-demo
 ```
 
-一个完整的 Electron 应用，带文件 IO、实时预览、所有插件 —— 这是看清 Nexus 能做什么的最快路径。
+一个完整的 Electron 应用，带文件 IO、实时预览、剪贴板图片粘贴和所有插件 —— 这是看清 Nexus 能做什么的最快路径。在 vault 中打开笔记后粘贴截图，demo 会把图片保存到 `assets/`，插入相对 Markdown 图片路径并立即预览；未保存的 Untitled 文档则使用自包含的 data URL。
 
 ---
 

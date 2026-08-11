@@ -44,12 +44,20 @@ function resolveImageSrc(
   if (/^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith("//")) return url;
   if (!activeFile || !vaultRoot) return url;
 
+  let decodedUrl = url;
+  try {
+    decodedUrl = decodeURI(url);
+  } catch {
+    // Keep malformed percent escapes literal; the encoding step below makes
+    // them safe without turning an otherwise valid image reference unusable.
+  }
+
   const sep = activeFile.includes("\\") && !activeFile.includes("/") ? "\\" : "/";
   const normActive = activeFile.replace(/\\/g, "/");
   const normVault = vaultRoot.replace(/\\/g, "/").replace(/\/+$/, "");
   const lastSlash = normActive.lastIndexOf("/");
   const activeDir = lastSlash >= 0 ? normActive.slice(0, lastSlash) : "";
-  const joined = activeDir + "/" + url.replace(/\\/g, "/");
+  const joined = activeDir + "/" + decodedUrl.replace(/\\/g, "/");
 
   const parts: string[] = [];
   for (const p of joined.split("/")) {
@@ -76,6 +84,8 @@ export interface EditorShellOptions {
   resolveWikilink?(name: string): string | null;
   /** Returns autocomplete candidates for the query after `[[`. */
   suggestWikilinks?(query: string): string[];
+  /** Persists a pasted or dropped asset and returns its Markdown URL. */
+  onAssetUpload?(file: File): Promise<string | null>;
 }
 
 export interface EditorShell {
@@ -99,6 +109,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     onWikilinkNavigate,
     resolveWikilink,
     suggestWikilinks,
+    onAssetUpload,
   } = options;
 
   // Forward ref so the image renderer (built BEFORE createEditor returns)
@@ -318,6 +329,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     tabSize: settings.tabSize,
     direction: settings.direction,
     indentGuides: settings.indentGuides,
+    onAssetUpload,
     onChange(doc) {
       state.content = doc;
       state.dirty = true;

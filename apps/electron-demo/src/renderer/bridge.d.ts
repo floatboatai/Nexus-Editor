@@ -15,12 +15,22 @@ interface VaultState {
   recents: string[];
 }
 
+interface PastedImageData {
+  name: string;
+  type: string;
+  data: Uint8Array;
+}
+
 interface VaultBridge {
   pick(): Promise<{ path: string } | null>;
   list(vaultPath: string): Promise<VaultNode[]>;
   read(filePath: string): Promise<DemoFileHandle>;
   readAll(): Promise<Array<{ path: string; content: string }>>;
   write(filePath: string, content: string): Promise<{ path: string }>;
+  savePastedImage(
+    sourcePath: string,
+    image: PastedImageData
+  ): Promise<{ path: string; url: string }>;
   createFile(parentDir: string, name: string): Promise<{ path: string }>;
   createFolder(parentDir: string, name: string): Promise<{ path: string }>;
   rename(oldPath: string, newName: string): Promise<{ path: string }>;
