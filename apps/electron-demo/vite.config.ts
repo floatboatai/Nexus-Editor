@@ -1,5 +1,21 @@
 import { defineConfig } from "vite";
 import path from "node:path";
+import { createRequire } from "node:module";
+
+const coreRequire = createRequire(path.resolve(__dirname, "../../packages/core/package.json"));
+const searchPluginRequire = createRequire(path.resolve(__dirname, "../../packages/plugin-search/package.json"));
+const resolveCodeMirrorEsm = (resolver: NodeJS.Require, id: string) =>
+  resolver.resolve(id).replace(/index\.cjs$/, "index.js");
+const codemirrorAliases = {
+  "@codemirror/autocomplete": resolveCodeMirrorEsm(coreRequire, "@codemirror/autocomplete"),
+  "@codemirror/commands": resolveCodeMirrorEsm(coreRequire, "@codemirror/commands"),
+  "@codemirror/lang-markdown": resolveCodeMirrorEsm(coreRequire, "@codemirror/lang-markdown"),
+  "@codemirror/language": resolveCodeMirrorEsm(coreRequire, "@codemirror/language"),
+  "@codemirror/search": resolveCodeMirrorEsm(searchPluginRequire, "@codemirror/search"),
+  "@codemirror/state": resolveCodeMirrorEsm(coreRequire, "@codemirror/state"),
+  "@codemirror/view": resolveCodeMirrorEsm(coreRequire, "@codemirror/view"),
+};
+const codemirrorPackages = Object.keys(codemirrorAliases);
 
 export default defineConfig({
   root: path.resolve(__dirname, "src/renderer"),
@@ -32,6 +48,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      ...codemirrorAliases,
       "@floatboat/nexus-core": path.resolve(
         __dirname,
         "../../packages/core/src/index.ts"
@@ -61,6 +78,7 @@ export default defineConfig({
         "../../packages/plugin-wordcount/src/index.ts"
       ),
     },
+    dedupe: codemirrorPackages,
   },
   server: {
     port: 5173,

@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+import type { FoundationModelsBridge, NativeAvailability } from "./foundation-models";
+
 export interface DemoFileHandle {
   path: string;
   content: string;
@@ -37,7 +39,20 @@ export interface DemoBridge {
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
   vault: VaultBridge;
+  foundationModels: FoundationModelsBridge;
 }
+
+const foundationModels: FoundationModelsBridge = {
+  getAvailability() {
+    return ipcRenderer.invoke("foundation-models:availability") as Promise<NativeAvailability>;
+  },
+  suggest(input: string) {
+    return ipcRenderer.invoke("foundation-models:suggest", input) as Promise<string | null>;
+  },
+  cancelSuggestion() {
+    return ipcRenderer.invoke("foundation-models:cancel-suggestion") as Promise<void>;
+  },
+};
 
 const vaultBridge: VaultBridge = {
   pick() {
@@ -93,6 +108,7 @@ const bridge: DemoBridge = {
     return ipcRenderer.invoke("demo:save-file-as", content);
   },
   vault: vaultBridge,
+  foundationModels,
 };
 
 contextBridge.exposeInMainWorld("nexusDemo", bridge);

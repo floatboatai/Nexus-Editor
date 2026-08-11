@@ -16,6 +16,17 @@ import {
 } from "@floatboat/nexus-plugin-wordcount";
 import type { AppState } from "./state";
 import { type EditorSettings, settingsToTheme } from "./settings";
+import {
+  createUnavailableFoundationModelsBridge,
+  getWindowFoundationModelsBridge,
+  unavailableFoundationModels,
+  type FoundationModelsBridge,
+  type NativeAvailability,
+} from "./foundation-models";
+import {
+  createFoundationModelsPlugin,
+  type FoundationModelsController,
+} from "./foundation-models-plugin";
 
 // Parse Obsidian-style size specifier from the alt text: `alt|width` or
 // `alt|widthxheight`. Returns { alt, width, height } with the size stripped
@@ -76,6 +87,11 @@ export interface EditorShellOptions {
   resolveWikilink?(name: string): string | null;
   /** Returns autocomplete candidates for the query after `[[`. */
   suggestWikilinks?(query: string): string[];
+  foundationModels?: {
+    bridge?: FoundationModelsBridge;
+    enabled?: boolean;
+    availability?: NativeAvailability;
+  };
 }
 
 export interface EditorShell {
@@ -85,6 +101,8 @@ export interface EditorShell {
   slashMenu: SlashMenuUI;
   /** Markdown-aware word-count plugin (handle + status bar). */
   wordcount: WordCountPlugin;
+  /** Controller for macOS Foundation Models inline suggestions. */
+  foundationModels: FoundationModelsController;
   applySettings(settings: EditorSettings): void;
   loadDocument(content: string): void;
   destroy(): void;
@@ -99,6 +117,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     onWikilinkNavigate,
     resolveWikilink,
     suggestWikilinks,
+    foundationModels,
   } = options;
 
   // Forward ref so the image renderer (built BEFORE createEditor returns)
@@ -117,6 +136,16 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   // `attachWordCountPlugin` once `createEditor` returns.
   const wordcount = createWordCountPlugin({
     statusBar: { container, classPrefix: "nexus-wordcount" },
+  });
+
+  const foundationModelsPlugin = createFoundationModelsPlugin({
+    bridge:
+      foundationModels?.bridge ??
+      getWindowFoundationModelsBridge() ??
+      createUnavailableFoundationModelsBridge(),
+    enabled: foundationModels?.enabled ?? true,
+    availability: foundationModels?.availability ?? unavailableFoundationModels,
+    onStateChange,
   });
 
   // No more parser worker. Live-preview drives off `syntaxTree(state)` from
@@ -143,6 +172,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       createSearchPlugin(),
       wikilinksPlugin,
       wordcount,
+      foundationModelsPlugin,
     ],
     livePreview: settings.livePreview
       ? {
@@ -351,10 +381,12 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     toolbar,
     slashMenu,
     wordcount,
+    foundationModels: foundationModelsPlugin.controller,
     applySettings(next: EditorSettings) {
       editor.setTheme(settingsToTheme(next));
     },
     loadDocument(content: string) {
+      foundationModelsPlugin.controller.clear();
       // Load from disk is NOT a user edit — use silent mode to skip the
       // onChange pipeline (avoids redundant parse + link-index rebuild on
       // every file open). Caller owns state.content / dirty below and the
@@ -373,6 +405,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
         `${(t1 - t0).toFixed(1)}ms`, { bytes: content.length });
     },
     destroy() {
+      foundationModelsPlugin.controller.dispose();
       wordcount.destroy();
       slashMenu.destroy();
       toolbar.destroy();

@@ -26,6 +26,32 @@ env:
   PNPM_VERSION: "9.15.4"
 
 jobs:
+  native-addon:
+    name: Native Addon
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Set Node include path
+        run: |
+          node_include="$(node -p 'const path=require("node:path"); path.join(path.dirname(process.execPath), "..", "include", "node")')"
+          echo "NODE_INCLUDE=$node_include" >> "$GITHUB_ENV"
+
+      - name: Run Swift tests
+        run: swift test --package-path apps/electron-demo/native/foundation-models
+
+      - name: Build native addon
+        run: apps/electron-demo/native/foundation-models/build.sh
+
+      - name: Smoke test native addon
+        run: node apps/electron-demo/native/foundation-models/smoke-test.mjs
+
   verify:
     name: Test and Build
     runs-on: ubuntu-latest

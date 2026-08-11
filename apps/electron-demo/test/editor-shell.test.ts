@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createEditorShell } from "../src/renderer/editor-shell";
 import { createState } from "../src/renderer/state";
 import { defaultSettings } from "../src/renderer/settings";
+import type { FoundationModelsBridge, NativeAvailability } from "../src/renderer/foundation-models";
 
 describe("createEditorShell", () => {
   it("creates a core editor in the given container", () => {
@@ -58,5 +59,45 @@ describe("createEditorShell", () => {
     expect(state.content).toBe("loaded from file");
     expect(shell.editor.getDocument()).toBe("loaded from file");
     shell.destroy();
+  });
+
+  it("exposes the Foundation Models controller and clears suggestions before loading a document", async () => {
+    vi.useFakeTimers();
+    const container = document.createElement("div");
+    const state = createState();
+    state.content = "A paragraph";
+    const availability: NativeAvailability = {
+      available: true,
+      platform: "macos",
+      minimumOS: "26.0",
+    };
+    const bridge: FoundationModelsBridge = {
+      getAvailability: vi.fn(async () => availability),
+      suggest: vi.fn(async () => "next."),
+      cancelSuggestion: vi.fn(async () => undefined),
+    };
+    const shell = createEditorShell({
+      container,
+      state,
+      settings: defaultSettings(),
+      onStateChange: vi.fn(),
+      foundationModels: {
+        bridge,
+        availability,
+        enabled: true,
+      },
+    });
+
+    shell.editor.setSelection(state.content.length);
+    vi.advanceTimersByTime(500);
+    await vi.runAllTimersAsync();
+    expect(container.querySelector(".nexus-foundation-suggestion")?.textContent).toBe("next.");
+
+    shell.loadDocument("loaded");
+
+    expect(shell.foundationModels).toBeDefined();
+    expect(container.querySelector(".nexus-foundation-suggestion")).toBeNull();
+    shell.destroy();
+    vi.useRealTimers();
   });
 });

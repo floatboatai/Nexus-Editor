@@ -1,25 +1,62 @@
 import { createState, type AppState } from "./state";
 import { createEditorShell, type EditorShell } from "./editor-shell";
-import { loadSettings, createSettingsPanel, type EditorSettings } from "./settings";
+import {
+  loadSettings,
+  createSettingsPanel,
+  type EditorSettings,
+  type FoundationModelsSettingsState,
+} from "./settings";
 import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
 import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
+import {
+  createUnavailableFoundationModelsBridge,
+  getWindowFoundationModelsBridge,
+  unavailableFoundationModels,
+  type FoundationModelsBridge,
+  type NativeAvailability,
+} from "./foundation-models";
+import { loadDocumentIntoEditor } from "./app-document-loader";
 
 installLongTaskWatch(50);
 
 const state: AppState = createState();
 let settings: EditorSettings = loadSettings();
-let shell: EditorShell;
-let outline: OutlinePanel;
-let searchBar: SearchBar;
-let vault: VaultPanel;
-let backlinks: BacklinksPanel;
+let shell: EditorShell | null = null;
+let outline: OutlinePanel | null = null;
+let searchBar: SearchBar | null = null;
+let vault: VaultPanel | null = null;
+let backlinks: BacklinksPanel | null = null;
+let foundationModelsBridge: FoundationModelsBridge = createUnavailableFoundationModelsBridge();
+let foundationModelsAvailability: NativeAvailability = unavailableFoundationModels;
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
+
+function getHostPlatform(): string {
+  const platform = navigator.platform.toLowerCase();
+  return platform.includes("mac") ? "darwin" : platform;
+}
+
+async function refreshFoundationModelsAvailability(): Promise<void> {
+  try {
+    foundationModelsAvailability = await foundationModelsBridge.getAvailability();
+  } catch {
+    foundationModelsAvailability = unavailableFoundationModels;
+  }
+  shell?.foundationModels.setAvailability(foundationModelsAvailability);
+}
+
+function foundationModelsSettingsState(): FoundationModelsSettingsState {
+  return {
+    platform: getHostPlatform(),
+    availability: foundationModelsAvailability,
+    enabled: settings.foundationModelsSuggestions,
+  };
+}
 
 function createAppToolbar(): HTMLElement {
   const toolbar = document.createElement("div");
@@ -29,7 +66,7 @@ function createAppToolbar(): HTMLElement {
   vaultBtn.textContent = "Vault";
   vaultBtn.title = "Open a folder as a vault";
   vaultBtn.addEventListener("click", () => {
-    void vault.promptPickVault();
+    void vault?.promptPickVault();
   });
 
   const openBtn = document.createElement("button");
@@ -69,7 +106,7 @@ function createAppToolbar(): HTMLElement {
   searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
   searchBtn.title = "Search (Ctrl+F)";
   searchBtn.style.fontSize = "14px";
-  searchBtn.addEventListener("click", () => searchBar.open());
+  searchBtn.addEventListener("click", () => searchBar?.open());
 
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "\u2699"; // ⚙
@@ -126,11 +163,9 @@ async function handleOpen(): Promise<void> {
     const result = await window.nexusDemo.openFile();
     if (!result) return;
 
-    state.filePath = result.path;
-    state.activeFile = result.path;
-    shell.loadDocument(result.content);
-    vault.setActiveFile(result.path);
-    backlinks.refresh();
+    loadDocumentIntoEditor({ state, shell, file: result });
+    vault?.setActiveFile(result.path);
+    backlinks?.refresh();
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
   }
@@ -167,18 +202,20 @@ async function handleSaveAs(): Promise<void> {
     state.filePath = result.path;
     state.activeFile = result.path;
     state.dirty = false;
-    vault.setActiveFile(result.path);
+    vault?.setActiveFile(result.path);
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
   }
   renderStatus();
 }
 
-function handleSettings(): void {
+async function handleSettings(): Promise<void> {
+  await refreshFoundationModelsAvailability();
   createSettingsPanel(settings, (next) => {
     settings = next;
-    shell.applySettings(settings);
-  });
+    shell?.foundationModels.setEnabled(next.foundationModelsSuggestions);
+    shell?.applySettings(settings);
+  }, foundationModelsSettingsState());
 }
 
 function togglePanel(panel: HTMLElement, onShow?: () => void): void {
@@ -191,15 +228,17 @@ function togglePanel(panel: HTMLElement, onShow?: () => void): void {
 }
 
 function toggleOutline(): void {
-  togglePanel(outline.element, () => outline.update());
+  const currentOutline = outline;
+  if (currentOutline) togglePanel(currentOutline.element, () => currentOutline.update());
 }
 
 function toggleVault(): void {
-  togglePanel(vault.element);
+  if (vault) togglePanel(vault.element);
 }
 
 function toggleBacklinks(): void {
-  togglePanel(backlinks.element, () => backlinks.refresh());
+  const currentBacklinks = backlinks;
+  if (currentBacklinks) togglePanel(currentBacklinks.element, () => currentBacklinks.refresh());
 }
 
 async function handleVaultFileOpen(filePath: string): Promise<void> {
@@ -212,19 +251,16 @@ async function handleVaultFileOpen(filePath: string): Promise<void> {
     const result = await window.nexusDemo.vault.read(filePath);
     perfEnd(ipc, { bytes: result.content.length });
 
-    state.filePath = result.path;
-    state.activeFile = result.path;
-
     const load = perfStart("open-file.loadDocument");
-    shell.loadDocument(result.content);
+    loadDocumentIntoEditor({ state, shell, file: result });
     perfEnd(load);
 
     const setActive = perfStart("open-file.vault.setActiveFile");
-    vault.setActiveFile(result.path);
+    vault?.setActiveFile(result.path);
     perfEnd(setActive);
 
     const bl = perfStart("open-file.backlinks.refresh");
-    backlinks.refresh();
+    backlinks?.refresh();
     perfEnd(bl);
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
@@ -282,7 +318,7 @@ async function handleWikilinkNavigate(target: string, opts: { unresolved: boolea
     // `[[#heading]]` with no bare target means "jump inside the current file".
     if (!bare && anchor && state.activeFile) {
       const pos = findAnchorPosition(state.content, anchor);
-      if (pos !== null) shell.editor.setSelection(pos);
+      if (pos !== null) shell?.editor.setSelection(pos);
       return;
     }
     if (!bare) return;
@@ -293,7 +329,7 @@ async function handleWikilinkNavigate(target: string, opts: { unresolved: boolea
         await handleVaultFileOpen(resolved);
         if (anchor) {
           const pos = findAnchorPosition(state.content, anchor);
-          if (pos !== null) shell.editor.setSelection(pos);
+          if (pos !== null) shell?.editor.setSelection(pos);
         }
       }
       return;
@@ -315,7 +351,7 @@ async function handleWikilinkNavigate(target: string, opts: { unresolved: boolea
         : state.vaultPath;
     const name = bare.toLowerCase().endsWith(".md") ? bare : `${bare}.md`;
     const created = await window.nexusDemo.vault.createFile(parent, name);
-    await vault.refresh();
+    await vault?.refresh();
     linkIndex.updateFile(created.path, "");
     await handleVaultFileOpen(created.path);
   } catch (err) {
@@ -329,7 +365,7 @@ async function tryRestoreLastVault(): Promise<void> {
     const last = await window.nexusDemo.vault.getLast();
     if (last.lastVault) {
       state.vaultPath = last.lastVault;
-      await vault.openVault(last.lastVault);
+      await vault?.openVault(last.lastVault);
       renderStatus();
       // Build link index in the background — the editor is usable without it.
       void seedLinkIndex();
@@ -340,12 +376,13 @@ async function tryRestoreLastVault(): Promise<void> {
   }
 }
 
-function boot(): void {
+async function boot(): Promise<void> {
   const bootScope = perfStart("boot");
   const root = document.getElementById("app");
   if (!root) throw new Error("Missing #app element");
+  foundationModelsBridge = getWindowFoundationModelsBridge() ?? createUnavailableFoundationModelsBridge();
+  await refreshFoundationModelsAvailability();
 
-  const appToolbar = createAppToolbar();
   const statusLine = createStatusLine();
 
   const mainArea = document.createElement("div");
@@ -356,8 +393,6 @@ function boot(): void {
 
   const editorContainer = document.createElement("div");
   editorContainer.className = "editor-container";
-
-  root.append(appToolbar, mainArea, statusLine);
 
   shell = createEditorShell({
     container: editorContainer,
@@ -373,6 +408,11 @@ function boot(): void {
     },
     onWikilinkNavigate: (target, opts) => {
       void handleWikilinkNavigate(target, opts);
+    },
+    foundationModels: {
+      bridge: foundationModelsBridge,
+      availability: foundationModelsAvailability,
+      enabled: settings.foundationModelsSuggestions,
     },
   });
 
@@ -407,8 +447,11 @@ function boot(): void {
     getActiveFile: () => state.activeFile,
   });
 
+  const appToolbar = createAppToolbar();
+
   editorColumn.append(searchBar.element, editorContainer);
   mainArea.append(vault.element, editorColumn, outline.element, backlinks.element);
+  root.append(appToolbar, mainArea, statusLine);
 
   // External file changes → re-seed the index (cheap for typical vaults).
   window.nexusDemo.vault.onChanged(() => {
@@ -418,7 +461,7 @@ function boot(): void {
   document.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === "f") {
       e.preventDefault();
-      searchBar.open();
+      searchBar?.open();
     }
   });
 
@@ -437,4 +480,4 @@ function boot(): void {
   });
 }
 
-boot();
+void boot();
