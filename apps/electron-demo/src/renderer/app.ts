@@ -7,6 +7,7 @@ import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
+import { imageFileToDataUrl } from "./pasted-image";
 
 installLongTaskWatch(50);
 
@@ -373,6 +374,35 @@ function boot(): void {
     },
     onWikilinkNavigate: (target, opts) => {
       void handleWikilinkNavigate(target, opts);
+    },
+    onAssetUpload: async (file) => {
+      const sourcePath = state.activeFile;
+      if (!file.type.startsWith("image/")) {
+        state.error = `Unsupported pasted file type: ${file.type || "unknown"}`;
+        renderStatus();
+        return null;
+      }
+
+      try {
+        if (!state.vaultPath || !sourcePath) {
+          const dataUrl = await imageFileToDataUrl(file);
+          state.error = null;
+          renderStatus();
+          return dataUrl;
+        }
+        const saved = await window.nexusDemo.vault.savePastedImage(sourcePath, {
+          name: file.name,
+          type: file.type,
+          data: new Uint8Array(await file.arrayBuffer()),
+        });
+        state.error = null;
+        renderStatus();
+        return saved.url;
+      } catch (error) {
+        state.error = error instanceof Error ? error.message : String(error);
+        renderStatus();
+        return null;
+      }
     },
   });
 

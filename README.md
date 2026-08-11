@@ -158,7 +158,7 @@ pnpm install
 pnpm dev:electron-demo
 ```
 
-A real Electron app with file IO, live preview, and every plugin enabled — the fastest way to see what's possible.
+A real Electron app with file IO, live preview, clipboard image paste, and every plugin enabled — the fastest way to see what's possible. Paste a screenshot into an open vault note and the demo stores it under `assets/`, inserts a relative Markdown image, and previews it immediately. Untitled documents use a self-contained data URL until they are saved.
 
 ---
 

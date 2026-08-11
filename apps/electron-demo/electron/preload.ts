@@ -17,12 +17,22 @@ export interface VaultState {
   recents: string[];
 }
 
+export interface PastedImageData {
+  name: string;
+  type: string;
+  data: Uint8Array;
+}
+
 export interface VaultBridge {
   pick(): Promise<{ path: string } | null>;
   list(vaultPath: string): Promise<VaultNode[]>;
   read(filePath: string): Promise<DemoFileHandle>;
   readAll(): Promise<Array<{ path: string; content: string }>>;
   write(filePath: string, content: string): Promise<{ path: string }>;
+  savePastedImage(
+    sourcePath: string,
+    image: PastedImageData
+  ): Promise<{ path: string; url: string }>;
   createFile(parentDir: string, name: string): Promise<{ path: string }>;
   createFolder(parentDir: string, name: string): Promise<{ path: string }>;
   rename(oldPath: string, newName: string): Promise<{ path: string }>;
@@ -54,6 +64,9 @@ const vaultBridge: VaultBridge = {
   },
   write(filePath, content) {
     return ipcRenderer.invoke("vault:write", filePath, content);
+  },
+  savePastedImage(sourcePath, image) {
+    return ipcRenderer.invoke("vault:save-pasted-image", sourcePath, image);
   },
   createFile(parentDir, name) {
     return ipcRenderer.invoke("vault:create-file", parentDir, name);
