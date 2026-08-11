@@ -128,4 +128,36 @@ describe("mermaid live preview", () => {
 
     editor.destroy();
   });
+
+  it("resolves the current source position when an unchanged diagram moves", () => {
+    const container = makeContainer();
+    const md = "before\n\n```mermaid\ngraph TD\n  A --> B\n```\n\nafter";
+    const prefix = "new heading\n\n";
+
+    const editor = createEditor({
+      container,
+      initialValue: md,
+      livePreview: true,
+    });
+
+    editor.setSelection(editor.getDocument().length);
+
+    const originalHost = container.querySelector(".nexus-mermaid");
+    expect(originalHost).not.toBeNull();
+
+    editor.replaceRange(0, 0, prefix);
+
+    const movedHost = container.querySelector(".nexus-mermaid");
+    expect(movedHost).toBe(originalHost);
+
+    const editBtn = movedHost!.querySelector("button") as HTMLButtonElement;
+    editBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    const movedDocument = prefix + md;
+    const blockStart = movedDocument.indexOf("```mermaid");
+    const firstContentLine = movedDocument.indexOf("\n", blockStart) + 1;
+    expect(editor.getSelection().anchor).toBe(firstContentLine);
+
+    editor.destroy();
+  });
 });
