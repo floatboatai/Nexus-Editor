@@ -19,6 +19,10 @@ pnpm-debug.log*
 .env.*
 !.env.example
 
+# Playwright test artifacts
+test-results/
+playwright-report/
+
 # OS / editor files
 .DS_Store
 Thumbs.db
