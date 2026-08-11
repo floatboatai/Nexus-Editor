@@ -6,6 +6,7 @@ dist/
 dist-electron/
 release/
 *.tsbuildinfo
+.worktrees/
 
 # Logs
 *.log
