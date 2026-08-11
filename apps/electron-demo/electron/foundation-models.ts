@@ -22,7 +22,6 @@ export interface FoundationModelsMainBridge extends FoundationModelsBridge {
 
 export interface FoundationModelsBridgeOptions {
   native: NativeFoundationModels | null;
-  platform?: NodeJS.Platform;
 }
 
 const unavailableAvailability: NativeAvailability = {

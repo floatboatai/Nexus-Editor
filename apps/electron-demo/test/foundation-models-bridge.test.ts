@@ -3,7 +3,7 @@ import { createFoundationModelsBridge } from "../electron/foundation-models";
 
 describe("foundation models bridge", () => {
   it("returns unavailable instead of throwing when the native module is absent", async () => {
-    const bridge = createFoundationModelsBridge({ native: null, platform: "darwin" });
+    const bridge = createFoundationModelsBridge({ native: null });
 
     await expect(bridge.getAvailability()).resolves.toMatchObject({
       available: false,
@@ -24,7 +24,7 @@ describe("foundation models bridge", () => {
       suggest: vi.fn().mockResolvedValue("next sentence."),
       dispose: vi.fn(),
     };
-    const bridge = createFoundationModelsBridge({ native, platform: "darwin" });
+    const bridge = createFoundationModelsBridge({ native });
 
     await expect(bridge.suggest("paragraph")).resolves.toBe("next sentence.");
     expect(native.suggest).toHaveBeenCalledWith("paragraph");
@@ -36,7 +36,7 @@ describe("foundation models bridge", () => {
       suggest: vi.fn(),
       dispose: vi.fn(),
     };
-    const bridge = createFoundationModelsBridge({ native, platform: "darwin" });
+    const bridge = createFoundationModelsBridge({ native });
 
     bridge.dispose();
     bridge.dispose();

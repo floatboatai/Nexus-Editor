@@ -38,7 +38,9 @@ let activeWatcher: FSWatcher | null = null;
 function foundationModelsNativeCandidates(): string[] {
   return [
     path.join(__dirname, "native", "foundation_models.node"),
+    path.join(__dirname, "..", "native", "foundation-models", "build", "Release", "foundation_models.node"),
     path.join(app.getAppPath(), "dist-electron", "native", "foundation_models.node"),
+    path.join(app.getAppPath(), "native", "foundation-models", "build", "Release", "foundation_models.node"),
     path.join(process.resourcesPath, "app.asar.unpacked", "dist-electron", "native", "foundation_models.node"),
     path.join(process.resourcesPath, "dist-electron", "native", "foundation_models.node"),
   ];
