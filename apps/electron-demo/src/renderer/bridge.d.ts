@@ -30,11 +30,24 @@ interface VaultBridge {
   onChanged(cb: (payload: { vault: string }) => void): () => void;
 }
 
+interface NativeAvailability {
+  available: boolean;
+  platform: "macos";
+  minimumOS: "26.0";
+  reason?: "unsupported-os" | "unsupported-architecture" | "apple-intelligence-unavailable" | "model-unavailable";
+}
+
+interface FoundationModelsBridge {
+  getAvailability(): Promise<NativeAvailability>;
+  suggest(input: string): Promise<string | null>;
+}
+
 interface DemoBridge {
   openFile(): Promise<DemoFileHandle | null>;
   saveFile(path: string, content: string): Promise<{ path: string }>;
   saveFileAs(content: string): Promise<{ path: string } | null>;
   vault: VaultBridge;
+  foundationModels: FoundationModelsBridge;
 }
 
 interface Window {

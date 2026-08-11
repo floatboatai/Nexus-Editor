@@ -3,6 +3,7 @@ import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promi
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { createFoundationModelsBridge, type NativeFoundationModels } from "./foundation-models";
 
 // Must be called before app ready — declares our custom scheme as privileged
 // so images served via nexus-vault:// pass fetch/<img> with credentials / CORS.
@@ -14,6 +15,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let mainWindow: BrowserWindow | null = null;
+let foundationModels: ReturnType<typeof createFoundationModelsBridge> | null = null;
 
 export interface VaultNode {
   name: string;
@@ -32,6 +34,48 @@ const SKIP_DIRS = new Set(["node_modules", ".git", ".svn", ".hg", ".DS_Store"]);
 
 let activeVault: string | null = null;
 let activeWatcher: FSWatcher | null = null;
+
+function foundationModelsNativeCandidates(): string[] {
+  return [
+    path.join(__dirname, "native", "foundation_models.node"),
+    path.join(app.getAppPath(), "dist-electron", "native", "foundation_models.node"),
+    path.join(process.resourcesPath, "app.asar.unpacked", "dist-electron", "native", "foundation_models.node"),
+    path.join(process.resourcesPath, "dist-electron", "native", "foundation_models.node"),
+  ];
+}
+
+function loadNativeFoundationModels(): NativeFoundationModels | null {
+  let loadError: unknown = null;
+
+  for (const candidate of foundationModelsNativeCandidates()) {
+    if (!existsSync(candidate)) continue;
+
+    try {
+      const loaded = require(candidate) as Partial<NativeFoundationModels>;
+      if (
+        typeof loaded.getAvailability === "function" &&
+        typeof loaded.suggest === "function" &&
+        typeof loaded.dispose === "function"
+      ) {
+        return loaded as NativeFoundationModels;
+      }
+      loadError = new Error(`missing required exports at ${candidate}`);
+    } catch (error) {
+      loadError = error;
+    }
+  }
+
+  console.warn(
+    "[foundation-models] native addon unavailable; using fallback.",
+    loadError instanceof Error ? loadError.message : loadError ?? ""
+  );
+  return null;
+}
+
+function getFoundationModelsBridge() {
+  foundationModels ??= createFoundationModelsBridge({ native: loadNativeFoundationModels() });
+  return foundationModels;
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -121,6 +165,14 @@ ipcMain.handle(
     return { path: result.filePath };
   }
 );
+
+ipcMain.handle("foundation-models:availability", async () => {
+  return getFoundationModelsBridge().getAvailability();
+});
+
+ipcMain.handle("foundation-models:suggest", async (_event, input: string) => {
+  return getFoundationModelsBridge().suggest(input);
+});
 
 // -- vault helpers ------------------------------------------------------------
 
@@ -435,6 +487,10 @@ app.whenReady().then(() => {
     }
   });
   createWindow();
+});
+
+app.on("before-quit", () => {
+  foundationModels?.dispose();
 });
 
 app.on("window-all-closed", () => {
