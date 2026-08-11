@@ -53,11 +53,71 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+      # PRD 用例（test/testcases/prd/CASE-核心数据流）不进 pnpm test（其仅覆盖
+      # packages 与 electron-demo/test），单独跑 test:prd 保证 PRD 用例进 CI
+      - name: Run PRD tests
+        run: pnpm test:prd
+
       - name: Build packages
         run: pnpm build
 
       - name: Build Electron demo
         run: pnpm build:electron-demo
+
+  e2e:
+    name: E2E (Electron demo)
+    runs-on: ubuntu-latest
+    # 本地 `pnpm test:e2e` 直接 node 两个 runner.mjs：本地有显示服务器，且需手动先起
+    # dev server；CI 无显示服务器 → 用 xvfb-run -a 包裹，dev server 由本 job 后台启动
+    # （见下方 "Start renderer dev server" 步骤），因此 CI 不直接复用 test:e2e，
+    # 而是拆成两个独立步骤 + xvfb-run（本地/CI 差异说明）。
+    # 首次 CI 落地 e2e：允许环境差异导致的失败不阻塞（用例已在本地全绿，CI 环境
+    # 首次接入可能存在 Electron 系统依赖/显示服务器等环境差异）。
+    # 注意：首次 CI 稳定后（如连续 N 次全绿）应移除 continue-on-error，避免被永久保留。
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Build Electron demo
+        run: pnpm build:electron-demo
+
+      - name: Install Electron system deps
+        run: npx playwright install --with-deps electron
+
+      - name: Start renderer dev server
+        run: |
+          nohup pnpm --filter @floatboat/nexus-electron-demo dev:renderer > /tmp/vite.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:5173 > /dev/null; then echo "dev server ready"; exit 0; fi
+            sleep 2
+          done
+          echo "dev server failed to start"; cat /tmp/vite.log; exit 1
+
+      - name: Run E2E (undo-redo CASE)
+        if: always()
+        run: xvfb-run -a node test/testcases/demo-requirements/CASE-撤销重做插件/RUN-撤销重做插件-runner.mjs
+
+      - name: Run E2E (core-extensions CASE)
+        if: always()
+        run: xvfb-run -a node test/testcases/demo-requirements/CASE-核心扩展功能/RUN-核心扩展功能-runner.mjs
 
   publish:
     name: Publish Packages

@@ -1,0 +1,49 @@
+{
+  "runner_version": "1.1",
+  "change_id": "demo-requirements",
+  "feature_point": "核心扩展功能",
+  "run_at": "2026-08-11T08:46:54.354Z",
+  "channels": {
+    "vitest": {
+      "total_cases": 1,
+      "passed": 1,
+      "failed": 0
+    },
+    "playwright": {
+      "total_cases": 1,
+      "passed": 1,
+      "failed": 0
+    }
+  },
+  "total_cases": 2,
+  "results": [
+    {
+      "case_id": "FP-11-02",
+      "test_file": "RUN-FP-11-02.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 7,
+      "passed_tests": 7,
+      "skipped_tests": 0,
+      "failed_tests": 0,
+      "duration_ms": 2.20703125
+    },
+    {
+      "case_id": "核心扩展功能",
+      "test_file": "RUN-核心扩展功能.spec.ts",
+      "channel": "playwright",
+      "status": "passed",
+      "total_tests": 31,
+      "passed_tests": 24,
+      "skipped_tests": 7,
+      "failed_tests": 0,
+      "duration_ms": 28159.809
+    }
+  ],
+  "summary": {
+    "passed_cases": 2,
+    "failed_cases": 0,
+    "skipped_cases": 7,
+    "pass_rate": "100%"
+  }
+}

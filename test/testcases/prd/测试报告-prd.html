@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus_Editor PRD 功能点测试报告</title>
+<style>
+  :root { --pass:#16a34a; --fail:#dc2626; --skip:#d97706; --ink:#1e293b; --muted:#64748b; --line:#e2e8f0; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; color: var(--ink); margin: 0; background:#f8fafc; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 20px 64px; }
+  header { text-align:center; padding: 24px 0 8px; }
+  header h1 { font-size: 26px; margin: 0 0 6px; }
+  header .sub { color: var(--muted); font-size: 14px; }
+  .summary-cards { display:flex; gap:16px; justify-content:center; flex-wrap:wrap; margin: 28px 0 36px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:18px 26px; text-align:center; min-width:120px; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+  .card .num { font-size:30px; font-weight:700; line-height:1.2; }
+  .card .lbl { font-size:13px; color:var(--muted); margin-top:4px; }
+  .card.pass .num { color:var(--pass); } .card.fail .num { color:var(--fail); } .card.skip .num { color:var(--skip); }
+  .bar { height:10px; border-radius:999px; background:var(--line); overflow:hidden; margin:8px auto 0; width:100%; }
+  .bar > div { height:100%; }
+  h2 { font-size:18px; cursor:pointer; user-select:none; padding:14px 16px; background:#fff; border:1px solid var(--line); border-radius:10px; margin:12px 0 0; display:flex; align-items:center; gap:10px; }
+  h2::before { content:"▸"; color:var(--muted); transition:transform .15s; }
+  h2.open::before { transform:rotate(90deg); }
+  h2 .meta { font-size:12px; color:var(--muted); font-weight:400; }
+  .case-stats { display:flex; gap:18px; flex-wrap:wrap; padding:12px 16px; background:#fff; border:1px solid var(--line); border-top:none; border-radius:0 0 10px 10px; font-size:14px; color:var(--muted); }
+  .case-stats b { color:var(--ink); }
+  .case-stats .pass b { color:var(--pass); } .case-stats .fail b { color:var(--fail); } .case-stats .skip b { color:var(--skip); }
+  .detail { padding: 12px; }
+  table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line); border-radius:10px; overflow:hidden; font-size:13.5px; }
+  th { background:#f1f5f9; text-align:left; padding:10px 12px; font-weight:600; border-bottom:1px solid var(--line); }
+  td { padding:8px 12px; border-bottom:1px solid #f1f5f9; }
+  tr.pass td:nth-child(4) { color:var(--pass); } tr.fail td:nth-child(4) { color:var(--fail); font-weight:600; } tr.skip td:nth-child(4) { color:var(--skip); }
+  tr.fail { background:#fef2f2; }
+  .section-title { margin:36px 0 12px; font-size:20px; }
+  .bug-card { background:#fff; border:1px solid var(--line); border-radius:10px; margin:10px 0; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+  .bug-card h3 { margin:0; padding:14px 16px; cursor:pointer; font-size:15.5px; display:flex; justify-content:space-between; align-items:center; user-select:none; background:#fffbf5; }
+  .bug-card h3::before { content:"▸"; color:var(--muted); transition:transform .15s; margin-right:8px; }
+  .bug-card h3.open::before { transform:rotate(90deg); }
+  .bug-card h3 .sev { font-size:12.5px; font-weight:400; color:var(--muted); background:#f1f5f9; padding:3px 10px; border-radius:999px; }
+  .bug-card h3.high { border-left:4px solid var(--fail); }
+  .bug-card h3.mid { border-left:4px solid var(--skip); }
+  .bug-body { padding:0 18px 18px; border-top:1px dashed var(--line); }
+  .bug-body table.kv { margin-top:14px; }
+  .bug-body table.kv th { width:92px; background:#f8fafc; font-weight:600; }
+  .bug-body h4 { margin:16px 0 8px; font-size:14px; color:var(--ink); }
+  .bug-body ol { margin:0; padding-left:22px; line-height:1.7; }
+  .bug-body ol li { margin-bottom:6px; }
+  .bug-body ol.roots li::marker { color:var(--fail); font-weight:700; }
+  .bug-body ol.fixes li::marker { color:var(--pass); font-weight:700; }
+  code { background:#f1f5f9; padding:2px 6px; border-radius:6px; font-size:12.5px; }
+  footer { text-align:center; color:var(--muted); font-size:12.5px; margin-top:48px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Nexus_Editor · PRD 功能点测试报告</h1>
+    <div class="sub">生成时间：2026-08-11 ｜ 覆盖 prd 变更下全部 8 个 CASE ｜ 双通道：Vitest (jsdom) + Playwright (Electron demo)</div>
+  </header>
+
+  <div class="summary-cards">
+    <div class="card"><div class="num">257</div><div class="lbl">总用例</div></div>
+    <div class="card pass"><div class="num">249</div><div class="lbl">通过</div></div>
+    <div class="card fail"><div class="num">2</div><div class="lbl">失败（BUG）</div></div>
+    <div class="card skip"><div class="num">6</div><div class="lbl">跳过</div></div>
+    <div class="card"><div class="num">96.9%</div><div class="lbl">总通过率</div><div class="bar"><div style="width:96.9%;background:var(--pass)"></div></div></div>
+  </div>
+
+  <h2 class="section-title">一、各功能点汇总（点击展开用例明细）</h2>
+  
+    <section class="case" id="CASE-EditorConfig配置">
+      <h2 onclick="toggle(this)">EditorConfig配置 <span class="meta">（Vitest (jsdom)）</span></h2>
+      <div class="case-stats">
+        <span>总用例 <b>47</b></span>
+        <span class="pass">通过 <b>47</b></span>
+        <span class="fail">失败 <b>0</b></span>
+        <span class="skip">跳过 <b>0</b></span>
+        <span>通过率 <b>100%%</b></span>
+        <span class="meta">运行时间 2026-08-11T00:18:29.148Z</span>
+      </div>
+      <div class="detail" style="display:none">
+        <table><thead><tr><th>用例ID</th><th>优先级</th><th>描述</th><th>结果</th></tr></thead>
+        <tbody><tr class="pass"><td>FP-01-01-B01</td><td>Vitest</td><td>离屏容器不抛错且 DOM 仍挂载</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-01-E01</td><td>Vitest</td><td>缺省 container 时拒绝创建</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-01-E02</td><td>Vitest</td><td>container 为 null 时拒绝创建</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-01-F01</td><td>Vitest</td><td>容器已有子内容时追加挂载不覆盖</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-01-F02</td><td>Vitest</td><td>destroy 后编辑器 DOM 从容器移除</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-01-N01</td><td>Vitest</td><td>提供合法容器节点时编辑器正常挂载</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-01-N02</td><td>Vitest</td><td>挂载到已加入 document 的节点时全局可查</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-02-B01</td><td>Vitest</td><td>initialValue 缺省时为空文档</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-02-B02</td><td>Vitest</td><td>initialValue 为空字符串时正常创建</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-02-D01</td><td>Vitest</td><td>大文档（100 行）内容逐行保留</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-02-E01</td><td>Vitest</td><td>非法 Markdown 容错解析不抛错</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-02-N01</td><td>Vitest</td><td>初始文档与 getDocument 一致且 AST 正确</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-02-N02</td><td>Vitest</td><td>复杂 Markdown 初始化后 AST 完整</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-02-N03</td><td>Vitest</td><td>中文等多字节内容初始化正确</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-03-B01</td><td>Vitest</td><td>plugins 缺省时正常创建</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-03-B02</td><td>Vitest</td><td>plugins 为空数组时正常创建</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-03-E01</td><td>Vitest</td><td>多插件同 id 命令先注册者优先</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-03-F01</td><td>Vitest</td><td>插件 handlers keydown 钩子可消费事件</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-03-N01</td><td>Vitest</td><td>插件 slashCommands 注册后可获取</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-03-N02</td><td>Vitest</td><td>插件 shortcuts 注册后快捷键生效</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-03-N03</td><td>Vitest</td><td>插件 cmExtensions 注入生效</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-04-B01</td><td>Vitest</td><td>themePrefix 空字符串回落默认</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-04-B02</td><td>Vitest</td><td>未配置 theme 时默认主题仍应用</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-04-E01</td><td>Vitest</td><td>themePrefix 含非法字符时不抛错</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-04-F01</td><td>Vitest</td><td>两个编辑器不同前缀互不干扰</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-04-N01</td><td>Vitest</td><td>默认主题变量以 --nexus- 命名</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-04-N02</td><td>Vitest</td><td>自定义 themePrefix 后主题变量名变化</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-05-B01</td><td>Vitest</td><td>连续多次 setDocument 各触发一次</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-05-D01</td><td>Vitest</td><td>创建时不触发 onChange</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-05-E01</td><td>Vitest</td><td>setDocument 默认触发一次 onChange</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-05-E02</td><td>Vitest</td><td>silent 时不触发 onChange</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-05-E03</td><td>Vitest</td><td>onChange 回调抛异常向上传播</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-05-N01</td><td>Vitest</td><td>onChange 在文档变化时被调用</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-05-N02</td><td>Vitest</td><td>onChange 第二参数为最新 AST</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-06-B01</td><td>Vitest</td><td>连续 focus 不重复触发（幂等）</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-06-E01</td><td>Vitest</td><td>destroy 后 focus/blur 不抛错不回调</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-06-E02</td><td>Vitest</td><td>onFocus 回调抛异常向上传播</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-06-F01</td><td>Vitest</td><td>多次 focus/blur 交替回调按序</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-06-N01</td><td>Vitest</td><td>focus() 触发 onFocus 回调</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-06-N02</td><td>Vitest</td><td>blur() 触发 onBlur 回调</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-07-B01</td><td>Vitest</td><td>非图片文件插入为链接语法</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-07-E01</td><td>Vitest</td><td>onAssetUpload 返回 null 不插入</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-07-E02</td><td>Vitest</td><td>未配置钩子时拖拽不插入</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-07-E03</td><td>Vitest</td><td>钩子抛异常时不插入不向外抛</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-07-F01</td><td>Vitest</td><td>多文件混合拖拽分别插入</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-07-N01</td><td>Vitest</td><td>uploadAsset 上传成功返回 URL</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-07-N02</td><td>Vitest</td><td>拖拽图片文件插入 markdown 语法</td><td>✅ 通过</td></tr></tbody></table>
+      </div>
+    </section>
+
+    <section class="case" id="CASE-LivePreview实时预览">
+      <h2 onclick="toggle(this)">LivePreview实时预览 <span class="meta">（Vitest (jsdom)）</span></h2>
+      <div class="case-stats">
+        <span>总用例 <b>24</b></span>
+        <span class="pass">通过 <b>23</b></span>
+        <span class="fail">失败 <b>1</b></span>
+        <span class="skip">跳过 <b>0</b></span>
+        <span>通过率 <b>96%%</b></span>
+        <span class="meta">运行时间 2026-08-11T00:18:02.149Z</span>
+      </div>
+      <div class="detail" style="display:none">
+        <table><thead><tr><th>用例ID</th><th>优先级</th><th>描述</th><th>结果</th></tr></thead>
+        <tbody><tr class="pass"><td>FP-04-01-B01</td><td>Vitest</td><td>table 始终折叠可编辑 Widget</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-01-B02</td><td>Vitest</td><td>嵌套格式折叠无残留标记</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-01-E01</td><td>Vitest</td><td>mermaid 懒加载折叠</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-01-N01</td><td>Vitest</td><td>heading 折叠 `# ` 前缀为标题 Widget</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-01-N02</td><td>Vitest</td><td>link 折叠为 data-link-url Widget</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-01-N03</td><td>Vitest</td><td>行内 strong/emphasis/inlineCode 跨行折叠</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-01-N04</td><td>Vitest</td><td>无序列表折叠为 bullet/checkbox Widget</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-01-N05</td><td>Vitest</td><td>image 折叠为图片预览 Widget</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-01-N06</td><td>Vitest</td><td>fenced code 块折叠</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-02-B01</td><td>Vitest</td><td>link inclusiveEnd 边界</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-02-B02</td><td>Vitest</td><td>heading 非 inclusiveEnd 边界</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-02-B03</td><td>Vitest</td><td>多选区混合展开/折叠共存</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-02-N01</td><td>Vitest</td><td>strong 光标移入所在行展开</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-02-N02</td><td>Vitest</td><td>link 光标移入范围展开源码</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-02-N03</td><td>Vitest</td><td>heading 光标移入展开 `# `</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-02-N04</td><td>Vitest</td><td>code 块光标移入 fence 恢复可见</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-02-N05</td><td>Vitest</td><td>image 光标移入源码可见预览保留</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-02-N06</td><td>Vitest</td><td>展开↔折叠往返多次切换稳定</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-03-B01</td><td>Vitest</td><td>setDocument 后重新挂载新内容</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-03-D01</td><td>Vitest</td><td>挂载层级 + 混合渲染共存</td><td>✅ 通过</td></tr>
+<tr class="fail"><td>FP-04-03-E01</td><td>Vitest</td><td>eqKey 相同时 widget DOM 复用</td><td>❌ 失败</td></tr>
+<tr class="pass"><td>FP-04-03-N01</td><td>Vitest</td><td>createPortal 桥接到 widget DOM</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-03-N02</td><td>Vitest</td><td>渲染上下文 nodeType/text/from/to</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-03-N03</td><td>Vitest</td><td>多 React widget 独立挂载</td><td>✅ 通过</td></tr></tbody></table>
+      </div>
+    </section>
+
+    <section class="case" id="CASE-NexusPlugin插件接口">
+      <h2 onclick="toggle(this)">NexusPlugin插件接口 <span class="meta">（Vitest (jsdom)）</span></h2>
+      <div class="case-stats">
+        <span>总用例 <b>38</b></span>
+        <span class="pass">通过 <b>38</b></span>
+        <span class="fail">失败 <b>0</b></span>
+        <span class="skip">跳过 <b>0</b></span>
+        <span>通过率 <b>100%%</b></span>
+        <span class="meta">运行时间 2026-08-11T00:18:19.677Z</span>
+      </div>
+      <div class="detail" style="display:none">
+        <table><thead><tr><th>用例ID</th><th>优先级</th><th>描述</th><th>结果</th></tr></thead>
+        <tbody><tr class="pass"><td>FP-02-01-B01</td><td>Vitest</td><td>超长 name 不影响创建</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-01-E01</td><td>Vitest</td><td>缺失 name 运行时不崩溃</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-01-E02</td><td>Vitest</td><td>同名插件扩展均生效</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-01-F01</td><td>Vitest</td><td>注册→生效→destroy 完整生命周期</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-01-N01</td><td>Vitest</td><td>注册单个命名插件正常创建渲染</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-01-N02</td><td>Vitest</td><td>多插件多 name 扩展聚合生效</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-02-B01</td><td>Vitest</td><td>相同 key 先注册者生效</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-02-E01</td><td>Vitest</td><td>未注册 key 返回 false</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-02-E02</td><td>Vitest</td><td>run 回调抛异常向外传播</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-02-F01</td><td>Vitest</td><td>快捷键改文档后 onChange 触发</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-02-N01</td><td>Vitest</td><td>runShortcut 精确执行并返回 true</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-02-N02</td><td>Vitest</td><td>键盘事件实际触发快捷键</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-02-N03</td><td>Vitest</td><td>run 返回 false 未消费</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-03-B01</td><td>Vitest</td><td>查询含空白时菜单关闭</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-03-D01</td><td>Vitest</td><td>多插件命令按注册顺序聚合</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-03-E01</td><td>Vitest</td><td>slashMenuLimit 0 菜单空</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-03-F01</td><td>Vitest</td><td>run 钩子修改文档流程</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-03-N01</td><td>Vitest</td><td>getSlashCommands 返回注册命令</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-03-N02</td><td>Vitest</td><td>输入 / 触发 slashMenuChange</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-03-N03</td><td>Vitest</td><td>输入 /hea 前缀过滤排序</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-04-B01</td><td>Vitest</td><td>多 remark 插件按序执行</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-04-D01</td><td>Vitest</td><td>仅改 AST 文档源码无损</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-04-E01</td><td>Vitest</td><td>remark 抛异常导致创建失败</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-04-N01</td><td>Vitest</td><td>remark 插件修改 getAst() 输出</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-04-N02</td><td>Vitest</td><td>exportHTML 反映转换结果</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-04-N03</td><td>Vitest</td><td>setDocument 后 AST 仍经 remark</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-05-B01</td><td>Vitest</td><td>无匹配节点不渲染</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-05-D01</td><td>Vitest</td><td>render 的 source 与源码一致</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-05-E01</td><td>Vitest</td><td>widget 移除时调用 destroy</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-05-N01</td><td>Vitest</td><td>匹配节点渲染为自定义 widget</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-05-N02</td><td>Vitest</td><td>光标进入 widget 范围恢复源码</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-05-N03</td><td>Vitest</td><td>match 谓词精确筛选</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-06-B01</td><td>Vitest</td><td>空 cmExtensions 安全注册</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-06-B02</td><td>Vitest</td><td>多插件 cmExtensions 合并生效</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-06-E01</td><td>Vitest</td><td>非法 extension 创建失败</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-06-N01</td><td>Vitest</td><td>editorAttributes 注入根节点</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-06-N02</td><td>Vitest</td><td>ViewPlugin 实例化可访问状态</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-02-06-N03</td><td>Vitest</td><td>keymap 绑定生效</td><td>✅ 通过</td></tr></tbody></table>
+      </div>
+    </section>
+
+    <section class="case" id="CASE-Roadmap演进路线">
+      <h2 onclick="toggle(this)">Roadmap演进路线 <span class="meta">（Vitest (jsdom)）</span></h2>
+      <div class="case-stats">
+        <span>总用例 <b>32</b></span>
+        <span class="pass">通过 <b>32</b></span>
+        <span class="fail">失败 <b>0</b></span>
+        <span class="skip">跳过 <b>0</b></span>
+        <span>通过率 <b>100%%</b></span>
+        <span class="meta">运行时间 2026-08-11T00:16:45.233Z</span>
+      </div>
+      <div class="detail" style="display:none">
+        <table><thead><tr><th>用例ID</th><th>优先级</th><th>描述</th><th>结果</th></tr></thead>
+        <tbody><tr class="pass"><td>FP-07-01-B01</td><td>Vitest</td><td>空字符串初始文档正常挂载</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-01-B02</td><td>Vitest</td><td>中文文本 UTF-16 偏移</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-01-B03</td><td>Vitest</td><td>超长文档（千行级）不失败</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-01-E01</td><td>Vitest</td><td>缺省/非法 container 拒绝创建</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-01-E02</td><td>Vitest</td><td>畸形 markdown 解析降级</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-01-F01</td><td>Vitest</td><td>destroy 清理 DOM 幂等</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-01-N01</td><td>Vitest</td><td>createEditor 基础创建 + AST 根节点</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-01-N02</td><td>Vitest</td><td>setDocument 同步 + change 事件</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-01-N03</td><td>Vitest</td><td>基础 Live Preview 链接渲染</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-01-N04</td><td>Vitest</td><td>setDocument 全量替换后 AST/TOC 同步</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-01-N05</td><td>Vitest</td><td>复杂文档 AST 结构完整</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-02-D01</td><td>Vitest</td><td>TypeScript 类型定义导出</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-02-E01</td><td>Vitest</td><td>React 非受控模式正常</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-02-E02</td><td>Vitest</td><td>GFM+History+Search 三插件共存</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-02-F01</td><td>Vitest</td><td>React 受控 value 无回环</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-02-N01</td><td>Vitest</td><td>GFM preset 表格/任务列表</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-02-N02</td><td>Vitest</td><td>History 插件撤销/重做</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-02-N03</td><td>Vitest</td><td>Search 插件 Mod-f 面板</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-02-N04</td><td>Vitest</td><td>React Editor 组件 + onReady</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-02-N05</td><td>Vitest</td><td>React useEditor hook</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-02-N06</td><td>Vitest</td><td>Vue Editor 组件挂载卸载</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-03-B01</td><td>Vitest</td><td>block:false 行内 Widget</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-03-B02</td><td>Vitest</td><td>ignoreEvents:true 事件响应</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-03-E01</td><td>Vitest</td><td>光标进入 Widget 范围回退源码</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-03-E02</td><td>Vitest</td><td>无匹配 nodeType 静默</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-03-E03</td><td>Vitest</td><td>match 谓词精细过滤</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-03-E04</td><td>Vitest</td><td>非法 Widget（空 nodeType）</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-03-F01</td><td>Vitest</td><td>Widget destroy 回调</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-03-N01</td><td>Vitest</td><td>自定义 Widget + data-nexus-widget</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-03-N02</td><td>Vitest</td><td>多个 Widget 共存互不干扰</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-03-N03</td><td>Vitest</td><td>ctx.setSelection/focus 交互</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-07-03-N04</td><td>Vitest</td><td>parseDelayMs IO 防抖</td><td>✅ 通过</td></tr></tbody></table>
+      </div>
+    </section>
+
+    <section class="case" id="CASE-安全与零信任">
+      <h2 onclick="toggle(this)">安全与零信任 <span class="meta">（Vitest (jsdom)）</span></h2>
+      <div class="case-stats">
+        <span>总用例 <b>28</b></span>
+        <span class="pass">通过 <b>28</b></span>
+        <span class="fail">失败 <b>0</b></span>
+        <span class="skip">跳过 <b>0</b></span>
+        <span>通过率 <b>100%%</b></span>
+        <span class="meta">运行时间 2026-08-10T18:14:54.696Z</span>
+      </div>
+      <div class="detail" style="display:none">
+        <table><thead><tr><th>用例ID</th><th>优先级</th><th>描述</th><th>结果</th></tr></thead>
+        <tbody><tr class="pass"><td>FP-05-01-B01</td><td>Vitest</td><td>HTML 注释块 textContent</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-01-B02</td><td>Vitest</td><td>光标在块内显示源码</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-01-E01</td><td>Vitest</td><td>iframe/object/embed/style 移除</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-01-E02</td><td>Vitest</td><td>javascript: URL 中和</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-01-E03</td><td>Vitest</td><td>大小写混淆变体清洗</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-01-E04</td><td>Vitest</td><td>复合 XSS 载荷中和</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-01-E05</td><td>Vitest</td><td>渲染器抛错回退默认</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-01-F01</td><td>Vitest</td><td>自定义 renderers.html 优先</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-01-N01</td><td>Vitest</td><td>script 标签整体移除</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-01-N02</td><td>Vitest</td><td>内联事件属性剥离</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-02-B01</td><td>Vitest</td><td>自动链接渲染</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-02-B02</td><td>Vitest</td><td>锚点 # 内部导航</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-02-E01</td><td>Vitest</td><td>点击无编辑副作用</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-02-E02</td><td>Vitest</td><td>javascript: 行内链接</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-02-F01</td><td>Vitest</td><td>点击触发 window.open</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-02-N01</td><td>Vitest</td><td>表格内链接 rel/target</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-02-N02</td><td>Vitest</td><td>行内链接 data-link-url</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-02-N03</td><td>Vitest</td><td>自定义 link renderer</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-03-B01</td><td>Vitest</td><td>无语言/空代码块</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-03-B02</td><td>Vitest</td><td>反引号特殊字符</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-03-D01</td><td>Vitest</td><td>AST 数据层完整</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-03-E01</td><td>Vitest</td><td>mermaid strict</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-03-E02</td><td>Vitest</td><td>mermaid 解析失败</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-03-E03</td><td>Vitest</td><td>事件属性字符串</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-03-F01</td><td>Vitest</td><td>渲染态/源码态切换</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-03-N01</td><td>Vitest</td><td>js 代码块纯文本渲染</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-03-N02</td><td>Vitest</td><td>代码块内 HTML 按文本</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-05-03-N03</td><td>Vitest</td><td>多行代码完整保留</td><td>✅ 通过</td></tr></tbody></table>
+      </div>
+    </section>
+
+    <section class="case" id="CASE-核心数据流">
+      <h2 onclick="toggle(this)">核心数据流 <span class="meta">（Vitest (jsdom)）</span></h2>
+      <div class="case-stats">
+        <span>总用例 <b>32</b></span>
+        <span class="pass">通过 <b>31</b></span>
+        <span class="fail">失败 <b>1</b></span>
+        <span class="skip">跳过 <b>0</b></span>
+        <span>通过率 <b>97%%</b></span>
+        <span class="meta">运行时间 2026-08-10T16:58:12.546Z</span>
+      </div>
+      <div class="detail" style="display:none">
+        <table><thead><tr><th>用例ID</th><th>优先级</th><th>描述</th><th>结果</th></tr></thead>
+        <tbody><tr class="pass"><td>FP-03-01-B01</td><td>Vitest</td><td>空文档上首次输入</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-01-B02</td><td>Vitest</td><td>超大单次输入（10k 字符）不破坏数据流</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-01-D01</td><td>Vitest</td><td>输入后 AST 与文档内容保持一致</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-01-E01</td><td>Vitest</td><td>越界偏移 replaceRange 抛出 RangeError</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-01-F01</td><td>Vitest</td><td>输入→移动光标→继续输入的编辑流程</td><td>✅ 通过</td></tr>
+<tr class="fail"><td>FP-03-01-F02</td><td>Vitest</td><td>多步编辑后沿 Transaction 历史 undo/redo 回退</td><td>❌ 失败</td></tr>
+<tr class="pass"><td>FP-03-01-N01</td><td>Vitest</td><td>用户键入字符经 CM6 Transaction 更新 EditorState 与文档</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-01-N02</td><td>Vitest</td><td>连续多次输入各自形成 Transaction 且每次同步反映到文档</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-02-B01</td><td>Vitest</td><td>parseDelayMs=0 时不防抖、同步触发</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-02-B02</td><td>Vitest</td><td>未配置 parseDelayMs 时的实际默认行为</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-02-B03</td><td>Vitest</td><td>防抖期间多轮快速编辑不丢失最终内容</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-02-D01</td><td>Vitest</td><td>防抖后 onChange 的 AST 与最新文档一致</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-02-E01</td><td>Vitest</td><td>destroy() 取消未触发的防抖任务</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-02-F01</td><td>Vitest</td><td>连续三次编辑防抖后仅触发一次 onChange</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-02-F02</td><td>Vitest</td><td>防抖窗口内再次编辑会重置计时器</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-02-N01</td><td>Vitest</td><td>防抖窗口内不触发 onChange</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-02-N02</td><td>Vitest</td><td>防抖窗口结束后仅触发一次且参数为最新文档</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-03-B01</td><td>Vitest</td><td>光标进入结构时恢复源码 marker</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-03-D01</td><td>Vitest</td><td>表格节点→block Replace Widget</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-03-D02</td><td>Vitest</td><td>自定义 renderer 覆盖默认节点装饰</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-03-E01</td><td>Vitest</td><td>livePreview=false 时无任何装饰</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-03-N01</td><td>Vitest</td><td>标题节点→Mark+Replace 装饰（隐藏 `# ` 前缀）</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-03-N02</td><td>Vitest</td><td>链接节点→data-link-url Widget</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-03-N03</td><td>Vitest</td><td>列表节点→bullet Widget</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-03-N04</td><td>Vitest</td><td>行内 strong/emphasis→样式 Mark</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-03-N05</td><td>Vitest</td><td>图片节点→data-live-preview-image Widget</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-04-B01</td><td>Vitest</td><td>空文档 setDocument 触发 onChange 且 AST 为空 root</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-04-D01</td><td>Vitest</td><td>初始创建不触发 onChange，首次变更才触发</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-04-E01</td><td>Vitest</td><td>silent setDocument 不触发 onChange 但 getDocument/getAst 保持同步</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-04-E02</td><td>Vitest</td><td>on("change") 事件与 onChange 回调同时触发且参数一致</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-04-N01</td><td>Vitest</td><td>onChange(doc, ast) 参数与文档及 AST 一致</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-04-N02</td><td>Vitest</td><td>getAst() 与 onChange 收到的 AST 为同一实例</td><td>✅ 通过</td></tr></tbody></table>
+      </div>
+    </section>
+
+    <section class="case" id="CASE-模块化UI委托">
+      <h2 onclick="toggle(this)">模块化UI委托 <span class="meta">（Vitest (jsdom)）</span></h2>
+      <div class="case-stats">
+        <span>总用例 <b>28</b></span>
+        <span class="pass">通过 <b>28</b></span>
+        <span class="fail">失败 <b>0</b></span>
+        <span class="skip">跳过 <b>0</b></span>
+        <span>通过率 <b>100%%</b></span>
+        <span class="meta">运行时间 2026-08-10T18:15:52.248Z</span>
+      </div>
+      <div class="detail" style="display:none">
+        <table><thead><tr><th>用例ID</th><th>优先级</th><th>描述</th><th>结果</th></tr></thead>
+        <tbody><tr class="pass"><td>FP-06-01-B01</td><td>Vitest</td><td>doc="/" 边界 from/to</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-01-B02</td><td>Vitest</td><td>多行跨行偏移</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-01-D01</td><td>Vitest</td><td>coords 数据契约</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-01-E01</td><td>Vitest</td><td>无命令源不 emit</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-01-E02</td><td>Vitest</td><td>行内斜杠不触发</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-01-E03</td><td>Vitest</td><td>query 含空白关闭</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-01-F01</td><td>Vitest</td><td>菜单状态随光标开/关</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-01-N01</td><td>Vitest</td><td>斜杠触发坐标+状态并 emit</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-01-N02</td><td>Vitest</td><td>coords 字段契约</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-01-N03</td><td>Vitest</td><td>core 零 UI 渲染</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-01-N04</td><td>Vitest</td><td>selection/slash 状态一致</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-02-B01</td><td>Vitest</td><td>limit=3 截断</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-02-B02</td><td>Vitest</td><td>destroy 后静默</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-02-D01</td><td>Vitest</td><td>载荷与命令同源</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-02-E01</td><td>Vitest</td><td>off 幂等安全</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-02-E02</td><td>Vitest</td><td>重复 on 去重</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-02-E03</td><td>Vitest</td><td>limit=0 无结果占位</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-02-F01</td><td>Vitest</td><td>连续键入回调序列</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-02-N01</td><td>Vitest</td><td>on 订阅六字段载荷</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-02-N02</td><td>Vitest</td><td>off 取消订阅</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-02-N03</td><td>Vitest</td><td>多订阅者广播</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-02-N04</td><td>Vitest</td><td>关闭状态推送</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-03-B01</td><td>Vitest</td><td>挂载 ShadowRoot</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-03-E01</td><td>Vitest</td><td>coords=null 可见不移动</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-03-E02</td><td>Vitest</td><td>destroy 清理 DOM</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-03-F01</td><td>Vitest</td><td>打开→选择→关闭</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-03-N01</td><td>Vitest</td><td>挂载 body + fixed</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-03-N02</td><td>Vitest</td><td>reposition 定位公式</td><td>✅ 通过</td></tr></tbody></table>
+      </div>
+    </section>
+
+    <section class="case" id="CASE-e2e补充">
+      <h2 onclick="toggle(this)">e2e补充（Playwright 落地） <span class="meta">（Playwright (Electron demo)）</span></h2>
+      <div class="case-stats">
+        <span>总用例 <b>28</b></span>
+        <span class="pass">通过 <b>22</b></span>
+        <span class="fail">失败 <b>0</b></span>
+        <span class="skip">跳过 <b>6</b></span>
+        <span>通过率 <b>79%</b></span>
+        <span class="meta">运行时间 2026-08-11</span>
+      </div>
+      <div class="detail" style="display:none">
+        <table><thead><tr><th>用例ID</th><th>优先级</th><th>描述</th><th>结果</th></tr></thead>
+        <tbody><tr class="pass"><td>FP-01-07-E02</td><td>P2</td><td>拖拽纯文本文件 → 不走上传管线，文本正常插入</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-07-B02</td><td>P4</td><td>未配置回调时拖拽 → 无行为破坏（demo 现状降级验证）</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-05-N01</td><td>P1</td><td>输入文本 → onChange 触发 → dirty 状态生效</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-05-N02</td><td>P2</td><td>连续输入 → parseDelayMs(150ms) 防抖合并</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-05-D01</td><td>P3</td><td>加载文件（silent）→ 不触发 onChange 管线</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-06-N01</td><td>P1</td><td>点击编辑器 → 获得焦点</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-06-N02</td><td>P2</td><td>点击外部 → 失焦</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-01-06-E01</td><td>P3</td><td>失焦后重新输入 → 恢复聚焦不崩溃</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-01-N01</td><td>P1</td><td>输入文本 → EditorState 更新 → 渲染</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-01-N02</td><td>P2</td><td>输入 Markdown → AST 解析 → Live Preview 生效</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-01-E01</td><td>P3</td><td>极长文本输入 → 不崩溃</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-03-01-B01</td><td>P4</td><td>空文档输入 → 正常</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-01-N01</td><td>P1</td><td>输入 `**bold**` → 光标移出 → 折叠渲染粗体</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-01-N02</td><td>P2</td><td>光标移入粗体区 → 展开显示源码</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-01-N03</td><td>P2</td><td>输入 `*italic*` → 渲染斜体</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-01-B01</td><td>P4</td><td>嵌套格式 `***bold italic***` → 组合样式</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-01-E01</td><td>P3</td><td>光标快速进出语法标记 → 不崩溃</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-04-02-N01</td><td>P1</td><td>输入 `# heading` → 光标移出 → 标题渲染</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-02-N01</td><td>P1</td><td>输入 `/` → 浮层菜单弹出</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-02-N02</td><td>P2</td><td>输入 `/h1` → 过滤命令</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-02-N03</td><td>P2</td><td>↑↓ 高亮 → Enter 确认 → 命令执行</td><td>✅ 通过</td></tr>
+<tr class="pass"><td>FP-06-02-E01</td><td>P3</td><td>Escape 关闭菜单</td><td>✅ 通过</td></tr>
+<tr class="skip"><td>FP-01-07-N01</td><td>P1</td><td>拖拽图片文件→ onAssetUpload 回调→ 插入图片 markdown</td><td>⏭️ 跳过</td></tr>
+<tr class="skip"><td>FP-01-07-N02</td><td>P1</td><td>粘贴图片文件（clipboardData）→ 走上传管线</td><td>⏭️ 跳过</td></tr>
+<tr class="skip"><td>FP-01-07-N03</td><td>P3</td><td>回调返回 null → 放弃插入，不产生坏链接</td><td>⏭️ 跳过</td></tr>
+<tr class="skip"><td>FP-01-07-N04</td><td>P2</td><td>回调返回远程 URL → 插入完整图片语法</td><td>⏭️ 跳过</td></tr>
+<tr class="skip"><td>FP-01-07-E01</td><td>P3</td><td>回调抛异常 → 编辑器不崩溃</td><td>⏭️ 跳过</td></tr>
+<tr class="skip"><td>FP-01-07-B01</td><td>P4</td><td>多文件同时拖拽 → 逐个上传插入</td><td>⏭️ 跳过</td></tr></tbody></table>
+      </div>
+    </section>
+
+  <h2 class="section-title">二、BUG 汇总与根因分析（点击卡片展开）</h2>
+  <div id="bugs">
+  <div class="bug-card">
+    <h3 onclick="toggleBug(this)" class="mid">
+      <span class="b-title">BUG-001（核心数据流）</span>
+      <span class="sev">严重程度：中</span>
+    </h3>
+    <div class="bug-body">
+      <table class="kv">
+        <tr><th>关联用例</th><td><b>FP-03-01-F02</b></td></tr>
+        <tr><th>所属模块</th><td><code>packages/core/src/editor.ts · @codemirror/commands</code></td></tr>
+        <tr><th>现象</th><td>CM6 history 合并相邻变更：带 userEvent:input.type 的 dispatch 与后续无 userEvent 的 setDocument 被合并为同一 undo 组，一次 undo 全部回退，混合 API 调用无法逐步 undo/redo。</td></tr>
+        <tr><th>影响范围</th><td>所有通过 setDocument 修改文档的 API 场景（外部替换、文档加载、插件批量写入），undo 组边界错误</td></tr>
+      </table>
+      <h4>根因分析（源码证据链）</h4>
+      <ol class="roots"><li>editor.ts L427-437 performSetDocument 的 view.dispatch({ changes, annotations: silent ? silentDocChange.of(true) : undefined }) 未附加 isolateHistory 注解、也未附加 userEvent 注解（silent 只跳过 change 事件，不隔离历史）。</li><li>@codemirror/commands dist L482-497 addChanges 合并规则：条件为 lastEvent.changes 非空 && 本次 event.changes 非空 && (!userEvent || joinableUserEvent.test(userEvent))。本次 setDocument 无 userEvent → !userEvent 恒为 true，直接放行合并。</li><li>再叠加时间条件 time - prevTime < newGroupDelay（默认 500ms）与 isAdjacent（变更边界相接）。setDocument 整文档替换 from:0 与上一个 input.type 变更边界相邻；测试中两次 dispatch 在同一同步块内，时间差必然 < 500ms。</li><li>合并分支用 event.changes.compose(lastEvent.changes) 拼成单个 HistEvent → 一次 undo 同时回退用户输入与 setDocument 替换。</li></ol>
+      <h4>修复建议</h4>
+      <ol class="fixes"><li>performSetDocument 的 dispatch 附加 isolateHistory.of(true)（从 @codemirror/commands 引入），强制 setDocument 变更自成独立 undo 组；</li><li>或为 dispatch 附加 userEvent: 'setDocument'（不匹配 /^(input\.type|delete)($|\.)/，addChanges 走 else 分支新建事件组）；</li><li>silent 文档加载场景同样建议隔离（避免载入文件后 undo 把整个文件清空）。</li></ol>
+    </div>
+  </div>
+
+  <div class="bug-card">
+    <h3 onclick="toggleBug(this)" class="mid">
+      <span class="b-title">BUG-001（LivePreview）</span>
+      <span class="sev">严重程度：中</span>
+    </h3>
+    <div class="bug-body">
+      <table class="kv">
+        <tr><th>关联用例</th><td><b>FP-04-03-E01</b></td></tr>
+        <tr><th>所属模块</th><td><code>packages/core/src/live-preview.ts · @codemirror/view</code></td></tr>
+        <tr><th>现象</th><td>createWidget 每次调用创建匿名类，CM6 WidgetType.compare 的 constructor 检查短路导致 eq() 永不调用，自定义 renderer 的 widget DOM 在每次光标移动时被重新挂载，DOM 状态丢失。</td></tr>
+        <tr><th>影响范围</th><td>livePreview 自定义 renderer widget（代码折叠等）在光标移动时的 DOM 稳定性；eqKey 设计意图完全失效</td></tr>
+      </table>
+      <h4>根因分析（源码证据链）</h4>
+      <ol class="roots"><li>live-preview.ts L110 createWidget 返回 new (class extends WidgetType {...})() —— 每次调用都生成全新的匿名类；L112 注释明确 'Stable identity used by eq() so CM6 reuses old DOM across rebuilds'，即 eqKey 复用是设计意图。</li><li>@codemirror/view dist L139-141 WidgetType.compare(other) = this == other || this.constructor == other.constructor && this.eq(other)。匿名类导致每次 constructor 不同 → constructor 短路 → eq() 永不调用。</li><li>@codemirror/view dist L2525-2552 findWidget 双 pass：pass0 用 compare（constructor 不同 → false）；pass1 要求 tile.widget.constructor == widget.constructor 且 updateDOM() 返回 true。自定义 renderer 未实现 updateDOM（WidgetType 默认返回 false）→ 返回 null。</li><li>结果：旧 widget 的 DOM 无法复用 → 走 WidgetTile.of(widget) 重新 toDOM() 构建 → 光标每次移入/移出 widget 范围，DOM 全部重建，表单状态等丢失。</li></ol>
+      <h4>修复建议</h4>
+      <ol class="fixes"><li>将匿名类改为具名类（如 class RendererWidget extends WidgetType），同一 nodeType 的所有实例共享同一 constructor，使 compare 的 constructor 检查通过、eq() 得以调用，eqKey 复用生效；</li><li>或按 nodeType 缓存类定义（const Cls = class extends WidgetType {...} 提到模块级），避免每次 createWidget 重新创建类；</li><li>若需极端性能可额外实现 updateDOM 支持 pass1 的原地 DOM 更新。</li></ol>
+    </div>
+  </div></div>
+
+  <footer>由 tcAIrunner 双通道执行产出 · 数据来源：各 CASE RUN-*-results.json + e2e 落地记录（test/e2e/prd-e2e.spec.ts）</footer>
+</div>
+<script>
+  function toggle(h){ h.classList.toggle("open"); const d=h.nextElementSibling.nextElementSibling; if(d) d.style.display = d.style.display==="none"?"block":"none"; }
+  function toggleBug(h){ h.classList.toggle("open"); const b=h.nextElementSibling; if(b) b.style.display = b.style.display==="none"?"block":"none"; }
+</script>
+</body>
+</html>
