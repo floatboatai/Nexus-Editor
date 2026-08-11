@@ -1,8 +1,18 @@
+import type { Text } from "@codemirror/state";
+
 export interface SuggestionContext {
   from: number;
   to: number;
   paragraph: string;
 }
+
+export interface SuggestionContextOptions {
+  maxFenceScanLines?: number;
+  maxContextCharacters?: number;
+}
+
+const DEFAULT_MAX_FENCE_SCAN_LINES = 200;
+export const FOUNDATION_MODELS_MAX_CONTEXT_CHARACTERS = 1_000;
 
 interface LineInfo {
   start: number;
@@ -117,6 +127,50 @@ function fenceStateBefore(lines: LineInfo[], lineIndex: number): boolean {
   return inFence;
 }
 
+function boundParagraphContext(paragraph: string, maxCharacters: number): string {
+  if (paragraph.length <= maxCharacters) {
+    return paragraph;
+  }
+
+  const suffix = paragraph.slice(paragraph.length - maxCharacters);
+  const boundary = suffix.search(/\s/);
+  if (boundary > 0 && boundary < suffix.length - 1) {
+    return suffix.slice(boundary + 1);
+  }
+  return suffix;
+}
+
+function hasOpenFenceBeforeDocLine(doc: Text, lineNumber: number, maxScanLines: number): boolean {
+  let fenceCount = 0;
+  const firstLine = Math.max(1, lineNumber - maxScanLines);
+
+  for (let number = lineNumber - 1; number >= firstLine; number -= 1) {
+    if (isFenceLine(doc.line(number).text)) {
+      fenceCount += 1;
+    }
+  }
+
+  return fenceCount % 2 === 1;
+}
+
+function lineRangeHasOnlyEligibleParagraphText(doc: Text, fromLine: number, toLine: number): boolean {
+  for (let number = fromLine; number <= toLine; number += 1) {
+    const current = doc.line(number).text;
+    if (
+      isBlankLine(current) ||
+      isFenceLine(current) ||
+      isHeadingLine(current) ||
+      isListLine(current) ||
+      isBlockQuoteLine(current) ||
+      isThematicBreakLine(current) ||
+      isTableLine(current)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function findSuggestionContext(document: string, position: number): SuggestionContext | null {
   if (!Number.isInteger(position) || position < 0 || position > document.length) {
     return null;
@@ -179,5 +233,60 @@ export function findSuggestionContext(document: string, position: number): Sugge
     from: lines[start].start,
     to: position,
     paragraph,
+  };
+}
+
+export function findSuggestionContextFromDoc(
+  document: Text,
+  position: number,
+  options: SuggestionContextOptions = {}
+): SuggestionContext | null {
+  if (!Number.isInteger(position) || position < 0 || position > document.length || document.lines === 0) {
+    return null;
+  }
+
+  const line = document.lineAt(position);
+  if (position !== line.to || isBlankLine(line.text)) {
+    return null;
+  }
+
+  let startLine = line.number;
+  while (startLine > 1 && !isBlankLine(document.line(startLine - 1).text)) {
+    startLine -= 1;
+  }
+
+  let endLine = line.number;
+  while (endLine < document.lines && !isBlankLine(document.line(endLine + 1).text)) {
+    endLine += 1;
+  }
+
+  if (line.number !== endLine) {
+    return null;
+  }
+
+  if (
+    hasOpenFenceBeforeDocLine(
+      document,
+      startLine,
+      options.maxFenceScanLines ?? DEFAULT_MAX_FENCE_SCAN_LINES
+    )
+  ) {
+    return null;
+  }
+
+  if (!lineRangeHasOnlyEligibleParagraphText(document, startLine, endLine)) {
+    return null;
+  }
+
+  const from = document.line(startLine).from;
+  const paragraph = document.sliceString(from, position);
+  if (paragraph.trim().length === 0 || hasUnsafeInlineSyntaxAtCursor(paragraph)) {
+    return null;
+  }
+
+  return {
+    from,
+    to: position,
+    paragraph: boundParagraphContext(paragraph, options.maxContextCharacters ?? FOUNDATION_MODELS_MAX_CONTEXT_CHARACTERS),
   };
 }

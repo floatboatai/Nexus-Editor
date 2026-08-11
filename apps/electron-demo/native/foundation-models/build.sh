@@ -26,8 +26,19 @@ if [[ ! -f "$NODE_INCLUDE/node_api.h" ]]; then
   exit 1
 fi
 export NODE_INCLUDE
+SWIFT_CACHE_ROOT="${TMPDIR:-/tmp}/foundation-models-cache"
+SWIFT_SCRATCH_DIR="$SWIFT_CACHE_ROOT/scratch"
+SWIFT_MODULE_CACHE_DIR="$SWIFT_CACHE_ROOT/clang-module-cache"
+export XDG_CACHE_HOME="$SWIFT_CACHE_ROOT/xdg-cache"
+export CLANG_MODULE_CACHE_PATH="$SWIFT_MODULE_CACHE_DIR"
+mkdir -p "$SWIFT_SCRATCH_DIR" "$SWIFT_MODULE_CACHE_DIR"
+mkdir -p "$XDG_CACHE_HOME"
 
-swift build --configuration release --product foundation_models
+swift build \
+  --scratch-path "$SWIFT_SCRATCH_DIR" \
+  --configuration release \
+  --product foundation_models \
+  -Xcc "-fmodules-cache-path=$SWIFT_MODULE_CACHE_DIR"
 
 mkdir -p build/Release
 cp .build/release/libfoundation_models.dylib build/Release/foundation_models.node

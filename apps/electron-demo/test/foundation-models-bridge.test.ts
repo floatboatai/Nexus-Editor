@@ -12,6 +12,7 @@ describe("foundation models bridge", () => {
       reason: "model-unavailable",
     });
     await expect(bridge.suggest("A short paragraph.")).resolves.toBeNull();
+    await expect(bridge.cancelSuggestion()).resolves.toBeUndefined();
   });
 
   it("forwards a suggestion request to the native service", async () => {
@@ -42,5 +43,19 @@ describe("foundation models bridge", () => {
     bridge.dispose();
 
     expect(native.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards cancellation to the native service when available", async () => {
+    const native = {
+      getAvailability: vi.fn(),
+      suggest: vi.fn(),
+      cancelSuggestion: vi.fn().mockResolvedValue(undefined),
+      dispose: vi.fn(),
+    };
+    const bridge = createFoundationModelsBridge({ native });
+
+    await bridge.cancelSuggestion();
+
+    expect(native.cancelSuggestion).toHaveBeenCalledTimes(1);
   });
 });

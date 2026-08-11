@@ -176,6 +176,10 @@ ipcMain.handle("foundation-models:suggest", async (_event, input: string) => {
   return getFoundationModelsBridge().suggest(input);
 });
 
+ipcMain.handle("foundation-models:cancel-suggestion", async () => {
+  await getFoundationModelsBridge().cancelSuggestion();
+});
+
 // -- vault helpers ------------------------------------------------------------
 
 function assertInsideVault(target: string): string {

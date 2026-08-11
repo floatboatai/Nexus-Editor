@@ -1,10 +1,13 @@
 import { Prec, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView, keymap, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import type { EditorAPI, NexusPlugin } from "@floatboat/nexus-core";
-import { findSuggestionContext } from "./foundation-models-context";
+import { findSuggestionContextFromDoc } from "./foundation-models-context";
+import { createFoundationModelsSuggestionCache } from "./foundation-models-cache";
 import type { FoundationModelsBridge, NativeAvailability } from "./foundation-models";
 
 const REQUEST_DELAY_MS = 500;
+const PROMPT_VERSION = "inline-next-sentence-v2";
+const MODEL_VERSION = "foundation-models-default";
 
 interface VisibleSuggestion {
   from: number;
@@ -84,7 +87,20 @@ export interface FoundationModelsController {
   setEnabled(enabled: boolean): void;
   setAvailability(availability: NativeAvailability): void;
   clear(): void;
+  getDiagnostics(): FoundationModelsDiagnostics;
   dispose(): void;
+}
+
+export interface FoundationModelsDiagnostics {
+  contextExtractions: number;
+  contextExtractionMs: number;
+  scheduledRequests: number;
+  cacheHits: number;
+  nativeStarts: number;
+  nativeCompletions: number;
+  cancellations: number;
+  staleResults: number;
+  renderedSuggestions: number;
 }
 
 export function createFoundationModelsPlugin(options: {
@@ -100,7 +116,24 @@ export function createFoundationModelsPlugin(options: {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let requestId = 0;
   let visibleSuggestion: VisibleSuggestion | null = null;
+  let nativeRequestActive = false;
   let disposed = false;
+  const cache = createFoundationModelsSuggestionCache({
+    suggestionTtlMs: 60_000,
+    nullTtlMs: 15_000,
+    maxEntries: 64,
+  });
+  const diagnostics: FoundationModelsDiagnostics = {
+    contextExtractions: 0,
+    contextExtractionMs: 0,
+    scheduledRequests: 0,
+    cacheHits: 0,
+    nativeStarts: 0,
+    nativeCompletions: 0,
+    cancellations: 0,
+    staleResults: 0,
+    renderedSuggestions: 0,
+  };
 
   function emitStateChange(): void {
     options.onStateChange?.();
@@ -115,6 +148,9 @@ export function createFoundationModelsPlugin(options: {
 
   function renderSuggestion(next: VisibleSuggestion | null): void {
     visibleSuggestion = next;
+    if (next) {
+      diagnostics.renderedSuggestions += 1;
+    }
     const currentView = view;
     if (currentView) {
       currentView.dispatch({ effects: setSuggestion.of(next) });
@@ -125,14 +161,26 @@ export function createFoundationModelsPlugin(options: {
   function clear(): void {
     requestId += 1;
     clearTimer();
+    cancelActiveSuggestion();
     if (visibleSuggestion) {
       renderSuggestion(null);
     }
   }
 
+  function cancelActiveSuggestion(): void {
+    if (!nativeRequestActive) {
+      return;
+    }
+    nativeRequestActive = false;
+    diagnostics.cancellations += 1;
+    const currentBridge = bridge;
+    void currentBridge?.cancelSuggestion().catch(() => undefined);
+  }
+
   function clearDuringUpdate(currentView: EditorView, clearsDecorationImmediately: boolean): void {
     requestId += 1;
     clearTimer();
+    cancelActiveSuggestion();
     if (!visibleSuggestion) {
       return;
     }
@@ -160,9 +208,11 @@ export function createFoundationModelsPlugin(options: {
       return;
     }
 
-    const documentText = currentView.state.doc.toString();
     const position = currentView.state.selection.main.head;
-    const context = findSuggestionContext(documentText, position);
+    const extractionStart = performance.now();
+    const context = findSuggestionContextFromDoc(currentView.state.doc, position);
+    diagnostics.contextExtractions += 1;
+    diagnostics.contextExtractionMs += performance.now() - extractionStart;
     if (!context) {
       return;
     }
@@ -173,24 +223,52 @@ export function createFoundationModelsPlugin(options: {
     }
 
     const currentRequest = ++requestId;
+    diagnostics.scheduledRequests += 1;
     timer = setTimeout(() => {
       timer = null;
       void (async () => {
         let suggestion: string | null = null;
-        try {
-          suggestion = await scheduledBridge.suggest(context.paragraph);
-        } catch {
-          suggestion = null;
+        const cacheKey = {
+          paragraph: context.paragraph,
+          promptVersion: PROMPT_VERSION,
+          modelVersion: MODEL_VERSION,
+          availability: availability.available ? "available" : availability.reason ?? "unavailable",
+        };
+        const cached = cache.get(cacheKey);
+        if (cached !== undefined) {
+          diagnostics.cacheHits += 1;
+          suggestion = cached;
+        } else {
+          nativeRequestActive = true;
+          diagnostics.nativeStarts += 1;
+          try {
+            suggestion = await scheduledBridge.suggest(context.paragraph);
+          } catch {
+            suggestion = null;
+          } finally {
+            if (currentRequest === requestId) {
+              nativeRequestActive = false;
+            }
+            diagnostics.nativeCompletions += 1;
+          }
+          cache.set(cacheKey, suggestion);
         }
 
+        const currentContext = view ? findSuggestionContextFromDoc(view.state.doc, context.to) : null;
         if (
           disposed ||
           currentRequest !== requestId ||
           !suggestion ||
           !view ||
-          view.state.doc.toString() !== documentText ||
-          !selectionMatches(view, context.to)
+          !selectionMatches(view, context.to) ||
+          !currentContext ||
+          currentContext.from !== context.from ||
+          currentContext.to !== context.to ||
+          currentContext.paragraph !== context.paragraph
         ) {
+          if (currentRequest !== requestId || !currentContext || currentContext.paragraph !== context.paragraph) {
+            diagnostics.staleResults += 1;
+          }
           return;
         }
 
@@ -217,6 +295,7 @@ export function createFoundationModelsPlugin(options: {
         return;
       }
       enabled = nextEnabled;
+      cache.clear();
       clear();
       if (view) {
         schedule(view);
@@ -227,16 +306,22 @@ export function createFoundationModelsPlugin(options: {
         return;
       }
       availability = nextAvailability;
+      cache.clear();
       clear();
       if (view) {
         schedule(view);
       }
     },
     clear,
+    getDiagnostics() {
+      return { ...diagnostics };
+    },
     dispose() {
       disposed = true;
       requestId += 1;
       clearTimer();
+      cancelActiveSuggestion();
+      cache.clear();
       bridge = null;
       renderSuggestion(null);
       view = null;
@@ -291,6 +376,7 @@ export function createFoundationModelsPlugin(options: {
 
   function clearVisibleSuggestion(): boolean {
     if (!visibleSuggestion) {
+      cancelActiveSuggestion();
       return false;
     }
     controller.clear();

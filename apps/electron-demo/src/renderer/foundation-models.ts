@@ -16,6 +16,7 @@ export function createUnavailableFoundationModelsBridge(): FoundationModelsBridg
     async suggest() {
       return null;
     },
+    async cancelSuggestion() {},
   };
 }
 

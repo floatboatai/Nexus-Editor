@@ -5,15 +5,33 @@ import FoundationModels
 #endif
 
 internal enum CompletionPrompt {
-    static func make(for paragraph: String) -> String {
-        """
-        Continue the current paragraph below with one short next sentence.
-        The input is only the current paragraph; do not infer or mention any other document text.
-        Return plain text only: no explanation, no quotation marks, no Markdown syntax, and no multiple alternatives.
+    private static let maxContextScalars = 700
 
-        Current paragraph:
-        \(paragraph)
+    static func make(for paragraph: String) -> String {
+        let bounded = boundedContext(paragraph)
+        return """
+        Continue with one short next sentence in plain text.
+
+        Current paragraph suffix:
+        \(bounded)
         """
+    }
+
+    private static func boundedContext(_ paragraph: String) -> String {
+        let scalars = Array(paragraph.unicodeScalars)
+        guard scalars.count > maxContextScalars else {
+            return paragraph
+        }
+
+        let suffix = String(String.UnicodeScalarView(scalars.suffix(maxContextScalars)))
+        if let boundary = suffix.firstIndex(where: { $0.isWhitespace }) {
+            let bounded = String(suffix[suffix.index(after: boundary)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !bounded.isEmpty {
+                return bounded
+            }
+        }
+        return suffix
     }
 }
 
@@ -55,10 +73,14 @@ public actor FoundationModelsService {
         #if os(macOS) && arch(arm64) && canImport(FoundationModels)
         guard #available(macOS 26.0, *) else { return nil }
 
-        generationTask?.cancel()
+        cancelSuggestion()
         let session = session ?? LanguageModelSession(
             model: .default,
-            instructions: "Provide concise inline text completions."
+            instructions: """
+            Provide concise inline text completions. Continue only the supplied paragraph suffix.
+            Return one short next sentence as plain text, without explanations, quotation marks,
+            Markdown syntax, or multiple alternatives.
+            """
         )
         self.session = session
 
@@ -81,11 +103,19 @@ public actor FoundationModelsService {
         #endif
     }
 
-    public func dispose() {
+    public func cancelSuggestion() {
         #if os(macOS) && arch(arm64) && canImport(FoundationModels)
         if #available(macOS 26.0, *) {
             generationTask?.cancel()
             generationTask = nil
+        }
+        #endif
+    }
+
+    public func dispose() {
+        #if os(macOS) && arch(arm64) && canImport(FoundationModels)
+        if #available(macOS 26.0, *) {
+            cancelSuggestion()
             session = nil
         }
         #endif

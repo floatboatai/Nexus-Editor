@@ -31,6 +31,17 @@ function createFakeBridge(result: string | null | Promise<string | null>): Found
   return {
     getAvailability: vi.fn(async () => AVAILABLE),
     suggest: vi.fn(() => Promise.resolve(result)),
+    cancelSuggestion: vi.fn(async () => undefined),
+  };
+}
+
+function createCancellableBridge(result: string | null | Promise<string | null>): FoundationModelsBridge & {
+  cancelSuggestion: ReturnType<typeof vi.fn>;
+} {
+  return {
+    getAvailability: vi.fn(async () => AVAILABLE),
+    suggest: vi.fn(() => Promise.resolve(result)),
+    cancelSuggestion: vi.fn(async () => undefined),
   };
 }
 
@@ -146,6 +157,64 @@ describe("createFoundationModelsPlugin", () => {
     controller.dispose();
   });
 
+  it("cancels an in-flight native request when the document changes", async () => {
+    vi.useFakeTimers();
+    const pending = deferred<string | null>();
+    const bridge = createCancellableBridge(pending.promise);
+    const { editor, controller } = createTestFeature(bridge, "A paragraph");
+
+    editor.setSelection(11);
+    await flushDebounce();
+    expect(bridge.suggest).toHaveBeenCalledTimes(1);
+
+    editor.replaceRange(11, 11, "!");
+
+    expect(bridge.cancelSuggestion).toHaveBeenCalledTimes(1);
+    pending.resolve("stale");
+    await flushPromises();
+    expect(document.querySelector(".nexus-foundation-suggestion")).toBeNull();
+    controller.dispose();
+  });
+
+  it("cancels active native requests on Escape, blur, disable, and dispose", async () => {
+    vi.useFakeTimers();
+
+    const escapePending = deferred<string | null>();
+    const escapeBridge = createCancellableBridge(escapePending.promise);
+    const escapeFeature = createTestFeature(escapeBridge, "A paragraph");
+    escapeFeature.editor.setSelection(11);
+    await flushDebounce();
+    escapeFeature.dispatchKeydown(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    expect(escapeBridge.cancelSuggestion).toHaveBeenCalledTimes(1);
+    escapeFeature.controller.dispose();
+
+    const blurPending = deferred<string | null>();
+    const blurBridge = createCancellableBridge(blurPending.promise);
+    const blurFeature = createTestFeature(blurBridge, "A paragraph");
+    blurFeature.editor.setSelection(11);
+    await flushDebounce();
+    blurFeature.container.querySelector<HTMLElement>(".cm-content")?.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
+    expect(blurBridge.cancelSuggestion).toHaveBeenCalledTimes(1);
+    blurFeature.controller.dispose();
+
+    const disabledPending = deferred<string | null>();
+    const disabledBridge = createCancellableBridge(disabledPending.promise);
+    const disabledFeature = createTestFeature(disabledBridge, "A paragraph");
+    disabledFeature.editor.setSelection(11);
+    await flushDebounce();
+    disabledFeature.controller.setEnabled(false);
+    expect(disabledBridge.cancelSuggestion).toHaveBeenCalledTimes(1);
+    disabledFeature.controller.dispose();
+
+    const disposePending = deferred<string | null>();
+    const disposeBridge = createCancellableBridge(disposePending.promise);
+    const disposeFeature = createTestFeature(disposeBridge, "A paragraph");
+    disposeFeature.editor.setSelection(11);
+    await flushDebounce();
+    disposeFeature.controller.dispose();
+    expect(disposeBridge.cancelSuggestion).toHaveBeenCalledTimes(1);
+  });
+
   it("accepts only a collapsed single selection with Tab", async () => {
     vi.useFakeTimers();
     const { editor, dispatchKeydown, controller, plugin } = await createTestFeatureWithSuggestion("next.");
@@ -199,12 +268,40 @@ describe("createFoundationModelsPlugin", () => {
       suggest: vi.fn(async () => {
         throw new Error("native failed");
       }),
+      cancelSuggestion: vi.fn(async () => undefined),
     };
     const rejectedFeature = createTestFeature(rejectingBridge);
     rejectedFeature.editor.setSelection(11);
     await flushDebounce();
     expect(document.querySelector(".nexus-foundation-suggestion")).toBeNull();
     rejectedFeature.controller.dispose();
+  });
+
+  it("uses cached repeated paragraph results without starting a second native request", async () => {
+    vi.useFakeTimers();
+    const bridge = createFakeBridge("cached next.");
+    const { editor, controller } = createTestFeature(bridge, "A paragraph");
+
+    editor.setSelection(11);
+    await flushDebounce();
+    expect(bridge.suggest).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".nexus-foundation-suggestion")?.textContent).toBe("cached next.");
+
+    controller.clear();
+    editor.setSelection(10);
+    editor.setSelection(11);
+    await flushDebounce();
+
+    expect(bridge.suggest).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".nexus-foundation-suggestion")?.textContent).toBe("cached next.");
+    expect(controller.getDiagnostics()).toMatchObject({
+      cacheHits: 1,
+      nativeStarts: 1,
+      renderedSuggestions: 2,
+    });
+    expect(JSON.stringify(controller.getDiagnostics())).not.toContain("A paragraph");
+    expect(JSON.stringify(controller.getDiagnostics())).not.toContain("cached next.");
+    controller.dispose();
   });
 
   it("does not request while disabled or unavailable", async () => {

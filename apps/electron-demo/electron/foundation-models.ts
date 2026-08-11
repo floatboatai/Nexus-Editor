@@ -8,12 +8,14 @@ export interface NativeAvailability {
 export interface NativeFoundationModels {
   getAvailability(): Promise<NativeAvailability>;
   suggest(input: string): Promise<string | null>;
+  cancelSuggestion?: () => Promise<void> | void;
   dispose(): void;
 }
 
 export interface FoundationModelsBridge {
   getAvailability(): Promise<NativeAvailability>;
   suggest(input: string): Promise<string | null>;
+  cancelSuggestion(): Promise<void>;
 }
 
 export interface FoundationModelsMainBridge extends FoundationModelsBridge {
@@ -42,6 +44,7 @@ export function createFoundationModelsBridge(options: FoundationModelsBridgeOpti
       async suggest() {
         return null;
       },
+      async cancelSuggestion() {},
       dispose() {},
     };
   }
@@ -53,6 +56,9 @@ export function createFoundationModelsBridge(options: FoundationModelsBridgeOpti
     },
     suggest(input: string) {
       return native.suggest(input);
+    },
+    async cancelSuggestion() {
+      await native.cancelSuggestion?.();
     },
     dispose() {
       if (disposed) return;

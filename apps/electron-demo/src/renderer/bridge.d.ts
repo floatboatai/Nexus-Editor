@@ -40,6 +40,7 @@ interface NativeAvailability {
 interface FoundationModelsBridge {
   getAvailability(): Promise<NativeAvailability>;
   suggest(input: string): Promise<string | null>;
+  cancelSuggestion(): Promise<void>;
 }
 
 interface DemoBridge {

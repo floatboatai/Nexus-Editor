@@ -49,6 +49,9 @@ const foundationModels: FoundationModelsBridge = {
   suggest(input: string) {
     return ipcRenderer.invoke("foundation-models:suggest", input) as Promise<string | null>;
   },
+  cancelSuggestion() {
+    return ipcRenderer.invoke("foundation-models:cancel-suggestion") as Promise<void>;
+  },
 };
 
 const vaultBridge: VaultBridge = {

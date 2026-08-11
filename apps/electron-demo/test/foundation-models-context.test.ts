@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { findSuggestionContext } from "../src/renderer/foundation-models-context";
+import { describe, expect, it, vi } from "vitest";
+import { Text } from "@codemirror/state";
+import { findSuggestionContext, findSuggestionContextFromDoc } from "../src/renderer/foundation-models-context";
 
 describe("findSuggestionContext", () => {
   it("returns the current plain paragraph range at the paragraph end", () => {
@@ -84,5 +85,29 @@ describe("findSuggestionContext", () => {
   it("rejects invalid positions", () => {
     expect(findSuggestionContext("A normal paragraph", -1)).toBeNull();
     expect(findSuggestionContext("A normal paragraph", 19)).toBeNull();
+  });
+
+  it("derives context from a CodeMirror document without stringifying the full document", () => {
+    const document = Text.of([
+      ...Array.from({ length: 5000 }, (_, index) => `Archived line ${index}`),
+      "",
+      "The current local paragraph",
+    ]);
+    const toStringSpy = vi.spyOn(Text.prototype, "toString");
+
+    expect(findSuggestionContextFromDoc(document, document.length)).toEqual({
+      from: document.length - "The current local paragraph".length,
+      to: document.length,
+      paragraph: "The current local paragraph",
+    });
+    expect(toStringSpy).not.toHaveBeenCalled();
+
+    toStringSpy.mockRestore();
+  });
+
+  it("rejects paragraphs inside an unclosed fenced code block discovered by local backward scanning", () => {
+    const document = Text.of(["```", "code", "", "still code"]);
+
+    expect(findSuggestionContextFromDoc(document, document.length, { maxFenceScanLines: 8 })).toBeNull();
   });
 });

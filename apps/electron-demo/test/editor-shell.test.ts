@@ -74,6 +74,7 @@ describe("createEditorShell", () => {
     const bridge: FoundationModelsBridge = {
       getAvailability: vi.fn(async () => availability),
       suggest: vi.fn(async () => "next."),
+      cancelSuggestion: vi.fn(async () => undefined),
     };
     const shell = createEditorShell({
       container,

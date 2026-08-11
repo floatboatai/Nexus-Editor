@@ -10,6 +10,16 @@ final class FoundationModelsCoreTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Draft notes about native APIs."))
     }
 
+    func testPromptUsesBoundedParagraphSuffix() {
+        let longPrefix = String(repeating: "prefix ", count: 200)
+        let suffix = "The final sentence should remain available."
+        let prompt = CompletionPrompt.make(for: longPrefix + suffix)
+
+        XCTAssertFalse(prompt.contains(longPrefix.trimmingCharacters(in: .whitespaces)))
+        XCTAssertTrue(prompt.contains(suffix))
+        XCTAssertLessThanOrEqual(prompt.unicodeScalars.count, 900)
+    }
+
     func testUnavailableModelDoesNotProduceACompletion() async {
         let service = FoundationModelsService(modelProvider: .unavailable(.modelUnavailable))
         let suggestion = try? await service.suggest(for: "A paragraph.")
@@ -57,5 +67,18 @@ final class FoundationModelsCoreTests: XCTestCase {
         XCTAssertNotNil(normalized)
         XCTAssertLessThanOrEqual(normalized!.unicodeScalars.count, 300)
         XCTAssertFalse(normalized!.hasSuffix(" "))
+    }
+
+    func testSuggestionKeepsOnlyOneShortSentence() {
+        XCTAssertEqual(
+            SuggestionNormalization.normalize("First sentence. Second sentence with extra explanation."),
+            "First sentence."
+        )
+    }
+
+    func testServiceExposesCancellationEntryPoint() async {
+        let service = FoundationModelsService(modelProvider: .unavailable(.modelUnavailable))
+
+        await service.cancelSuggestion()
     }
 }

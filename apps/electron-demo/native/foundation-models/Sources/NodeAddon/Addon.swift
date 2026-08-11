@@ -76,6 +76,7 @@ private final class LockedBox<T>: @unchecked Sendable {
 public func registerModule(_ env: napi_env?, _ exports: napi_value?) -> napi_value? {
     setFunction(env, exports, "getAvailability", getAvailabilityCallback)
     setFunction(env, exports, "suggest", suggestCallback)
+    setFunction(env, exports, "cancelSuggestion", cancelSuggestionCallback)
     setFunction(env, exports, "dispose", disposeCallback)
     return exports
 }
@@ -125,6 +126,13 @@ private let suggestCallback: napi_callback = { env, info in
 private let disposeCallback: napi_callback = { _, _ in
     Task {
         await sharedService.dispose()
+    }
+    return nil
+}
+
+private let cancelSuggestionCallback: napi_callback = { _, _ in
+    Task {
+        await sharedService.cancelSuggestion()
     }
     return nil
 }

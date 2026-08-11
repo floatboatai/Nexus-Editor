@@ -6,6 +6,7 @@ The package produces the dynamic library product `foundation_models` and targets
 
 - `getAvailability(): Promise<{ available: boolean; platform: "macos"; minimumOS: "26.0"; reason?: string }>`
 - `suggest(input: string): Promise<string | null>`
+- `cancelSuggestion(): void`
 - `dispose(): void`
 
 The `NodeAPI` target includes the system Node-API header through a small wrapper. Set `NODE_INCLUDE` to override the Node header directory; local builds default to the active `node` executable's `../include/node` directory.
@@ -23,6 +24,7 @@ apps/electron-demo/native/foundation-models/build.sh
 ```
 
 On non-darwin or non-Apple-Silicon hosts, the script prints a skip message and exits successfully. On supported hosts it writes `build/Release/foundation_models.node` and copies it to `apps/electron-demo/dist-electron/native/foundation_models.node`.
+The build script uses temporary SwiftPM cache directories under the system temp folder so it can run in restricted environments without writing to the user cache.
 
 After a successful build, run the native smoke test with:
 
