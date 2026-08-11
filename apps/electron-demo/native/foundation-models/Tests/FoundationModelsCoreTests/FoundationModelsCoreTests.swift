@@ -2,6 +2,21 @@ import XCTest
 @testable import FoundationModelsCore
 
 final class FoundationModelsCoreTests: XCTestCase {
+    func testPromptRequestsOnePlainTextNextSentence() {
+        let prompt = CompletionPrompt.make(for: "Draft notes about native APIs.")
+
+        XCTAssertTrue(prompt.contains("one short next sentence"))
+        XCTAssertTrue(prompt.contains("plain text"))
+        XCTAssertTrue(prompt.contains("Draft notes about native APIs."))
+    }
+
+    func testUnavailableModelDoesNotProduceACompletion() async {
+        let service = FoundationModelsService(modelProvider: .unavailable(.modelUnavailable))
+        let suggestion = try? await service.suggest(for: "A paragraph.")
+
+        XCTAssertNil(suggestion)
+    }
+
     func testEmptyOrWhitespaceSuggestionBecomesNil() {
         XCTAssertNil(SuggestionNormalization.normalize(" \n  "))
     }

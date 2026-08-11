@@ -1,6 +1,6 @@
 import Foundation
 
-public enum AvailabilityReason: String, Codable {
+public enum AvailabilityReason: String, Codable, Sendable {
     case unsupportedOS = "unsupported-os"
     case unsupportedArchitecture = "unsupported-architecture"
     case appleIntelligenceUnavailable = "apple-intelligence-unavailable"
