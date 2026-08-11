@@ -3,7 +3,15 @@
 import Foundation
 import PackageDescription
 
-let nodeInclude = ProcessInfo.processInfo.environment["NODE_INCLUDE"] ?? "/opt/homebrew/include/node"
+func requireNodeInclude() -> String {
+    let value = ProcessInfo.processInfo.environment["NODE_INCLUDE"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !value.isEmpty else {
+        fatalError("NODE_INCLUDE must point to the directory that contains node_api.h")
+    }
+    return value
+}
+
+let nodeInclude = requireNodeInclude()
 
 let package = Package(
     name: "FoundationModelsAddon",

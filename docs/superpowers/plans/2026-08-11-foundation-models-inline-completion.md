@@ -89,7 +89,7 @@ public enum SuggestionNormalization {
 }
 ```
 
-- Consumes `NODE_INCLUDE` from the environment, defaulting to the Homebrew Node include path only for local convenience.
+- Consumes `NODE_INCLUDE` from the environment and fails fast when it is unset or empty.
 
 - [ ] **Step 1: Write failing Swift tests for normalized results and availability encoding.**
 

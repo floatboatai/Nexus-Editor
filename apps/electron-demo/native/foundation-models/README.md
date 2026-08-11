@@ -9,7 +9,13 @@ The package produces the dynamic library product `foundation_models` and targets
 - `cancelSuggestion(): void`
 - `dispose(): void`
 
-The `NodeAPI` target includes the system Node-API header through a small wrapper. Set `NODE_INCLUDE` to override the Node header directory; local builds default to the active `node` executable's `../include/node` directory.
+The `NodeAPI` target includes the system Node-API header through a small wrapper. Set `NODE_INCLUDE` to the directory that contains `node_api.h` before invoking `build.sh` or SwiftPM directly:
+
+```sh
+export NODE_INCLUDE="$(node -p 'const path=require(\"node:path\"); path.join(path.dirname(process.execPath), \"..\", \"include\", \"node\")')"
+```
+
+`Package.swift` does not guess a fallback path; this keeps the build reproducible on machines where Node is not installed via Homebrew.
 
 Run the core tests with:
 

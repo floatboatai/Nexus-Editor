@@ -10,7 +10,13 @@ Prerequisites:
 
 - Xcode Command Line Tools
 - Swift toolchain
-- Node.js headers available from the active Node.js runtime, or `NODE_INCLUDE` pointing at a directory containing `node_api.h`
+- `NODE_INCLUDE` set to the directory containing `node_api.h`
+
+Example:
+
+```bash
+export NODE_INCLUDE="$(node -p 'const path=require(\"node:path\"); path.join(path.dirname(process.execPath), \"..\", \"include\", \"node\")')"
+```
 
 Build the native addon:
 
