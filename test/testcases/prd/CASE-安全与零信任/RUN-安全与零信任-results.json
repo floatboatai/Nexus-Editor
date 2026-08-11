@@ -1,0 +1,307 @@
+{
+  "runner_version": "1.1",
+  "change_id": "prd",
+  "feature_point": "安全与零信任",
+  "run_at": "2026-08-10T18:14:54.696Z",
+  "channels": {
+    "vitest": {
+      "total_cases": 28,
+      "passed": 28,
+      "failed": 0
+    },
+    "playwright": {
+      "total_cases": 0,
+      "passed": 0,
+      "failed": 0
+    }
+  },
+  "total_cases": 28,
+  "results": [
+    {
+      "case_id": "FP-05-01-B01",
+      "test_file": "RUN-FP-05-01-B01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-01-B02",
+      "test_file": "RUN-FP-05-01-B02.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-01-E01",
+      "test_file": "RUN-FP-05-01-E01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-01-E02",
+      "test_file": "RUN-FP-05-01-E02.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-01-E03",
+      "test_file": "RUN-FP-05-01-E03.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-01-E04",
+      "test_file": "RUN-FP-05-01-E04.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-01-E05",
+      "test_file": "RUN-FP-05-01-E05.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-01-F01",
+      "test_file": "RUN-FP-05-01-F01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-01-N01",
+      "test_file": "RUN-FP-05-01-N01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-01-N02",
+      "test_file": "RUN-FP-05-01-N02.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-02-B01",
+      "test_file": "RUN-FP-05-02-B01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-02-B02",
+      "test_file": "RUN-FP-05-02-B02.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-02-E01",
+      "test_file": "RUN-FP-05-02-E01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-02-E02",
+      "test_file": "RUN-FP-05-02-E02.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-02-F01",
+      "test_file": "RUN-FP-05-02-F01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-02-N01",
+      "test_file": "RUN-FP-05-02-N01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-02-N02",
+      "test_file": "RUN-FP-05-02-N02.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-02-N03",
+      "test_file": "RUN-FP-05-02-N03.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-03-B01",
+      "test_file": "RUN-FP-05-03-B01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-03-B02",
+      "test_file": "RUN-FP-05-03-B02.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-03-D01",
+      "test_file": "RUN-FP-05-03-D01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-03-E01",
+      "test_file": "RUN-FP-05-03-E01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-03-E02",
+      "test_file": "RUN-FP-05-03-E02.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-03-E03",
+      "test_file": "RUN-FP-05-03-E03.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-03-F01",
+      "test_file": "RUN-FP-05-03-F01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-03-N01",
+      "test_file": "RUN-FP-05-03-N01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-03-N02",
+      "test_file": "RUN-FP-05-03-N02.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-05-03-N03",
+      "test_file": "RUN-FP-05-03-N03.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    }
+  ],
+  "summary": {
+    "passed_cases": 28,
+    "failed_cases": 0,
+    "skipped_cases": 0,
+    "pass_rate": "100%"
+  }
+}

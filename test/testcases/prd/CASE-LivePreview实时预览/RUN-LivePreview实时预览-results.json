@@ -1,0 +1,267 @@
+{
+  "runner_version": "1.1",
+  "change_id": "prd",
+  "feature_point": "LivePreview实时预览",
+  "run_at": "2026-08-11T00:18:02.149Z",
+  "channels": {
+    "vitest": {
+      "total_cases": 24,
+      "passed": 23,
+      "failed": 1
+    },
+    "playwright": {
+      "total_cases": 0,
+      "passed": 0,
+      "failed": 0
+    }
+  },
+  "total_cases": 24,
+  "results": [
+    {
+      "case_id": "FP-04-01-B01",
+      "test_file": "RUN-FP-04-01-B01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-01-B02",
+      "test_file": "RUN-FP-04-01-B02.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-01-E01",
+      "test_file": "RUN-FP-04-01-E01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-01-N01",
+      "test_file": "RUN-FP-04-01-N01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-01-N02",
+      "test_file": "RUN-FP-04-01-N02.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-01-N03",
+      "test_file": "RUN-FP-04-01-N03.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-01-N04",
+      "test_file": "RUN-FP-04-01-N04.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-01-N05",
+      "test_file": "RUN-FP-04-01-N05.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-01-N06",
+      "test_file": "RUN-FP-04-01-N06.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-02-B01",
+      "test_file": "RUN-FP-04-02-B01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-02-B02",
+      "test_file": "RUN-FP-04-02-B02.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-02-B03",
+      "test_file": "RUN-FP-04-02-B03.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-02-N01",
+      "test_file": "RUN-FP-04-02-N01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-02-N02",
+      "test_file": "RUN-FP-04-02-N02.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-02-N03",
+      "test_file": "RUN-FP-04-02-N03.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-02-N04",
+      "test_file": "RUN-FP-04-02-N04.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-02-N05",
+      "test_file": "RUN-FP-04-02-N05.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-02-N06",
+      "test_file": "RUN-FP-04-02-N06.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-03-B01",
+      "test_file": "RUN-FP-04-03-B01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-03-D01",
+      "test_file": "RUN-FP-04-03-D01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-03-E01",
+      "test_file": "RUN-FP-04-03-E01.test.ts",
+      "channel": "vitest",
+      "status": "failed",
+      "total_tests": 1,
+      "passed_tests": 0,
+      "failed_tests": 1,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-03-N01",
+      "test_file": "RUN-FP-04-03-N01.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-03-N02",
+      "test_file": "RUN-FP-04-03-N02.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    },
+    {
+      "case_id": "FP-04-03-N03",
+      "test_file": "RUN-FP-04-03-N03.test.ts",
+      "channel": "vitest",
+      "status": "passed",
+      "total_tests": 1,
+      "passed_tests": 1,
+      "failed_tests": 0,
+      "duration_ms": 0
+    }
+  ],
+  "summary": {
+    "passed_cases": 23,
+    "failed_cases": 1,
+    "skipped_cases": 0,
+    "pass_rate": "96%"
+  }
+}
