@@ -24,11 +24,13 @@ Run the app:
 pnpm dev:electron-demo
 ```
 
-The Electron demo build runs the native build first:
+The Electron demo build includes the native build step:
 
 ```bash
 pnpm --filter @floatboat/nexus-electron-demo build
 ```
+
+The build script cleans `dist-electron` first, then rebuilds the native addon, then runs the renderer build. That keeps the copied `.node` file in the packaged output.
 
 Fallback behavior:
 

@@ -46,13 +46,10 @@ function isThematicBreakLine(text: string): boolean {
   return /^(?:-{3,}|\*{3,}|_{3,})$/.test(text.trim());
 }
 
-function hasUnsafeInlineSyntax(text: string): boolean {
+function hasUnsafeInlineSyntaxAtCursor(text: string): boolean {
   return (
-    /!?\[[^\]\n]+\]\([^\)\n]+\)/.test(text) ||
-    /`[^`\n]+`/.test(text) ||
-    /(^|[^\\])\*[^*\n]+\*(?!\w)/.test(text) ||
-    /(^|[^\\])_[^_\n]+_(?!\w)/.test(text) ||
     /!?\[[^\]\n]*$/.test(text) ||
+    /!?\[[^\]\n]+\]\([^\)\n]*$/.test(text) ||
     /`[^`\n]*$/.test(text) ||
     /(^|[^\\])\*[^*\n]*$/.test(text) ||
     /(^|[^\\])_[^_\n]*$/.test(text)
@@ -174,7 +171,7 @@ export function findSuggestionContext(document: string, position: number): Sugge
   }
 
   const paragraph = document.slice(lines[start].start, position);
-  if (paragraph.trim().length === 0 || hasUnsafeInlineSyntax(paragraph)) {
+  if (paragraph.trim().length === 0 || hasUnsafeInlineSyntaxAtCursor(paragraph)) {
     return null;
   }
 

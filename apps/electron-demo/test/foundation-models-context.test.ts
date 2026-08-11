@@ -63,8 +63,13 @@ describe("findSuggestionContext", () => {
   });
 
   it("rejects paragraphs containing conservative inline Markdown syntax", () => {
-    expect(findSuggestionContext("A [link](url)", 13)).toBeNull();
+    expect(findSuggestionContext("A [link](url) and plain prose", 29)).toEqual({
+      from: 0,
+      to: 29,
+      paragraph: "A [link](url) and plain prose",
+    });
     expect(findSuggestionContext("A [link](url)", 5)).toBeNull();
+    expect(findSuggestionContext("A [link](url", 12)).toBeNull();
     expect(findSuggestionContext("An ![image](url)", 15)).toBeNull();
     expect(findSuggestionContext("A `code` span", 13)).toBeNull();
     expect(findSuggestionContext("A *strong* claim", 16)).toBeNull();
