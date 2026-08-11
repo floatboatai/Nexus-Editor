@@ -275,6 +275,68 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("flushes a pending user change before a silent document load", () => {
+    vi.useFakeTimers();
+
+    const container = document.createElement("div");
+    const changes: Array<{ doc: string; astText: string }> = [];
+    const parser = {
+      parse(markdown: string): Root {
+        return {
+          type: "root",
+          children: [{ type: "paragraph", children: [{ type: "text", value: markdown }] }]
+        };
+      }
+    };
+    const editor = createEditor({
+      container,
+      parser,
+      parseDelayMs: 20,
+      onChange(doc, ast) {
+        const paragraph = ast.children[0];
+        const text = paragraph?.type === "paragraph" ? paragraph.children[0] : undefined;
+        changes.push({ doc, astText: text?.type === "text" ? text.value : "" });
+      }
+    });
+
+    editor.setDocument("user draft");
+    editor.setDocument("loaded file", { silent: true });
+
+    expect(changes).toEqual([{ doc: "user draft", astText: "user draft" }]);
+    expect(editor.getDocument()).toBe("loaded file");
+
+    vi.runAllTimers();
+
+    expect(changes).toEqual([{ doc: "user draft", astText: "user draft" }]);
+    editor.destroy();
+  });
+
+  it("flushes a pending user change before a silent range mutation", () => {
+    vi.useFakeTimers();
+
+    const container = document.createElement("div");
+    const docs: string[] = [];
+    const editor = createEditor({
+      container,
+      initialValue: "draft",
+      parseDelayMs: 20,
+      onChange(doc) {
+        docs.push(doc);
+      }
+    });
+
+    editor.setDocument("user draft");
+    editor.replaceRange(0, 4, "saved", undefined, { silent: true });
+
+    expect(docs).toEqual(["user draft"]);
+    expect(editor.getDocument()).toBe("saved draft");
+
+    vi.runAllTimers();
+
+    expect(docs).toEqual(["user draft"]);
+    editor.destroy();
+  });
+
   it("defers change emission until IME composition ends", async () => {
     const container = document.createElement("div");
     const docs: string[] = [];

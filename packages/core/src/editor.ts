@@ -408,7 +408,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
     // before an external whole-document replacement, then release the widget's
     // editing lock so the replacement rebuilds decorations from the new doc.
     const tableEditFlushed = flushPendingTableEdits(view, true);
-    if (tableEditFlushed) flushScheduledChangeNow();
+    // A silent load is a document boundary: letting an older debounce fire
+    // afterwards would pair its captured Markdown with the newly loaded AST.
+    if (tableEditFlushed || opts?.silent === true) flushScheduledChangeNow();
     const beforeSelection = view.state.selection.main;
     const silent = opts?.silent === true;
     const selection = resolveDocumentSelection(
@@ -827,6 +829,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
     replaceRange(from, to, insert, selection, opts) {
       if (destroyed) return;
       const silent = opts?.silent === true;
+      // Preserve an earlier user edit before applying a mutation that is
+      // intentionally excluded from the change pipeline.
+      if (silent) flushScheduledChangeNow();
       view.dispatch({
         changes: { from, to, insert },
         selection: selection
