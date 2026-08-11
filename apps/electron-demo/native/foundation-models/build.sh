@@ -25,6 +25,7 @@ if [[ ! -f "$NODE_INCLUDE/node_api.h" ]]; then
   echo "Set NODE_INCLUDE to the directory containing node_api.h." >&2
   exit 1
 fi
+export NODE_INCLUDE
 
 swift build --configuration release --product foundation_models
 
