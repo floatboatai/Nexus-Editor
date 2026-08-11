@@ -1,4 +1,5 @@
 import { lightTheme, darkTheme, type NexusTheme } from "@floatboat/nexus-core";
+import type { NativeAvailability } from "./foundation-models";
 
 export interface EditorSettings {
   /** "light" | "dark" */
@@ -12,6 +13,13 @@ export interface EditorSettings {
   indentGuides: boolean;
   lineNumbers: boolean;
   livePreview: boolean;
+  foundationModelsSuggestions: boolean;
+}
+
+export interface FoundationModelsSettingsState {
+  platform: string;
+  availability: NativeAvailability | null;
+  enabled?: boolean;
 }
 
 const STORAGE_KEY = "nexus-editor-settings";
@@ -28,6 +36,7 @@ export function defaultSettings(): EditorSettings {
     indentGuides: false,
     lineNumbers: true,
     livePreview: true,
+    foundationModelsSuggestions: true,
   };
 }
 
@@ -127,13 +136,21 @@ interface SettingsPanelResult {
 
 type OnChange = (settings: EditorSettings) => void;
 
-function createToggle(value: boolean, onChange: (v: boolean) => void): HTMLElement {
+function createToggle(value: boolean, onChange: (v: boolean) => void, options?: {
+  ariaLabel?: string;
+  disabled?: boolean;
+}): HTMLElement {
   const btn = document.createElement("button");
   btn.type = "button";
+  if (options?.ariaLabel) {
+    btn.setAttribute("aria-label", options.ariaLabel);
+  }
+  btn.disabled = options?.disabled ?? false;
   const update = (v: boolean) => {
     btn.style.cssText = `
-      width: 44px; height: 24px; border-radius: 12px; border: none; cursor: pointer;
+      width: 44px; height: 24px; border-radius: 12px; border: none; cursor: ${btn.disabled ? "not-allowed" : "pointer"};
       position: relative; transition: background 0.2s; flex-shrink: 0;
+      opacity: ${btn.disabled ? "0.55" : "1"};
       background: ${v ? "var(--nexus-accent, #0969da)" : "var(--nexus-bg-muted, #ccc)"};
     `;
     btn.innerHTML = `<span style="
@@ -145,6 +162,7 @@ function createToggle(value: boolean, onChange: (v: boolean) => void): HTMLEleme
   };
   update(value);
   btn.addEventListener("click", () => {
+    if (btn.disabled) return;
     value = !value;
     update(value);
     onChange(value);
@@ -241,7 +259,24 @@ function sectionTitle(text: string): HTMLElement {
   return el;
 }
 
-export function createSettingsPanel(settings: EditorSettings, onChange: OnChange): SettingsPanelResult {
+function foundationModelsUnavailableText(availability: NativeAvailability | null): string {
+  switch (availability?.reason) {
+    case "unsupported-os":
+      return "Foundation Models requires macOS 26.";
+    case "unsupported-architecture":
+      return "Foundation Models suggestions require Apple silicon.";
+    case "apple-intelligence-unavailable":
+      return "Enable Apple Intelligence to use Foundation Models suggestions.";
+    default:
+      return "Foundation Models suggestions are not available on this Mac.";
+  }
+}
+
+export function createSettingsPanel(
+  settings: EditorSettings,
+  onChange: OnChange,
+  options?: FoundationModelsSettingsState
+): SettingsPanelResult {
   const backdrop = document.createElement("div");
   backdrop.style.cssText = PANEL_STYLES;
 
@@ -284,6 +319,26 @@ export function createSettingsPanel(settings: EditorSettings, onChange: OnChange
   // -- Behavior section --
   body.appendChild(sectionTitle("Behavior"));
   body.appendChild(row("Tab size", "Number of spaces per tab", createNumberInput(s.tabSize, 1, 8, 1, (v) => { s.tabSize = v; emit(); })));
+  if (options?.platform === "darwin") {
+    if (options.availability?.available) {
+      body.appendChild(row(
+        "Foundation Models",
+        "Show inline writing suggestions powered by macOS Foundation Models",
+        createToggle(s.foundationModelsSuggestions, (v) => { s.foundationModelsSuggestions = v; emit(); }, {
+          ariaLabel: "Foundation Models suggestions",
+        })
+      ));
+    } else {
+      body.appendChild(row(
+        "Foundation Models",
+        foundationModelsUnavailableText(options.availability),
+        createToggle(options.enabled ?? s.foundationModelsSuggestions, () => undefined, {
+          ariaLabel: "Foundation Models suggestions unavailable",
+          disabled: true,
+        })
+      ));
+    }
+  }
 
   dialog.append(header, body);
   backdrop.appendChild(dialog);

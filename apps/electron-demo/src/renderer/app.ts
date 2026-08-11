@@ -1,12 +1,24 @@
 import { createState, type AppState } from "./state";
 import { createEditorShell, type EditorShell } from "./editor-shell";
-import { loadSettings, createSettingsPanel, type EditorSettings } from "./settings";
+import {
+  loadSettings,
+  createSettingsPanel,
+  type EditorSettings,
+  type FoundationModelsSettingsState,
+} from "./settings";
 import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
 import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
+import {
+  createUnavailableFoundationModelsBridge,
+  getWindowFoundationModelsBridge,
+  unavailableFoundationModels,
+  type FoundationModelsBridge,
+  type NativeAvailability,
+} from "./foundation-models";
 
 installLongTaskWatch(50);
 
@@ -17,9 +29,33 @@ let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+let foundationModelsBridge: FoundationModelsBridge = createUnavailableFoundationModelsBridge();
+let foundationModelsAvailability: NativeAvailability = unavailableFoundationModels;
 
 const linkIndex = new LinkIndex();
 state.linkIndex = linkIndex;
+
+function getHostPlatform(): string {
+  const platform = navigator.platform.toLowerCase();
+  return platform.includes("mac") ? "darwin" : platform;
+}
+
+async function refreshFoundationModelsAvailability(): Promise<void> {
+  try {
+    foundationModelsAvailability = await foundationModelsBridge.getAvailability();
+  } catch {
+    foundationModelsAvailability = unavailableFoundationModels;
+  }
+  shell?.foundationModels.setAvailability(foundationModelsAvailability);
+}
+
+function foundationModelsSettingsState(): FoundationModelsSettingsState {
+  return {
+    platform: getHostPlatform(),
+    availability: foundationModelsAvailability,
+    enabled: settings.foundationModelsSuggestions,
+  };
+}
 
 function createAppToolbar(): HTMLElement {
   const toolbar = document.createElement("div");
@@ -174,11 +210,13 @@ async function handleSaveAs(): Promise<void> {
   renderStatus();
 }
 
-function handleSettings(): void {
+async function handleSettings(): Promise<void> {
+  await refreshFoundationModelsAvailability();
   createSettingsPanel(settings, (next) => {
     settings = next;
+    shell.foundationModels.setEnabled(next.foundationModelsSuggestions);
     shell.applySettings(settings);
-  });
+  }, foundationModelsSettingsState());
 }
 
 function togglePanel(panel: HTMLElement, onShow?: () => void): void {
@@ -340,10 +378,12 @@ async function tryRestoreLastVault(): Promise<void> {
   }
 }
 
-function boot(): void {
+async function boot(): Promise<void> {
   const bootScope = perfStart("boot");
   const root = document.getElementById("app");
   if (!root) throw new Error("Missing #app element");
+  foundationModelsBridge = getWindowFoundationModelsBridge() ?? createUnavailableFoundationModelsBridge();
+  await refreshFoundationModelsAvailability();
 
   const appToolbar = createAppToolbar();
   const statusLine = createStatusLine();
@@ -373,6 +413,11 @@ function boot(): void {
     },
     onWikilinkNavigate: (target, opts) => {
       void handleWikilinkNavigate(target, opts);
+    },
+    foundationModels: {
+      bridge: foundationModelsBridge,
+      availability: foundationModelsAvailability,
+      enabled: settings.foundationModelsSuggestions,
     },
   });
 
@@ -437,4 +482,4 @@ function boot(): void {
   });
 }
 
-boot();
+void boot();
