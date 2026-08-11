@@ -9,7 +9,7 @@ let package = Package(
     name: "FoundationModelsAddon",
     platforms: [.macOS(.v26)],
     products: [
-        .library(name: "foundation_models", type: .dynamic, targets: ["FoundationModelsCore"])
+        .library(name: "foundation_models", type: .dynamic, targets: ["NodeAddon"])
     ],
     targets: [
         .target(
@@ -20,8 +20,17 @@ let package = Package(
         ),
         .target(
             name: "FoundationModelsCore",
-            dependencies: ["NodeAPI"],
+            dependencies: [],
             path: "Sources/FoundationModelsCore"
+        ),
+        .target(
+            name: "NodeAddon",
+            dependencies: ["FoundationModelsCore", "NodeAPI"],
+            path: "Sources/NodeAddon",
+            swiftSettings: [.unsafeFlags(["-I", nodeInclude])],
+            linkerSettings: [
+                .unsafeFlags(["-Xlinker", "-undefined", "-Xlinker", "dynamic_lookup"])
+            ]
         ),
         .testTarget(
             name: "FoundationModelsCoreTests",

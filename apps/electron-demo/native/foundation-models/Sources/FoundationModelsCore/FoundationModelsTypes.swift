@@ -7,7 +7,7 @@ public enum AvailabilityReason: String, Codable, Sendable {
     case modelUnavailable = "model-unavailable"
 }
 
-public struct AvailabilityResult: Codable, Equatable {
+public struct AvailabilityResult: Codable, Equatable, Sendable {
     public let available: Bool
     public let reason: AvailabilityReason?
 
