@@ -51,7 +51,11 @@ function hasUnsafeInlineSyntax(text: string): boolean {
     /!?\[[^\]\n]+\]\([^\)\n]+\)/.test(text) ||
     /`[^`\n]+`/.test(text) ||
     /(^|[^\\])\*[^*\n]+\*(?!\w)/.test(text) ||
-    /(^|[^\\])_[^_\n]+_(?!\w)/.test(text)
+    /(^|[^\\])_[^_\n]+_(?!\w)/.test(text) ||
+    /!?\[[^\]\n]*$/.test(text) ||
+    /`[^`\n]*$/.test(text) ||
+    /(^|[^\\])\*[^*\n]*$/.test(text) ||
+    /(^|[^\\])_[^_\n]*$/.test(text)
   );
 }
 

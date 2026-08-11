@@ -69,6 +69,11 @@ describe("findSuggestionContext", () => {
     expect(findSuggestionContext("A `code` span", 13)).toBeNull();
     expect(findSuggestionContext("A *strong* claim", 16)).toBeNull();
     expect(findSuggestionContext("A _strong_ claim", 16)).toBeNull();
+    expect(findSuggestionContext("A [link", 7)).toBeNull();
+    expect(findSuggestionContext("A ![image", 9)).toBeNull();
+    expect(findSuggestionContext("A `code", 7)).toBeNull();
+    expect(findSuggestionContext("A *strong", 9)).toBeNull();
+    expect(findSuggestionContext("A _strong", 9)).toBeNull();
   });
 
   it("rejects invalid positions", () => {
