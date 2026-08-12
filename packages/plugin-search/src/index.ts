@@ -623,19 +623,26 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+const WORD_BOUNDARY_SOURCE = String.raw`[\p{L}\p{M}\p{N}_]`;
+
+function wrapWholeWordPattern(pattern: string): string {
+  return `(?<!${WORD_BOUNDARY_SOURCE})(?:${pattern})(?!${WORD_BOUNDARY_SOURCE})`;
+}
+
 function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp | null {
   const flags = options.caseSensitive ? "g" : "gi";
+  const resolvedFlags = options.wholeWord ? `${flags}u` : flags;
 
   let pattern: string;
   if (options.regexp) {
-    pattern = options.wholeWord ? `\\b(?:${query})\\b` : query;
+    pattern = options.wholeWord ? wrapWholeWordPattern(query) : query;
   } else {
     const escaped = escapeRegExp(query);
-    pattern = options.wholeWord ? `\\b${escaped}\\b` : escaped;
+    pattern = options.wholeWord ? wrapWholeWordPattern(escaped) : escaped;
   }
 
   try {
-    return new RegExp(pattern, flags);
+    return new RegExp(pattern, resolvedFlags);
   } catch {
     return null;
   }
