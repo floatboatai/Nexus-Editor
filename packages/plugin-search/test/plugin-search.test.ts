@@ -255,6 +255,24 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("matches whole-word CJK text delimited by punctuation", () => {
+    expect(findSearchMatches("你好，世界！", "世界", { wholeWord: true })).toEqual([
+      { from: 3, to: 5, text: "世界" }
+    ]);
+  });
+
+  it("does not treat a query inside uninterrupted CJK text as a whole word", () => {
+    expect(findSearchMatches("你好世界和平", "世界", { wholeWord: true })).toEqual([]);
+  });
+
+  it("does not add the Unicode flag when whole-word is disabled", () => {
+    expect(findSearchMatches("banana", "\\a", { regexp: true })).toEqual([
+      { from: 1, to: 2, text: "a" },
+      { from: 3, to: 4, text: "a" },
+      { from: 5, to: 6, text: "a" }
+    ]);
+  });
+
   it("replaces all matches in a document", () => {
     expect(replaceAllMatches("cat scatter cat", "cat", "dog")).toBe("dog sdogter dog");
   });
@@ -301,6 +319,132 @@ describe("@floatboat/nexus-plugin-search", () => {
     expect(findSearchMatches("cat cats concatenate", "cat|dog", { regexp: true, wholeWord: true })).toEqual([
       { from: 0, to: 3, text: "cat" }
     ]);
+  });
+
+  describe("Unicode whole-word boundaries", () => {
+    it("matches Cyrillic script as a whole word", () => {
+      expect(findSearchMatches("Привет, мир", "Привет", { wholeWord: true })).toEqual([
+        { from: 0, to: 6, text: "Привет" }
+      ]);
+    });
+
+    it("matches precomposed accented Latin as a whole word", () => {
+      expect(findSearchMatches("café noir", "café", { wholeWord: true })).toEqual([
+        { from: 0, to: 4, text: "café" }
+      ]);
+    });
+
+    it("does not match a query that is a substring of a longer accented word", () => {
+      expect(findSearchMatches("decaféine", "café", { wholeWord: true })).toEqual([]);
+    });
+
+    it("matches Hangul as a whole word", () => {
+      expect(findSearchMatches("한글 문서", "한글", { wholeWord: true })).toEqual([
+        { from: 0, to: 2, text: "한글" }
+      ]);
+    });
+
+    it("keeps a base letter attached to a following combining mark", () => {
+      // "e" + combining acute accent (U+0301) + "clair" — the query "e" is not
+      // a whole word because \p{M} keeps the combining mark attached to it.
+      expect(findSearchMatches("éclair", "e", { wholeWord: true })).toEqual([]);
+    });
+
+    it("keeps consecutive combining marks attached to their base letter", () => {
+      // base "a" + two combining marks (circumflex U+0302, acute U+0301) + "bc"
+      const word = "ấbc";
+      const doc = `${word} def`;
+      expect(findSearchMatches(doc, "bc", { wholeWord: true })).toEqual([]);
+      expect(findSearchMatches(doc, word, { wholeWord: true })).toEqual([
+        { from: 0, to: 5, text: word }
+      ]);
+    });
+
+    it("returns exact UTF-16 offsets for astral-plane letters", () => {
+      // U+1D4B3/U+1D4B4 (mathematical script capital X/Y) are each a surrogate
+      // pair, so the two-letter match spans 4 UTF-16 code units.
+      expect(findSearchMatches("\u{1D4B3}\u{1D4B4} rest", "\u{1D4B3}\u{1D4B4}", { wholeWord: true })).toEqual([
+        { from: 0, to: 4, text: "\u{1D4B3}\u{1D4B4}" }
+      ]);
+    });
+
+    it("treats digits and underscores as word characters", () => {
+      expect(findSearchMatches("item_1 item", "item", { wholeWord: true })).toEqual([
+        { from: 7, to: 11, text: "item" }
+      ]);
+      expect(findSearchMatches("cat3 cat", "cat", { wholeWord: true })).toEqual([
+        { from: 5, to: 8, text: "cat" }
+      ]);
+    });
+
+    it("matches at the start and end of the document", () => {
+      expect(findSearchMatches("cat scatter", "cat", { wholeWord: true })).toEqual([
+        { from: 0, to: 3, text: "cat" }
+      ]);
+      expect(findSearchMatches("scatter cat", "cat", { wholeWord: true })).toEqual([
+        { from: 8, to: 11, text: "cat" }
+      ]);
+    });
+
+    it("treats CRLF line endings as a boundary", () => {
+      expect(findSearchMatches("line1\r\nline1", "line1", { wholeWord: true })).toEqual([
+        { from: 0, to: 5, text: "line1" },
+        { from: 7, to: 12, text: "line1" }
+      ]);
+    });
+
+    it("treats an adjacent emoji as a boundary", () => {
+      expect(findSearchMatches("hello\u{1F600}world", "hello", { wholeWord: true })).toEqual([
+        { from: 0, to: 5, text: "hello" }
+      ]);
+    });
+
+    it("matches a literal query containing punctuation by its outer edges", () => {
+      expect(findSearchMatches("what it's up", "it's", { wholeWord: true })).toEqual([
+        { from: 5, to: 9, text: "it's" }
+      ]);
+    });
+
+    it("evaluates a zero-width regexp query by the same adjacent-character rule", () => {
+      expect(findSearchMatches(". .", "(?= )", { regexp: true, wholeWord: true })).toEqual([
+        { from: 1, to: 1, text: "" }
+      ]);
+    });
+
+    it("supports capture groups and alternation combined with whole-word", () => {
+      expect(
+        findSearchMatches("cat123 dogcat456", "(?:cat|dog)\\d+", { regexp: true, wholeWord: true })
+      ).toEqual([{ from: 0, to: 6, text: "cat123" }]);
+    });
+
+    it("keeps $1/$& replacement templates working with whole-word regexp", () => {
+      expect(
+        replaceAllMatches("cat123 dogcat456", "(cat)\\d+", "[$1]", { regexp: true, wholeWord: true })
+      ).toBe("[cat] dogcat456");
+    });
+
+    it("replaces whole-word CJK matches via the shared pattern", () => {
+      expect(replaceAllMatches("你好，世界！", "世界", "地球", { wholeWord: true })).toBe(
+        "你好，地球！"
+      );
+    });
+
+    it("is a no-op replace when there is no whole-word match", () => {
+      expect(replaceAllMatches("catalog", "cat", "dog", { wholeWord: true })).toBe("catalog");
+    });
+
+    it("does not accept Unicode case folding as a substitute for legacy escape validity", () => {
+      // "\a" is a legacy no-op escape under non-Unicode flags but an invalid
+      // escape once whole-word adds the `u` flag — it must fall back cleanly
+      // rather than throwing or matching something unintended.
+      expect(findSearchMatches("banana", "\\a", { regexp: true, wholeWord: true })).toEqual([]);
+      expect(replaceAllMatches("banana", "\\a", "X", { regexp: true, wholeWord: true })).toBe("banana");
+    });
+
+    it("falls back to the original document for an invalid regexp combined with whole-word", () => {
+      expect(replaceAllMatches("hello", "[bad(", "x", { regexp: true, wholeWord: true })).toBe("hello");
+      expect(findSearchMatches("hello", "[bad(", { regexp: true, wholeWord: true })).toEqual([]);
+    });
   });
 
   it("creates a search plugin descriptor", () => {
