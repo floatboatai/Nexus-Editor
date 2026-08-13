@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeSlashes, joinPath } from "../src/renderer/path-utils";
+import { normalizeSlashes, joinPath, rebaseRenamedPath } from "../src/renderer/path-utils";
 
 describe("normalizeSlashes", () => {
   it("returns path unchanged when already using forward slashes", () => {
@@ -66,5 +66,33 @@ describe("joinPath", () => {
 
   it("handles Windows-style paths as segments", () => {
     expect(joinPath("foo\\bar", "baz")).toBe("foo/bar/baz");
+  });
+});
+
+describe("rebaseRenamedPath", () => {
+  it("replaces an exact file path", () => {
+    expect(rebaseRenamedPath("/v/Old.md", "/v/Old.md", "/v/New.md")).toBe("/v/New.md");
+  });
+
+  it("rebases a file inside a renamed directory", () => {
+    expect(rebaseRenamedPath("/v/old/nested/a.md", "/v/old", "/v/archive")).toBe(
+      "/v/archive/nested/a.md"
+    );
+  });
+
+  it("does not change paths outside the renamed subtree", () => {
+    expect(rebaseRenamedPath("/v/older/a.md", "/v/old", "/v/archive")).toBe(
+      "/v/older/a.md"
+    );
+  });
+
+  it("preserves Windows-style separators", () => {
+    expect(
+      rebaseRenamedPath(
+        "C:\\vault\\old\\a.md",
+        "C:\\vault\\old",
+        "C:\\vault\\archive"
+      )
+    ).toBe("C:\\vault\\archive\\a.md");
   });
 });

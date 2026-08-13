@@ -26,6 +26,9 @@ added in the `add-wikilinks` change proposal.
 - **Escape sequence** — `\[[NotALink]]` in `ghost-demo.md` stays literal.
 - **Autocomplete** — in a new note, type `[[me` and confirm the popup lists
   `Meeting` (twice, one per directory) plus other matches.
+- **Rename consistency** — rename `work/Inbox.md` and confirm the backlinks
+  panel shows the new source name when viewing `work/Meeting.md`; rename
+  `work/Meeting.md` and confirm stale backlinks to the old target disappear.
 
 ## Topology
 

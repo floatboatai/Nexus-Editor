@@ -219,14 +219,19 @@ export class LinkIndex {
 
   /** Incremental update for a single file's contents. */
   updateFile(path: string, content: string): void {
+    const norm = normalizeSlashes(path);
+    const isNewFile = !this.contents.has(norm);
     this.removeFromBasenames(path);
     this.indexFile(path, content);
     this.invalidateUnlinkedCache();
-    // Incremental reverse-index maintenance — only rewrites backward edges
-    // whose `sourcePath` is this file. O(|edges of this file|) instead of
-    // O(|total edges in the vault|). On keystroke-driven updates the previous
-    // behavior scaled with vault size; now it only scales with this file.
-    this.rebuildBackwardFor(normalizeSlashes(path));
+    if (isNewFile) {
+      // Adding a target can make links in any existing source resolvable.
+      this.rebuildBackward();
+    } else {
+      // Content-only edits cannot change target resolution, so keep the hot
+      // path proportional to this file's outgoing edge count.
+      this.rebuildBackwardFor(norm);
+    }
     this.notify();
   }
 
@@ -237,17 +242,29 @@ export class LinkIndex {
     this.forward.delete(norm);
     this.contents.delete(norm);
     this.invalidateUnlinkedCache();
-    // Only purge edges whose sourcePath is this file.
-    this.removeBackwardEdgesFrom(norm);
+    // Removing a target can invalidate links from any source, not only edges
+    // originating in the removed file.
+    this.rebuildBackward();
     this.notify();
   }
 
   /** Rename `oldPath` → `newPath`, preserving content. */
   renameFile(oldPath: string, newPath: string): void {
-    const content = this.contents.get(normalizeSlashes(oldPath));
+    const oldNorm = normalizeSlashes(oldPath);
+    const newNorm = normalizeSlashes(newPath);
+    const content = this.contents.get(oldNorm);
     if (content == null) return;
-    this.removeFile(oldPath);
-    this.updateFile(newPath, content);
+    if (oldNorm === newNorm) return;
+
+    this.removeFromBasenames(oldNorm);
+    this.forward.delete(oldNorm);
+    this.contents.delete(oldNorm);
+    this.indexFile(newNorm, content);
+    this.invalidateUnlinkedCache();
+
+    // Both the source path and the set of resolvable targets changed.
+    this.rebuildBackward();
+    this.notify();
   }
 
   /** All known note names (basename without extension), deduplicated. */

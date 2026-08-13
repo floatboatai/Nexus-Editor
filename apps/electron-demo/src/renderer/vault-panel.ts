@@ -2,6 +2,7 @@ export interface VaultPanelCallbacks {
   onOpenFile(filePath: string): void;
   onError(message: string): void;
   onStatus(message: string): void;
+  onRename?(oldPath: string, newPath: string, kind: VaultNode["kind"]): void | Promise<void>;
 }
 
 export interface VaultPanel {
@@ -353,7 +354,8 @@ export function createVaultPanel(callbacks: VaultPanelCallbacks): VaultPanel {
         return;
       }
       try {
-        await window.nexusDemo.vault.rename(node.path, newName);
+        const result = await window.nexusDemo.vault.rename(node.path, newName);
+        await callbacks.onRename?.(node.path, result.path, node.kind);
         await refresh();
       } catch (err) {
         callbacks.onError(err instanceof Error ? err.message : String(err));

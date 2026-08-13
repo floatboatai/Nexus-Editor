@@ -75,6 +75,64 @@ describe("LinkIndex.backlinks", () => {
     idx.removeFile("/v/a.md");
     expect(idx.getBacklinks("/v/X.md")).toHaveLength(0);
   });
+
+  it("resolves previously unresolved links when a target file is added", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "/v/Inbox.md", content: "See [[Project]]" },
+    ]);
+
+    expect(idx.resolve("Project", "/v/Inbox.md")).toBeNull();
+
+    idx.updateFile("/v/Project.md", "# Project");
+
+    expect(idx.getBacklinks("/v/Project.md").map((hit) => hit.sourcePath)).toEqual([
+      "/v/Inbox.md",
+    ]);
+  });
+
+  it("clears inbound edges when their target file is removed", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "/v/Project.md", content: "# Project" },
+      { path: "/v/Inbox.md", content: "See [[Project]]" },
+    ]);
+
+    expect(idx.getBacklinks("/v/Project.md")).toHaveLength(1);
+
+    idx.removeFile("/v/Project.md");
+
+    expect(idx.getBacklinks("/v/Project.md")).toEqual([]);
+  });
+
+  it("re-resolves inbound edges when a target moves without changing basename", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "/v/old/Project.md", content: "# Project" },
+      { path: "/v/Inbox.md", content: "See [[Project]]" },
+    ]);
+
+    idx.renameFile("/v/old/Project.md", "/v/archive/Project.md");
+
+    expect(idx.getBacklinks("/v/old/Project.md")).toEqual([]);
+    expect(idx.getBacklinks("/v/archive/Project.md").map((hit) => hit.sourcePath)).toEqual([
+      "/v/Inbox.md",
+    ]);
+  });
+
+  it("updates backlink source paths when the linking file is renamed", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "/v/Project.md", content: "# Project" },
+      { path: "/v/Inbox.md", content: "See [[Project]]" },
+    ]);
+
+    idx.renameFile("/v/Inbox.md", "/v/archive/Inbox.md");
+
+    expect(idx.getBacklinks("/v/Project.md").map((hit) => hit.sourcePath)).toEqual([
+      "/v/archive/Inbox.md",
+    ]);
+  });
 });
 
 describe("LinkIndex.getAllNoteNames", () => {

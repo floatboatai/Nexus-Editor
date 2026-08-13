@@ -6,6 +6,7 @@ import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
 import { LinkIndex, parseAnchor, findAnchorPosition } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
+import { rebaseRenamedPath } from "./path-utils";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
 
 installLongTaskWatch(50);
@@ -385,6 +386,23 @@ function boot(): void {
       renderStatus();
     },
     onStatus: (_message) => {
+      renderStatus();
+    },
+    async onRename(oldPath, newPath, kind) {
+      if (kind === "file") {
+        linkIndex.renameFile(oldPath, newPath);
+      } else {
+        await seedLinkIndex();
+      }
+
+      state.activeFile = state.activeFile
+        ? rebaseRenamedPath(state.activeFile, oldPath, newPath)
+        : null;
+      state.filePath = state.filePath
+        ? rebaseRenamedPath(state.filePath, oldPath, newPath)
+        : null;
+      vault.setActiveFile(state.activeFile);
+      backlinks.refresh();
       renderStatus();
     },
   });
