@@ -190,3 +190,39 @@ describe("computeSlashState closed state", () => {
     expect(state.query).toBe("zzz");
   });
 });
+
+describe("filterSlashCommands fuzzy ranking", () => {
+  it("surfaces a command via fuzzy subsequence when no exact/prefix/keyword hit exists", () => {
+    const list = cmds(
+      { id: "insert-table", title: "Insert Table" },
+      { id: "image", title: "Image" },
+    );
+    // "it" is a subsequence of "Insert Table" (I…T) but NOT of "Image"
+    // (no "t"), so only insert-table should be returned.
+    expect(filterSlashCommands(list, "it").map((c) => c.id)).toEqual([
+      "insert-table",
+    ]);
+  });
+
+  it("does not let fuzzy override a stronger prefix match", () => {
+    const list = cmds(
+      { id: "settings", title: "Settings" },
+      { id: "insert-text", title: "Insert Text" },
+    );
+    // "set" is a PREFIX of "Settings" (top tier), and only a spread fuzzy
+    // subsequence of "Insert Text" (s…e…t, mid-string). The prefix match
+    // must outrank the fuzzy-only match.
+    expect(filterSlashCommands(list, "set").map((c) => c.id)).toEqual([
+      "settings",
+      "insert-text",
+    ]);
+  });
+
+  it("excludes commands with no fuzzy subsequence", () => {
+    const list = cmds(
+      { id: "bold", title: "Bold" },
+      { id: "heading", title: "Heading" },
+    );
+    expect(filterSlashCommands(list, "zx").map((c) => c.id)).toEqual([]);
+  });
+});

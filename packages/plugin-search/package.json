@@ -21,6 +21,9 @@
     "@codemirror/view": "^6.41.0",
     "@floatboat/nexus-core": "workspace:*"
   },
+  "devDependencies": {
+    "@codemirror/state": "^6.6.0"
+  },
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"

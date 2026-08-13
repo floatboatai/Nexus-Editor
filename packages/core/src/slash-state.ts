@@ -1,3 +1,4 @@
+import { fuzzyMatch } from "./fuzzy";
 import type { SlashCommandDef } from "./types";
 
 export interface SlashMatch {
@@ -36,6 +37,10 @@ const SCORE_KEYWORD_EXACT = 4000;
 const SCORE_TITLE_SUBSTRING = 3000;
 const SCORE_KEYWORD_PREFIX = 2000;
 const SCORE_KEYWORD_SUBSTRING = 1000;
+// Lowest tier: fuzzy subsequence match (e.g. "it" → "Insert Table"). Surfaces
+// only when no exact/prefix/keyword/substring hit exists, mirroring the
+// fuzzy command filtering in editors like Obsidian.
+const SCORE_TITLE_FUZZY = 500;
 
 export function getSlashMatch(doc: string, cursor: number): SlashMatch | null {
   const before = doc.slice(0, cursor);
@@ -110,6 +115,14 @@ function scoreCommand(
     if (kwIdx >= 0) {
       return { cmd, score: SCORE_KEYWORD_SUBSTRING, tiebreaker: kwIdx, index };
     }
+  }
+
+  // Fuzzy fallback: title contains the query as an ordered subsequence.
+  // `tiebreaker` uses the negative fuzzy score so a tighter alignment ranks
+  // first within this tier.
+  const fuzzyTitle = fuzzyMatch(query, title, { caseSensitive: false });
+  if (fuzzyTitle.matched) {
+    return { cmd, score: SCORE_TITLE_FUZZY, tiebreaker: -fuzzyTitle.score, index };
   }
 
   return null;
