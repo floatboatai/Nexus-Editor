@@ -42,6 +42,13 @@ export {
   type SlashStateOptions,
   type SlashStateResult,
 } from "./slash-state";
+export {
+  fuzzyMatch,
+  fuzzyFilter,
+  type FuzzyMatchResult,
+  type FuzzyOptions,
+  type FuzzyScored,
+} from "./fuzzy";
 export { lightTheme, darkTheme, type NexusTheme } from "./theme";
 export {
   scanWikiLinks,

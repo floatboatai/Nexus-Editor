@@ -1,11 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import { createEditor } from "@floatboat/nexus-core";
 import { createGfmPreset } from "../../preset-gfm/src/index";
+import { EditorState } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 import {
   createSearchPlugin,
   findSearchMatches,
   replaceAllMatches
 } from "../src/index";
+import {
+  fuzzySearchExtension,
+  nexusFuzzyNavigate,
+  nexusFuzzySelectAll,
+  setFuzzyQuery
+} from "../src/fuzzy-search-extension";
 
 const HISTORY_KEY = "nexus:test-search-history";
 const TABLE_SEARCH_HIGHLIGHT_PREFIX = "nexus-table-search-";
@@ -307,7 +315,9 @@ describe("@floatboat/nexus-plugin-search", () => {
     const plugin = createSearchPlugin();
 
     expect(plugin.name).toBe("plugin-search");
-    expect(plugin.cmExtensions).toHaveLength(4);
+    // search() + keymap + table-search highlight + fuzzy-search extension,
+    // plus the default highlightSelectionMatches() pushed below.
+    expect(plugin.cmExtensions).toHaveLength(5);
   });
 
   it("highlights rendered table cell matches through CSS Highlight ranges", () => {
@@ -886,5 +896,132 @@ describe("@floatboat/nexus-plugin-search", () => {
 
     editor.destroy();
     container.remove();
+  });
+});
+
+describe("fuzzy search (programmatic API)", () => {
+  it("finds per-line fuzzy subsequence matches", () => {
+    expect(
+      findSearchMatches("foo bar\nbaz qux", "fb", { fuzzy: true })
+    ).toEqual([{ from: 0, to: 5, text: "foo b" }]);
+  });
+
+  it("finds no fuzzy match when the subsequence is absent on every line", () => {
+    expect(findSearchMatches("foo bar\nbaz qux", "zzz", { fuzzy: true })).toEqual([]);
+  });
+
+  it("respects case sensitivity in fuzzy find", () => {
+    expect(findSearchMatches("Foo Bar", "fb", { fuzzy: true, caseSensitive: true })).toEqual([]);
+    expect(findSearchMatches("Foo Bar", "FB", { fuzzy: true, caseSensitive: true })).toEqual([
+      { from: 0, to: 5, text: "Foo B" }
+    ]);
+  });
+
+  it("replaces only the matched characters, preserving the rest of the line", () => {
+    expect(replaceAllMatches("foo bar", "fb", "X", { fuzzy: true })).toBe("Xoo Xar");
+  });
+
+  it("falls back to literal behaviour when fuzzy is not requested", () => {
+    expect(findSearchMatches("foo bar", "bar", {})).toEqual([
+      { from: 4, to: 7, text: "bar" }
+    ]);
+  });
+
+  it("ignores fuzzy when regexp is also requested", () => {
+    expect(findSearchMatches("foo bar", "f.", { fuzzy: true, regexp: true })).toEqual([
+      { from: 0, to: 2, text: "fo" }
+    ]);
+  });
+});
+
+describe("fuzzy search extension (in-editor highlight + navigation)", () => {
+  function mountFuzzy(doc: string) {
+    const parent = document.createElement("div");
+    document.body.append(parent);
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc,
+        extensions: [fuzzySearchExtension()]
+      })
+    });
+    return {
+      view,
+      destroy() {
+        view.destroy();
+        parent.remove();
+      }
+    };
+  }
+
+  it("highlights the matched characters and moves the selection on navigate", () => {
+    const { view, destroy } = mountFuzzy("foo bar baz");
+
+    view.dispatch({
+      effects: setFuzzyQuery.of({ query: "fbb", caseSensitive: false, fuzzy: true })
+    });
+
+    // "f" at 0, "b" at 4, "b" at 8 → three highlighted characters (the
+    // active one uses the -current class, the others -match).
+    const marks = view.dom.querySelectorAll(".cm-fuzzy-match, .cm-fuzzy-match-current");
+    expect(marks.length).toBe(3);
+
+    // First Next selects the span [0, 9) ("foo bar b").
+    expect(nexusFuzzyNavigate(view, 1)).toBe(true);
+    expect(view.state.selection.main.from).toBe(0);
+    expect(view.state.selection.main.to).toBe(9);
+
+    // The active (only) match spans three characters, all carrying the
+    // stronger current-match class.
+    expect(view.dom.querySelectorAll(".cm-fuzzy-match-current").length).toBe(3);
+
+    destroy();
+  });
+
+  it("wraps navigation around the match list", () => {
+    const { view, destroy } = mountFuzzy("alpha\nbeta\ngamma");
+
+    view.dispatch({
+      effects: setFuzzyQuery.of({ query: "a", caseSensitive: false, fuzzy: true })
+    });
+
+    // Three lines, each contains "a" → three matches.
+    expect(nexusFuzzyNavigate(view, 1)).toBe(true);
+    const first = view.state.selection.main.from;
+    nexusFuzzyNavigate(view, 1);
+    nexusFuzzyNavigate(view, 1);
+    // One more Next wraps back to the first match.
+    nexusFuzzyNavigate(view, 1);
+    expect(view.state.selection.main.from).toBe(first);
+
+    destroy();
+  });
+
+  it("selects every fuzzy match as a multi-range selection", () => {
+    const { view, destroy } = mountFuzzy("one alpha\ntwo beta");
+
+    view.dispatch({
+      effects: setFuzzyQuery.of({ query: "a", caseSensitive: false, fuzzy: true })
+    });
+
+    expect(nexusFuzzySelectAll(view)).toBe(true);
+    expect(view.state.selection.ranges.length).toBe(2);
+
+    destroy();
+  });
+
+  it("clears highlights when the fuzzy query is nulled", () => {
+    const { view, destroy } = mountFuzzy("foo bar");
+
+    view.dispatch({
+      effects: setFuzzyQuery.of({ query: "fb", caseSensitive: false, fuzzy: true })
+    });
+    // The single match is the active one, so it carries the -current class.
+    expect(view.dom.querySelectorAll(".cm-fuzzy-match, .cm-fuzzy-match-current").length).toBeGreaterThan(0);
+
+    view.dispatch({ effects: setFuzzyQuery.of(null) });
+    expect(view.dom.querySelectorAll(".cm-fuzzy-match").length).toBe(0);
+
+    destroy();
   });
 });
