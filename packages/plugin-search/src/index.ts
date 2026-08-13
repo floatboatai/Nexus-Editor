@@ -24,6 +24,23 @@ import {
 } from "@codemirror/view";
 
 import type { NexusPlugin } from "@floatboat/nexus-core";
+import {
+  createFuzzySearchCursor,
+  fuzzyMatch,
+  type FuzzyMatchOptions,
+  type FuzzyMatchRange,
+  type FuzzyMatchResult,
+  type FuzzySearchCursorMatch
+} from "./fuzzy";
+
+export {
+  createFuzzySearchCursor,
+  fuzzyMatch,
+  type FuzzyMatchOptions,
+  type FuzzyMatchRange,
+  type FuzzyMatchResult,
+  type FuzzySearchCursorMatch
+};
 
 export interface SearchMatch {
   from: number;
@@ -35,6 +52,7 @@ export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  fuzzy?: boolean;
 }
 
 export interface SearchHistoryStorage {
@@ -59,6 +77,10 @@ export interface SearchPluginOptions {
    */
   caseSensitive?: boolean;
   /**
+   * Enable fuzzy matching by default.
+   */
+  fuzzy?: boolean;
+  /**
    * Highlight viewport matches for the current selection.
    */
   highlightSelectionMatches?: boolean;
@@ -80,6 +102,7 @@ export interface SearchPluginLabels {
   matchCase: string;
   regexp: string;
   byWord: string;
+  fuzzy: string;
   replaceNext: string;
   replaceAll: string;
   close: string;
@@ -96,6 +119,7 @@ const DEFAULT_LABELS: SearchPluginLabels = {
   matchCase: "Match case",
   regexp: "Regexp",
   byWord: "By word",
+  fuzzy: "Fuzzy",
   replaceNext: "Replace",
   replaceAll: "Replace all",
   close: "Close"
@@ -712,6 +736,7 @@ function resolveLabels(view: EditorView, labels: Partial<SearchPluginLabels> | u
     matchCase: resolveLabel(view, labels, "matchCase", DEFAULT_LABELS.matchCase),
     regexp: resolveLabel(view, labels, "regexp", DEFAULT_LABELS.regexp),
     byWord: resolveLabel(view, labels, "byWord", DEFAULT_LABELS.byWord),
+    fuzzy: resolveLabel(view, labels, "fuzzy", DEFAULT_LABELS.fuzzy),
     replaceNext: resolveLabel(view, labels, "replaceNext", DEFAULT_LABELS.replaceNext),
     replaceAll: resolveLabel(view, labels, "replaceAll", DEFAULT_LABELS.replaceAll),
     close: resolveLabel(view, labels, "close", DEFAULT_LABELS.close)
@@ -891,6 +916,7 @@ class NexusSearchPanel implements Panel {
   private readonly caseField: HTMLInputElement;
   private readonly regexpField: HTMLInputElement;
   private readonly wholeWordField: HTMLInputElement;
+  private readonly fuzzyField: HTMLInputElement;
   private readonly labels: SearchPluginLabels;
   private readonly history: SearchHistoryController;
   private readonly replaceRow?: HTMLDivElement;
@@ -925,6 +951,7 @@ class NexusSearchPanel implements Panel {
     this.caseField = this.createCheckbox("markdown-search-case-toggle", "case", this.query.caseSensitive);
     this.regexpField = this.createCheckbox("markdown-search-regexp-toggle", "re", this.query.regexp);
     this.wholeWordField = this.createCheckbox("markdown-search-word-toggle", "word", this.query.wholeWord);
+    this.fuzzyField = this.createCheckbox("search-fuzzy", "fuzzy", false);
 
     this.dom = document.createElement("div");
     this.dom.className = "cm-search nexus-search-panel";
@@ -961,6 +988,7 @@ class NexusSearchPanel implements Panel {
       createLabel(this.caseField, resolvedLabels.matchCase),
       createLabel(this.regexpField, resolvedLabels.regexp),
       createLabel(this.wholeWordField, resolvedLabels.byWord),
+      createLabel(this.fuzzyField, resolvedLabels.fuzzy),
       navigationGroup
     ];
     if (this.replaceToggle) {
