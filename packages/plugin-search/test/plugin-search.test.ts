@@ -887,4 +887,48 @@ describe("@floatboat/nexus-plugin-search", () => {
     editor.destroy();
     container.remove();
   });
+
+  it("renders fuzzy search toggle in the search panel", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({
+      container,
+      initialValue: "floatboat nexus editor",
+      plugins: [createSearchPlugin()]
+    });
+
+    const content = container.querySelector<HTMLElement>(".cm-content");
+    content?.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "f",
+        code: "KeyF",
+        metaKey: true,
+        bubbles: true,
+        cancelable: true
+      })
+    );
+    if (!container.querySelector('[data-test-id="markdown-search-bar"]')) {
+      content?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "f",
+          code: "KeyF",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true
+        })
+      );
+    }
+
+    const fuzzyField = container.querySelector<HTMLInputElement>('[data-test-id="search-fuzzy"]');
+    expect(fuzzyField).not.toBeNull();
+    expect(fuzzyField?.checked).toBe(false);
+
+    fuzzyField!.checked = true;
+    fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    expect(fuzzyField?.checked).toBe(true);
+
+    editor.destroy();
+    container.remove();
+  });
 });
+
