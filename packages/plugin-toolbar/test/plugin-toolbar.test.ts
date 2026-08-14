@@ -8,6 +8,7 @@ import {
   toggleInlineCode,
   insertLink,
   toggleHeading,
+  toggleBlockquote,
   toggleOrderedList,
   toggleUnorderedList,
   createToolbarPlugin,
@@ -384,6 +385,66 @@ describe("list toggle — selection at document boundary", () => {
     toggleOrderedList(editor);
 
     expect(editor.getDocument()).toBe("foo\n1. bar");
+    editor.destroy();
+  });
+});
+
+describe("toggle on an empty FIRST line (position 0)", () => {
+  // Regression: `doc.lastIndexOf("\n", from - 1)` clamps `from - 1 === -1`
+  // to 0, so a collapsed cursor at position 0 on a leading empty line
+  // resolved to the NEXT line — the marker landed on the line below.
+  it("OL: adds the marker to the empty first line, not the line below", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "\nfoo\nbar" });
+
+    editor.setSelection(0);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. \nfoo\nbar");
+    editor.destroy();
+  });
+
+  it("OL: consecutive empty first lines target the cursor's own line", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "\n\nfoo" });
+
+    editor.setSelection(0);
+    toggleOrderedList(editor);
+
+    expect(editor.getDocument()).toBe("1. \n\nfoo");
+    editor.destroy();
+  });
+
+  it("UL: adds the bullet to the empty first line", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "\nfoo\nbar" });
+
+    editor.setSelection(0);
+    toggleUnorderedList(editor);
+
+    expect(editor.getDocument()).toBe("- \nfoo\nbar");
+    editor.destroy();
+  });
+
+  it("blockquote: adds the prefix to the empty first line", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "\nfoo\nbar" });
+
+    editor.setSelection(0);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("> \nfoo\nbar");
+    editor.destroy();
+  });
+
+  it("heading: adds the heading prefix to the empty first line", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "\nfoo\nbar" });
+
+    editor.setSelection(0);
+    toggleHeading(editor, 1);
+
+    expect(editor.getDocument()).toBe("# \nfoo\nbar");
     editor.destroy();
   });
 });

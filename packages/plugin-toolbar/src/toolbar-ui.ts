@@ -296,7 +296,8 @@ function showHeadingDropdown(
         // Remove any heading prefix on the current line
         const doc = editor.getDocument();
         const { anchor: pos } = editor.getSelection();
-        const lineStart = doc.lastIndexOf("\n", pos - 1) + 1;
+        // Guard position 0: `pos - 1 === -1` clamps to 0 in lastIndexOf.
+        const lineStart = pos === 0 ? 0 : doc.lastIndexOf("\n", pos - 1) + 1;
         const lineEndIdx = doc.indexOf("\n", pos);
         const lineEnd = lineEndIdx === -1 ? doc.length : lineEndIdx;
         const line = doc.slice(lineStart, lineEnd);
