@@ -13,6 +13,10 @@ export interface NexusLocale {
   alignCenter: string;
   alignRight: string;
 
+  // List
+  /** Accessible label for list reorder handles. Optional for backward compatibility. */
+  reorderListItem?: string;
+
   // Fold
   foldCode: string;
   unfoldCode: string;
@@ -26,7 +30,7 @@ export interface NexusLocale {
   codeBlockLabel: string;
 }
 
-export const enLocale: NexusLocale = {
+export const enLocale = {
   addColumn: "Add column",
   addRow: "Add row",
   deleteColumn: "Delete column",
@@ -38,15 +42,16 @@ export const enLocale: NexusLocale = {
   alignLeft: "Align left",
   alignCenter: "Align center",
   alignRight: "Align right",
+  reorderListItem: "Reorder list item",
   foldCode: "Fold code block",
   unfoldCode: "Unfold code block",
   foldHeading: "Fold section",
   unfoldHeading: "Unfold section",
   openLink: "Open link",
   codeBlockLabel: "Code",
-};
+} satisfies NexusLocale;
 
-export const zhLocale: NexusLocale = {
+export const zhLocale = {
   addColumn: "添加列",
   addRow: "添加行",
   deleteColumn: "删除列",
@@ -58,16 +63,21 @@ export const zhLocale: NexusLocale = {
   alignLeft: "左对齐",
   alignCenter: "居中对齐",
   alignRight: "右对齐",
+  reorderListItem: "重新排列列表项",
   foldCode: "折叠代码块",
   unfoldCode: "展开代码块",
   foldHeading: "折叠章节",
   unfoldHeading: "展开章节",
   openLink: "打开链接",
   codeBlockLabel: "代码",
-};
+} satisfies NexusLocale;
 
 /** Merge a partial locale with English defaults. */
-export function resolveLocale(locale?: Partial<NexusLocale>): NexusLocale {
+export function resolveLocale(locale?: Partial<NexusLocale>): Required<NexusLocale> {
   if (!locale) return enLocale;
-  return { ...enLocale, ...locale };
+  return {
+    ...enLocale,
+    ...locale,
+    reorderListItem: locale.reorderListItem ?? enLocale.reorderListItem,
+  };
 }

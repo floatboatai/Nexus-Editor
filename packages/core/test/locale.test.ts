@@ -46,6 +46,7 @@ describe("internationalization", () => {
       "insertColumnBefore", "insertColumnAfter",
       "insertRowAbove", "insertRowBelow",
       "alignLeft", "alignCenter", "alignRight",
+      "reorderListItem",
       "foldCode", "unfoldCode", "foldHeading", "unfoldHeading",
       "openLink", "codeBlockLabel"
     ];
