@@ -225,7 +225,6 @@ class MermaidWidget extends WidgetType {
   constructor(
     private readonly source: string,
     private readonly viewRef: { current: EditorView | null },
-    private readonly blockFrom: number,
     private readonly sourceOffsetInBlock: number
   ) { super(); }
 
@@ -255,6 +254,16 @@ class MermaidWidget extends WidgetType {
       "text-align:center",
       "overflow:hidden",
     ].join(";") + ";";
+
+    const focusSource = () => {
+      const v = this.viewRef.current;
+      if (!v) return;
+      const currentBlockFrom = v.posAtDOM(container);
+      const target = currentBlockFrom + this.sourceOffsetInBlock;
+      const safeTarget = Math.min(target, v.state.doc.length);
+      v.dispatch({ selection: { anchor: safeTarget } });
+      v.focus();
+    };
 
     // Edit icon — always rendered, always on top. stopPropagation so the
     // click doesn't get swallowed as a widget-surface click.
@@ -287,12 +296,7 @@ class MermaidWidget extends WidgetType {
     editBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const v = this.viewRef.current;
-      if (!v) return;
-      const target = this.blockFrom + this.sourceOffsetInBlock;
-      const safeTarget = Math.min(target, v.state.doc.length);
-      v.dispatch({ selection: { anchor: safeTarget } });
-      v.focus();
+      focusSource();
     });
 
     const diagramHost = document.createElement("div");
@@ -358,12 +362,7 @@ class MermaidWidget extends WidgetType {
       editLink.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        const v = this.viewRef.current;
-        if (!v) return;
-        const target = this.blockFrom + this.sourceOffsetInBlock;
-        const safeTarget = Math.min(target, v.state.doc.length);
-        v.dispatch({ selection: { anchor: safeTarget } });
-        v.focus();
+        focusSource();
       });
       hint.appendChild(document.createTextNode("→ "));
       hint.appendChild(editLink);
@@ -877,7 +876,7 @@ function buildCodeBlockDecorations(
   if (range.node.lang === "mermaid" && !cursorOnCode && firstNewline >= 0) {
     decos.push(
       Decoration.replace({
-        widget: new MermaidWidget(range.node.value ?? "", viewRef, range.from, firstNewline + 1),
+        widget: new MermaidWidget(range.node.value ?? "", viewRef, firstNewline + 1),
         block: true,
       }).range(range.from, range.to)
     );
