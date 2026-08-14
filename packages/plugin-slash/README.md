@@ -1,6 +1,6 @@
 # @floatboat/nexus-plugin-slash
 
-Slash-command primitives for [Nexus-Editor](https://github.com/floatboat/nexus-editor):
+Slash-command primitives for [Nexus-Editor](https://github.com/floatboatai/Nexus-Editor):
 
 - **State helpers** — pure functions that compute the menu state for a
   document + caret, ranked and capped.
