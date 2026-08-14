@@ -248,6 +248,18 @@ describe("@floatboat/nexus-plugin-search", () => {
       { from: 0, to: 3, text: "cat" }
     ]);
   });
+  
+  it("supports whole-word matching for CJK terms", () => {
+    expect(findSearchMatches("测试 测试版 再测试", "测试", { wholeWord: true })).toEqual([
+      { from: 0, to: 2, text: "测试" }
+    ]);
+  });
+
+  it("keeps Unicode letters as word characters for whole-word matching", () => {
+    expect(findSearchMatches("cafe café cafeteria", "café", { wholeWord: true })).toEqual([
+      { from: 5, to: 9, text: "café" }
+    ]);
+  });
 
   it("supports case-sensitive whole-word matching", () => {
     expect(findSearchMatches("cat Cat CAT", "Cat", { wholeWord: true, caseSensitive: true })).toEqual([
@@ -262,6 +274,12 @@ describe("@floatboat/nexus-plugin-search", () => {
   it("replaces only whole-word matches", () => {
     expect(replaceAllMatches("cat catalog cat concatenate", "cat", "dog", { wholeWord: true })).toBe(
       "dog catalog dog concatenate"
+    );
+  });
+  
+  it("replaces only whole CJK terms", () => {
+    expect(replaceAllMatches("测试 测试版 再测试", "测试", "验证", { wholeWord: true })).toBe(
+      "验证 测试版 再测试"
     );
   });
 
@@ -300,6 +318,13 @@ describe("@floatboat/nexus-plugin-search", () => {
   it("supports regex with whole-word combined", () => {
     expect(findSearchMatches("cat cats concatenate", "cat|dog", { regexp: true, wholeWord: true })).toEqual([
       { from: 0, to: 3, text: "cat" }
+    ]);
+  });
+
+   it("supports regex whole-word matching with Unicode terms", () => {
+    expect(findSearchMatches("测试 测验 测试版", "测试|测验", { regexp: true, wholeWord: true })).toEqual([
+      { from: 0, to: 2, text: "测试" },
+      { from: 3, to: 5, text: "测验" }
     ]);
   });
 
