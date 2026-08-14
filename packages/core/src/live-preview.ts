@@ -1,5 +1,6 @@
-import { type EditorState, RangeSet, RangeSetBuilder, StateEffect, StateField, type Extension, type Range, type SelectionRange, type Transaction } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
+import { type EditorState, Prec, RangeSet, RangeSetBuilder, StateEffect, StateField, type Extension, type Range, type SelectionRange, type Transaction } from "@codemirror/state";
+import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType, keymap } from "@codemirror/view";
+import { deleteCharBackward, insertNewline } from "@codemirror/commands";
 import { ensureSyntaxTree } from "@codemirror/language";
 import type { Code, FootnoteDefinition, FootnoteReference, Heading, Html, List, Root, Table } from "mdast";
 
@@ -1499,5 +1500,61 @@ export function createLivePreviewExtension(
     return builder.finish();
   });
 
-  return [field, viewCapture, compositionHandler, linkHandler, tableAtomicRanges, createLivePreviewDiagnostics()];
+  // ── 末尾表格边界处的编辑键修复 ──
+  //
+  // 表格被渲染成 block replace widget（整段源码折叠成一个块级元素）。当表格是文档
+  // 最后一块（widget 的 `to` 恰好等于 doc.length）时，光标落在表格末尾边界（即表格
+  // 右侧的那个"大光标"）。这个位置在 DOM 里位于 widget 之后、却没有真实文本节点可
+  // 放原生光标，因此所有走浏览器默认 contentEditable 的编辑（回车 / 退格 / Delete）
+  // 都会"跑偏"到表格上方甚至把整个表格删掉。例如：
+  //   * Enter    → handleMarkdownEnter 对表格行返回 false，浏览器把换行插到表格上方；
+  //   * Backspace→ 光标在表格下一行行首时，浏览器把整个表格当"前一个块"删掉；
+  //
+  // 这里在最高优先级拦截：命中"末尾表格边界"的编辑键，一律转成 CM6 内置命令走真正的
+  // transaction（不依赖原生光标位置），其余情况返回 false 交给 markdownKeymap / 默认
+  // 行为。`insertNewline` 在 `to` 处插入 `\n` 并落位到新空行，`deleteCharBackward`
+  // 只删掉表格与下一行之间的换行符。
+
+  /** 是否存在一个表格 widget 正好结束在 `pos`（且 `pos` 处是有效的表格结束边界）。 */
+  function tableWidgetEndsAt(view: EditorView, pos: number): boolean {
+    const decoSet = view.state.field(field, false);
+    if (!decoSet || decoSet.size === 0) return false;
+    const iter = decoSet.iter();
+    while (iter.value) {
+      const spec = (iter.value as { spec?: { widget?: unknown } }).spec;
+      if (iter.to === pos && iter.to > iter.from && spec?.widget instanceof EditableTableWidget) {
+        return true;
+      }
+      iter.next();
+    }
+    return false;
+  }
+
+  const trailingTableKeymap = Prec.highest(
+    keymap.of([
+      // 光标在末尾表格的 `to`（= doc.length）边界 → 在表格下方插入空行。
+      {
+        key: "Enter",
+        run(view) {
+          const range = view.state.selection.main;
+          if (!range.empty || range.head !== view.state.doc.length) return false;
+          return tableWidgetEndsAt(view, range.head) ? insertNewline(view) : false;
+        },
+      },
+      // 光标在紧跟表格的下一行行首 → 只删除那个换行符，光标回到表格末尾。
+      {
+        key: "Backspace",
+        run(view) {
+          const range = view.state.selection.main;
+          if (!range.empty) return false;
+          const pos = range.head;
+          const line = view.state.doc.lineAt(pos);
+          if (pos !== line.from) return false;
+          return tableWidgetEndsAt(view, pos - 1) ? deleteCharBackward(view) : false;
+        },
+      },
+    ])
+  );
+
+  return [field, viewCapture, compositionHandler, linkHandler, tableAtomicRanges, trailingTableKeymap, createLivePreviewDiagnostics()];
 }

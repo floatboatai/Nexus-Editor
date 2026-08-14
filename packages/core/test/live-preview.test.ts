@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
+import { EditorView, ViewPlugin, runScopeHandlers, type ViewUpdate } from "@codemirror/view";
 
 import { createGfmPreset } from "../../preset-gfm/src/index";
 import { createEditor, type EditorAPI } from "../src/index";
@@ -612,6 +612,140 @@ describe("live preview", () => {
     }
     // 表格范围被登记为原子区间 → 方向键上下移动会把它当整体跳过，光标不再卡在折叠的源码里。
     expect(coversTable).toBe(true);
+    editor.destroy();
+  });
+
+  it("inserts the newline BELOW a trailing table when Enter is pressed at its end boundary", () => {
+    const container = document.createElement("div");
+    let capturedView: EditorView | null = null;
+    const captureView = ViewPlugin.fromClass(
+      class {
+        constructor(readonly view: EditorView) {
+          capturedView = view;
+        }
+      }
+    );
+    const editor = createEditor({
+      container,
+      initialValue: "before\n\n| A | B |\n| --- | --- |\n| 1 | 2 |",
+      livePreview: true,
+      plugins: [createGfmPreset(), { name: "capture", cmExtensions: [captureView] }]
+    });
+    const view = requireEditorView(capturedView);
+    // 表格是文档最后一块：widget 的 `to` 恰好等于 doc.length，光标落在表格末尾边界
+    // （表格右侧的"大光标"）。按回车必须把空行加在表格**下方**，而不是上方。
+    editor.setSelection(view.state.doc.length);
+
+    const handled = runScopeHandlers(
+      view,
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      "editor"
+    );
+
+    expect(handled).toBe(true);
+    expect(view.state.doc.toString()).toBe("before\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n");
+    expect(view.state.selection.main.head).toBe(view.state.doc.length);
+    editor.destroy();
+  });
+
+  it("leaves Enter untouched when a table has content after it (non-trailing)", () => {
+    const container = document.createElement("div");
+    let capturedView: EditorView | null = null;
+    const captureView = ViewPlugin.fromClass(
+      class {
+        constructor(readonly view: EditorView) {
+          capturedView = view;
+        }
+      }
+    );
+    const editor = createEditor({
+      container,
+      initialValue: "before\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\nafter",
+      livePreview: true,
+      plugins: [createGfmPreset(), { name: "capture", cmExtensions: [captureView] }]
+    });
+    const view = requireEditorView(capturedView);
+    const doc = view.state.doc.toString();
+    const tableEnd = doc.lastIndexOf("| 2 |") + "| 2 |".length;
+    editor.setSelection(tableEnd);
+
+    // 光标在表格结束边界但 doc 并未结束 → 专属 keymap 不应消费 Enter，
+    // 交由默认行为（markdownKeymap / 浏览器默认）处理。
+    const handled = runScopeHandlers(
+      view,
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      "editor"
+    );
+
+    expect(handled).toBe(false);
+    expect(view.state.doc.toString()).toBe(doc);
+    editor.destroy();
+  });
+
+  it("Backspace on the line right after a trailing table removes only the newline (not the whole table)", () => {
+    const container = document.createElement("div");
+    let capturedView: EditorView | null = null;
+    const captureView = ViewPlugin.fromClass(
+      class {
+        constructor(readonly view: EditorView) {
+          capturedView = view;
+        }
+      }
+    );
+    // 模拟"末尾表格 + 回车"之后的状态：表格后面紧跟一个空行。
+    const editor = createEditor({
+      container,
+      initialValue: "before\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n",
+      livePreview: true,
+      plugins: [createGfmPreset(), { name: "capture", cmExtensions: [captureView] }]
+    });
+    const view = requireEditorView(capturedView);
+    // 光标落在表格后面的空行行首（pos = doc.length）。
+    editor.setSelection(view.state.doc.length);
+
+    const handled = runScopeHandlers(
+      view,
+      new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }),
+      "editor"
+    );
+
+    // 只应删掉表格与空行之间的换行符，光标回到表格末尾；整个表格必须保留。
+    expect(handled).toBe(true);
+    expect(view.state.doc.toString()).toBe("before\n\n| A | B |\n| --- | --- |\n| 1 | 2 |");
+    expect(view.state.selection.main.head).toBe(view.state.doc.length);
+    editor.destroy();
+  });
+
+  it("leaves Backspace untouched when the caret is not on the line right after a table", () => {
+    const container = document.createElement("div");
+    let capturedView: EditorView | null = null;
+    const captureView = ViewPlugin.fromClass(
+      class {
+        constructor(readonly view: EditorView) {
+          capturedView = view;
+        }
+      }
+    );
+    // 表格后面有内容且中间隔着空行：光标在 "after" 行首 → 专属 keymap 不介入。
+    const editor = createEditor({
+      container,
+      initialValue: "before\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\nafter",
+      livePreview: true,
+      plugins: [createGfmPreset(), { name: "capture", cmExtensions: [captureView] }]
+    });
+    const view = requireEditorView(capturedView);
+    const doc = view.state.doc.toString();
+    const afterPos = doc.indexOf("after");
+    editor.setSelection(afterPos);
+
+    const handled = runScopeHandlers(
+      view,
+      new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }),
+      "editor"
+    );
+
+    expect(handled).toBe(false);
+    expect(view.state.doc.toString()).toBe(doc);
     editor.destroy();
   });
 
