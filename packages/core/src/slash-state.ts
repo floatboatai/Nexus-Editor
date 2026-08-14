@@ -33,6 +33,7 @@ const SCORE_EMPTY_PRESERVE_ORDER = 0;
 const SCORE_TITLE_EXACT = 6000;
 const SCORE_TITLE_PREFIX = 5000;
 const SCORE_KEYWORD_EXACT = 4000;
+const SCORE_TITLE_FUZZY = 3500;   // Fuzzy match - between keyword exact and title substring
 const SCORE_TITLE_SUBSTRING = 3000;
 const SCORE_KEYWORD_PREFIX = 2000;
 const SCORE_KEYWORD_SUBSTRING = 1000;
@@ -69,6 +70,24 @@ interface ScoredCommand {
   index: number;
 }
 
+function fuzzyMatchScore(text: string, pattern: string): number {
+  if (!pattern) return 0;
+  
+  let patternIdx = 0;
+  let score = 0;
+  let lastMatchIdx = -1;
+  
+  for (let i = 0; i < text.length && patternIdx < pattern.length; i++) {
+    if (text[i] === pattern[patternIdx]) {
+      const gap = lastMatchIdx >= 0 ? i - lastMatchIdx - 1 : 0;
+      score += gap === 0 ? 10 : Math.max(0, 10 - gap);
+      lastMatchIdx = i;
+      patternIdx++;
+    }
+  }
+  return patternIdx === pattern.length ? score : -1;
+}
+
 function scoreCommand(
   cmd: SlashCommandDef,
   query: string,
@@ -89,6 +108,12 @@ function scoreCommand(
     if (kw.toLowerCase() === query) {
       return { cmd, score: SCORE_KEYWORD_EXACT, tiebreaker: 0, index };
     }
+  }
+    // 4. Title fuzzy match
+  const fuzzyScore = fuzzyMatchScore(title, query);
+  if (fuzzyScore > 0) {
+    // Use negative score as tiebreaker so higher scores rank first
+    return { cmd, score: SCORE_TITLE_FUZZY, tiebreaker: -fuzzyScore, index };
   }
 
   const titleIdx = title.indexOf(query);
