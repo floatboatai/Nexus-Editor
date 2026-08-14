@@ -78,6 +78,117 @@ describe("markdown fold", () => {
     view.destroy();
   });
 
+  it("folds tilde fences and accepts a longer closing fence", () => {
+    const doc = "  ~~~js\nconst answer = 42;\n  ~~~~~";
+    const view = createView(doc);
+    const line = view.state.doc.line(1);
+    const range = foldable(view.state, line.from, line.to);
+
+    expect(range).toEqual({
+      from: line.to,
+      to: view.state.doc.line(3).to,
+    });
+    view.destroy();
+  });
+
+  it("skips shorter and mismatched fences before a valid closing fence", () => {
+    const doc = "````\ncode\n```\n~~~~\n`````";
+    const view = createView(doc);
+    const line = view.state.doc.line(1);
+    const range = foldable(view.state, line.from, line.to);
+
+    expect(range).toEqual({
+      from: line.to,
+      to: view.state.doc.line(5).to,
+    });
+    view.destroy();
+  });
+
+  it("accepts up to three spaces before opening and closing fences", () => {
+    const doc = "   ```ts\nconst value = true;\n   ```";
+    const view = createView(doc);
+    const line = view.state.doc.line(1);
+    const range = foldable(view.state, line.from, line.to);
+
+    expect(range).toEqual({
+      from: line.to,
+      to: view.state.doc.line(3).to,
+    });
+    view.destroy();
+  });
+
+  it("does not treat a four-space-indented fence as an opening fence", () => {
+    const doc = "    ```\n    code\n    ```";
+    const view = createView(doc);
+    const line = view.state.doc.line(1);
+    const range = foldable(view.state, line.from, line.to);
+
+    expect(range).toBeNull();
+    view.destroy();
+  });
+
+  it("ignores an over-indented closing fence", () => {
+    const doc = "```\ncode\n    ```\nmore code\n```";
+    const view = createView(doc);
+    const line = view.state.doc.line(1);
+    const range = foldable(view.state, line.from, line.to);
+
+    expect(range).toEqual({
+      from: line.to,
+      to: view.state.doc.line(5).to,
+    });
+    view.destroy();
+  });
+
+  it("allows trailing spaces and tabs after a closing fence", () => {
+    const doc = "```\ncode\n``` \t";
+    const view = createView(doc);
+    const line = view.state.doc.line(1);
+    const range = foldable(view.state, line.from, line.to);
+
+    expect(range).toEqual({
+      from: line.to,
+      to: view.state.doc.line(3).to,
+    });
+    view.destroy();
+  });
+
+  it("ignores a closing fence with trailing text", () => {
+    const doc = "```\ncode\n``` not closed\nmore code\n```";
+    const view = createView(doc);
+    const line = view.state.doc.line(1);
+    const range = foldable(view.state, line.from, line.to);
+
+    expect(range).toEqual({
+      from: line.to,
+      to: view.state.doc.line(5).to,
+    });
+    view.destroy();
+  });
+
+  it("rejects backtick fences whose info string contains a backtick", () => {
+    const doc = "```js`invalid\ncode\n```";
+    const view = createView(doc);
+    const line = view.state.doc.line(1);
+    const range = foldable(view.state, line.from, line.to);
+
+    expect(range).toBeNull();
+    view.destroy();
+  });
+
+  it("folds an unclosed fence to the end of the document", () => {
+    const doc = "```\ncode\nmore code";
+    const view = createView(doc);
+    const line = view.state.doc.line(1);
+    const range = foldable(view.state, line.from, line.to);
+
+    expect(range).toEqual({
+      from: line.to,
+      to: doc.length,
+    });
+    view.destroy();
+  });
+
   it("returns null for non-foldable lines", () => {
     const doc = "Just a paragraph of text.";
     const view = createView(doc);
