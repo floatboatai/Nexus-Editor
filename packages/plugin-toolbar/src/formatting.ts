@@ -15,7 +15,11 @@ interface LineRange {
  */
 function getLinesInRange(doc: string, from: number, to: number): LineRange[] {
   const results: LineRange[] = [];
-  let pos = doc.lastIndexOf("\n", from - 1) + 1; // start of the first covered line
+  // `doc.lastIndexOf("\n", from - 1)` clamps `from - 1 === -1` to 0, so a
+  // collapsed cursor at document start on an empty FIRST line would resolve
+  // to the NEXT line (the marker lands on the line below). Treat position 0
+  // as its own line start.
+  let pos = from === 0 ? 0 : doc.lastIndexOf("\n", from - 1) + 1; // start of the first covered line
 
   while (true) {
     const lineEndIdx = doc.indexOf("\n", pos);
@@ -63,7 +67,8 @@ function applyLines(editor: EditorAPI, lines: LineRange[], newLines: string[]): 
 function toggleLinePrefix(editor: EditorAPI, prefix: string): boolean {
   const doc = editor.getDocument();
   const { anchor } = editor.getSelection();
-  const lineStart = doc.lastIndexOf("\n", anchor - 1) + 1;
+  // Same position-0 guard as getLinesInRange: `anchor - 1 === -1` clamps to 0.
+  const lineStart = anchor === 0 ? 0 : doc.lastIndexOf("\n", anchor - 1) + 1;
   const lineEndIdx = doc.indexOf("\n", anchor);
   const lineEnd = lineEndIdx === -1 ? doc.length : lineEndIdx;
   const line = doc.slice(lineStart, lineEnd);

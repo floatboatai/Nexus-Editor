@@ -65,7 +65,8 @@ export function insertLink(editor: EditorAPI): boolean {
 export function toggleHeading(editor: EditorAPI, level: number): boolean {
   const doc = editor.getDocument();
   const { anchor } = editor.getSelection();
-  const lineStart = doc.lastIndexOf("\n", anchor - 1) + 1;
+  // Guard position 0: `anchor - 1 === -1` clamps to 0 in lastIndexOf.
+  const lineStart = anchor === 0 ? 0 : doc.lastIndexOf("\n", anchor - 1) + 1;
   const lineEnd = doc.indexOf("\n", anchor);
   const end = lineEnd === -1 ? doc.length : lineEnd;
   const line = doc.slice(lineStart, end);
