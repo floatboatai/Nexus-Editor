@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const electronHarness = vi.hoisted(() => ({
@@ -6,6 +9,7 @@ const electronHarness = vi.hoisted(() => ({
   quit: vi.fn(),
   showOpenDialog: vi.fn(),
   showSaveDialog: vi.fn(),
+  userDataPath: "",
   sessions: [] as Array<{
     readonly partition: string;
     readonly handledSchemes: Set<string>;
@@ -98,7 +102,7 @@ vi.mock("electron", () => {
   }
 
   const app = {
-    getPath: () => "/tmp/nexus-electron-main-test",
+    getPath: () => electronHarness.userDataPath,
     on: (event: string, listener: (...args: any[]) => void) => {
       const listeners = electronHarness.appListeners.get(event) ?? [];
       listeners.push(listener);
@@ -146,7 +150,7 @@ vi.mock("electron", () => {
 });
 
 describe("Electron main window host", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers();
     vi.resetModules();
     electronHarness.appListeners.clear();
@@ -156,13 +160,15 @@ describe("Electron main window host", () => {
     electronHarness.quit.mockReset();
     electronHarness.showOpenDialog.mockReset();
     electronHarness.showSaveDialog.mockReset();
+    electronHarness.userDataPath = await mkdtemp(path.join(tmpdir(), "nexus-electron-main-test-"));
     process.env.VITE_DEV_SERVER_URL = "http://trusted.local";
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     delete process.env.VITE_DEV_SERVER_URL;
     vi.restoreAllMocks();
     vi.useRealTimers();
+    await rm(electronHarness.userDataPath, { recursive: true, force: true });
   });
 
   function eventFor(window: typeof electronHarness.windows[number]) {
@@ -204,6 +210,34 @@ describe("Electron main window host", () => {
     expect(legacy.isDestroyed()).toBe(false);
   });
 
+  it("preserves concurrent legacy and runtime recent-Vault commits", async () => {
+    const legacyVault = path.join(electronHarness.userDataPath, "legacy-vault");
+    const runtimeVault = path.join(electronHarness.userDataPath, "runtime-vault");
+    await Promise.all([mkdir(legacyVault), mkdir(runtimeVault)]);
+    const { ElectronVaultBroker } = await import("../electron/plugin-host-broker");
+    vi.spyOn(ElectronVaultBroker.prototype, "commitSession")
+      .mockReturnValue({ root: runtimeVault });
+    const { createWindow, registerPluginHostIpc } = await import("../electron/main");
+    registerPluginHostIpc();
+    createWindow({ hostMode: "legacy", windowId: "recent-legacy" });
+    createWindow({ hostMode: "runtime", windowId: "recent-runtime" });
+    const setLast = electronHarness.ipcHandlers.get("vault:set-last")!;
+    const commit = electronHarness.ipcHandlers.get("nexus:vault:commit")!;
+    const getLast = electronHarness.ipcHandlers.get("vault:get-last")!;
+
+    await Promise.all([
+      setLast(eventFor(electronHarness.windows[0]), legacyVault),
+      commit(eventFor(electronHarness.windows[1]), {
+        sessionId: "11111111-1111-4111-8111-111111111111",
+      }),
+    ]);
+
+    await expect(getLast(eventFor(electronHarness.windows[0]))).resolves.toEqual({
+      lastVault: runtimeVault,
+      recents: [runtimeVault, legacyVault],
+    });
+  });
+
   it("rejects an unsolicited shutdown ACK and keeps the window alive", async () => {
     const { createWindow, registerPluginHostIpc } = await import("../electron/main");
     registerPluginHostIpc();
@@ -221,19 +255,28 @@ describe("Electron main window host", () => {
     expect(window.isDestroyed()).toBe(true);
   });
 
-  it("forces app exit at 2.1 seconds when storage drain never settles", async () => {
+  it("forces app exit at 2.1 seconds when persistence drains never settle", async () => {
     const { ElectronPluginStorageBroker } = await import("../electron/plugin-host-broker");
-    const drain = vi.spyOn(ElectronPluginStorageBroker.prototype, "drain")
+    const pluginDrain = vi.spyOn(ElectronPluginStorageBroker.prototype, "drain")
+      .mockReturnValue(new Promise<void>(() => undefined));
+    const { VaultStateStore } = await import("../electron/vault-state-store");
+    const vaultDrain = vi.spyOn(VaultStateStore.prototype, "drain")
       .mockReturnValue(new Promise<void>(() => undefined));
     const { createWindow, registerPluginHostIpc } = await import("../electron/main");
     registerPluginHostIpc();
-    const window = createWindow({ hostMode: "runtime", windowId: "hanging-storage" });
+    const window = createWindow({ hostMode: "legacy", windowId: "hanging-storage" });
+    const setLast = electronHarness.ipcHandlers.get("vault:set-last")!;
+    await setLast(
+      eventFor(electronHarness.windows[0]),
+      path.join(electronHarness.userDataPath, "last-vault"),
+    );
     const beforeQuit = electronHarness.appListeners.get("before-quit")?.[0];
 
     beforeQuit?.({ preventDefault: vi.fn() });
     await vi.advanceTimersByTimeAsync(2_099);
     expect(window.isDestroyed()).toBe(true);
-    expect(drain).toHaveBeenCalledOnce();
+    expect(pluginDrain).toHaveBeenCalledOnce();
+    expect(vaultDrain).toHaveBeenCalledOnce();
     expect(electronHarness.quit).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1);
