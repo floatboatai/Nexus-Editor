@@ -24,6 +24,7 @@ import {
   PluginHostBrokerError,
   type SenderIdentity,
 } from "./plugin-host-broker";
+import { VaultStateStore } from "./vault-state-store";
 import { SenderWindowRegistry } from "./window-registry";
 
 // Must be called before app ready — declares our custom scheme as privileged
@@ -38,6 +39,7 @@ protocol.registerSchemesAsPrivileged([
 let externalNavigationBroker: ElectronExternalNavigationBroker | null = null;
 let pluginVaultBroker: ElectronVaultBroker | null = null;
 let pluginStorageBroker: ElectronPluginStorageBroker | null = null;
+let vaultStateStore: VaultStateStore | null = null;
 let appIsQuitting = false;
 let forceQuit = false;
 let quitFallbackTimer: NodeJS.Timeout | null = null;
@@ -76,11 +78,6 @@ export interface VaultNode {
   path: string;
   kind: "file" | "directory";
   children?: VaultNode[];
-}
-
-interface VaultState {
-  lastVault: string | null;
-  recents: string[];
 }
 
 const SUPPORTED_EXT = new Set([".md", ".markdown", ".txt"]);
@@ -293,6 +290,13 @@ function requirePluginStorageBroker(): ElectronPluginStorageBroker {
   return pluginStorageBroker;
 }
 
+function requireVaultStateStore(): VaultStateStore {
+  if (!vaultStateStore) {
+    vaultStateStore = new VaultStateStore(path.join(app.getPath("userData"), "vault.json"));
+  }
+  return vaultStateStore;
+}
+
 function assertAuthorizedSender(sender: SenderIdentity): void {
   if (!isAuthorizedPluginSender(sender)) {
     throw new PluginHostBrokerError(
@@ -332,8 +336,8 @@ export function registerPluginHostIpc(): void {
   });
   registerPluginIpcHandler("nexus:vault:restore", async (sender) => {
     assertAuthorizedSender(sender);
-    const state = await readVaultState();
-    if (!state.lastVault || !existsSync(state.lastVault)) return null;
+    const state = await requireVaultStateStore().pruneUnavailable();
+    if (!state.lastVault) return null;
     return requirePluginVaultBroker().openSession(sender, state.lastVault);
   });
   registerPluginIpcHandler("nexus:vault:close", (sender, request) => {
@@ -342,9 +346,7 @@ export function registerPluginHostIpc(): void {
   });
   registerPluginIpcHandler("nexus:vault:commit", async (sender, request) => {
     const { root } = requirePluginVaultBroker().commitSession(sender, request.sessionId);
-    const current = await readVaultState();
-    const recents = [root, ...current.recents.filter((entry) => entry !== root)].slice(0, 10);
-    await writeVaultState({ lastVault: root, recents });
+    await requireVaultStateStore().recordRecent(root);
     return { ok: true };
   });
   registerPluginIpcHandler("nexus:vault:list", (sender, request) =>
@@ -475,7 +477,10 @@ function finishAppQuitIfReady(): void {
   if (!appIsQuitting || windowRegistry.liveRegistrations.length > 0 || forceQuit) return;
   pluginVaultBroker?.closeAll();
   if (quitDrainPromise) return;
-  quitDrainPromise = pluginStorageBroker?.drain() ?? Promise.resolve();
+  quitDrainPromise = Promise.all([
+    pluginStorageBroker?.drain() ?? Promise.resolve(),
+    vaultStateStore?.drain() ?? Promise.resolve(),
+  ]).then(() => undefined);
   void quitDrainPromise.finally(() => {
     if (forceQuit || windowRegistry.liveRegistrations.length > 0) return;
     forceQuit = true;
@@ -649,29 +654,6 @@ function startWatcher(senderId: number, state: WindowRuntimeState, vaultPath: st
   }
 }
 
-function vaultStatePath(): string {
-  return path.join(app.getPath("userData"), "vault.json");
-}
-
-async function readVaultState(): Promise<VaultState> {
-  const file = vaultStatePath();
-  if (!existsSync(file)) return { lastVault: null, recents: [] };
-  try {
-    const raw = await readFile(file, "utf-8");
-    const parsed = JSON.parse(raw) as Partial<VaultState>;
-    return {
-      lastVault: typeof parsed.lastVault === "string" ? parsed.lastVault : null,
-      recents: Array.isArray(parsed.recents) ? parsed.recents.filter((r) => typeof r === "string") : [],
-    };
-  } catch {
-    return { lastVault: null, recents: [] };
-  }
-}
-
-async function writeVaultState(state: VaultState): Promise<void> {
-  await writeFile(vaultStatePath(), JSON.stringify(state, null, 2), "utf-8");
-}
-
 // -- vault IPC handlers -------------------------------------------------------
 
 ipcMain.handle("vault:pick", async (event) => {
@@ -840,23 +822,12 @@ ipcMain.handle("vault:delete", async (event, targetPath: string) => {
 
 ipcMain.handle("vault:get-last", async (event) => {
   registrationForEvent(event);
-  const state = await readVaultState();
-  if (state.lastVault && !existsSync(state.lastVault)) {
-    const cleaned: VaultState = {
-      lastVault: null,
-      recents: state.recents.filter((r) => existsSync(r)),
-    };
-    await writeVaultState(cleaned);
-    return cleaned;
-  }
-  return state;
+  return requireVaultStateStore().pruneUnavailable();
 });
 
 ipcMain.handle("vault:set-last", async (event, vaultPath: string) => {
   registrationForEvent(event);
-  const current = await readVaultState();
-  const recents = [vaultPath, ...current.recents.filter((r) => r !== vaultPath)].slice(0, 10);
-  await writeVaultState({ lastVault: vaultPath, recents });
+  await requireVaultStateStore().recordRecent(vaultPath);
   return { ok: true };
 });
 

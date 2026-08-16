@@ -10,7 +10,6 @@ import {
   rename,
   stat,
   unlink,
-  writeFile,
 } from "node:fs/promises";
 import path from "node:path";
 
@@ -27,6 +26,7 @@ import {
   type PluginVaultSession,
   type VaultSessionId,
 } from "../src/shared/plugin-ipc";
+import { atomicWriteFile } from "./atomic-file";
 
 const SUPPORTED_TEXT_EXTENSIONS = new Set([".md", ".markdown", ".txt"]);
 const SKIPPED_DIRECTORIES = new Set(["node_modules", ".git", ".svn", ".hg"]);
@@ -371,22 +371,6 @@ function operationId(factory: () => string, requested?: string): string {
 
 function atomicTemporaryPath(target: string): string {
   return path.join(path.dirname(target), `.${path.basename(target)}.${randomUUID()}.tmp`);
-}
-
-async function atomicWrite(target: string, data: string | Uint8Array): Promise<void> {
-  const temporary = atomicTemporaryPath(target);
-  try {
-    await writeFile(temporary, data);
-    await rename(temporary, target);
-  } catch (error) {
-    try {
-      const { unlink } = await import("node:fs/promises");
-      await unlink(temporary);
-    } catch {
-      // The original write error is the actionable one.
-    }
-    throw error;
-  }
 }
 
 function defaultWatchFactory(
@@ -1478,7 +1462,7 @@ export class ElectronPluginStorageBroker {
       }
       const revision = current.revision + 1;
       const envelope: StorageEnvelope = { schemaVersion: 1, revision, data: serializable };
-      await atomicWrite(this.filePath(id), JSON.stringify(envelope, null, 2));
+      await atomicWriteFile(this.filePath(id), JSON.stringify(envelope, null, 2));
       return Object.freeze({ ok: true as const, revision });
     });
     this.queues.set(id, next);
