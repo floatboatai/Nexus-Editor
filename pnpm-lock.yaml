@@ -154,6 +154,12 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/plugin-autosave:
+    dependencies:
+      '@floatboat/nexus-core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/plugin-history:
     dependencies:
       '@codemirror/commands':

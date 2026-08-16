@@ -47,7 +47,7 @@
   | `react` | `packages/react` |
   | `vue` | `packages/vue` |
   | `gfm` | `packages/preset-gfm` |
-  | `history` / `search` / `slash` / `toolbar` / `math` / `vim` / `wordcount` | 对应 `plugin-*` |
+  | `history` / `search` / `slash` / `toolbar` / `math` / `vim` / `wordcount` / `autosave` | 对应 `plugin-*` |
   | `electron` | `apps/electron-demo` |
   | `live-preview` / `wikilinks` / `image` | core 内部子系统（沿用历史用法） |
   | `openspec` | `openspec/` |
