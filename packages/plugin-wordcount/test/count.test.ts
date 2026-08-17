@@ -58,6 +58,43 @@ describe("countMarkdown — markdown awareness", () => {
     expect(result.words).toBe(1);
   });
 
+  it("honors default exclusions when the parser falls back to plain text", () => {
+    const parser = {
+      parse() {
+        throw new Error("parser unavailable");
+      }
+    };
+
+    const result = countMarkdown("`alpha beta` gamma", { parser });
+
+    expect(result.words).toBe(1);
+  });
+
+  it("honors an explicit empty exclusion list in the plain-text fallback", () => {
+    const parser = {
+      parse() {
+        throw new Error("parser unavailable");
+      }
+    };
+
+    const result = countMarkdown("`alpha beta` gamma", { parser, exclude: [] });
+
+    expect(result.words).toBe(3);
+  });
+
+  it("applies TOML frontmatter exclusions in the plain-text fallback", () => {
+    const parser = {
+      parse() {
+        throw new Error("parser unavailable");
+      }
+    };
+    const source = "+++\ntitle = \"alpha beta\"\n+++\ngamma";
+
+    const result = countMarkdown(source, { parser });
+
+    expect(result.words).toBe(1);
+  });
+
   it("excludes YAML frontmatter", () => {
     const source = "---\ntitle: foo\nauthor: bar\n---\nhello";
     const result = countMarkdown(source);
