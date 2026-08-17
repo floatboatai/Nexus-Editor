@@ -99,7 +99,7 @@ const HEADER_STYLES = `
   border-bottom: 1px solid var(--nexus-border, #eee);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex-shrink: 0;
 `;
 
@@ -107,7 +107,6 @@ const HEADER_TITLE_STYLES = `
   flex: 1;
   font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--nexus-text-muted, #888);
   overflow: hidden;
@@ -274,23 +273,31 @@ export function createVaultPanel(
   openBtn.type = "button";
   openBtn.style.cssText = ICON_BTN_STYLES;
   openBtn.textContent = "\uD83D\uDCC1"; // 📁
-  openBtn.title = "Open vault…";
+  openBtn.title = "打开知识库";
 
   const newFileBtn = document.createElement("button");
   newFileBtn.type = "button";
   newFileBtn.style.cssText = ICON_BTN_STYLES;
   newFileBtn.textContent = "\u002B"; // +
-  newFileBtn.title = "New file at root";
+  newFileBtn.title = "在根目录新建笔记";
   newFileBtn.disabled = true;
 
   const newFolderBtn = document.createElement("button");
   newFolderBtn.type = "button";
   newFolderBtn.style.cssText = ICON_BTN_STYLES;
   newFolderBtn.textContent = "\uD83D\uDCC2"; // 📂
-  newFolderBtn.title = "New folder at root";
+  newFolderBtn.title = "在根目录新建文件夹";
   newFolderBtn.disabled = true;
 
-  header.append(title, newFileBtn, newFolderBtn, openBtn);
+  const closeVaultBtn = document.createElement("button");
+  closeVaultBtn.type = "button";
+  closeVaultBtn.style.cssText = ICON_BTN_STYLES;
+  closeVaultBtn.textContent = "\u274C"; // ❌
+  closeVaultBtn.title = "关闭知识库";
+  closeVaultBtn.disabled = true;
+  attachIconBtnFeedback(closeVaultBtn);
+
+  header.append(title, newFileBtn, newFolderBtn, openBtn, closeVaultBtn);
   attachIconBtnFeedback(openBtn);
   attachIconBtnFeedback(newFileBtn);
   attachIconBtnFeedback(newFolderBtn);
@@ -299,10 +306,15 @@ export function createVaultPanel(
     const hasVault = vaultPath !== null;
     newFileBtn.disabled = !hasVault;
     newFolderBtn.disabled = !hasVault;
+    closeVaultBtn.disabled = !hasVault;
+
     newFileBtn.style.opacity = hasVault ? "1" : "0.4";
     newFolderBtn.style.opacity = hasVault ? "1" : "0.4";
+    closeVaultBtn.style.opacity = hasVault ? "1" : "0.4";
+
     newFileBtn.style.cursor = hasVault ? "pointer" : "not-allowed";
     newFolderBtn.style.cursor = hasVault ? "pointer" : "not-allowed";
+    closeVaultBtn.style.cursor = hasVault ? "pointer" : "not-allowed";
   }
 
   const tree = document.createElement("div");
@@ -390,11 +402,11 @@ export function createVaultPanel(
   function renderTree(): void {
     tree.innerHTML = "";
     if (!vaultPath) {
-      renderEmpty("No vault opened. Click 📁 to choose a folder.");
+      renderEmpty("尚未打开知识库，点击 📁 选择文件夹。");
       return;
     }
     if (currentTree.length === 0) {
-      renderEmpty("Vault is empty. Click + to create a note.");
+      renderEmpty("知识库为空，点击 + 创建笔记。");
       return;
     }
     for (const node of currentTree) renderNode(node, 0, tree);
@@ -658,6 +670,17 @@ export function createVaultPanel(
   openBtn.addEventListener("click", () => {
     void promptPickVault();
   });
+
+  closeVaultBtn.addEventListener("click", () => {
+    vaultPath = null;
+    currentTree = [];
+    activeFile = null; 
+    title.textContent = "Vault";
+    syncButtonEnabled();
+    renderTree();
+    
+  });
+
   newFileBtn.addEventListener("click", () => {
     if (vaultPath) createFilePrompt(vaultPath);
   });
