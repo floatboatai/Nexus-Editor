@@ -189,8 +189,64 @@ describe("createPluginRuntimeHost", () => {
     }));
     await expect(storage.saveData({ reset: true })).resolves.toMatchObject({
       ok: false,
-      diagnostic: { code: "file-version-conflict" },
+      diagnostic: { code: "storage-corrupt" },
     });
+    await expect(storage.saveData(
+      { reset: true },
+      { expectedVersion: "1" },
+    )).resolves.toMatchObject({
+      ok: false,
+      diagnostic: { code: "storage-corrupt" },
+    });
+    expect(corrupt).toHaveBeenCalledTimes(1);
+    expect(harness.bridge.storage.save).not.toHaveBeenCalled();
+    await host.shutdown();
+  });
+
+  it.each([
+    ["malformed serialized data", "{broken"],
+    ["non-string data", { unexpected: true }],
+  ])("blocks writes after detecting %s", async (_label, data) => {
+    const harness = bridgeHarness();
+    harness.bridge.storage.load = vi.fn(async () => ({
+      status: "available" as const,
+      revision: 1,
+      data,
+    }));
+    let storage!: PluginStorageService;
+    const corrupt = vi.fn();
+    class FixturePlugin extends NexusPluginBase {
+      override onload(): void {
+        storage = this.app.capabilities.require(PLUGIN_STORAGE_CAPABILITY, "^1.0.0");
+        storage.events.on("corrupt", corrupt);
+      }
+    }
+    const host = createPluginRuntimeHost({ bridge: harness.bridge, document });
+    const enabled = await host.enableBundledPlugin(
+      manifest([{
+        id: PLUGIN_STORAGE_CAPABILITY.id,
+        version: "^1.0.0",
+        scope: "application",
+      }]),
+      FixturePlugin,
+    );
+    expect(enabled.ok).toBe(true);
+
+    await expect(storage.saveData(
+      { reset: true },
+      { expectedVersion: "1" },
+    )).resolves.toMatchObject({
+      ok: false,
+      diagnostic: { code: "storage-corrupt" },
+    });
+    await expect(storage.loadData()).rejects.toMatchObject({
+      diagnostic: { code: "storage-corrupt" },
+    });
+    await expect(storage.saveData({ reset: true })).resolves.toMatchObject({
+      ok: false,
+      diagnostic: { code: "storage-corrupt" },
+    });
+    expect(corrupt).toHaveBeenCalledTimes(1);
     expect(harness.bridge.storage.save).not.toHaveBeenCalled();
     await host.shutdown();
   });

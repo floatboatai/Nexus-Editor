@@ -332,14 +332,12 @@ class IpcPluginStorageBackend implements PluginStorageBackend {
     serialized: string,
     expectedVersion?: string,
   ): Promise<PluginStorageBackendWriteResult> {
-    let expectedRevision: number;
-    if (expectedVersion === undefined) {
-      const current = await this.bridge.load(pluginId);
-      if (current.status === "corrupt") return { ok: false, currentVersion: null };
-      expectedRevision = current.revision;
-    } else {
-      expectedRevision = Number.parseInt(expectedVersion, 10);
-    }
+    const current = await this.read(pluginId);
+    if (current.status === "corrupt") return { ok: false, currentVersion: current.version };
+    const expectedRevision = Number.parseInt(
+      expectedVersion ?? (current.status === "available" ? current.version : "0"),
+      10,
+    );
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
       return { ok: false, currentVersion: null };
     }
