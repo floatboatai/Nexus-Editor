@@ -279,17 +279,8 @@ function computeFromAst(source: string, ast: Root, options: WordCountOptions): W
 
 function computeFromPlainText(source: string, options: WordCountOptions): WordCountStats {
   const cjkUnit = options.cjkUnit ?? "char";
-  // Best-effort strip of common markdown noise so the fallback isn't
-  // wildly off when the caller couldn't supply an AST.
-  const stripped = source
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/`[^`]*`/g, " ")
-    .replace(/^---\n[\s\S]*?\n---\n?/m, " ")
-    .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\$\$[\s\S]*?\$\$/g, " ")
-    .replace(/\$[^$\n]+\$/g, " ")
-    .replace(/^\[[^\]]+\]:[^\n]*$/gm, " ");
+  const exclude = new Set(options.exclude ?? DEFAULT_EXCLUDE);
+  const stripped = stripExcludedMarkdown(source, exclude);
 
   const wordStats = analyseProse(stripped, cjkUnit);
   const sentences = countSentences(stripped);
@@ -311,6 +302,28 @@ function computeFromPlainText(source: string, options: WordCountOptions): WordCo
     sentences,
     readingTimeSeconds
   };
+}
+
+function stripExcludedMarkdown(source: string, exclude: ReadonlySet<string>): string {
+  let stripped = source;
+
+  if (exclude.has("code")) stripped = stripped.replace(/```[\s\S]*?```/g, " ");
+  if (exclude.has("inlineCode")) stripped = stripped.replace(/`[^`]*`/g, " ");
+  if (exclude.has("yaml")) stripped = stripped.replace(/^---\n[\s\S]*?\n---\n?/m, " ");
+  if (exclude.has("toml")) stripped = stripped.replace(/^\+\+\+\n[\s\S]*?\n\+\+\+\n?/m, " ");
+  if (exclude.has("html")) {
+    stripped = stripped.replace(/<!--[\s\S]*?-->/g, " ").replace(/<[^>]+>/g, " ");
+  }
+  if (exclude.has("math")) stripped = stripped.replace(/\$\$[\s\S]*?\$\$/g, " ");
+  if (exclude.has("inlineMath")) stripped = stripped.replace(/\$[^$\n]+\$/g, " ");
+  if (exclude.has("footnoteDefinition")) {
+    stripped = stripped.replace(/^\[\^[^\]]+\]:[^\n]*$/gm, " ");
+  }
+  if (exclude.has("definition")) {
+    stripped = stripped.replace(/^(?!\[\^)\[[^\]]+\]:[^\n]*$/gm, " ");
+  }
+
+  return stripped;
 }
 
 interface ProseAnalysis {
