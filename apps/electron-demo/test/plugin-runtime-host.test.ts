@@ -3,6 +3,7 @@ import {
   EDITOR_HOST_CAPABILITY,
   FILE_MANAGER_CAPABILITY,
   METADATA_CAPABILITY,
+  PLUGIN_STORAGE_CAPABILITY,
   RESOURCES_CAPABILITY,
   SECRETS_CAPABILITY,
   UI_CAPABILITY,
@@ -14,6 +15,7 @@ import {
   type MetadataService,
   type NexusApp,
   type NormalizedPluginManifest,
+  type PluginStorageService,
   type ResourceService,
   type UiPolicyService,
   type UiService,
@@ -129,7 +131,7 @@ function bridgeHarness() {
       }),
     },
     storage: {
-      load: vi.fn(async () => ({ found: false, revision: 0, data: null })),
+      load: vi.fn(async () => ({ status: "missing" as const, revision: 0 as const })),
       save: vi.fn(async (_pluginId, expectedRevision) => ({ ok: true as const, revision: expectedRevision + 1 })),
     },
     secrets: {
@@ -151,6 +153,47 @@ function bridgeHarness() {
 
 describe("createPluginRuntimeHost", () => {
   beforeEach(() => document.body.replaceChildren());
+
+  it("surfaces corrupt host storage and refuses to overwrite it", async () => {
+    const harness = bridgeHarness();
+    harness.bridge.storage.load = vi.fn(async () => ({
+      status: "corrupt" as const,
+      revision: 0 as const,
+      raw: "{broken",
+    }));
+    let storage!: PluginStorageService;
+    const corrupt = vi.fn();
+    class FixturePlugin extends NexusPluginBase {
+      override onload(): void {
+        storage = this.app.capabilities.require(PLUGIN_STORAGE_CAPABILITY, "^1.0.0");
+        storage.events.on("corrupt", corrupt);
+      }
+    }
+    const host = createPluginRuntimeHost({ bridge: harness.bridge, document });
+    const enabled = await host.enableBundledPlugin(
+      manifest([{
+        id: PLUGIN_STORAGE_CAPABILITY.id,
+        version: "^1.0.0",
+        scope: "application",
+      }]),
+      FixturePlugin,
+    );
+    expect(enabled.ok).toBe(true);
+
+    await expect(storage.loadData()).rejects.toMatchObject({
+      diagnostic: { code: "storage-corrupt" },
+    });
+    expect(corrupt).toHaveBeenCalledWith(expect.objectContaining({ recoveryAvailable: true }));
+    expect(host.diagnostics.diagnostics).toContainEqual(expect.objectContaining({
+      code: "storage-corrupt",
+    }));
+    await expect(storage.saveData({ reset: true })).resolves.toMatchObject({
+      ok: false,
+      diagnostic: { code: "file-version-conflict" },
+    });
+    expect(harness.bridge.storage.save).not.toHaveBeenCalled();
+    await host.shutdown();
+  });
 
   it("commits plugin writes only after durable IPC succeeds and coalesces its echo", async () => {
     const harness = bridgeHarness();

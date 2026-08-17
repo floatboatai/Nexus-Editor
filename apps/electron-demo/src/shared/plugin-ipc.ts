@@ -50,11 +50,10 @@ export interface PluginVaultChangeEvent {
   readonly origin: "host" | "external";
 }
 
-export interface PluginStorageSnapshot {
-  readonly found: boolean;
-  readonly revision: number;
-  readonly data: unknown;
-}
+export type PluginStorageSnapshot =
+  | { readonly status: "missing"; readonly revision: 0 }
+  | { readonly status: "available"; readonly revision: number; readonly data: unknown }
+  | { readonly status: "corrupt"; readonly revision: 0; readonly raw: string };
 
 /**
  * Main-process permissions are deliberately narrower than Electron's `shell`
@@ -581,9 +580,20 @@ export function parsePluginIpcResponse<C extends PluginIpcChannel>(
     }
     case "nexus:storage:load": {
       const parsed = record(channel, "response", value);
-      if (typeof parsed.found !== "boolean") fail(channel, "response", "expected found to be boolean");
-      numberField(channel, "response", parsed, "revision");
-      if (!("data" in parsed)) fail(channel, "response", "expected data field");
+      const revision = numberField(channel, "response", parsed, "revision");
+      if (parsed.status === "missing") {
+        if (revision !== 0) fail(channel, "response", "expected missing revision to equal zero");
+        assertOnlyKeys(channel, "response", parsed, ["status", "revision"]);
+      } else if (parsed.status === "available") {
+        if (!("data" in parsed)) fail(channel, "response", "expected data field");
+        assertOnlyKeys(channel, "response", parsed, ["status", "revision", "data"]);
+      } else if (parsed.status === "corrupt") {
+        if (revision !== 0) fail(channel, "response", "expected corrupt revision to equal zero");
+        stringField(channel, "response", parsed, "raw", { nonEmpty: false });
+        assertOnlyKeys(channel, "response", parsed, ["status", "revision", "raw"]);
+      } else {
+        fail(channel, "response", "expected a valid storage status");
+      }
       break;
     }
     case "nexus:storage:save": {

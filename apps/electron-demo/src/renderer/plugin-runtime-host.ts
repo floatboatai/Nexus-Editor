@@ -304,7 +304,15 @@ class IpcPluginStorageBackend implements PluginStorageBackend {
 
   async read(pluginId: PluginId): Promise<PluginStorageBackendReadResult> {
     const snapshot = await this.bridge.load(pluginId);
-    if (!snapshot.found) return { status: "missing" };
+    if (snapshot.status === "missing") return { status: "missing" };
+    if (snapshot.status === "corrupt") {
+      return {
+        status: "corrupt",
+        raw: snapshot.raw,
+        version: null,
+        cause: new Error("Electron plugin storage envelope is corrupt"),
+      };
+    }
     if (typeof snapshot.data !== "string") {
       return {
         status: "corrupt",
@@ -324,9 +332,14 @@ class IpcPluginStorageBackend implements PluginStorageBackend {
     serialized: string,
     expectedVersion?: string,
   ): Promise<PluginStorageBackendWriteResult> {
-    const expectedRevision = expectedVersion === undefined
-      ? (await this.bridge.load(pluginId)).revision
-      : Number.parseInt(expectedVersion, 10);
+    let expectedRevision: number;
+    if (expectedVersion === undefined) {
+      const current = await this.bridge.load(pluginId);
+      if (current.status === "corrupt") return { ok: false, currentVersion: null };
+      expectedRevision = current.revision;
+    } else {
+      expectedRevision = Number.parseInt(expectedVersion, 10);
+    }
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
       return { ok: false, currentVersion: null };
     }
