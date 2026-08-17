@@ -88,7 +88,7 @@ function createBridgeHarness() {
       }),
     },
     storage: {
-      load: vi.fn(async () => ({ found: false, revision: 0, data: null })),
+      load: vi.fn(async () => ({ status: "missing" as const, revision: 0 as const })),
       save: vi.fn(async (_pluginId, expectedRevision) => ({ ok: true as const, revision: expectedRevision + 1 })),
     },
     secrets: {

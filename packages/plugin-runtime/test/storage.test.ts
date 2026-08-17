@@ -87,8 +87,25 @@ describe("PluginStorageRuntime", () => {
     await expect(storage.loadData()).rejects.toMatchObject({
       diagnostic: { code: "storage-corrupt" },
     });
+    await expect(storage.saveData({ count: 1 })).resolves.toMatchObject({
+      ok: false,
+      diagnostic: { code: "storage-corrupt" },
+    });
     expect(corrupt).toHaveBeenCalledTimes(1);
     expect(diagnostics).toContain("storage-corrupt");
+    expect(backend.getRaw(pluginId)).toBe("{not-json");
+  });
+
+  it("validates existing data before the first save", async () => {
+    const backend = new MemoryPluginStorageBackend();
+    const pluginId = "corrupt-first-save" as PluginId;
+    backend.putCorrupt(pluginId, "{not-json");
+    const storage = service(new PluginStorageRuntime({ backend }), "corrupt-first-save");
+
+    await expect(storage.saveData({ count: 1 })).resolves.toMatchObject({
+      ok: false,
+      diagnostic: { code: "storage-corrupt" },
+    });
     expect(backend.getRaw(pluginId)).toBe("{not-json");
   });
 

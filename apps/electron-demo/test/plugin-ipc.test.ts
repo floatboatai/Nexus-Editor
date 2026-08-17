@@ -44,6 +44,34 @@ describe("plugin IPC schema", () => {
     })).toThrow(/unexpected field command/);
   });
 
+  it("keeps missing, available, and corrupt storage states distinct", () => {
+    expect(parsePluginIpcResponse("nexus:storage:load", {
+      status: "missing",
+      revision: 0,
+    })).toEqual({ status: "missing", revision: 0 });
+    expect(parsePluginIpcResponse("nexus:storage:load", {
+      status: "available",
+      revision: 3,
+      data: "serialized",
+    })).toEqual({ status: "available", revision: 3, data: "serialized" });
+    expect(parsePluginIpcResponse("nexus:storage:load", {
+      status: "corrupt",
+      revision: 0,
+      raw: "{broken",
+    })).toEqual({ status: "corrupt", revision: 0, raw: "{broken" });
+
+    expect(() => parsePluginIpcResponse("nexus:storage:load", {
+      found: false,
+      revision: 0,
+      data: null,
+    })).toThrow(/storage status/);
+    expect(() => parsePluginIpcResponse("nexus:storage:load", {
+      status: "corrupt",
+      revision: 1,
+      raw: "{broken",
+    })).toThrow(/revision/);
+  });
+
   it("validates requests, responses, and events in both IPC directions", () => {
     expect(parsePluginIpcRequest("nexus:vault:write", {
       sessionId,

@@ -61,6 +61,7 @@ interface StoredEnvelope {
 
 interface StorageRecord {
   cache: PluginDataSnapshot | null | undefined;
+  corruption?: NexusDiagnostic;
   tail: Promise<void>;
   readonly events: TypedEventRegistry<PluginStorageEventMap>;
 }
@@ -263,6 +264,7 @@ export class PluginStorageRuntime implements ManagedResource {
       const record = this.records.get(change.pluginId);
       if (!record || this.disposed) return;
       record.cache = undefined;
+      record.corruption = undefined;
       record.events.emit("externalChange", {
         version: change.version,
         schemaVersion: change.schemaVersion,
@@ -299,8 +301,16 @@ export class PluginStorageRuntime implements ManagedResource {
           this.reportDiagnostic(item);
           return Promise.resolve({ ok: false as const, diagnostic: item });
         }
-        return this.enqueue(record, () =>
-          this.saveSerialized(pluginId, record, serialized, options));
+        return this.enqueue(record, async () => {
+          try {
+            await this.loadCurrent(pluginId, record, true);
+          } catch (error) {
+            const item = this.storageCorruptionDiagnostic(error);
+            if (item) return { ok: false as const, diagnostic: item };
+            throw error;
+          }
+          return this.saveSerialized(pluginId, record, serialized, options);
+        });
       },
       migrateData: <TData extends JsonValue>(options: {
         readonly targetSchemaVersion: number;
@@ -354,18 +364,11 @@ export class PluginStorageRuntime implements ManagedResource {
     if (loaded.status === "missing") {
       const empty = Object.freeze({ data: null, version: null, schemaVersion: null });
       record.cache = empty;
+      record.corruption = undefined;
       return empty as PluginDataSnapshot<TData>;
     }
     if (loaded.status === "corrupt") {
-      const item = diagnostic(
-        pluginId,
-        "storage-corrupt",
-        "Stored plugin data is corrupt; the original data has been preserved",
-        loaded.cause,
-      );
-      this.reportDiagnostic(item);
-      record.events.emit("corrupt", { diagnostic: item, recoveryAvailable: true });
-      throw Object.assign(new Error(item.message), { diagnostic: item });
+      this.throwStorageCorruption(pluginId, record, loaded.cause);
     }
     try {
       const envelope = parseEnvelope(loaded.serialized);
@@ -375,18 +378,39 @@ export class PluginStorageRuntime implements ManagedResource {
         schemaVersion: envelope.schemaVersion,
       });
       record.cache = snapshot;
+      record.corruption = undefined;
       return cloneSnapshot(snapshot as PluginDataSnapshot<TData>);
     } catch (error) {
-      const item = diagnostic(
-        pluginId,
-        "storage-corrupt",
-        "Stored plugin data is corrupt; the original data has been preserved",
-        error,
-      );
+      this.throwStorageCorruption(pluginId, record, error);
+    }
+  }
+
+  private throwStorageCorruption(
+    pluginId: PluginId,
+    record: StorageRecord,
+    cause?: unknown,
+  ): never {
+    const existing = record.corruption;
+    const item = existing ?? diagnostic(
+      pluginId,
+      "storage-corrupt",
+      "Stored plugin data is corrupt; the original data has been preserved",
+      cause,
+    );
+    record.cache = undefined;
+    record.corruption = item;
+    if (!existing) {
       this.reportDiagnostic(item);
       record.events.emit("corrupt", { diagnostic: item, recoveryAvailable: true });
-      throw Object.assign(new Error(item.message), { diagnostic: item });
     }
+    throw Object.assign(new Error(item.message), { diagnostic: item });
+  }
+
+  private storageCorruptionDiagnostic(error: unknown): NexusDiagnostic | null {
+    if (typeof error !== "object" || error === null || !("diagnostic" in error)) return null;
+    const item = (error as { readonly diagnostic?: unknown }).diagnostic;
+    if (typeof item !== "object" || item === null || !("code" in item)) return null;
+    return item.code === "storage-corrupt" ? (item as NexusDiagnostic) : null;
   }
 
   private async saveSerialized(

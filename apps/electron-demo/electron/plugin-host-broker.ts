@@ -1431,26 +1431,27 @@ interface StorageEnvelope {
 export class ElectronPluginStorageBroker {
   private readonly queues = new Map<string, Promise<unknown>>();
 
-  constructor(
-    private readonly root: string,
-    private readonly now: () => number = Date.now,
-  ) {}
+  constructor(private readonly root: string) {}
 
   async load(pluginId: string): Promise<PluginStorageSnapshot> {
     const id = this.normalizePluginId(pluginId);
     const file = this.filePath(id);
-    if (!existsSync(file)) return Object.freeze({ found: false, revision: 0, data: null });
+    let raw: string;
     try {
-      const envelope = this.parseEnvelope(JSON.parse(await readFile(file, "utf8")));
-      return Object.freeze({ found: true, revision: envelope.revision, data: structuredClone(envelope.data) });
+      raw = await readFile(file, "utf8");
+    } catch (error) {
+      if (isMissingPathError(error)) return Object.freeze({ status: "missing", revision: 0 });
+      throw error;
+    }
+    try {
+      const envelope = this.parseEnvelope(JSON.parse(raw));
+      return Object.freeze({
+        status: "available",
+        revision: envelope.revision,
+        data: structuredClone(envelope.data),
+      });
     } catch {
-      const corruptPath = `${file}.corrupt-${this.now()}`;
-      try {
-        await rename(file, corruptPath);
-      } catch {
-        // Preserve in place if the quarantine rename itself fails.
-      }
-      return Object.freeze({ found: false, revision: 0, data: null });
+      return Object.freeze({ status: "corrupt", revision: 0, raw });
     }
   }
 
@@ -1473,6 +1474,12 @@ export class ElectronPluginStorageBroker {
     const next = prior.catch(() => undefined).then(async () => {
       await mkdir(path.dirname(this.filePath(id)), { recursive: true });
       const current = await this.load(id);
+      if (current.status === "corrupt") {
+        throw new PluginHostBrokerError(
+          "plugin-storage-invalid",
+          "Stored plugin data is corrupt and must be recovered before saving.",
+        );
+      }
       if (current.revision !== expectedRevision) {
         return Object.freeze({ ok: false as const, revision: current.revision });
       }
@@ -1482,9 +1489,10 @@ export class ElectronPluginStorageBroker {
       return Object.freeze({ ok: true as const, revision });
     });
     this.queues.set(id, next);
-    void next.finally(() => {
+    const release = () => {
       if (this.queues.get(id) === next) this.queues.delete(id);
-    });
+    };
+    void next.then(release, release);
     return next;
   }
 

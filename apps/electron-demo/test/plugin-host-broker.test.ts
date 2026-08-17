@@ -909,27 +909,34 @@ describe("ElectronPluginStorageBroker", () => {
 
     const restarted = new ElectronPluginStorageBroker(root);
     await expect(restarted.load("plugin.one")).resolves.toEqual({
-      found: true,
+      status: "available",
       revision: 1,
       data: { count: 1 },
     });
     await expect(restarted.load("plugin.two")).resolves.toEqual({
-      found: true,
+      status: "available",
       revision: 1,
       data: { count: 20 },
     });
   });
 
-  it("rejects path-like IDs and quarantines corrupt data", async () => {
+  it("rejects path-like IDs and preserves corrupt data until explicit recovery", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "nexus-storage-corrupt-"));
-    const broker = new ElectronPluginStorageBroker(root, () => 123);
+    const broker = new ElectronPluginStorageBroker(root);
     expect(() => broker.save("../escape", 0, {})).toThrowError(
       expect.objectContaining({ code: "plugin-id-invalid" }),
     );
 
     await mkdir(path.join(root, "fixture"), { recursive: true });
     await writeFile(path.join(root, "fixture", "data.json"), "{broken");
-    await expect(broker.load("fixture")).resolves.toEqual({ found: false, revision: 0, data: null });
-    expect(await readFile(path.join(root, "fixture", "data.json.corrupt-123"), "utf8")).toBe("{broken");
+    await expect(broker.load("fixture")).resolves.toEqual({
+      status: "corrupt",
+      revision: 0,
+      raw: "{broken",
+    });
+    await expect(broker.save("fixture", 0, { reset: true })).rejects.toMatchObject({
+      code: "plugin-storage-invalid",
+    });
+    expect(await readFile(path.join(root, "fixture", "data.json"), "utf8")).toBe("{broken");
   });
 });
