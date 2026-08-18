@@ -68,6 +68,10 @@ export default defineConfig({
         __dirname,
         "../../packages/plugin-wordcount/src/index.ts"
       ),
+      "@floatboat/nexus-plugin-wrap": path.resolve(
+        __dirname,
+        "../../packages/plugin-wrap/src/index.ts"
+      ),
       "@floatboat/nexus-reference-plugins": path.resolve(
         __dirname,
         "../../packages/reference-plugins/src/index.ts"
