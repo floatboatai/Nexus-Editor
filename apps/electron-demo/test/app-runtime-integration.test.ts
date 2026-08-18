@@ -151,7 +151,10 @@ beforeEach(() => {
 });
 
 describe("Electron renderer plugin runtime integration", () => {
-  it("keeps the legacy path as the default and shuts it down once", async () => {
+  // Full renderer/runtime boot can exceed Vitest's 5s default under
+  // concurrent full-suite execution; 15s is the per-test execution budget
+  // for these heavy integration tests, not a wall-clock wait.
+  it("keeps the legacy path as the default and shuts it down once", { timeout: 15_000 }, async () => {
     const { boot } = await import("../src/renderer/app");
     const harness = createBridgeHarness();
     installBridgeHarness(harness, "legacy");
@@ -195,7 +198,7 @@ describe("Electron renderer plugin runtime integration", () => {
     ]);
   });
 
-  it("boots one runtime owner, synchronizes relative file context, and preserves slot DOM", async () => {
+  it("boots one runtime owner, synchronizes relative file context, and preserves slot DOM", { timeout: 15_000 }, async () => {
     const { boot } = await import("../src/renderer/app");
     const harness = createBridgeHarness();
     const confirmDangerousAction = vi.spyOn(window, "confirm").mockReturnValue(false);
