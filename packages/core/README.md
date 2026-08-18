@@ -74,3 +74,33 @@ Multiple ranges in `setSelections` require `multiCursor: true` — without the f
 ## Other config highlights
 
 See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.
+
+## Localization
+
+`@floatboat/nexus-core` ships a zero-dependency, strongly-typed locale
+system. `NexusLocale` is a single flat interface for every user-visible
+editor/plugin string, with `enLocale` and `zhLocale` guaranteed to have
+identical key sets by TypeScript.
+
+```ts
+import {
+  createEditor,
+  enLocale,
+  zhLocale,
+  setLocaleCode,
+  getLocale,
+  detectLocaleCode,
+} from "@floatboat/nexus-core";
+
+// Detect from the browser, or set explicitly.
+setLocaleCode(detectLocaleCode() ?? "en");
+// createEditor({ locale }) also seeds the store, so plugin factories
+// that run before it returns resolve the same language.
+createEditor({ container, initialValue: "# Hello", locale: zhLocale });
+```
+
+Plugin UIs (toolbar, slash menu, search, math, wordcount) read
+`getLocale()` at construction and accept an explicit `locale` / `labels`
+override. Localization is resolved at construction time — hosts that
+switch language at runtime reload the app to re-render.
+

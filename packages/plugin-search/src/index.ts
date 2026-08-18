@@ -23,7 +23,8 @@ import {
   type ViewUpdate
 } from "@codemirror/view";
 
-import type { NexusPlugin } from "@floatboat/nexus-core";
+import { getLocale } from "@floatboat/nexus-core";
+import type { NexusLocale, NexusPlugin } from "@floatboat/nexus-core";
 
 export interface SearchMatch {
   from: number;
@@ -1140,6 +1141,24 @@ class NexusSearchPanel implements Panel {
   }
 }
 
+function labelsFromLocale(locale: NexusLocale): SearchPluginLabels {
+  return {
+    find: locale.searchFind,
+    replace: locale.searchReplace,
+    showReplace: locale.searchShowReplace,
+    hideReplace: locale.searchHideReplace,
+    next: locale.searchNext,
+    previous: locale.searchPrevious,
+    all: locale.searchAll,
+    matchCase: locale.searchMatchCase,
+    regexp: locale.searchRegexp,
+    byWord: locale.searchByWord,
+    replaceNext: locale.searchReplaceNext,
+    replaceAll: locale.searchReplaceAll,
+    close: locale.searchClose
+  };
+}
+
 export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlugin {
   const history = new SearchHistoryController(options.history);
   const cmExtensions = [
@@ -1147,7 +1166,8 @@ export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlug
       top: options.top ?? true,
       caseSensitive: options.caseSensitive ?? false,
       literal: true,
-      createPanel: (view) => new NexusSearchPanel(view, options.top ?? true, options.labels, history)
+      createPanel: (view) =>
+        new NexusSearchPanel(view, options.top ?? true, options.labels ?? labelsFromLocale(getLocale()), history)
     }),
     keymap.of(searchKeymap),
     tableSearchHighlightPlugin

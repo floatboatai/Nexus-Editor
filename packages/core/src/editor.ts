@@ -27,7 +27,7 @@ import { flushPendingTableEdits } from "./live-preview-table";
 import { createMarkdownLanguageSupport } from "./lezer-markdown";
 import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
 import { markdownFoldService } from "./markdown-fold";
-import { resolveLocale } from "./locale";
+import { getLocale, setLocale } from "./locale";
 import { markdownAutoPair } from "./markdown-autopair";
 import { markdownKeymap } from "./markdown-keymap";
 import { multiCursorExtension } from "./multi-cursor";
@@ -301,7 +301,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
       ? applyMarkdownTransformSnapshots(viewRef.current.state, staticallyTransformed)
       : staticallyTransformed;
   };
-  const locale = resolveLocale(config.locale);
+  // Seed the shared locale store when the caller passes an explicit locale,
+  // then read the current locale so plugin UIs resolve the same strings.
+  if (config.locale) setLocale(config.locale);
+  const locale = getLocale();
   const parseDelayMs = config.parseDelayMs ?? 0;
   const emitter = new EventEmitter<EditorEventMap>();
   let destroyed = false;

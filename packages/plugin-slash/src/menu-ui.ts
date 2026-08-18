@@ -1,3 +1,4 @@
+import { getLocale, resolveLocale, type NexusLocale } from "@floatboat/nexus-core";
 import type { EditorAPI, SlashCommandDef, SlashMenuState } from "@floatboat/nexus-core";
 import {
   createSlashCommandHistory,
@@ -65,6 +66,11 @@ export interface SlashMenuUIOptions {
    * false and route keys through the EditorHost root dispatcher instead.
    */
   manageKeyboard?: boolean;
+  /**
+   * Override the menu chrome labels ("Slash commands", "No matches").
+   * Defaults to the shared current locale.
+   */
+  locale?: Partial<NexusLocale>;
 }
 
 export interface SlashMenuUI {
@@ -95,6 +101,7 @@ export function createSlashMenuUI(
 ): SlashMenuUI {
   const prefix = options.classPrefix ?? DEFAULT_PREFIX;
   const offset = options.offset ?? DEFAULT_OFFSET;
+  const locale = options.locale ? resolveLocale(options.locale) : getLocale();
   const container = options.container ?? document.body;
   const ownerDocument = container.ownerDocument;
   const ownerWindow = ownerDocument.defaultView;
@@ -107,7 +114,7 @@ export function createSlashMenuUI(
   root.className = `${prefix}-menu`;
   root.id = menuId;
   root.setAttribute("role", "listbox");
-  root.setAttribute("aria-label", "Slash commands");
+  root.setAttribute("aria-label", locale.slashMenuLabel);
   root.style.position = "fixed";
   root.style.display = "none";
   // The menu must not become a focus target — the editor stays focused
@@ -161,7 +168,7 @@ export function createSlashMenuUI(
       itemEls = [];
       const empty = ownerDocument.createElement("div");
       empty.className = `${prefix}-menu__empty`;
-      empty.textContent = "No matches";
+      empty.textContent = locale.slashNoMatches;
       root.appendChild(empty);
       root.removeAttribute("aria-activedescendant");
       return;

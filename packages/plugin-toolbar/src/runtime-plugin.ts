@@ -11,6 +11,7 @@ import {
   type NormalizedPluginManifest,
   type WindowId,
 } from "@floatboat/nexus-plugin-api";
+import { getLocale, type NexusLocale } from "@floatboat/nexus-core";
 import type { EditorAPI } from "@floatboat/nexus-core";
 import type { NexusPlugin } from "@floatboat/nexus-core";
 
@@ -24,6 +25,7 @@ import {
   toggleUnorderedList,
 } from "./formatting";
 import {
+  createToolbarSlashCommands,
   insertLink,
   toggleBold,
   toggleHeading,
@@ -31,7 +33,6 @@ import {
   toggleItalic,
   toggleStrikethrough,
   toggleWrap,
-  toolbarSlashCommands,
 } from "./toolbar-commands";
 
 export interface ToolbarLifecyclePluginOptions {
@@ -46,25 +47,27 @@ interface ToolbarAction {
   readonly hotkey?: { readonly key: string; readonly modifiers?: readonly ("Mod" | "Shift")[] };
 }
 
-const ACTIONS: readonly ToolbarAction[] = Object.freeze([
-  { id: "undo", name: "Undo", run: (editor) => editor.undo() },
-  { id: "redo", name: "Redo", run: (editor) => editor.redo() },
-  { id: "link", name: "Insert link", run: (editor) => insertLink(editor), hotkey: { key: "k", modifiers: ["Mod"] } },
-  { id: "h1", name: "Heading 1", run: (editor) => toggleHeading(editor, 1), hotkey: { key: "1", modifiers: ["Mod"] } },
-  { id: "h2", name: "Heading 2", run: (editor) => toggleHeading(editor, 2), hotkey: { key: "2", modifiers: ["Mod"] } },
-  { id: "h3", name: "Heading 3", run: (editor) => toggleHeading(editor, 3), hotkey: { key: "3", modifiers: ["Mod"] } },
-  { id: "bold", name: "Bold", run: (editor) => toggleBold(editor), hotkey: { key: "b", modifiers: ["Mod"] } },
-  { id: "italic", name: "Italic", run: (editor) => toggleItalic(editor), hotkey: { key: "i", modifiers: ["Mod"] } },
-  { id: "strikethrough", name: "Strikethrough", run: (editor) => toggleStrikethrough(editor), hotkey: { key: "s", modifiers: ["Mod", "Shift"] } },
-  { id: "underline", name: "Underline", run: (editor) => toggleWrap(editor, "<u>") },
-  { id: "inline-code", name: "Inline code", run: (editor) => toggleInlineCode(editor), hotkey: { key: "e", modifiers: ["Mod"] } },
-  { id: "blockquote", name: "Blockquote", run: (editor) => toggleBlockquote(editor) },
-  { id: "code-block", name: "Code block", run: (editor) => insertCodeBlock(editor) },
-  { id: "olist", name: "Ordered list", run: (editor) => toggleOrderedList(editor) },
-  { id: "ulist", name: "Unordered list", run: (editor) => toggleUnorderedList(editor) },
-  { id: "image", name: "Insert image", run: (editor) => insertImage(editor) },
-  { id: "hr", name: "Divider", run: (editor) => insertHorizontalRule(editor) },
-]);
+function createActions(locale: NexusLocale): ToolbarAction[] {
+  return [
+    { id: "undo", name: locale.toolbarUndo, run: (editor) => editor.undo() },
+    { id: "redo", name: locale.toolbarRedo, run: (editor) => editor.redo() },
+    { id: "link", name: locale.toolbarInsertLink, run: (editor) => insertLink(editor), hotkey: { key: "k", modifiers: ["Mod"] } },
+    { id: "h1", name: locale.toolbarHeading1, run: (editor) => toggleHeading(editor, 1), hotkey: { key: "1", modifiers: ["Mod"] } },
+    { id: "h2", name: locale.toolbarHeading2, run: (editor) => toggleHeading(editor, 2), hotkey: { key: "2", modifiers: ["Mod"] } },
+    { id: "h3", name: locale.toolbarHeading3, run: (editor) => toggleHeading(editor, 3), hotkey: { key: "3", modifiers: ["Mod"] } },
+    { id: "bold", name: locale.toolbarBold, run: (editor) => toggleBold(editor), hotkey: { key: "b", modifiers: ["Mod"] } },
+    { id: "italic", name: locale.toolbarItalic, run: (editor) => toggleItalic(editor), hotkey: { key: "i", modifiers: ["Mod"] } },
+    { id: "strikethrough", name: locale.toolbarStrikethrough, run: (editor) => toggleStrikethrough(editor), hotkey: { key: "s", modifiers: ["Mod", "Shift"] } },
+    { id: "underline", name: locale.toolbarUnderline, run: (editor) => toggleWrap(editor, "<u>") },
+    { id: "inline-code", name: locale.toolbarInlineCode, run: (editor) => toggleInlineCode(editor), hotkey: { key: "e", modifiers: ["Mod"] } },
+    { id: "blockquote", name: locale.toolbarBlockquote, run: (editor) => toggleBlockquote(editor) },
+    { id: "code-block", name: locale.toolbarCodeBlock, run: (editor) => insertCodeBlock(editor) },
+    { id: "olist", name: locale.toolbarOrderedList, run: (editor) => toggleOrderedList(editor) },
+    { id: "ulist", name: locale.toolbarUnorderedList, run: (editor) => toggleUnorderedList(editor) },
+    { id: "image", name: locale.toolbarInsertImage, run: (editor) => insertImage(editor) },
+    { id: "hr", name: locale.slashDivider, run: (editor) => insertHorizontalRule(editor) },
+  ];
+}
 
 export const toolbarLifecyclePluginManifest = Object.freeze({
   schemaVersion: 1,
@@ -91,7 +94,7 @@ export function createToolbarRuntimeSlashContribution(
 ): NexusPlugin {
   return {
     name: "plugin-toolbar-runtime-slash-catalogue",
-    slashCommands: toolbarSlashCommands.map((command) => ({
+    slashCommands: createToolbarSlashCommands(getLocale()).map((command) => ({
       ...command,
       id: `${commandOwner}:${command.id}`,
       run: undefined,
@@ -117,7 +120,7 @@ export class ToolbarLifecyclePlugin extends NexusPluginBase {
     const commands = this.app.capabilities.require(COMMANDS_CAPABILITY, "^1.0.0");
     const editors = this.app.capabilities.require(EDITOR_HOST_CAPABILITY, "^1.0.0");
 
-    for (const action of ACTIONS) {
+    for (const action of createActions(getLocale())) {
       const result = commands.registerCommand({
         id: action.id,
         name: action.name,
@@ -156,7 +159,7 @@ export class ToolbarLifecyclePlugin extends NexusPluginBase {
     if (!ui) return;
 
     this.uiWindows.add(context.window.id);
-    for (const action of ACTIONS) {
+    for (const action of createActions(getLocale())) {
       const commandId = `${this.identity.id}:${action.id}`;
       const result = ui.registerAction("editor-toolbar", {
         id: action.id,

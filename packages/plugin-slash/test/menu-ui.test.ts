@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createEditor, type EditorAPI, type SlashCommandDef } from "@floatboat/nexus-core";
+import { createEditor, zhLocale, type EditorAPI, type SlashCommandDef } from "@floatboat/nexus-core";
 import { createSlashMenuUI, type SlashMenuUI } from "../src/menu-ui";
 
 const PREFIX = "nexus-slash";
@@ -599,5 +599,14 @@ describe("createSlashMenuUI document interactions", () => {
     // Menu has never opened, so Tab should be free for the editor.
     const e = pressKey("Tab");
     expect(e.defaultPrevented).toBe(false);
+  });
+
+  it("uses the provided locale for menu chrome", () => {
+    h = setup(baseCommands, { locale: zhLocale });
+    expect(h.menu.element.getAttribute("aria-label")).toBe("斜杠命令");
+    open(h.editor, "zzz");
+    expect(h.menu.element.querySelector(`.${PREFIX}-menu__empty`)?.textContent).toBe(
+      "无匹配结果"
+    );
   });
 });

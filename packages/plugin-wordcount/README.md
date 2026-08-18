@@ -169,7 +169,10 @@ bar.destroy();
 
 ## Internationalisation
 
-Every visible string is overridable:
+By default the status-bar labels resolve from the shared core locale
+store (`labelsFromLocale(getLocale())`), so a host that seeds the store
+with `zhLocale` gets Chinese labels with no extra config. Every visible
+string is still overridable via `labels`:
 
 ```ts
 createWordCountPlugin({

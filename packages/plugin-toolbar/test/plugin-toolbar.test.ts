@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createEditor } from "@floatboat/nexus-core";
+import { createEditor, setLocaleCode, zhLocale } from "@floatboat/nexus-core";
 import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
 import {
   toggleBold,
@@ -603,6 +603,34 @@ describe("toggleUnorderedList — atomic undo", () => {
 
     editor.undo();
     expect(editor.getDocument()).toBe(original);
+    editor.destroy();
+  });
+});
+
+describe("localization", () => {
+  it("localizes slash commands from an explicit locale", () => {
+    const plugin = createToolbarPlugin(zhLocale);
+    const bold = plugin.slashCommands?.find((c) => c.id === "bold");
+    expect(bold?.title).toBe("加粗");
+    expect(bold?.description).toBe("将选中内容加粗强调");
+  });
+
+  it("localizes slash commands from the shared locale", () => {
+    setLocaleCode("zh");
+    const plugin = createToolbarPlugin();
+    const list = plugin.slashCommands?.find((c) => c.id === "ulist");
+    expect(list?.title).toBe("无序列表");
+    setLocaleCode("en");
+  });
+
+  it("localizes toolbar button tooltips", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+    const toolbar = createToolbarUI(editor, { locale: zhLocale });
+    const button = toolbar.element.querySelector<HTMLButtonElement>('[data-toolbar-action="unordered-list"]');
+    expect(button?.getAttribute("aria-label")).toBe("无序列表");
+    expect(button?.dataset.toolbarTooltip).toBe("无序列表");
+    toolbar.destroy();
     editor.destroy();
   });
 });

@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { createEditor, enLocale, zhLocale, resolveLocale } from "../src/index";
+import {
+  createEditor,
+  detectLocaleCode,
+  enLocale,
+  getLocale,
+  resolveLocale,
+  setLocale,
+  setLocaleCode,
+  zhLocale,
+} from "../src/index";
 import { createGfmPreset } from "../../preset-gfm/src/index";
 
 describe("internationalization", () => {
@@ -52,6 +61,46 @@ describe("internationalization", () => {
     for (const key of keys) {
       expect(typeof enLocale[key]).toBe("string");
       expect(enLocale[key].length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("locale store", () => {
+  it("getLocale returns English by default", () => {
+    setLocaleCode("en");
+    expect(getLocale().addColumn).toBe("Add column");
+  });
+
+  it("setLocaleCode switches the shared locale", () => {
+    setLocaleCode("zh");
+    expect(getLocale().toolbarBold).toBe("加粗");
+    expect(getLocale().searchFind).toBe("查找");
+    expect(getLocale().wordcountWords).toBe("词");
+    setLocaleCode("en");
+  });
+
+  it("setLocale merges partial overrides with English defaults", () => {
+    setLocale({ toolbarBold: "自定义" });
+    expect(getLocale().toolbarBold).toBe("自定义");
+    expect(getLocale().toolbarItalic).toBe("Italic");
+    setLocaleCode("en");
+  });
+
+  it("detectLocaleCode returns a built-in code or null", () => {
+    const code = detectLocaleCode();
+    expect(code === null || code === "en" || code === "zh").toBe(true);
+  });
+});
+
+describe("locale parity", () => {
+  it("enLocale and zhLocale expose identical keys", () => {
+    expect(Object.keys(zhLocale).sort()).toEqual(Object.keys(enLocale).sort());
+  });
+
+  it("every locale value is a non-empty string", () => {
+    for (const value of Object.values(zhLocale)) {
+      expect(typeof value).toBe("string");
+      expect(value.length).toBeGreaterThan(0);
     }
   });
 });

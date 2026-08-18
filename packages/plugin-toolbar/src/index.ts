@@ -1,8 +1,9 @@
+import { getLocale, resolveLocale, type NexusLocale } from "@floatboat/nexus-core";
 import type { NexusPlugin } from "@floatboat/nexus-core";
 import { colorDecorationExtension } from "./color-decoration";
 import {
+  createToolbarSlashCommands,
   insertLink,
-  toolbarSlashCommands,
   toggleBold,
   toggleHeading,
   toggleInlineCode,
@@ -25,7 +26,8 @@ export {
   toggleWrap,
 } from "./toolbar-commands";
 
-export function createToolbarPlugin(): NexusPlugin {
+export function createToolbarPlugin(locale?: Partial<NexusLocale>): NexusPlugin {
+  const resolvedLocale = locale ? resolveLocale(locale) : getLocale();
   return {
     name: "plugin-toolbar",
     shortcuts: [
@@ -38,7 +40,7 @@ export function createToolbarPlugin(): NexusPlugin {
       { key: "Mod-2", run: (e) => toggleHeading(e, 2) },
       { key: "Mod-3", run: (e) => toggleHeading(e, 3) },
     ],
-    slashCommands: toolbarSlashCommands,
+    slashCommands: createToolbarSlashCommands(resolvedLocale),
     cmExtensions: [colorDecorationExtension()],
   };
 }

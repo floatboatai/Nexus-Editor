@@ -28,6 +28,7 @@ import {
   type LinkIndexReader,
 } from "./link-index";
 import { createBacklinksPanel, type BacklinksPanel } from "./backlinks-panel";
+import { setDemoLanguage, uiStrings } from "./strings";
 import { perfStart, perfEnd, installLongTaskWatch } from "./perf";
 import {
   createPluginRuntimeHost,
@@ -151,26 +152,27 @@ function resolveWikilink(name: string): string | null {
 }
 
 function createAppToolbar(): HTMLElement {
+  const s = uiStrings();
   const toolbar = document.createElement("div");
   toolbar.className = "toolbar";
 
   const vaultBtn = document.createElement("button");
-  vaultBtn.textContent = "Vault";
-  vaultBtn.title = "Open a folder as a vault";
+  vaultBtn.textContent = s.appVault;
+  vaultBtn.title = s.appOpenVault;
   vaultBtn.addEventListener("click", () => {
     void vault.promptPickVault();
   });
 
   const openBtn = document.createElement("button");
-  openBtn.textContent = "Open";
+  openBtn.textContent = s.appOpen;
   openBtn.addEventListener("click", handleOpen);
 
   const saveBtn = document.createElement("button");
-  saveBtn.textContent = "Save";
+  saveBtn.textContent = s.appSave;
   saveBtn.addEventListener("click", handleSave);
 
   const saveAsBtn = document.createElement("button");
-  saveAsBtn.textContent = "Save As";
+  saveAsBtn.textContent = s.appSaveAs;
   saveAsBtn.addEventListener("click", handleSaveAs);
 
   const spacer = document.createElement("div");
@@ -178,31 +180,31 @@ function createAppToolbar(): HTMLElement {
 
   const vaultToggleBtn = document.createElement("button");
   vaultToggleBtn.textContent = "\uD83D\uDCD1"; // 📑
-  vaultToggleBtn.title = "Toggle vault panel";
+  vaultToggleBtn.title = s.appToggleVault;
   vaultToggleBtn.style.fontSize = "14px";
   vaultToggleBtn.addEventListener("click", toggleVault);
 
   const outlineBtn = document.createElement("button");
   outlineBtn.textContent = "\u2630"; // ☰
-  outlineBtn.title = "Toggle outline";
+  outlineBtn.title = s.appToggleOutline;
   outlineBtn.style.fontSize = "14px";
   outlineBtn.addEventListener("click", toggleOutline);
 
   const backlinksBtn = document.createElement("button");
   backlinksBtn.textContent = "\uD83D\uDD17"; // 🔗
-  backlinksBtn.title = "Toggle backlinks panel";
+  backlinksBtn.title = s.appToggleBacklinks;
   backlinksBtn.style.fontSize = "14px";
   backlinksBtn.addEventListener("click", toggleBacklinks);
 
   const searchBtn = document.createElement("button");
   searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
-  searchBtn.title = "Search (Ctrl+F)";
+  searchBtn.title = s.appSearch;
   searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
 
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "\u2699"; // ⚙
-  settingsBtn.title = "Settings";
+  settingsBtn.title = s.appSettings;
   settingsBtn.style.fontSize = "16px";
   settingsBtn.addEventListener("click", handleSettings);
 
@@ -252,21 +254,37 @@ function createStatusLine(statusBarSlot: HTMLElement): HTMLElement {
 function renderStatus(): void {
   if (!statusText?.isConnected) return;
 
-  const pathLabel = state.activeFile ?? state.filePath ?? "Untitled";
-  const dirtyMark = state.dirty ? " [modified]" : "";
+  const str = uiStrings();
+  const pathLabel = state.activeFile ?? state.filePath ?? str.statusUntitled;
+  const dirtyMark = state.dirty ? str.statusModified : "";
   // Runtime word-count owns document statistics through the status-bar slot.
   const stats = pluginOwnsDocumentStats ? null : shell?.editor.getDocumentStats();
-  const statsText = stats ? ` | ${stats.words} words, ${stats.lines} lines` : "";
-  const vaultLabel = state.vaultPath
-    ? ` | Vault: ${state.vaultPath.split(/[\\/]/).pop()}`
+  const statsText = stats
+    ? str.statusStats
+        .replace("{words}", String(stats.words))
+        .replace("{lines}", String(stats.lines))
     : "";
-  const errorText = state.error ? ` — Error: ${state.error}` : "";
+  const vaultLabel = state.vaultPath
+    ? str.statusVault.replace("{name}", state.vaultPath.split(/[\\/]/).pop() ?? "")
+    : "";
+  const errorText = state.error ? str.statusError.replace("{message}", state.error) : "";
   statusText.textContent = `${pathLabel}${dirtyMark}${statsText}${vaultLabel}${errorText}`;
 }
 
 async function confirmDiscardIfDirty(): Promise<boolean> {
   if (!state.dirty) return true;
-  return window.confirm("You have unsaved changes. Discard them and switch files?");
+  return window.confirm(uiStrings().confirmDiscardSwitchFiles);
+}
+
+/** Reload the app when the UI language changes (localization is applied at boot). */
+function applyLanguageIfChanged(previous: EditorSettings, next: EditorSettings): void {
+  if (previous.language === next.language) return;
+  void (async () => {
+    if (state.dirty && !window.confirm(uiStrings().confirmDiscardSwitchLanguage)) {
+      return;
+    }
+    window.location.reload();
+  })();
 }
 
 async function handleOpen(): Promise<void> {
@@ -316,8 +334,8 @@ async function handleSaveAs(): Promise<void> {
   try {
     state.error = null;
     if (pluginRuntime) {
-      if (!state.vaultPath) throw new Error("Open a Vault before saving a runtime document");
-      const name = window.prompt("File name", "untitled.md")?.trim();
+      if (!state.vaultPath) throw new Error(uiStrings().errorOpenVaultBeforeSave);
+      const name = window.prompt(uiStrings().promptFileName, "untitled.md")?.trim();
       if (!name) return;
       const created = await vault.createFile(state.vaultPath, name);
       await vault.writeFile(created.path, state.content);
@@ -356,6 +374,7 @@ function handleSettings(): void {
     return;
   }
   const panel = createSettingsPanel(settings, (next) => {
+    applyLanguageIfChanged(settings, next);
     settings = next;
     shell.applySettings(settings);
   });
@@ -415,7 +434,9 @@ function applyRuntimeEditorSettings(values: Readonly<Record<string, SettingValue
     indentGuides: settingValue(values, "indentGuides", settings.indentGuides),
     lineNumbers: settingValue(values, "lineNumbers", settings.lineNumbers),
     livePreview: settingValue(values, "livePreview", settings.livePreview),
+    language: settingValue(values, "language", settings.language) === "zh" ? "zh" : "en",
   };
+  applyLanguageIfChanged(settings, next);
   settings = next;
   saveSettings(next);
   shell.applySettings(next);
@@ -426,39 +447,48 @@ function applyRuntimeEditorSetting(key: keyof EditorSettings, value: SettingValu
 }
 
 function createProductSettingTab(): SettingTabDefinition {
+  const str = uiStrings();
   return {
     id: "settings",
-    name: "Editor settings",
+    name: str.settingsRuntimeTabName,
     settings: [
       {
         id: "colorScheme",
         type: "select",
-        name: "Color scheme",
-        description: "Light or dark theme",
+        name: str.settingsColorScheme,
+        description: str.settingsColorSchemeDesc,
         defaultValue: settings.colorScheme,
-        options: [{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }],
+        options: [{ value: "light", label: str.settingsLight }, { value: "dark", label: str.settingsDark }],
       },
-      { id: "lineNumbers", type: "toggle", name: "Line numbers", defaultValue: settings.lineNumbers },
-      { id: "livePreview", type: "toggle", name: "Live preview", defaultValue: settings.livePreview },
-      { id: "indentGuides", type: "toggle", name: "Indent guides", defaultValue: settings.indentGuides },
+      { id: "lineNumbers", type: "toggle", name: str.settingsLineNumbers, defaultValue: settings.lineNumbers },
+      { id: "livePreview", type: "toggle", name: str.settingsLivePreview, defaultValue: settings.livePreview },
+      { id: "indentGuides", type: "toggle", name: str.settingsIndentGuides, defaultValue: settings.indentGuides },
       {
         id: "contentMaxWidth",
         type: "text",
-        name: "Content max width",
+        name: str.settingsContentMaxWidth,
         defaultValue: settings.contentMaxWidth,
         placeholder: "e.g. 720px",
       },
       {
         id: "direction",
         type: "select",
-        name: "Text direction",
+        name: str.settingsTextDirection,
         defaultValue: settings.direction,
-        options: [{ value: "ltr", label: "Left to right" }, { value: "rtl", label: "Right to left" }],
+        options: [{ value: "ltr", label: str.settingsLtr }, { value: "rtl", label: str.settingsRtl }],
       },
-      { id: "fontSize", type: "number", name: "Font size", defaultValue: settings.fontSize, min: 10, max: 28, step: 1 },
-      { id: "fontFamily", type: "text", name: "Body font", defaultValue: settings.fontFamily },
-      { id: "fontFamilyMono", type: "text", name: "Code font", defaultValue: settings.fontFamilyMono },
-      { id: "tabSize", type: "number", name: "Tab size", defaultValue: settings.tabSize, min: 1, max: 8, step: 1 },
+      {
+        id: "language",
+        type: "select",
+        name: str.settingsLanguage,
+        description: str.settingsLanguageDesc,
+        defaultValue: settings.language,
+        options: [{ value: "en", label: str.settingsEnglish }, { value: "zh", label: str.settingsChinese }],
+      },
+      { id: "fontSize", type: "number", name: str.settingsFontSize, defaultValue: settings.fontSize, min: 10, max: 28, step: 1 },
+      { id: "fontFamily", type: "text", name: str.settingsBodyFont, defaultValue: settings.fontFamily },
+      { id: "fontFamilyMono", type: "text", name: str.settingsCodeFont, defaultValue: settings.fontFamilyMono },
+      { id: "tabSize", type: "number", name: str.settingsTabSize, defaultValue: settings.tabSize, min: 1, max: 8, step: 1 },
     ],
     display(context) {
       applyRuntimeEditorSettings(context.values);
@@ -607,7 +637,7 @@ async function handleWikilinkNavigate(target: string, opts: { unresolved: boolea
       return;
     }
     if (!state.vaultPath) {
-      state.error = "Open a vault before following wiki links.";
+      state.error = uiStrings().errorOpenVaultForWikilink;
       renderStatus();
       return;
     }
@@ -790,6 +820,8 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
   const bootPlan = createReferencePluginBootPlan(
     resolveReferencePluginFeatureFlags(options.featureFlags),
   );
+  // Seed the demo chrome language before any chrome (or the editor shell) is built.
+  setDemoLanguage(settings.language);
   pluginOwnsDocumentStats = bootPlan.mode === "runtime" &&
     bootPlan.runtimePlugins.some((Plugin) =>
       bundledReferencePlugins.some((entry) =>

@@ -1,3 +1,4 @@
+import { getLocale, resolveLocale, type NexusLocale } from "@floatboat/nexus-core";
 import type { NexusPlugin, WidgetRenderContext } from "@floatboat/nexus-core";
 import katex from "katex";
 import remarkMath from "remark-math";
@@ -15,15 +16,16 @@ import remarkMath from "remark-math";
  */
 function attachBlockEditButton(
   host: HTMLElement,
-  ctx: WidgetRenderContext | undefined
+  ctx: WidgetRenderContext | undefined,
+  label: string
 ): void {
   if (!ctx) return;
 
   const btn = document.createElement("button");
   btn.type = "button";
   btn.textContent = "✎";
-  btn.title = "Edit formula";
-  btn.setAttribute("aria-label", "Edit formula");
+  btn.title = label;
+  btn.setAttribute("aria-label", label);
   btn.style.cssText = [
     "position:absolute",
     "top:4px",
@@ -65,7 +67,8 @@ function attachBlockEditButton(
   host.appendChild(btn);
 }
 
-export function createMathPlugin(): NexusPlugin {
+export function createMathPlugin(locale?: Partial<NexusLocale>): NexusPlugin {
+  const resolvedLocale = locale ? resolveLocale(locale) : getLocale();
   return {
     name: "plugin-math",
     remarkPlugins: [remarkMath],
@@ -91,7 +94,7 @@ export function createMathPlugin(): NexusPlugin {
           } catch {
             container.textContent = source;
           }
-          attachBlockEditButton(container, ctx);
+          attachBlockEditButton(container, ctx, resolvedLocale.mathEditFormula);
           return container;
         },
       },

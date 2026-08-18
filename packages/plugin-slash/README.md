@@ -105,7 +105,28 @@ your own keyboard handlers.
 | `filterSlashCommands(commands, query)` | Rank + filter a command list. |
 | `getSlashState(doc, cursor, commands, options?)` | Compute the full menu state. Alias of `computeSlashState`. |
 | `getSlashMatch(doc, cursor)` | Detect the current `/query` trigger range. |
-| `SlashMenuUIOptions` | `{ container?, onCommand?, classPrefix?, offset? }` |
+| `SlashMenuUIOptions` | `{ container?, onCommand?, classPrefix?, offset?, locale? }` |
+
+## Internationalisation
+
+The floating menu's chrome strings (aria-label, empty "no matches"
+state) resolve from the shared core locale store by default:
+
+```ts
+import { getLocale } from "@floatboat/nexus-core";
+
+const menu = createSlashMenuUI(editor); // uses getLocale()
+```
+
+Pass an explicit `locale` to override the store for this menu:
+
+```ts
+import { enLocale } from "@floatboat/nexus-core";
+const menu = createSlashMenuUI(editor, { locale: enLocale });
+```
+
+Command titles/descriptions are the caller's data — they are shown
+verbatim and are not translated.
 
 See [`docs/ROADMAP.md`](../../docs/ROADMAP.md) for upcoming items
 including history (#16) and fuzzy matching (#17).

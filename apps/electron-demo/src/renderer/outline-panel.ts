@@ -1,4 +1,5 @@
 import type { EditorAPI, TocEntry } from "@floatboat/nexus-core";
+import { uiStrings } from "./strings";
 
 export interface OutlinePanel {
   element: HTMLElement;
@@ -61,13 +62,14 @@ const EMPTY_STYLES = `
 `;
 
 export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
+  const s = uiStrings();
   const panel = document.createElement("div");
   panel.className = "nexus-outline-panel";
   panel.style.cssText = PANEL_STYLES;
 
   const header = document.createElement("div");
   header.style.cssText = HEADER_STYLES;
-  header.textContent = "Outline";
+  header.textContent = s.outlineTitle;
 
   const list = document.createElement("div");
   list.style.cssText = LIST_STYLES;
@@ -80,7 +82,7 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
     if (entries.length === 0) {
       const empty = document.createElement("div");
       empty.style.cssText = EMPTY_STYLES;
-      empty.textContent = "No headings";
+      empty.textContent = s.outlineNoHeadings;
       list.appendChild(empty);
       return;
     }

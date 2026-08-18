@@ -65,6 +65,23 @@ describe("createEditorShell", () => {
     shell.destroy();
   });
 
+  it("localizes the editor UI from the language setting", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const shell = createEditorShell({
+      container,
+      state: createState(),
+      settings: { ...defaultSettings(), language: "zh" },
+      onStateChange: vi.fn(),
+    });
+
+    const bold = container.querySelector<HTMLButtonElement>('[data-toolbar-action="bold"]');
+    expect(bold?.getAttribute("aria-label")).toBe("加粗");
+
+    shell.destroy();
+    container.remove();
+  });
+
   it("leaves migrated UI to the runtime owner in runtime mode", () => {
     const container = document.createElement("div");
     document.body.append(container);

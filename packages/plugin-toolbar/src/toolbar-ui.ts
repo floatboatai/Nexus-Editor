@@ -1,3 +1,4 @@
+import { getLocale, resolveLocale, type NexusLocale } from "@floatboat/nexus-core";
 import type { EditorAPI } from "@floatboat/nexus-core";
 
 import {
@@ -54,6 +55,8 @@ export interface ToolbarGroup {
 export interface ToolbarUIOptions {
   groups?: ToolbarGroup[];
   onFullscreen?: () => void;
+  /** Override the built-in labels; defaults to the shared current locale. */
+  locale?: Partial<NexusLocale>;
 }
 
 export interface ToolbarUI {
@@ -132,57 +135,57 @@ function installToolbarTooltip(button: HTMLButtonElement): () => void {
   };
 }
 
-function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
+function defaultGroups(locale: NexusLocale, options?: ToolbarUIOptions): ToolbarGroup[] {
   return [
     {
       buttons: [
-        { id: "undo", title: "Undo", icon: iconUndo, action: (e) => e.undo() },
-        { id: "redo", title: "Redo", icon: iconRedo, action: (e) => e.redo() },
+        { id: "undo", title: locale.toolbarUndo, icon: iconUndo, action: (e) => e.undo() },
+        { id: "redo", title: locale.toolbarRedo, icon: iconRedo, action: (e) => e.redo() },
       ],
     },
     {
       buttons: [
-        { id: "link", title: "Insert link", icon: iconLink, action: insertLink },
+        { id: "link", title: locale.toolbarInsertLink, icon: iconLink, action: insertLink },
       ],
     },
     {
       buttons: [
-        { id: "h2", title: "Heading 2", icon: iconH2, action: (e) => toggleHeading(e, 2) },
-        { id: "h3", title: "Heading 3", icon: iconH3, action: (e) => toggleHeading(e, 3) },
-        { id: "heading-menu", title: "More headings", icon: iconHeadingMenu, action: () => {} },
+        { id: "h2", title: locale.toolbarHeading2, icon: iconH2, action: (e) => toggleHeading(e, 2) },
+        { id: "h3", title: locale.toolbarHeading3, icon: iconH3, action: (e) => toggleHeading(e, 3) },
+        { id: "heading-menu", title: locale.toolbarMoreHeadings, icon: iconHeadingMenu, action: () => {} },
       ],
     },
     {
       buttons: [
-        { id: "bold", title: "Bold", icon: iconBold, action: toggleBold },
-        { id: "italic", title: "Italic", icon: iconItalic, action: toggleItalic },
-        { id: "strikethrough", title: "Strikethrough", icon: iconStrikethrough, action: toggleStrikethrough },
-        { id: "underline", title: "Underline", icon: iconUnderline, action: (e) => toggleWrap(e, "<u>") },
-        { id: "inline-code", title: "Inline code", icon: iconInlineCode, action: toggleInlineCode },
+        { id: "bold", title: locale.toolbarBold, icon: iconBold, action: toggleBold },
+        { id: "italic", title: locale.toolbarItalic, icon: iconItalic, action: toggleItalic },
+        { id: "strikethrough", title: locale.toolbarStrikethrough, icon: iconStrikethrough, action: toggleStrikethrough },
+        { id: "underline", title: locale.toolbarUnderline, icon: iconUnderline, action: (e) => toggleWrap(e, "<u>") },
+        { id: "inline-code", title: locale.toolbarInlineCode, icon: iconInlineCode, action: toggleInlineCode },
       ],
     },
     {
       buttons: [
-        { id: "blockquote", title: "Blockquote", icon: iconBlockquote, action: toggleBlockquote },
-        { id: "code-block", title: "Code block", icon: iconCodeBlock, action: insertCodeBlock },
+        { id: "blockquote", title: locale.toolbarBlockquote, icon: iconBlockquote, action: toggleBlockquote },
+        { id: "code-block", title: locale.toolbarCodeBlock, icon: iconCodeBlock, action: insertCodeBlock },
       ],
     },
     {
       buttons: [
-        { id: "ordered-list", title: "Ordered list", icon: iconOrderedList, action: toggleOrderedList },
-        { id: "unordered-list", title: "Unordered list", icon: iconUnorderedList, action: toggleUnorderedList },
+        { id: "ordered-list", title: locale.toolbarOrderedList, icon: iconOrderedList, action: toggleOrderedList },
+        { id: "unordered-list", title: locale.toolbarUnorderedList, icon: iconUnorderedList, action: toggleUnorderedList },
       ],
     },
     {
       buttons: [
-        { id: "text-color", title: "Text color", icon: iconTextColor, action: () => {} },
-        { id: "highlight", title: "Highlight", icon: iconHighlight, action: () => {} },
+        { id: "text-color", title: locale.toolbarTextColor, icon: iconTextColor, action: () => {} },
+        { id: "highlight", title: locale.toolbarHighlight, icon: iconHighlight, action: () => {} },
       ],
     },
     {
       buttons: [
-        { id: "image", title: "Insert image", icon: iconImage, action: insertImage },
-        { id: "fullscreen", title: "Fullscreen", icon: iconFullscreen, action: () => options?.onFullscreen?.() },
+        { id: "image", title: locale.toolbarInsertImage, icon: iconImage, action: insertImage },
+        { id: "fullscreen", title: locale.toolbarFullscreen, icon: iconFullscreen, action: () => options?.onFullscreen?.() },
       ],
     },
   ];
@@ -257,6 +260,7 @@ function showHeadingDropdown(
   editor: EditorAPI,
   anchorBtn: HTMLElement,
   onClose: () => void,
+  locale: NexusLocale,
 ): { destroy: () => void } {
   const menu = document.createElement("div");
   menu.className = "nexus-toolbar-dropdown";
@@ -268,13 +272,13 @@ function showHeadingDropdown(
   menu.style.left = rect.left + "px";
 
   const levels = [
-    { level: 1, label: "Heading 1", fontSize: "17px", fontWeight: "700" },
-    { level: 2, label: "Heading 2", fontSize: "15px", fontWeight: "700" },
-    { level: 3, label: "Heading 3", fontSize: "14px", fontWeight: "600" },
-    { level: 4, label: "Heading 4", fontSize: "13px", fontWeight: "600" },
-    { level: 5, label: "Heading 5", fontSize: "13px", fontWeight: "500" },
-    { level: 6, label: "Heading 6", fontSize: "12px", fontWeight: "500" },
-    { level: 0, label: "Normal text", fontSize: "13px", fontWeight: "400" },
+    { level: 1, label: locale.toolbarHeading1, fontSize: "17px", fontWeight: "700" },
+    { level: 2, label: locale.toolbarHeading2, fontSize: "15px", fontWeight: "700" },
+    { level: 3, label: locale.toolbarHeading3, fontSize: "14px", fontWeight: "600" },
+    { level: 4, label: locale.toolbarHeading4, fontSize: "13px", fontWeight: "600" },
+    { level: 5, label: locale.toolbarHeading5, fontSize: "13px", fontWeight: "500" },
+    { level: 6, label: locale.toolbarHeading6, fontSize: "12px", fontWeight: "500" },
+    { level: 0, label: locale.toolbarNormalText, fontSize: "13px", fontWeight: "400" },
   ];
 
   const itemCleanups: Array<() => void> = [];
@@ -444,7 +448,8 @@ function showColorPicker(
 const DROPDOWN_IDS = new Set(["heading-menu", "text-color", "highlight"]);
 
 export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): ToolbarUI {
-  const groups = options?.groups ?? defaultGroups(options);
+  const locale = options?.locale ? resolveLocale(options.locale) : getLocale();
+  const groups = options?.groups ?? defaultGroups(locale, options);
   const toolbar = document.createElement("div");
   toolbar.className = "nexus-toolbar";
   toolbar.setAttribute("role", "toolbar");
@@ -505,7 +510,7 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
           if (activeDropdown) { closeDropdown(); return; }
 
           if (btn.id === "heading-menu") {
-            activeDropdown = showHeadingDropdown(editor, button, closeDropdown);
+            activeDropdown = showHeadingDropdown(editor, button, closeDropdown, locale);
           } else if (btn.id === "text-color") {
             activeDropdown = showColorPicker(editor, button, COLOR_PALETTE, applyTextColor, closeDropdown);
           } else if (btn.id === "highlight") {

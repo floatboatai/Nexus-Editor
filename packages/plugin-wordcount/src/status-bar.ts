@@ -8,6 +8,9 @@
  * itself; all stats are read from the plugin's subscription stream.
  */
 
+import { getLocale } from "@floatboat/nexus-core";
+import type { NexusLocale } from "@floatboat/nexus-core";
+
 import type { WordCountStats } from "./count";
 import type { WordCountAPI, WordCountState } from "./plugin";
 
@@ -34,6 +37,17 @@ export const defaultStatusBarLabels: WordCountLabels = Object.freeze({
   readingTimeShort: "< 1 min read",
   selection: "Selected"
 });
+
+function labelsFromLocale(locale: NexusLocale): WordCountLabels {
+  return {
+    words: locale.wordcountWords,
+    characters: locale.wordcountCharacters,
+    charactersNoSpaces: locale.wordcountCharactersNoSpaces,
+    readingTime: locale.wordcountReadingTime,
+    readingTimeShort: locale.wordcountReadingTimeShort,
+    selection: locale.wordcountSelection
+  };
+}
 
 export interface StatusBarOptions {
   /** Element to append the bar to. Defaults to `document.body`. */
@@ -76,7 +90,7 @@ export interface StatusBarHandle {
  * before re-creating.
  */
 export function createStatusBar(plugin: WordCountAPI, options: StatusBarOptions = {}): StatusBarHandle {
-  const labels: WordCountLabels = { ...defaultStatusBarLabels, ...options.labels };
+  const labels: WordCountLabels = { ...defaultStatusBarLabels, ...labelsFromLocale(getLocale()), ...options.labels };
   const classPrefix = options.classPrefix ?? "nexus-wordcount";
   const showCharactersNoSpaces = options.showCharactersNoSpaces ?? false;
   const showReadingTime = options.showReadingTime ?? true;
