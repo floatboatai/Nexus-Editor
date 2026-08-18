@@ -540,6 +540,82 @@ describe("live preview", () => {
     editor.destroy();
   });
 
+  it("reveals raw footnote reference markup when the cursor enters it", () => {
+    const container = document.createElement("div");
+    const source = "Text with footnote[^1]\n\n[^1]: Definition text";
+    const editor = createEditor({
+      container,
+      initialValue: source,
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    editor.setSelection(0);
+    expect(container.querySelector("[data-live-preview-footnote-reference='1']")).not.toBeNull();
+    expect(container.textContent).not.toContain("[^1]");
+
+    editor.setSelection(source.indexOf("[^1]") + 2);
+    expect(container.textContent).toContain("[^1]");
+    expect(container.querySelector("[data-live-preview-footnote-reference='1']")).toBeNull();
+    editor.destroy();
+  });
+
+  it("reveals raw footnote definition markup when the cursor enters it", () => {
+    const container = document.createElement("div");
+    const source = "Text with footnote[^1]\n\n[^1]: Definition text";
+    const editor = createEditor({
+      container,
+      initialValue: source,
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    editor.setSelection(0);
+    expect(container.querySelector("[data-live-preview-footnote-definition='1']")).not.toBeNull();
+    expect(container.textContent).not.toContain("[^1]: Definition text");
+
+    editor.setSelection(source.indexOf("[^1]:") + 3);
+    expect(container.textContent).toContain("[^1]: Definition text");
+    expect(container.querySelector("[data-live-preview-footnote-definition='1']")).toBeNull();
+    editor.destroy();
+  });
+
+  it("enters footnote reference edit mode from the rendered preview", () => {
+    const container = document.createElement("div");
+    const source = "Text with footnote[^1]\n\n[^1]: Definition text";
+    const editor = createEditor({
+      container,
+      initialValue: source,
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    editor.setSelection(0);
+    const reference = container.querySelector<HTMLElement>("[data-live-preview-footnote-reference='1']");
+    expect(reference).not.toBeNull();
+    reference?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    expect(container.textContent).toContain("[^1]");
+    editor.destroy();
+  });
+
+  it("enters footnote definition edit mode from the rendered preview", () => {
+    const container = document.createElement("div");
+    const source = "Text with footnote[^1]\n\n[^1]: Definition text";
+    const editor = createEditor({
+      container,
+      initialValue: source,
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    editor.setSelection(0);
+    const definition = container.querySelector<HTMLElement>("[data-live-preview-footnote-definition='1']");
+    expect(definition).not.toBeNull();
+    definition?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    expect(container.textContent).toContain("[^1]: Definition text");
+    editor.destroy();
+  });
+
   // ── Autolinks ──
 
   it("renders GFM autolinks as styled links", () => {
