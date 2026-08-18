@@ -24,45 +24,58 @@ describe("createEditorShell", () => {
   });
 
   it("marks state dirty when the editor content changes", async () => {
-    const container = document.createElement("div");
-    const state = createState();
-    const onChange = vi.fn();
-    const shell = createEditorShell({
-      container,
-      state,
-      settings: defaultSettings(),
-      onStateChange: onChange,
-    });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 
-    shell.editor.setDocument("new content");
-    // onChange is debounced (parseDelayMs 150); give it a moment to fire.
-    await new Promise((r) => setTimeout(r, 200));
+    try {
+      const container = document.createElement("div");
+      const state = createState();
+      const onChange = vi.fn();
+      const shell = createEditorShell({
+        container,
+        state,
+        settings: defaultSettings(),
+        onStateChange: onChange,
+      });
 
-    expect(state.dirty).toBe(true);
-    expect(state.content).toBe("new content");
-    expect(onChange).toHaveBeenCalled();
-    shell.destroy();
+      shell.editor.setDocument("new content");
+      // onChange is debounced (parseDelayMs 150); advance the debounce timer
+      // deterministically instead of waiting on wall-clock time.
+      await vi.advanceTimersByTimeAsync(150);
+
+      expect(state.dirty).toBe(true);
+      expect(state.content).toBe("new content");
+      expect(onChange).toHaveBeenCalled();
+      shell.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("resets dirty flag when loadDocument is called", async () => {
-    const container = document.createElement("div");
-    const state = createState();
-    const shell = createEditorShell({
-      container,
-      state,
-      settings: defaultSettings(),
-      onStateChange: vi.fn(),
-    });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 
-    shell.editor.setDocument("edited");
-    await new Promise((r) => setTimeout(r, 200));
-    expect(state.dirty).toBe(true);
+    try {
+      const container = document.createElement("div");
+      const state = createState();
+      const shell = createEditorShell({
+        container,
+        state,
+        settings: defaultSettings(),
+        onStateChange: vi.fn(),
+      });
 
-    shell.loadDocument("loaded from file");
-    expect(state.dirty).toBe(false);
-    expect(state.content).toBe("loaded from file");
-    expect(shell.editor.getDocument()).toBe("loaded from file");
-    shell.destroy();
+      shell.editor.setDocument("edited");
+      await vi.advanceTimersByTimeAsync(150);
+      expect(state.dirty).toBe(true);
+
+      shell.loadDocument("loaded from file");
+      expect(state.dirty).toBe(false);
+      expect(state.content).toBe("loaded from file");
+      expect(shell.editor.getDocument()).toBe("loaded from file");
+      shell.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("leaves migrated UI to the runtime owner in runtime mode", () => {
