@@ -422,7 +422,6 @@ class MermaidWidget extends WidgetType {
   }
 }
 
-const BLOCK_NODE_TYPES = new Set(["thematicBreak"]);
 
 const HEADING_FONT_SIZE: Record<number, string> = {
   1: "1.6em", 2: "1.4em", 3: "1.2em", 4: "1.1em", 5: "1.05em", 6: "1em"
@@ -1212,6 +1211,24 @@ function buildDecorations(
           widget: createWidget(el, false, undefined, fnDefKey),
         }).range(range.from, range.to)
       );
+    } else if(range.node.type === "thematicBreak") {
+      // thematicBreak: skip decoration when cursor/selection is on the line
+      // so the user sees raw source markdown and can edit/delete it.
+      const cursorOnLine = selectionIntersects(range.from, range.to, selection, true)
+      const tbKey = `tb:${range.node.type}:${range.from}:${range.to}:${range.source}`;
+      if (!cursorOnLine) {
+        decos.push(
+          Decoration.replace({
+            widget: createWidget(
+              () => renderLivePreviewNode(range.node, range.source, config.renderers, range.from, range.to),
+              false,
+              undefined,
+              tbKey,
+            ),
+            block: true
+          }).range(range.from, range.to)
+        );
+      }
     } else {
       if (range.node.type === "heading" || range.node.type === "table") {
         parentSpans.push([range.from, range.to]);
@@ -1245,27 +1262,16 @@ function buildDecorations(
           decos.push(Decoration.mark({ attributes: { style, ...attrs } }).range(textFrom, textTo));
         }
       } else {
-        // Block fallback for thematicBreak: always render as widget.
-        // Cursor-toggle between widget and raw caused block-height shifts
-        // (widget margins differ from raw-line height), destabilizing click resolution.
-        const isBlock = BLOCK_NODE_TYPES.has(range.node.type);
-        // Pre-measure height estimate so CM6's heightmap doesn't start at 0 and
-        // jump to the real value on first render (source of post-widget click drift).
-        // thematicBreak: 8 padding-top + 1 line + 8 padding-bottom = 17px.
-        let heightHint: number | undefined;
-        if (isBlock) {
-          heightHint = 17;
-        }
         const blockKey = `${range.node.type}:${range.from}:${range.to}:${range.source}`;
         decos.push(
           Decoration.replace({
             widget: createWidget(
               () => renderLivePreviewNode(range.node, range.source, config.renderers, range.from, range.to),
-              isBlock,
-              heightHint,
+              false,
+              undefined,
               blockKey,
             ),
-            block: isBlock
+            block: false
           }).range(range.from, range.to)
         );
       }
