@@ -1,6 +1,35 @@
 import type { NexusPlugin, WidgetRenderContext } from "@floatboat/nexus-core";
+import type { Node } from "mdast";
 import katex from "katex";
 import remarkMath from "remark-math";
+
+/**
+ * Configuration for the math plugin's rendering behaviour.
+ *
+ * By default `throwOnError` is `false` (KaTeX renders a red error span in
+ * the DOM). When `throwOnError` is `true` KaTeX throws synchronously on
+ * invalid input — the per-widget `try/catch` catches it and falls back to
+ * displaying the raw markdown source. This gives integrators a choice:
+ *
+ * - **Development / strict-authoring mode**: `true` — malformed formulas
+ *   immediately revert to source text so the author sees exactly what
+ *   needs fixing.
+ * - **Production / lenient-reader mode**: `false` (default) — KaTeX's
+ *   built-in red error message stays visible so non-technical readers
+ *   understand "there was supposed to be a formula here", and the raw
+ *   LaTeX is still viewable in the DOM.
+ */
+export interface MathPluginOptions {
+  /**
+   * When `true`, invalid KaTeX syntax causes `katex.render` to throw.
+   * The per-widget `try/catch` catches the error and falls back to
+   * displaying the raw markdown source text. When `false` (default),
+   * KaTeX renders its own red error span in the DOM.
+   *
+   * @default false
+   */
+  errorOnInvalid?: boolean;
+}
 
 /**
  * Attach a hover-revealed ✎ edit button to a rendered block math widget.
@@ -65,7 +94,9 @@ function attachBlockEditButton(
   host.appendChild(btn);
 }
 
-export function createMathPlugin(): NexusPlugin {
+export function createMathPlugin(options?: MathPluginOptions): NexusPlugin {
+  const throwOnError = options?.errorOnInvalid ?? false;
+
   return {
     name: "plugin-math",
     remarkPlugins: [remarkMath],
@@ -77,18 +108,22 @@ export function createMathPlugin(): NexusPlugin {
         // body don't move the cursor to unexpected places. The hover ✎
         // button is the only entry into edit mode.
         ignoreEvents: true,
-        render(node: any, source: string, ctx?: WidgetRenderContext) {
+        render(node: Node, source: string, ctx?: WidgetRenderContext) {
           const container = document.createElement("div");
           container.className = "nexus-math-display";
           container.style.position = "relative";
           container.style.textAlign = "center";
           container.style.padding = "8px 32px";
           try {
-            katex.render(node.value ?? source, container, {
+            const mathValue = "value" in node && typeof node.value === "string" ? node.value : source;
+            katex.render(mathValue, container, {
               displayMode: true,
-              throwOnError: false,
+              throwOnError,
             });
           } catch {
+            // When throwOnError is true, KaTeX throws on invalid syntax.
+            // The catch clause falls back to displaying the raw source so
+            // the author can see and fix the formula text inline.
             container.textContent = source;
           }
           attachBlockEditButton(container, ctx);
@@ -106,7 +141,7 @@ export function createMathPlugin(): NexusPlugin {
         // at the widget's `to` offset, which toggles the widget back to
         // raw source — natural text-cursor UX for inline formulas.
         ignoreEvents: false,
-        render(node: any, source: string) {
+        render(node: Node, source: string) {
           // Render KaTeX directly into the host span without an extra
           // display:inline-block wrapper. KaTeX's own `.katex` span is
           // inline, so passing the host directly keeps the formula in
@@ -115,11 +150,14 @@ export function createMathPlugin(): NexusPlugin {
           span.className = "nexus-math-inline";
           span.style.cursor = "text";
           try {
-            katex.render(node.value ?? source, span, {
+            const mathValue = "value" in node && typeof node.value === "string" ? node.value : source;
+            katex.render(mathValue, span, {
               displayMode: false,
-              throwOnError: false,
+              throwOnError,
             });
           } catch {
+            // Same fallback as block math: when throwOnError is true,
+            // display the raw source so the author can fix the formula.
             span.textContent = source;
           }
           return span;
