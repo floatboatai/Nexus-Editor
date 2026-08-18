@@ -664,7 +664,12 @@ describe("ElectronVaultBroker", () => {
     const [, sessionCapability, token] = new URL(resource.url).pathname.split("/");
 
     await expect(broker.readResource(sender.id, sessionCapability, token)).resolves.not.toBeNull();
-    expect(openedFlags & constants.O_NONBLOCK).toBe(constants.O_NONBLOCK);
+    // O_NONBLOCK is POSIX-only; on Windows it is undefined, so the bit is never
+    // set. Guard the assertion the same way O_NOFOLLOW below does, keeping the
+    // strict check on POSIX platforms where the constant exists.
+    if (constants.O_NONBLOCK !== undefined) {
+      expect(openedFlags & constants.O_NONBLOCK).toBe(constants.O_NONBLOCK);
+    }
     if (constants.O_NOFOLLOW !== undefined) {
       expect(openedFlags & constants.O_NOFOLLOW).toBe(constants.O_NOFOLLOW);
     }
