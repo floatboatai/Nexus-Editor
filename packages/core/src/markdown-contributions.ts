@@ -2,6 +2,8 @@ import { Facet, type EditorState, type Extension } from "@codemirror/state";
 import type { Root } from "mdast";
 
 import type {
+  MarkdownTransformObserver,
+  MarkdownTransformPerformanceSample,
   MarkdownTransformSnapshot,
   WidgetDefinitionContribution,
   WidgetDefinitionSnapshot,
@@ -84,13 +86,44 @@ export function widgetDefinitionSnapshotExtension(
   }));
 }
 
+/**
+ * Single guarded path for delivering a performance sample to a host observer.
+ * Observation is a side channel: a missing observer is a no-op, and a
+ * throwing observer must never interrupt the transform pipeline or alter
+ * editor semantics.
+ */
+export function notifyMarkdownTransformObserver(
+  observer: MarkdownTransformObserver | undefined,
+  sample: MarkdownTransformPerformanceSample,
+): void {
+  if (!observer) return;
+  try {
+    observer(sample);
+  } catch {
+    // Observation must not affect transform semantics.
+  }
+}
+
 export function applyMarkdownTransformSnapshots(
   state: EditorState,
   tree: Root,
+  onSample?: MarkdownTransformObserver,
 ): Root {
   let transformed = tree;
   for (const snapshot of state.facet(markdownTransformSnapshots)) {
-    transformed = snapshot.transform(transformed);
+    if (onSample) {
+      const startedAt = performance.now();
+      transformed = snapshot.transform(transformed);
+      notifyMarkdownTransformObserver(onSample, {
+        kind: "contribution",
+        registryId: snapshot.registryId,
+        version: snapshot.version,
+        durationMs: performance.now() - startedAt,
+      });
+    } else {
+      // Zero-instrumentation path: no observer, no timing overhead.
+      transformed = snapshot.transform(transformed);
+    }
   }
   return transformed;
 }

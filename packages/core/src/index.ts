@@ -88,6 +88,8 @@ export type {
   LivePreviewNodeType,
   LivePreviewRenderContext,
   LivePreviewRenderer,
+  MarkdownTransformObserver,
+  MarkdownTransformPerformanceSample,
   MarkdownTransformSnapshot,
   NexusPlugin,
   ParseResult,

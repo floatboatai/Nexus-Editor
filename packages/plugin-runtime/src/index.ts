@@ -155,6 +155,10 @@ export {
   type MarkdownRenderResult,
 } from "./markdown/post-processor-registry";
 export {
+  createMarkdownTransformMonitor,
+  type MarkdownTransformMonitorOptions,
+} from "./markdown-transform-monitor";
+export {
   RemarkTransformRegistry,
   type RemarkTransformRegistrationOptions,
   type RemarkTransformRegistryOptions,

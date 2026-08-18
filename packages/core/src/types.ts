@@ -110,6 +110,14 @@ export interface EditorConfig {
    * but emits an empty command list (useful for "no results" UIs).
    */
   slashMenuLimit?: number;
+  /**
+   * Optional host-side observer for synchronous markdown transform timing.
+   * Native contribution snapshots are reported individually (registryId +
+   * version); the legacy unified remark pipeline is reported as one sample
+   * with a reserved registryId. Hosts use this to detect slow plugins that
+   * block the editor's hot path (e.g. bridge into a diagnostics channel).
+   */
+  markdownTransformObserver?: MarkdownTransformObserver;
   onChange?: (doc: string, ast: Root) => void;
   onFocus?: () => void;
   onBlur?: () => void;
@@ -261,6 +269,44 @@ export interface MarkdownTransformSnapshot {
   readonly version: number;
   readonly transform: (tree: Root) => Root;
 }
+
+/**
+ * One completed synchronous markdown transform execution, measured from the
+ * moment the transform was invoked until it returned. Consumed by host
+ * performance observers — it is not part of the AST pipeline's own behavior.
+ *
+ * A discriminated union so hosts can distinguish per-contribution
+ * attribution from the legacy whole-pipeline sample without ambiguity:
+ * only native contributions carry a real registryId + version.
+ */
+export type MarkdownTransformPerformanceSample =
+  | {
+      /** Native contribution snapshot — attributed to its registry entry. */
+      readonly kind: "contribution";
+      /** Stable contribution id from the transform snapshot's registryId. */
+      readonly registryId: string;
+      /** Contribution version from the transform snapshot. */
+      readonly version: number;
+      /** Synchronous transform duration in milliseconds (float). */
+      readonly durationMs: number;
+    }
+  | {
+      /** Legacy unified remark pipeline — timed as one whole, not per plugin. */
+      readonly kind: "legacy-pipeline";
+      /** Synchronous pipeline duration in milliseconds (float). */
+      readonly durationMs: number;
+    };
+
+/**
+ * Host-side observer notified after each markdown transform contribution runs.
+ *
+ * A plain function type: core never interprets performance policy, only
+ * produces samples. Hosts (e.g. a diagnostics adapter) may throw — core MUST
+ * isolate observer errors so telemetry can never interrupt the AST pipeline.
+ */
+export type MarkdownTransformObserver = (
+  sample: MarkdownTransformPerformanceSample
+) => void;
 
 /** Stable identity paired with one dynamically replaceable Widget definition. */
 export interface WidgetDefinitionContribution {

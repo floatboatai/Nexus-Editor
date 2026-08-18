@@ -74,3 +74,23 @@ Multiple ranges in `setSelections` require `multiCursor: true` — without the f
 ## Other config highlights
 
 See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.
+
+### Markdown transform performance observation
+
+Hosts can optionally observe synchronous Markdown transform timing:
+
+```ts
+createEditor({
+  container,
+  markdownTransformObserver(sample) {
+    console.log(sample);
+  },
+});
+```
+
+Attribution granularity:
+
+- **Native contribution snapshots** (`kind: "contribution"`) are reported individually with their real `registryId` + `version`.
+- **Legacy unified remark pipeline** (`kind: "legacy-pipeline"`) is timed as one whole — multiple `remarkPlugins` share a single processor, so no per-plugin attribution is fabricated.
+
+Observation is a side channel: when no observer is configured there is zero timing overhead, and a throwing observer is isolated so it never affects transform semantics.

@@ -21,6 +21,7 @@ import {
   applyMarkdownTransformSnapshots,
   dynamicWidgetDefinitionExtension,
   getMarkdownTransformRevision,
+  notifyMarkdownTransformObserver,
 } from "./markdown-contributions";
 import { createLivePreviewExtension } from "./live-preview";
 import { flushPendingTableEdits } from "./live-preview-table";
@@ -44,6 +45,8 @@ import type {
   EditorEventHandler,
   EditorEventMap,
   EditorSelectionRange,
+  MarkdownTransformObserver,
+  MarkdownTransformPerformanceSample,
   NexusPlugin,
   ParserLike,
   SetDocumentOptions,
@@ -292,13 +295,37 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // transform pass would double-apply.
   const hasRemarkPlugins = plugins.some((plugin) => (plugin.remarkPlugins?.length ?? 0) > 0);
   const transformProcessor = !customParser && hasRemarkPlugins ? createTransformProcessor(plugins) : null;
+  // Host-side performance observer for synchronous markdown transforms. The
+  // unified remark pipeline is a single processor, so it can only be timed as
+  // one whole; native contribution snapshots are timed individually in
+  // applyMarkdownTransformSnapshots.
+  const markdownTransformObserver: MarkdownTransformObserver | undefined =
+    config.markdownTransformObserver;
+  const reportMarkdownTransformSample = (sample: MarkdownTransformPerformanceSample): void => {
+    notifyMarkdownTransformObserver(markdownTransformObserver, sample);
+  };
   // Forward ref so AST transforms can read dynamic contribution facets after
   // the EditorView exists while retaining a headless initial parse.
   const viewRef: { current: EditorView | null } = { current: null };
   const transformAst = (ast: Root): Root => {
-    const staticallyTransformed = transformProcessor ? transformProcessor.runSync(ast) : ast;
+    let staticallyTransformed = ast;
+    if (transformProcessor && markdownTransformObserver) {
+      const startedAt = performance.now();
+      staticallyTransformed = transformProcessor.runSync(ast);
+      reportMarkdownTransformSample({
+        kind: "legacy-pipeline",
+        durationMs: performance.now() - startedAt,
+      });
+    } else if (transformProcessor) {
+      // Zero-instrumentation path: no observer, no timing overhead.
+      staticallyTransformed = transformProcessor.runSync(ast);
+    }
     return viewRef.current
-      ? applyMarkdownTransformSnapshots(viewRef.current.state, staticallyTransformed)
+      ? applyMarkdownTransformSnapshots(
+          viewRef.current.state,
+          staticallyTransformed,
+          reportMarkdownTransformSample,
+        )
       : staticallyTransformed;
   };
   const locale = resolveLocale(config.locale);
@@ -467,6 +494,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
         currentAst = applyMarkdownTransformSnapshots(
           view.state,
           parseDocument(customParser, next),
+          reportMarkdownTransformSample,
         );
       } else {
         currentAst = transformAst(lezerAstFromAnywhere(viewRef, next));
@@ -625,7 +653,11 @@ export function createEditor(config: EditorConfig): EditorAPI {
               : transformProcessor
                 ? transformProcessor.runSync(lezerAstFromAnywhere(viewRef, markdown))
                 : lezerAstFromAnywhere(viewRef, markdown);
-            currentAst = applyMarkdownTransformSnapshots(update.state, baseAst);
+            currentAst = applyMarkdownTransformSnapshots(
+              update.state,
+              baseAst,
+              reportMarkdownTransformSample,
+            );
           }
           const silent = update.transactions.some((t) => t.annotation(silentDocChange) === true);
           const compositionTransaction = update.transactions.some((t) => t.isUserEvent("input.type.compose"));
@@ -790,7 +822,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
       return markdownToHtml(
         view.state.doc.toString(),
         plugins,
-        (tree) => applyMarkdownTransformSnapshots(view.state, tree),
+        (tree) => applyMarkdownTransformSnapshots(view.state, tree, reportMarkdownTransformSample),
       );
     },
     setTheme(theme: NexusTheme) {
@@ -893,6 +925,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
           currentAst = applyMarkdownTransformSnapshots(
             view.state,
             parseDocument(customParser, next),
+            reportMarkdownTransformSample,
           );
         } else {
           currentAst = transformAst(lezerAstFromAnywhere(viewRef, next));
