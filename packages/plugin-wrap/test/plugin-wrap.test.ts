@@ -165,4 +165,87 @@ describe("@floatboat/nexus-plugin-wrap", () => {
     expect(wrapClassOn(container)).toBe(true);
     handle.dispose();
   });
+
+  it("renamePath migrates every override under a renamed directory", () => {
+    const { handle } = makeEditor();
+    handle.setActiveFilePath("/tmp/docs/a.md");
+    handle.toggleCurrentFile();
+    handle.setActiveFilePath("/tmp/docs/sub/b.md");
+    handle.toggleCurrentFile();
+
+    handle.renamePath("/tmp/docs", "/tmp/notes");
+
+    handle.setActiveFilePath("/tmp/notes/a.md");
+    expect(handle.isEnabled()).toBe(true);
+    handle.setActiveFilePath("/tmp/notes/sub/b.md");
+    expect(handle.isEnabled()).toBe(true);
+    handle.setActiveFilePath("/tmp/docs/a.md");
+    expect(handle.isEnabled()).toBe(false);
+    handle.dispose();
+  });
+
+  it("toggleCurrentFile and setActiveFilePath are no-ops before attach", () => {
+    const handle = createWrapPlugin({ defaultWrap: false, storageKey: STORAGE_KEY });
+    expect(() => handle.toggleCurrentFile()).not.toThrow();
+    expect(() => handle.setActiveFilePath("/tmp/a.md")).not.toThrow();
+    expect(handle.isEnabled()).toBe(false);
+    handle.dispose();
+  });
+
+  it("detach then re-attach preserves the per-file override", () => {
+    const { container, handle, editor } = makeEditor();
+    handle.setActiveFilePath("/tmp/a.md");
+    handle.toggleCurrentFile();
+    expect(handle.isEnabled()).toBe(true);
+
+    handle.detach();
+    expect(() => handle.toggleCurrentFile()).not.toThrow();
+    expect(handle.isEnabled()).toBe(true);
+
+    handle.attach(editor, container);
+    handle.setActiveFilePath("/tmp/a.md");
+    expect(handle.isEnabled()).toBe(true);
+    expect(wrapClassOn(container)).toBe(true);
+    handle.dispose();
+  });
+
+  it("multiple onChange listeners each fire; unsubscribed ones do not", () => {
+    const { handle } = makeEditor();
+    handle.setActiveFilePath("/tmp/a.md");
+    const cb1 = vi.fn();
+    const cb2 = vi.fn();
+    const off1 = handle.onChange(cb1);
+    handle.onChange(cb2);
+
+    handle.toggleCurrentFile();
+    expect(cb1).toHaveBeenCalledWith(true);
+    expect(cb2).toHaveBeenCalledWith(true);
+
+    off1();
+    cb1.mockClear();
+    cb2.mockClear();
+
+    handle.toggleCurrentFile();
+    expect(cb1).not.toHaveBeenCalled();
+    expect(cb2).toHaveBeenCalledWith(false);
+    handle.dispose();
+  });
+
+  it("setCurrentFileWrap writes an explicit override without toggling", () => {
+    const { handle } = makeEditor();
+    handle.setActiveFilePath("/tmp/a.md");
+    expect(handle.isEnabled()).toBe(false);
+
+    handle.setCurrentFileWrap(true);
+    expect(handle.isEnabled()).toBe(true);
+
+    handle.setCurrentFileWrap(true);
+    expect(handle.isEnabled()).toBe(true);
+
+    handle.setActiveFilePath("/tmp/b.md");
+    expect(handle.isEnabled()).toBe(false);
+    handle.setActiveFilePath("/tmp/a.md");
+    expect(handle.isEnabled()).toBe(true);
+    handle.dispose();
+  });
 });
