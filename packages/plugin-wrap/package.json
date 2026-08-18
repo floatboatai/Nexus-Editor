@@ -1,0 +1,31 @@
+{
+  "name": "@floatboat/nexus-plugin-wrap",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@codemirror/view": "^6.36.1",
+    "@floatboat/nexus-core": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.9"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

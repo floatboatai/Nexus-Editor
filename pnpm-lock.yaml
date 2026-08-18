@@ -74,6 +74,9 @@ importers:
       '@floatboat/nexus-plugin-wordcount':
         specifier: workspace:*
         version: link:../../packages/plugin-wordcount
+      '@floatboat/nexus-plugin-wrap':
+        specifier: workspace:*
+        version: link:../../packages/plugin-wrap
       '@floatboat/nexus-preset-gfm':
         specifier: workspace:*
         version: link:../../packages/preset-gfm
@@ -281,6 +284,19 @@ importers:
       unified:
         specifier: ^11.0.5
         version: 11.0.5
+
+  packages/plugin-wrap:
+    dependencies:
+      '@codemirror/view':
+        specifier: ^6.36.1
+        version: 6.41.0
+      '@floatboat/nexus-core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@24.12.2)(jsdom@25.0.1)
 
   packages/preset-gfm:
     dependencies:

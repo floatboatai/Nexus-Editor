@@ -17,6 +17,7 @@ import {
   createSettingsPanel,
   type EditorSettings,
 } from "./settings";
+import { createWrapPlugin, type WrapPluginHandle } from "@floatboat/nexus-plugin-wrap";
 import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
 import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
@@ -42,6 +43,7 @@ installLongTaskWatch(50);
 const state: AppState = createState();
 let settings: EditorSettings = loadSettings();
 let shell: EditorShell;
+let wrapHandle: WrapPluginHandle | null = null;
 let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
@@ -150,7 +152,7 @@ function resolveWikilink(name: string): string | null {
   return fromIndexPath(resolved);
 }
 
-function createAppToolbar(): HTMLElement {
+function createAppToolbar(): { toolbar: HTMLElement; wrapToggleBtn: HTMLButtonElement } {
   const toolbar = document.createElement("div");
   toolbar.className = "toolbar";
 
@@ -200,6 +202,14 @@ function createAppToolbar(): HTMLElement {
   searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
 
+  const wrapToggleBtn = document.createElement("button");
+  wrapToggleBtn.textContent = "\u21B5"; // ↵
+  wrapToggleBtn.title = "Toggle word wrap (Option+Z)";
+  wrapToggleBtn.style.fontSize = "14px";
+  wrapToggleBtn.style.minWidth = "28px";
+  wrapToggleBtn.style.transition = "background-color .15s, color .15s";
+  wrapToggleBtn.dataset.role = "wrap-toggle";
+
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "\u2699"; // ⚙
   settingsBtn.title = "Settings";
@@ -216,9 +226,10 @@ function createAppToolbar(): HTMLElement {
     outlineBtn,
     backlinksBtn,
     searchBtn,
+    wrapToggleBtn,
     settingsBtn
   );
-  return toolbar;
+  return { toolbar, wrapToggleBtn };
 }
 
 function createPluginSlot(slot: UiSlot): HTMLElement {
@@ -280,6 +291,7 @@ async function handleOpen(): Promise<void> {
     state.filePath = result.path;
     state.activeFile = result.path;
     shell.loadDocument(result.content);
+    applyWrapForCurrentFile();
     vault.setActiveFile(result.path);
     await syncRuntimeActiveFile(result.path);
     backlinks.refresh();
@@ -325,6 +337,7 @@ async function handleSaveAs(): Promise<void> {
       state.filePath = created.path;
       state.activeFile = created.path;
       state.dirty = false;
+      carryWrapToNewFile(created.path);
       vault.setActiveFile(created.path);
       await syncRuntimeActiveFile(created.path);
       renderStatus();
@@ -336,6 +349,7 @@ async function handleSaveAs(): Promise<void> {
     state.filePath = result.path;
     state.activeFile = result.path;
     state.dirty = false;
+    carryWrapToNewFile(result.path);
     vault.setActiveFile(result.path);
     await syncRuntimeActiveFile(result.path);
   } catch (err) {
@@ -404,6 +418,7 @@ function settingValue<T extends SettingValue>(
 }
 
 function applyRuntimeEditorSettings(values: Readonly<Record<string, SettingValue>>): void {
+  const prev: EditorSettings = settings;
   const next: EditorSettings = {
     colorScheme: settingValue(values, "colorScheme", settings.colorScheme) === "dark" ? "dark" : "light",
     fontSize: settingValue(values, "fontSize", settings.fontSize),
@@ -415,14 +430,34 @@ function applyRuntimeEditorSettings(values: Readonly<Record<string, SettingValue
     indentGuides: settingValue(values, "indentGuides", settings.indentGuides),
     lineNumbers: settingValue(values, "lineNumbers", settings.lineNumbers),
     livePreview: settingValue(values, "livePreview", settings.livePreview),
+    wordWrap: settingValue(values, "wordWrap", settings.wordWrap),
   };
   settings = next;
   saveSettings(next);
   shell.applySettings(next);
+  if (prev.wordWrap !== next.wordWrap && wrapHandle) {
+    wrapHandle.setDefaultWrap(next.wordWrap);
+  }
 }
 
 function applyRuntimeEditorSetting(key: keyof EditorSettings, value: SettingValue): void {
   applyRuntimeEditorSettings({ ...settings, [key]: value });
+}
+
+function applyWrapForCurrentFile(): void {
+  if (wrapHandle) wrapHandle.setActiveFilePath(state.filePath);
+}
+
+function toggleWrapForCurrentFile(): void {
+  if (wrapHandle) wrapHandle.toggleCurrentFile();
+}
+
+function carryWrapToNewFile(newFilePath: string): void {
+  if (wrapHandle) wrapHandle.carryStateToNewFile(newFilePath);
+}
+
+function renameWrapForPath(oldPath: string, newPath: string): void {
+  if (wrapHandle) wrapHandle.renamePath(oldPath, newPath);
 }
 
 function createProductSettingTab(): SettingTabDefinition {
@@ -441,6 +476,7 @@ function createProductSettingTab(): SettingTabDefinition {
       { id: "lineNumbers", type: "toggle", name: "Line numbers", defaultValue: settings.lineNumbers },
       { id: "livePreview", type: "toggle", name: "Live preview", defaultValue: settings.livePreview },
       { id: "indentGuides", type: "toggle", name: "Indent guides", defaultValue: settings.indentGuides },
+      { id: "wordWrap", type: "toggle", name: "Word wrap", description: "Wrap long lines instead of horizontal scroll (Option+Z)", defaultValue: settings.wordWrap },
       {
         id: "contentMaxWidth",
         type: "text",
@@ -522,6 +558,7 @@ async function handleVaultFileOpen(filePath: string): Promise<void> {
 
     const load = perfStart("open-file.loadDocument");
     shell.loadDocument(result.content);
+    applyWrapForCurrentFile();
     perfEnd(load);
 
     const setActive = perfStart("open-file.vault.setActiveFile");
@@ -745,6 +782,19 @@ function handleGlobalKeydown(event: KeyboardEvent): void {
   if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "f") {
     event.preventDefault();
     searchBar.open();
+    return;
+  }
+  // macOS remaps Option+Z to Ω, so match on the physical key.
+  // When the editor is focused and the key wasn't remapped (Windows/Linux),
+  // let CM6's own keymap handle it to avoid double-firing.
+  if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
+      && event.code === "KeyZ" && wrapHandle) {
+    const ae = document.activeElement as Element | null;
+    const inEditor = !!ae && !!ae.closest && !!ae.closest(".cm-content");
+    const keyIsPlainLetter = /^[a-zA-Z]$/.test(event.key);
+    if (inEditor && keyIsPlainLetter) return;
+    event.preventDefault();
+    wrapHandle.toggleCurrentFile();
   }
 }
 
@@ -814,7 +864,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
     state.linkIndex = legacyLinkIndex;
   }
 
-  const appToolbar = createAppToolbar();
+  const { toolbar: appToolbar, wrapToggleBtn } = createAppToolbar();
   const statusLine = createStatusLine(slots["status-bar"]);
 
   const mainArea = document.createElement("div");
@@ -827,6 +877,19 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
   editorContainer.className = "editor-container";
   appToolbar.append(slots.ribbon, slots["view-toolbar"]);
   root.append(appToolbar, slots["command-palette"], mainArea, statusLine);
+
+  const syncWrapToggleButton = (on: boolean) => {
+    wrapToggleBtn.classList.toggle("is-active", on);
+    wrapToggleBtn.style.backgroundColor = on ? "var(--nexus-accent,#2563eb)" : "";
+    wrapToggleBtn.style.color = on ? "#fff" : "";
+    wrapToggleBtn.style.borderRadius = on ? "6px" : "";
+  };
+  syncWrapToggleButton(settings.wordWrap);
+
+  wrapHandle = createWrapPlugin({
+    defaultWrap: settings.wordWrap,
+    storageKey: "nexus-demo.wrap-state.v1",
+  });
 
   shell = createEditorShell({
     container: editorContainer,
@@ -858,11 +921,20 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
             bundledReferencePlugins.some((entry) => entry.Plugin === Plugin && entry.manifest.id === "wordcount"))
         : bootPlan.legacyUi.wordCount,
     },
-    editorContributions: bootPlan.mode === "runtime"
-      ? bootPlan.editorContributions
-      : [],
+    editorContributions: [
+      ...(bootPlan.mode === "runtime" ? bootPlan.editorContributions : []),
+      wrapHandle.plugin,
+    ],
   });
   shellCreated = true;
+
+  wrapHandle.attach(shell.editor, editorContainer);
+  syncWrapToggleButton(wrapHandle.isEnabled());
+  wrapHandle.onChange(syncWrapToggleButton);
+
+  wrapToggleBtn.addEventListener("click", () => {
+    wrapHandle?.toggleCurrentFile();
+  });
 
   if (bootPlan.mode === "runtime") {
     slots["editor-toolbar"].classList.add("nexus-toolbar");
@@ -886,6 +958,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
         state.filePath = null;
         state.activeFile = null;
         shell.loadDocument("");
+        applyWrapForCurrentFile();
         vault.setActiveFile(null);
       }
       await syncRuntimeActiveFile(state.activeFile);
@@ -898,10 +971,13 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
         const nextActive = `${newPath}${activePath.slice(oldPath.length)}`;
         state.activeFile = nextActive;
         if (state.filePath === activePath) state.filePath = nextActive;
+        renameWrapForPath(oldPath, newPath);
         vault.setActiveFile(nextActive);
         await syncRuntimeActiveFile(nextActive);
         backlinks.refresh();
         renderStatus();
+      } else {
+        renameWrapForPath(oldPath, newPath);
       }
     },
     onFileDeleted: async (deletedPath) => {
@@ -910,6 +986,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
       state.activeFile = null;
       if (state.filePath === activePath) state.filePath = null;
       shell.loadDocument("");
+      applyWrapForCurrentFile();
       vault.setActiveFile(null);
       await syncRuntimeActiveFile(null);
       backlinks.refresh();
@@ -1007,7 +1084,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
     });
   }
 
-  document.addEventListener("keydown", handleGlobalKeydown);
+  document.addEventListener("keydown", handleGlobalKeydown, true);
 
   renderStatus();
   perfEnd(bootScope);
