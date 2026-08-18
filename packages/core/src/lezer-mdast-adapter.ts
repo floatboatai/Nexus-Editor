@@ -16,8 +16,10 @@ import type {
   Heading,
   Html,
   Image,
+  ImageReference,
   InlineCode,
   Link,
+  LinkReference,
   List,
   ListItem,
   Paragraph,
@@ -32,7 +34,7 @@ import type {
   ThematicBreak,
 } from "mdast";
 
-import { findChildByName, headingDepth } from "./lezer-helpers";
+import { findChildByName, headingDepth, isAtxHeading } from "./lezer-helpers";
 
 // Lezer markdown's Document tree → real mdast Root. Designed to be CHEAP
 // (one synchronous walk, viewport-agnostic) so it can fully replace the
@@ -86,33 +88,92 @@ function readSlice(source: Source, from: number, to: number): string {
 }
 
 /**
- * Strip the leading `#` markers (and a single trailing newline if any) from
- * an ATX heading source so the synthesized text node matches what remark
- * emits for `## title`.
+ * Strip the optional `<…>` around a link destination. CommonMark allows the
+ * angle-bracket form so a url can contain spaces; the brackets are delimiters,
+ * not part of the url, and remark drops them.
+ */
+function unwrapUrl(raw: string): string {
+  return raw.startsWith("<") && raw.endsWith(">") ? raw.slice(1, -1) : raw;
+}
+
+/**
+ * mdast keys references by a case-folded `identifier` while keeping the
+ * author's casing in `label`, so `[Foo]` resolves against `[foo]: …`.
+ */
+function referenceIdentifier(label: string): string {
+  return label.toLowerCase();
+}
+
+/**
+ * Read the optional title out of a Link/Image destination.
+ *
+ * Lezer wraps it in a `LinkTitle` child that still carries its delimiters, and
+ * CommonMark allows three of them — `"…"`, `'…'`, `(…)`. remark strips the
+ * delimiters and collapses an empty title to `null`, so we match that: callers
+ * comparing against `remarkParse` output would otherwise see `""` vs `null`.
+ * Whitespace *inside* the title is significant and left alone.
+ */
+function readLinkTitle(source: Source, node: SyntaxNode): string | null {
+  const titleNode = findChildByName(node, "LinkTitle");
+  if (!titleNode) return null;
+  const raw = readSlice(source, titleNode.from, titleNode.to);
+  const opener = raw[0];
+  const closer = opener === "(" ? ")" : opener;
+  const unwrapped =
+    raw.length >= 2 && (opener === '"' || opener === "'" || opener === "(") && raw.endsWith(closer)
+      ? raw.slice(1, -1)
+      : raw;
+  return unwrapped === "" ? null : unwrapped;
+}
+
+/**
+ * Locate the text span of a heading, excluding its syntax markers, so the
+ * synthesized text node matches what remark emits.
+ *
+ * The two heading forms place `HeaderMark` differently, and conflating them
+ * silently empties setext headings:
+ *
+ *   ATX     `## title ##`  → HeaderMark(opening) [, HeaderMark(closing)]
+ *   setext  `title\n=====` → HeaderMark(underline) only, AFTER the text
+ *
+ * So an ATX-shaped "skip leading marks, then trim trailing marks" walk reads
+ * the setext underline as both the opening and the closing mark, leaving
+ * `cursor` past `end`.
  */
 function headingTextRange(source: Source, node: SyntaxNode): { from: number; to: number } {
-  // Skip past the opening HeaderMark child(ren) (the `##`).
+  // setext: the sole HeaderMark is the underline, so the text is everything
+  // before it. Nothing to skip at the front.
+  if (!isAtxHeading(node.name)) {
+    let end = node.to;
+    const underline = findChildByName(node, "HeaderMark");
+    if (underline) end = underline.from;
+    let cursor = node.from;
+    while (cursor < end && /\s/.test(source.slice(cursor, cursor + 1))) cursor++;
+    while (end > cursor && /\s/.test(source.slice(end - 1, end))) end--;
+    return { from: cursor, to: end };
+  }
+
+  // Skip the opening `##`. Lezer emits the heading text as raw source rather
+  // than a child node, so in `## title ##` the closing run is the immediate
+  // next sibling — consuming every leading HeaderMark would swallow it too and
+  // leave the range empty.
   let cursor = node.from;
   let openingEnd = node.from;
-  let child = node.firstChild;
-  while (child && child.name === "HeaderMark") {
-    cursor = child.to;
-    openingEnd = child.to;
-    child = child.nextSibling;
+  const opening = node.firstChild;
+  if (opening && opening.name === "HeaderMark") {
+    cursor = opening.to;
+    openingEnd = opening.to;
   }
   // Trim leading whitespace.
   while (cursor < node.to && /\s/.test(source.slice(cursor, cursor + 1))) cursor++;
 
-  // Trim trailing closing `#` markers — but only if they are SEPARATE from
-  // the opening run (i.e. start past `openingEnd`). Without this guard a
-  // heading with a single HeaderMark child (the common case `# Title`) has
-  // its `lastChild` equal to the opening mark and we'd collapse the text
-  // range to nothing.
+  // Trim the optional closing `#` run. It must start past the opening run —
+  // otherwise it *is* the opening run (`# title`, a single HeaderMark child)
+  // and consuming it would collapse the range to nothing.
   let end = node.to;
-  let trailing = node.lastChild;
-  while (trailing && trailing.name === "HeaderMark" && trailing.from >= openingEnd) {
+  const trailing = node.lastChild;
+  if (trailing && trailing.name === "HeaderMark" && trailing.from >= openingEnd) {
     end = trailing.from;
-    trailing = trailing.prevSibling;
   }
   while (end > cursor && /\s/.test(source.slice(end - 1, end))) end--;
   return { from: cursor, to: end };
@@ -247,6 +308,83 @@ const MARKER_NODE_NAMES = new Set([
   "TableDelimiter",
 ]);
 
+/**
+ * Adapt the label of a Link/Autolink — the run between the first `[` and its
+ * matching `]` — recursively, so `[![logo](img)](page)` keeps its nested Image
+ * and `[**bold**](url)` keeps its Strong wrapper rather than collapsing to a
+ * single flat Text node.
+ */
+function readLinkLabelChildren(source: Source, node: SyntaxNode): PhrasingContent[] {
+  let labelStartMark: SyntaxNode | null = null;
+  let labelEndMark: SyntaxNode | null = null;
+  let seen = 0;
+  for (let c = node.firstChild; c; c = c.nextSibling) {
+    if (c.name !== "LinkMark") continue;
+    seen++;
+    if (seen === 1) labelStartMark = c;
+    else if (seen === 2) {
+      labelEndMark = c;
+      break;
+    }
+  }
+  if (!labelStartMark || !labelEndMark) {
+    // Autolink / bare URL — no `[]`, the whole node is the label.
+    return [emitText(source, node.from, node.to)];
+  }
+  const labelEnd = labelEndMark.from;
+  const out: PhrasingContent[] = [];
+  let cursor = labelStartMark.to;
+  for (let c = labelStartMark.nextSibling; c && c !== labelEndMark; c = c.nextSibling) {
+    if (c.from >= labelEnd) break;
+    if (c.from > cursor) out.push(emitText(source, cursor, c.from));
+    const adapted = adaptInlineNode(source, c);
+    if (adapted) out.push(adapted);
+    cursor = c.to;
+  }
+  if (cursor < labelEnd) out.push(emitText(source, cursor, labelEnd));
+  return out;
+}
+
+/**
+ * Classify a Link/Image node as one of mdast's three reference forms, or return
+ * null when it carries its own `(url)` and is a plain link.
+ *
+ *   full       `[text][ref]`  → LinkLabel `[ref]`
+ *   collapsed  `[text][]`     → LinkLabel `[]` (empty, so the text is the label)
+ *   shortcut   `[text]`       → no LinkLabel and no URL
+ *
+ * Known deviation from remark: CommonMark only treats these as references when
+ * a matching definition exists, and falls back to literal text otherwise.
+ * Resolving that needs every definition in the document up front, which would
+ * turn this adapter's single cheap pass into two — the whole reason it exists is
+ * to stay on the live-preview hot path. So an undefined reference is still
+ * emitted as a `linkReference`; consumers that care can check `identifier`
+ * against the document's `definition` nodes.
+ */
+function readReference(
+  source: Source,
+  node: SyntaxNode,
+): { identifier: string; label: string; referenceType: "full" | "collapsed" | "shortcut" } | null {
+  if (findChildByName(node, "URL")) return null;
+  const labelChildren = readLinkLabelChildren(source, node);
+  // The link text doubles as the label for the collapsed and shortcut forms.
+  const textLabel = labelChildren
+    .map((child) => readSlice(source, child.position?.start.offset ?? 0, child.position?.end.offset ?? 0))
+    .join("");
+
+  const labelNode = findChildByName(node, "LinkLabel");
+  if (!labelNode) {
+    if (textLabel === "") return null;
+    return { identifier: referenceIdentifier(textLabel), label: textLabel, referenceType: "shortcut" };
+  }
+  const inner = readSlice(source, labelNode.from, labelNode.to).replace(/^\[|\]$/g, "");
+  if (inner === "") {
+    if (textLabel === "") return null;
+    return { identifier: referenceIdentifier(textLabel), label: textLabel, referenceType: "collapsed" };
+  }
+  return { identifier: referenceIdentifier(inner), label: inner, referenceType: "full" };
+}
+
 /** Inline-only adapter — delimiter marks and structural wrappers are skipped. */
 function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | null {
   const name = node.name;
@@ -311,49 +449,32 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
     case "Link":
     case "Autolink":
     case "URL": {
+      const labelChildren = readLinkLabelChildren(source, node);
+      // `[text][ref]` / `[text][]` / `[text]` are references, not links: mdast
+      // leaves the destination in the companion `definition` node and expects a
+      // `linkReference` here.
+      const reference = name === "Link" ? readReference(source, node) : null;
+      if (reference) {
+        const out: LinkReference = {
+          type: "linkReference",
+          identifier: reference.identifier,
+          label: reference.label,
+          referenceType: reference.referenceType,
+          children: labelChildren as LinkReference["children"],
+          position: position(node.from, node.to),
+        };
+        return out;
+      }
       // Lezer Link: contains LinkMark `[`, label content, LinkMark `]`,
       // optional `(URL "title")`. We pull URL via child name.
       const url = findChildByName(node, "URL");
-      const urlText = url ? readSlice(source, url.from, url.to) : readSlice(source, node.from, node.to).replace(/^<|>$/g, "");
-      // Walk children between the first `[` and the matching `]` and
-      // recursively adapt nested inline nodes (Image, StrongEmphasis,
-      // Emphasis, InlineCode, etc.) so things like
-      // `[![logo](imgUrl)](pageUrl)` keep their nested Image, and
-      // `[**bold link**](url)` keeps its Strong wrapper. The previous
-      // implementation emitted the label as a single flat Text node,
-      // which dropped every nested mdast node.
-      const labelChildren: PhrasingContent[] = (() => {
-        let labelStartMark: SyntaxNode | null = null;
-        let labelEndMark: SyntaxNode | null = null;
-        let seen = 0;
-        for (let c = node.firstChild; c; c = c.nextSibling) {
-          if (c.name !== "LinkMark") continue;
-          seen++;
-          if (seen === 1) labelStartMark = c;
-          else if (seen === 2) { labelEndMark = c; break; }
-        }
-        if (!labelStartMark || !labelEndMark) {
-          // Autolink / bare URL — no `[]`, the whole node is the label.
-          return [emitText(source, node.from, node.to)];
-        }
-        const labelFrom = labelStartMark.to;
-        const labelEnd = labelEndMark.from;
-        const out: PhrasingContent[] = [];
-        let cursor = labelFrom;
-        for (let c = labelStartMark.nextSibling; c && c !== labelEndMark; c = c.nextSibling) {
-          if (c.from >= labelEnd) break;
-          if (c.from > cursor) out.push(emitText(source, cursor, c.from));
-          const adapted = adaptInlineNode(source, c);
-          if (adapted) out.push(adapted);
-          cursor = c.to;
-        }
-        if (cursor < labelEnd) out.push(emitText(source, cursor, labelEnd));
-        return out;
-      })();
+      const urlText = url
+        ? unwrapUrl(readSlice(source, url.from, url.to))
+        : readSlice(source, node.from, node.to).replace(/^<|>$/g, "");
       const out: Link = {
         type: "link",
         url: urlText,
-        title: null,
+        title: readLinkTitle(source, node),
         children: labelChildren as Link["children"],
         position: position(node.from, node.to),
       };
@@ -361,7 +482,7 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
     }
     case "Image": {
       const url = findChildByName(node, "URL");
-      const urlText = url ? readSlice(source, url.from, url.to) : "";
+      const urlText = url ? unwrapUrl(readSlice(source, url.from, url.to)) : "";
       // Image label sits between `![` and `]` — same structure as Link.
       let alt = "";
       const first = node.firstChild;
@@ -377,11 +498,25 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
         }
         alt = readSlice(source, altFrom, altTo);
       }
+      // `![alt][ref]` mirrors `[text][ref]` — mdast wants an `imageReference`,
+      // with `alt` standing in for the label the way link text does.
+      const reference = readReference(source, node);
+      if (reference) {
+        const out: ImageReference = {
+          type: "imageReference",
+          identifier: reference.identifier,
+          label: reference.label,
+          referenceType: reference.referenceType,
+          alt,
+          position: position(node.from, node.to),
+        };
+        return out;
+      }
       const out: Image = {
         type: "image",
         url: urlText,
         alt,
-        title: null,
+        title: readLinkTitle(source, node),
         position: position(node.from, node.to),
       };
       return out;
@@ -644,16 +779,28 @@ function adaptBlockquote(source: Source, node: SyntaxNode): Blockquote {
   };
 }
 
+/**
+ * `[label]: url "title"` → mdast `definition`.
+ *
+ * Lezer already breaks this into `LinkLabel` / `URL` / `LinkTitle` children, so
+ * we read those instead of re-parsing the line. The previous single regex
+ * mis-handled three cases the node tree gets right: a `<…>` url containing
+ * spaces (`\S+` truncated it), a single-quoted or parenthesised title (only
+ * `"…"` was matched), and the case-folded `identifier` mdast keys references by.
+ */
 function adaptLinkReference(source: Source, node: SyntaxNode): Definition {
-  // Definition source: `[label]: url "title"`
-  const src = readSlice(source, node.from, node.to);
-  const m = /^\[([^\]]+)\]:\s*(\S+)(?:\s+"([^"]*)")?/.exec(src);
+  const labelNode = findChildByName(node, "LinkLabel");
+  // LinkLabel spans the brackets themselves — `[ref]` — so trim them off.
+  const label = labelNode
+    ? readSlice(source, labelNode.from, labelNode.to).replace(/^\[|\]$/g, "")
+    : "";
+  const urlNode = findChildByName(node, "URL");
   return {
     type: "definition",
-    identifier: m ? m[1] : "",
-    label: m ? m[1] : undefined,
-    url: m ? m[2] : "",
-    title: m ? m[3] ?? null : null,
+    identifier: referenceIdentifier(label),
+    label: labelNode ? label : undefined,
+    url: urlNode ? unwrapUrl(readSlice(source, urlNode.from, urlNode.to)) : "",
+    title: readLinkTitle(source, node),
     position: position(node.from, node.to),
   };
 }

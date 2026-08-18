@@ -59,4 +59,20 @@ describe("live preview ranges", () => {
 
     expect(ranges.map((range) => range.node.type)).toEqual(["table", "heading"]);
   });
+
+  it("keeps decorating a reference link now that it is a linkReference", () => {
+    // The adapter used to emit reference links as `link` nodes; switching them
+    // to mdast's `linkReference` must not drop them out of the range set, or the
+    // editor silently stops decorating `[text][ref]`.
+    const doc = 'See [full][ref] here.\n\n[ref]: /target "T"';
+    const ranges = collectLivePreviewRanges(
+      lezerStringToMdast(doc),
+      doc,
+      [EditorSelection.cursor(doc.length)]
+    );
+
+    const reference = ranges.find((range) => range.node.type === "linkReference");
+    expect(reference).toBeDefined();
+    expect(reference?.source).toBe("[full][ref]");
+  });
 });

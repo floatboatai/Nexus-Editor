@@ -25,6 +25,7 @@ function isLivePreviewNode(node: Content): node is LivePreviewNode {
     node.type === "html" ||
     node.type === "inlineCode" ||
     node.type === "link" ||
+    node.type === "linkReference" ||
     node.type === "strong" ||
     node.type === "table" ||
     node.type === "thematicBreak"
