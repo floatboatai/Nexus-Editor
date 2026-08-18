@@ -105,6 +105,18 @@ function describeActiveCell(): string {
 }
 
 const SEPARATOR_RE = /^\|?\s*[-:]+\s*(\|\s*[-:]+\s*)*\|?\s*$/;
+// A table data row starts with a literal `|`. We accept leading whitespace
+// so editor-indented tables still parse. The separator line is matched by
+// SEPARATOR_RE and is recognised separately so a bare separator-only slice
+// is still a valid "table start" for dispatch().
+const TABLE_LINE_RE = /^\s*\|/;
+
+function looksLikeTableStart(slice: string): boolean {
+  if (!slice) return false;
+  const firstNL = slice.indexOf("\n");
+  const firstLine = firstNL < 0 ? slice : slice.slice(0, firstNL);
+  return TABLE_LINE_RE.test(firstLine) || SEPARATOR_RE.test(firstLine);
+}
 
 // Session-scoped store of user-customised column widths. Keyed by the
 // table's header line (e.g. `| 头像 | 用户名 | 主页 |`) so widths survive
@@ -595,15 +607,55 @@ export class EditableTableWidget extends WidgetType {
   private dispatch(newSource: string): void {
     const v = this.viewRef.current;
     if (!v) return;
-    const tableEnd = this.tableFrom + this.source.length;
-    if (tableEnd > v.state.doc.length || v.state.doc.sliceString(this.tableFrom, tableEnd) !== this.source) {
+    const from = this.tableFrom;
+    // Re-derive the table range from the live doc each time so we don't rely
+    // on a stale `this.source.length` snapshot. After a cell edit (IME,
+    // selection, partial typing) the snapshot length is wrong and the old
+    // tableFrom + source.length formula either eats trailing paragraphs
+    // (when the snapshot is too long) or misses the last row (when it is
+    // too short).
+    const live = this.liveSource();
+    const liveEnd = from + live.length;
+    // Range-shape guard: only write back if the slice starting at tableFrom
+    // still looks like the start of a table. If it doesn't, the widget has
+    // drifted (e.g. the table node was deleted underneath us). Refuse the
+    // dispatch and let the StateField rebuild the widget on the next pass.
+    if (!looksLikeTableStart(live)) {
+      this.source = live;
       return;
     }
-    v.dispatch({ changes: { from: this.tableFrom, to: this.tableFrom + this.source.length, insert: newSource } });
+    v.dispatch({ changes: { from, to: liveEnd, insert: newSource } });
+    this.source = newSource;
+  }
+
+  /**
+   * Read the current table content from the live editor doc. Walks line by
+   * line using `doc.lineAt` (no length guessing) and stops at the first line
+   * that is not a table line or the separator — Markdown's canonical table
+   * terminator.
+   */
+  private liveSource(): string {
+    const v = this.viewRef.current;
+    if (!v) return this.source;
+    const doc = v.state.doc;
+    const lines: string[] = [];
+    let pos = this.tableFrom;
+    const end = doc.length;
+    // Walk forward. A blank line, a line that does not start with `|`, or the
+    // end of the doc terminates the table.
+    while (pos <= end) {
+      const ln = doc.lineAt(pos);
+      const text = doc.sliceString(ln.from, ln.to);
+      if (text === "") break;
+      if (!TABLE_LINE_RE.test(text) && !SEPARATOR_RE.test(text)) break;
+      lines.push(text);
+      pos = ln.to + 1;
+    }
+    return lines.join("\n");
   }
 
   private deleteColumn(colIdx: number): void {
-    const lines = this.source.split("\n");
+    const lines = this.liveSource().split("\n");
     const newLines = lines.map((line) => {
       const cells = line.split("|").filter((_, i, a) => i > 0 && i < a.length - 1);
       if (cells.length === 0) return line;
@@ -614,7 +666,7 @@ export class EditableTableWidget extends WidgetType {
   }
 
   private deleteRow(rowIdx: number): void {
-    const lines = this.source.split("\n");
+    const lines = this.liveSource().split("\n");
     const dataLines: number[] = [];
     for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dataLines.push(i);
     const lineIdx = dataLines[rowIdx];
@@ -624,7 +676,7 @@ export class EditableTableWidget extends WidgetType {
   }
 
   private addColumn(): void {
-    const lines = this.source.split("\n");
+    const lines = this.liveSource().split("\n");
     const nl = lines.map((l) => SEPARATOR_RE.test(l) ? l.replace(/\|?\s*$/, " | --- |") : l.replace(/\|?\s*$/, " |  |"));
     this.dispatch(nl.join("\n"));
   }
@@ -634,11 +686,21 @@ export class EditableTableWidget extends WidgetType {
     const nr = "\n| " + Array(cc).fill("  ").join(" | ") + " |";
     const v = this.viewRef.current;
     if (!v) return;
-    v.dispatch({ changes: { from: this.tableFrom + this.source.length, insert: nr } });
+    const live = this.liveSource();
+    const liveEnd = this.tableFrom + live.length;
+    // Range-shape guard (same idea as dispatch()): don't append if the slice
+    // starting at tableFrom is no longer a table. The widget will be rebuilt
+    // by the StateField on the next pass.
+    if (!looksLikeTableStart(live)) {
+      this.source = live;
+      return;
+    }
+    v.dispatch({ changes: { from: liveEnd, insert: nr } });
+    this.source = live + nr;
   }
 
-  private moveColumn(from: number, to: number, source = this.source): void {
-    const lines = source.split("\n");
+  private moveColumn(from: number, to: number): void {
+    const lines = this.liveSource().split("\n");
     const nl = lines.map((line) => {
       const p = line.split("|"), cells = p.slice(1, -1);
       if (from >= cells.length || to >= cells.length) return line;
@@ -649,8 +711,8 @@ export class EditableTableWidget extends WidgetType {
     this.dispatch(nl.join("\n"));
   }
 
-  private moveRow(from: number, to: number, source = this.source): void {
-    const lines = source.split("\n");
+  private moveRow(from: number, to: number): void {
+    const lines = this.liveSource().split("\n");
     const dl: number[] = [];
     for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dl.push(i);
     const s = dl[from], d = dl[to];
