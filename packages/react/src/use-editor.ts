@@ -24,7 +24,7 @@ export function useEditor(config: UseEditorConfig): UseEditorResult {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<ReturnType<typeof createEditor> | null>(null);
   const [editor, setEditor] = useState<ReturnType<typeof createEditor> | null>(null);
-  const [, setSyncRevision] = useState(0);
+  const [syncRevision, setSyncRevision] = useState(0);
   const configRef = useRef(config);
   const lastSyncedDocRef = useRef<string | null>(null);
 
@@ -96,7 +96,7 @@ export function useEditor(config: UseEditorConfig): UseEditorResult {
     instance.setDocument(value, { silent: true });
     lastSyncedDocRef.current = value;
     setSyncRevision((revision) => revision + 1);
-  }, [config.value, editor]);
+  }, [config.value, editor, syncRevision]);
 
   return {
     containerRef,

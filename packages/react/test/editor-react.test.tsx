@@ -149,6 +149,30 @@ describe("@floatboat/nexus-react", () => {
     });
   });
 
+  it("restores the controlled value when the parent rejects a document change", async () => {
+    const onChange = vi.fn();
+
+    function Harness() {
+      const { containerRef, editor } = useEditor({
+        value: "accepted",
+        onChange
+      });
+
+      useEffect(() => {
+        editor?.setDocument("rejected");
+      }, [editor]);
+
+      return <div ref={containerRef} />;
+    }
+
+    const { container } = render(<Harness />);
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith("rejected", expect.anything());
+      expect(container.querySelector(".cm-line")?.textContent).toBe("accepted");
+    });
+  });
+
   it("skips silent setDocument when controlled value already matches the last change", async () => {
     const silentDocs: string[] = [];
 
@@ -178,10 +202,11 @@ describe("@floatboat/nexus-react", () => {
       return <div ref={containerRef} />;
     }
 
-    render(<Harness />);
+    const { container } = render(<Harness />);
 
     await waitFor(() => {
-      expect(silentDocs.filter((doc) => doc === "beta")).toHaveLength(0);
+      expect(container.querySelector(".cm-line")?.textContent).toBe("beta");
+      expect(silentDocs).toHaveLength(0);
     });
   });
 

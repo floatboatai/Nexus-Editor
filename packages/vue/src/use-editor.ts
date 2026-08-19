@@ -69,8 +69,8 @@ export function useEditor(config: MaybeRefOrGetter<UseEditorConfig>): UseEditorR
   });
 
   watch(
-    () => resolveConfig().modelValue,
-    (value) => {
+    () => [resolveConfig().modelValue, syncRevision.value] as const,
+    ([value]) => {
       const instance = editor.value;
 
       if (!instance || value === undefined) {

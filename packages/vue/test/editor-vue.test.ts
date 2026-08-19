@@ -181,6 +181,61 @@ describe("@floatboat/nexus-vue", () => {
     });
   });
 
+  it("restores modelValue when the parent rejects a document change", async () => {
+    const onChange = vi.fn();
+
+    const Harness = defineComponent({
+      setup() {
+        const { containerRef, editor } = useEditor({
+          modelValue: "accepted",
+          onChange
+        });
+
+        onMounted(() => {
+          editor.value?.setDocument("rejected");
+        });
+
+        return () => h("div", { ref: containerRef });
+      }
+    });
+
+    const wrapper = mount(Harness);
+    await nextTick();
+
+    await vi.waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith("rejected", expect.anything());
+      expect(wrapper.element.querySelector(".cm-line")?.textContent).toBe("accepted");
+    });
+  });
+
+  it("keeps a document change when the parent accepts it", async () => {
+    const doc = ref("alpha");
+    const Harness = defineComponent({
+      setup() {
+        const { containerRef, editor } = useEditor(() => ({
+          modelValue: doc.value,
+          onChange: (next) => {
+            doc.value = next;
+          }
+        }));
+
+        onMounted(() => {
+          editor.value?.setDocument("beta");
+        });
+
+        return () => h("div", { ref: containerRef });
+      }
+    });
+
+    const wrapper = mount(Harness);
+    await nextTick();
+
+    await vi.waitFor(() => {
+      expect(doc.value).toBe("beta");
+      expect(wrapper.element.querySelector(".cm-line")?.textContent).toBe("beta");
+    });
+  });
+
   it("supports v-model on the Editor component", async () => {
     const doc = ref("alpha");
     const Parent = defineComponent({
