@@ -289,6 +289,11 @@ describe("@floatboat/nexus-plugin-search", () => {
     expect(findSearchMatches("hello world", "[invalid(", { regexp: true })).toEqual([]);
   });
 
+  it("rejects regex patterns that can match the empty string", () => {
+    expect(findSearchMatches("hello world", "^", { regexp: true })).toEqual([]);
+    expect(replaceAllMatches("hello world", "^", "x", { regexp: true })).toBe("hello world");
+  });
+
   it("replaces with regex capture groups", () => {
     expect(replaceAllMatches("foo bar baz", "(\\w+)", "[$1]", { regexp: true })).toBe("[foo] [bar] [baz]");
   });
