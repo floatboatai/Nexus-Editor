@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import type { EditorAPI } from "@floatboat/nexus-core";
 
 import {
@@ -15,8 +16,6 @@ import {
   toggleUnorderedList,
   insertCodeBlock,
   insertImage,
-  applyTextColor,
-  applyHighlight,
 } from "./formatting";
 import {
   iconUndo,
@@ -39,6 +38,15 @@ import {
   iconImage,
   iconFullscreen,
 } from "./icons";
+import { installToolbarNavigation } from "./toolbar-navigation";
+import {
+  createHeadingMenu,
+  createHighlightGrid,
+  createTextColorGrid,
+  pickOverlayMount,
+  type OverlayDismissReason,
+  type ToolbarOverlay,
+} from "./toolbar-overlays";
 
 export interface ToolbarButton {
   id: string;
@@ -62,21 +70,7 @@ export interface ToolbarUI {
 }
 
 let tooltipId = 0;
-
-/**
- * Pick an overlay mount target that stays visible under the HTML Fullscreen API.
- * The Fullscreen API only renders the fullscreen element subtree; anything
- * appended to `document.body` outside that subtree is hidden behind the
- * fullscreen backdrop. So when the toolbar (or its anchor button) lives inside
- * a fullscreen element, mount overlays into that element instead.
- */
-function pickOverlayMount(anchor: HTMLElement | Document): HTMLElement {
-  const doc = anchor instanceof Document ? anchor : anchor.ownerDocument;
-  const node = anchor instanceof Document ? null : anchor;
-  const fullscreenEl = doc.fullscreenElement as HTMLElement | null;
-  if (fullscreenEl && (!node || fullscreenEl.contains(node))) return fullscreenEl;
-  return doc.body;
-}
+let overlayId = 0;
 
 function positionToolbarTooltip(button: HTMLElement, tooltip: HTMLElement): void {
   const rect = button.getBoundingClientRect();
@@ -85,7 +79,8 @@ function positionToolbarTooltip(button: HTMLElement, tooltip: HTMLElement): void
 }
 
 function installToolbarTooltip(button: HTMLButtonElement): () => void {
-  const tooltip = document.createElement("div");
+  const tooltip = button.ownerDocument.createElement("div");
+  const ownerWindow = button.ownerDocument.defaultView;
   tooltip.className = "nexus-toolbar-tooltip";
   tooltip.id = `nexus-toolbar-tooltip-${++tooltipId}`;
   tooltip.setAttribute("role", "tooltip");
@@ -116,8 +111,8 @@ function installToolbarTooltip(button: HTMLButtonElement): () => void {
   button.addEventListener("blur", hide);
   button.addEventListener("click", hide);
   button.addEventListener("keydown", handleKeyDown);
-  window.addEventListener("scroll", updatePosition, true);
-  window.addEventListener("resize", updatePosition);
+  ownerWindow?.addEventListener("scroll", updatePosition, true);
+  ownerWindow?.addEventListener("resize", updatePosition);
 
   return () => {
     button.removeEventListener("mouseenter", show);
@@ -126,8 +121,8 @@ function installToolbarTooltip(button: HTMLButtonElement): () => void {
     button.removeEventListener("blur", hide);
     button.removeEventListener("click", hide);
     button.removeEventListener("keydown", handleKeyDown);
-    window.removeEventListener("scroll", updatePosition, true);
-    window.removeEventListener("resize", updatePosition);
+    ownerWindow?.removeEventListener("scroll", updatePosition, true);
+    ownerWindow?.removeEventListener("resize", updatePosition);
     hide();
   };
 }
@@ -140,11 +135,7 @@ function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
         { id: "redo", title: "Redo", icon: iconRedo, action: (e) => e.redo() },
       ],
     },
-    {
-      buttons: [
-        { id: "link", title: "Insert link", icon: iconLink, action: insertLink },
-      ],
-    },
+    { buttons: [{ id: "link", title: "Insert link", icon: iconLink, action: insertLink }] },
     {
       buttons: [
         { id: "h2", title: "Heading 2", icon: iconH2, action: (e) => toggleHeading(e, 2) },
@@ -225,346 +216,172 @@ const SEPARATOR_STYLES = `
   flex-shrink: 0;
 `;
 
-const DROPDOWN_STYLES = `
-  position: fixed;
-  background: var(--nexus-bg, #fff);
-  border: 1px solid var(--nexus-border, #eee);
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-  padding: 4px;
-  z-index: 10000;
-  min-width: 140px;
-`;
-
-const DROPDOWN_ITEM_STYLES = `
-  display: block;
-  width: 100%;
-  padding: 6px 12px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--nexus-text, #24292e);
-  cursor: pointer;
-  text-align: left;
-  font-family: system-ui, -apple-system, sans-serif;
-  font-size: 13px;
-  white-space: nowrap;
-  line-height: 1.5;
-`;
-
-/** Mount a heading dropdown onto document.body, positioned below the anchor button. */
-function showHeadingDropdown(
-  editor: EditorAPI,
-  anchorBtn: HTMLElement,
-  onClose: () => void,
-): { destroy: () => void } {
-  const menu = document.createElement("div");
-  menu.className = "nexus-toolbar-dropdown";
-  menu.style.cssText = DROPDOWN_STYLES;
-
-  // Position below the anchor button
-  const rect = anchorBtn.getBoundingClientRect();
-  menu.style.top = rect.bottom + 4 + "px";
-  menu.style.left = rect.left + "px";
-
-  const levels = [
-    { level: 1, label: "Heading 1", fontSize: "17px", fontWeight: "700" },
-    { level: 2, label: "Heading 2", fontSize: "15px", fontWeight: "700" },
-    { level: 3, label: "Heading 3", fontSize: "14px", fontWeight: "600" },
-    { level: 4, label: "Heading 4", fontSize: "13px", fontWeight: "600" },
-    { level: 5, label: "Heading 5", fontSize: "13px", fontWeight: "500" },
-    { level: 6, label: "Heading 6", fontSize: "12px", fontWeight: "500" },
-    { level: 0, label: "Normal text", fontSize: "13px", fontWeight: "400" },
-  ];
-
-  const itemCleanups: Array<() => void> = [];
-
-  for (const { level, label, fontSize, fontWeight } of levels) {
-    const item = document.createElement("button");
-    item.type = "button";
-    item.textContent = label;
-    item.style.cssText = DROPDOWN_ITEM_STYLES;
-    item.style.fontSize = fontSize;
-    item.style.fontWeight = fontWeight;
-
-    const handleClick = (e: MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (level > 0) {
-        toggleHeading(editor, level);
-      } else {
-        // Remove any heading prefix on the current line
-        const doc = editor.getDocument();
-        const { anchor: pos } = editor.getSelection();
-        const lineStart = doc.lastIndexOf("\n", pos - 1) + 1;
-        const lineEndIdx = doc.indexOf("\n", pos);
-        const lineEnd = lineEndIdx === -1 ? doc.length : lineEndIdx;
-        const line = doc.slice(lineStart, lineEnd);
-        const m = line.match(/^#{1,6}\s/);
-        if (m) {
-          const newLine = line.slice(m[0].length);
-          editor.setDocument(doc.slice(0, lineStart) + newLine + doc.slice(lineEnd));
-          editor.setSelection(lineStart + newLine.length);
-        }
-      }
-      editor.focus();
-      onClose();
-    };
-
-    const handleEnter = () => { item.style.background = "var(--nexus-bg-muted, #f0f0f0)"; };
-    const handleLeave = () => { item.style.background = "transparent"; };
-
-    item.addEventListener("click", handleClick);
-    item.addEventListener("mouseenter", handleEnter);
-    item.addEventListener("mouseleave", handleLeave);
-    itemCleanups.push(() => {
-      item.removeEventListener("click", handleClick);
-      item.removeEventListener("mouseenter", handleEnter);
-      item.removeEventListener("mouseleave", handleLeave);
-    });
-
-    menu.appendChild(item);
-  }
-
-  pickOverlayMount(anchorBtn).appendChild(menu);
-
-  return {
-    destroy() {
-      for (const fn of itemCleanups) fn();
-      itemCleanups.length = 0;
-      menu.remove();
-    },
-  };
-}
-
-const COLOR_PALETTE = [
-  // row 1: grays + black/white
-  "#000000", "#434343", "#666666", "#999999", "#b7b7b7", "#cccccc", "#d9d9d9", "#efefef", "#f3f3f3", "#ffffff",
-  // row 2: saturated
-  "#ff0000", "#ff9900", "#ffff00", "#00ff00", "#00ffff", "#0000ff", "#9900ff", "#ff00ff", "#f4cccc", "#fce5cd",
-  // row 3: muted
-  "#ea4335", "#ff6d01", "#fbbc04", "#34a853", "#46bdc6", "#4285f4", "#a142f4", "#ff6d9b", "#e06666", "#f6b26b",
-  // row 4: dark
-  "#cc0000", "#e69138", "#f1c232", "#6aa84f", "#45818e", "#3c78d8", "#674ea7", "#a64d79", "#990000", "#783f04",
-];
-
-const HIGHLIGHT_PALETTE = [
-  "#ffff00", "#00ff00", "#00ffff", "#ff9900", "#ff00ff",
-  "#fce5cd", "#d9ead3", "#d0e0e3", "#cfe2f3", "#d9d2e9",
-  "#fff2cc", "#b6d7a8", "#a2c4c9", "#9fc5e8", "#b4a7d6",
-  "#f4cccc", "#ea9999", "#e6b8af", "#dd7e6b", "#cc4125",
-];
-
-const COLOR_GRID_STYLES = `
-  position: fixed;
-  background: var(--nexus-bg, #fff);
-  border: 1px solid var(--nexus-border, #eee);
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-  padding: 8px;
-  z-index: 10000;
-`;
-
-function showColorPicker(
-  editor: EditorAPI,
-  anchorBtn: HTMLElement,
-  palette: string[],
-  apply: (editor: EditorAPI, color: string) => boolean,
-  onClose: () => void,
-): { destroy: () => void } {
-  const panel = document.createElement("div");
-  panel.className = "nexus-toolbar-dropdown";
-  panel.style.cssText = COLOR_GRID_STYLES;
-
-  const rect = anchorBtn.getBoundingClientRect();
-  panel.style.top = rect.bottom + 4 + "px";
-  panel.style.left = rect.left + "px";
-
-  const cols = palette.length <= 20 ? 5 : 10;
-  const grid = document.createElement("div");
-  grid.style.cssText = `display:grid;grid-template-columns:repeat(${cols},1fr);gap:3px;`;
-
-  const itemCleanups: Array<() => void> = [];
-
-  for (const color of palette) {
-    const swatch = document.createElement("button");
-    swatch.type = "button";
-    swatch.title = color;
-    swatch.style.cssText = `
-      width: 22px; height: 22px;
-      border: 1px solid var(--nexus-border-subtle, #ddd);
-      border-radius: 3px;
-      background: ${color};
-      cursor: pointer;
-      padding: 0;
-      transition: transform 0.1s, box-shadow 0.1s;
-    `;
-
-    const handleClick = (e: MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      apply(editor, color);
-      editor.focus();
-      onClose();
-    };
-    const handleEnter = () => {
-      swatch.style.transform = "scale(1.2)";
-      swatch.style.boxShadow = "0 0 0 2px var(--nexus-accent, #0969da)";
-    };
-    const handleLeave = () => {
-      swatch.style.transform = "scale(1)";
-      swatch.style.boxShadow = "none";
-    };
-
-    swatch.addEventListener("click", handleClick);
-    swatch.addEventListener("mouseenter", handleEnter);
-    swatch.addEventListener("mouseleave", handleLeave);
-    itemCleanups.push(() => {
-      swatch.removeEventListener("click", handleClick);
-      swatch.removeEventListener("mouseenter", handleEnter);
-      swatch.removeEventListener("mouseleave", handleLeave);
-    });
-
-    grid.appendChild(swatch);
-  }
-
-  panel.appendChild(grid);
-  pickOverlayMount(anchorBtn).appendChild(panel);
-
-  return {
-    destroy() {
-      for (const fn of itemCleanups) fn();
-      itemCleanups.length = 0;
-      panel.remove();
-    },
-  };
-}
-
-/** IDs that trigger dropdown behavior instead of a direct action. */
 const DROPDOWN_IDS = new Set(["heading-menu", "text-color", "highlight"]);
+
+interface ActiveDropdown {
+  trigger: HTMLButtonElement;
+  overlay: ToolbarOverlay;
+}
+
+function applyHover(button: HTMLElement): void {
+  button.style.background = "var(--nexus-bg-muted, #f0f0f0)";
+  button.style.color = "var(--nexus-text, #24292e)";
+}
+
+function clearHover(button: HTMLElement): void {
+  button.style.background = "transparent";
+  button.style.color = "var(--nexus-text-muted, #888)";
+}
 
 export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): ToolbarUI {
   const groups = options?.groups ?? defaultGroups(options);
   const toolbar = document.createElement("div");
   toolbar.className = "nexus-toolbar";
   toolbar.setAttribute("role", "toolbar");
+  toolbar.setAttribute("aria-label", "Formatting toolbar");
+  toolbar.setAttribute("aria-orientation", "horizontal");
   toolbar.style.cssText = TOOLBAR_STYLES;
 
   const cleanupFns: Array<() => void> = [];
-  let activeDropdown: { destroy: () => void } | null = null;
-  let outsideHandler: ((e: MouseEvent) => void) | null = null;
+  const toolbarButtons: HTMLButtonElement[] = [];
+  let activeDropdown: ActiveDropdown | null = null;
+  let outsideHandler: ((event: MouseEvent) => void) | null = null;
 
-  function closeDropdown() {
-    if (activeDropdown) {
-      activeDropdown.destroy();
-      activeDropdown = null;
-    }
+  const closeDropdown = (restoreTriggerFocus = false) => {
+    const current = activeDropdown;
+    activeDropdown = null;
     if (outsideHandler) {
-      document.removeEventListener("mousedown", outsideHandler, true);
+      toolbar.ownerDocument.removeEventListener("mousedown", outsideHandler, true);
       outsideHandler = null;
     }
-  }
+    if (!current) return;
+    current.overlay.destroy();
+    current.trigger.setAttribute("aria-expanded", "false");
+    if (restoreTriggerFocus && current.trigger.isConnected) current.trigger.focus();
+  };
 
-  function applyHover(btn: HTMLElement) {
-    btn.style.background = "var(--nexus-bg-muted, #f0f0f0)";
-    btn.style.color = "var(--nexus-text, #24292e)";
-  }
-  function clearHover(btn: HTMLElement) {
-    btn.style.background = "transparent";
-    btn.style.color = "var(--nexus-text-muted, #888)";
-  }
+  const handleOverlayDismiss = (reason: OverlayDismissReason) => {
+    closeDropdown(reason === "escape");
+  };
 
-  groups.forEach((group, groupIdx) => {
-    if (groupIdx > 0) {
-      const sep = document.createElement("div");
-      sep.className = "nexus-toolbar-separator";
-      sep.style.cssText = SEPARATOR_STYLES;
-      toolbar.appendChild(sep);
+  const openDropdown = (button: HTMLButtonElement, actionId: string, popupId: string) => {
+    if (activeDropdown?.trigger === button) {
+      activeDropdown.overlay.focusInitial();
+      return;
+    }
+    closeDropdown();
+    const overlayOptions = { id: popupId, onDismiss: handleOverlayDismiss };
+    const overlay = actionId === "heading-menu"
+      ? createHeadingMenu(editor, button, overlayOptions)
+      : actionId === "text-color"
+        ? createTextColorGrid(editor, button, overlayOptions)
+        : createHighlightGrid(editor, button, overlayOptions);
+    activeDropdown = { trigger: button, overlay };
+    button.setAttribute("aria-expanded", "true");
+    outsideHandler = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!button.contains(target) && !overlay.element.contains(target)) closeDropdown();
+    };
+    toolbar.ownerDocument.addEventListener("mousedown", outsideHandler, true);
+    overlay.focusInitial();
+  };
+
+  groups.forEach((group, groupIndex) => {
+    if (groupIndex > 0) {
+      const separator = document.createElement("div");
+      separator.className = "nexus-toolbar-separator";
+      separator.setAttribute("role", "separator");
+      separator.setAttribute("aria-orientation", "vertical");
+      separator.style.cssText = SEPARATOR_STYLES;
+      toolbar.appendChild(separator);
     }
 
-    for (const btn of group.buttons) {
+    for (const definition of group.buttons) {
       const button = document.createElement("button");
       button.className = "nexus-toolbar-btn";
-      button.dataset.toolbarAction = btn.id;
-      button.dataset.toolbarTooltip = btn.title;
-      button.setAttribute("aria-label", btn.title);
+      button.dataset.toolbarAction = definition.id;
+      button.dataset.toolbarTooltip = definition.title;
+      button.setAttribute("aria-label", definition.title);
       button.type = "button";
       button.tabIndex = -1;
       button.style.cssText = BUTTON_STYLES;
-      button.appendChild(btn.icon());
-      const cleanupTooltip = installToolbarTooltip(button);
+      button.appendChild(definition.icon());
+      toolbarButtons.push(button);
 
+      const cleanupTooltip = installToolbarTooltip(button);
       const handleMouseEnter = () => applyHover(button);
       const handleMouseLeave = () => clearHover(button);
+      button.addEventListener("mouseenter", handleMouseEnter);
+      button.addEventListener("mouseleave", handleMouseLeave);
 
-      if (DROPDOWN_IDS.has(btn.id)) {
-        const handleClick = (e: MouseEvent) => {
-          e.preventDefault();
-          e.stopPropagation();
+      if (DROPDOWN_IDS.has(definition.id)) {
+        const popupId = `nexus-toolbar-overlay-${++overlayId}`;
+        button.setAttribute("aria-haspopup", definition.id === "heading-menu" ? "menu" : "grid");
+        button.setAttribute("aria-expanded", "false");
+        button.setAttribute("aria-controls", popupId);
 
-          if (activeDropdown) { closeDropdown(); return; }
-
-          if (btn.id === "heading-menu") {
-            activeDropdown = showHeadingDropdown(editor, button, closeDropdown);
-          } else if (btn.id === "text-color") {
-            activeDropdown = showColorPicker(editor, button, COLOR_PALETTE, applyTextColor, closeDropdown);
-          } else if (btn.id === "highlight") {
-            activeDropdown = showColorPicker(editor, button, HIGHLIGHT_PALETTE, applyHighlight, closeDropdown);
-          }
-
-          outsideHandler = (ev: MouseEvent) => {
-            const dropdownEl = document.querySelector(".nexus-toolbar-dropdown");
-            if (!button.contains(ev.target as Node) && (!dropdownEl || !dropdownEl.contains(ev.target as Node))) {
-              closeDropdown();
-            }
-          };
-          requestAnimationFrame(() => {
-            if (outsideHandler) document.addEventListener("mousedown", outsideHandler, true);
-          });
+        const toggleDropdown = () => {
+          if (activeDropdown?.trigger === button) closeDropdown(true);
+          else openDropdown(button, definition.id, popupId);
         };
-
+        const handleClick = (event: MouseEvent) => {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleDropdown();
+        };
+        const handleKeyDown = (event: KeyboardEvent) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            event.stopPropagation();
+            openDropdown(button, definition.id, popupId);
+          } else if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleDropdown();
+          } else if (event.key === "Escape" && activeDropdown?.trigger === button) {
+            event.preventDefault();
+            closeDropdown(true);
+          } else if (event.key === "Tab" && activeDropdown?.trigger === button) {
+            closeDropdown();
+          }
+        };
         button.addEventListener("click", handleClick);
-        button.addEventListener("mouseenter", handleMouseEnter);
-        button.addEventListener("mouseleave", handleMouseLeave);
+        button.addEventListener("keydown", handleKeyDown);
+        cleanupFns.push(() => {
+          button.removeEventListener("click", handleClick);
+          button.removeEventListener("keydown", handleKeyDown);
+          button.removeEventListener("mouseenter", handleMouseEnter);
+          button.removeEventListener("mouseleave", handleMouseLeave);
+          cleanupTooltip();
+        });
+      } else {
+        const handleClick = (event: MouseEvent) => {
+          event.preventDefault();
+          event.stopPropagation();
+          closeDropdown();
+          definition.action(editor);
+          editor.focus();
+        };
+        button.addEventListener("click", handleClick);
         cleanupFns.push(() => {
           button.removeEventListener("click", handleClick);
           button.removeEventListener("mouseenter", handleMouseEnter);
           button.removeEventListener("mouseleave", handleMouseLeave);
           cleanupTooltip();
-          closeDropdown();
         });
-        toolbar.appendChild(button);
-        continue;
       }
-
-      const handleClick = (e: MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        closeDropdown();
-        btn.action(editor);
-        editor.focus();
-      };
-
-      button.addEventListener("click", handleClick);
-      button.addEventListener("mouseenter", handleMouseEnter);
-      button.addEventListener("mouseleave", handleMouseLeave);
-
-      cleanupFns.push(() => {
-        button.removeEventListener("click", handleClick);
-        button.removeEventListener("mouseenter", handleMouseEnter);
-        button.removeEventListener("mouseleave", handleMouseLeave);
-        cleanupTooltip();
-      });
 
       toolbar.appendChild(button);
     }
   });
 
+  cleanupFns.push(installToolbarNavigation(toolbar, toolbarButtons));
+
   return {
     element: toolbar,
     destroy() {
       closeDropdown();
-      for (const fn of cleanupFns) fn();
+      for (const cleanup of cleanupFns) cleanup();
       cleanupFns.length = 0;
       toolbar.remove();
     },
