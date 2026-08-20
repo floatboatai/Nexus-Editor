@@ -2,6 +2,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 
 import { createGfmPreset } from "../../preset-gfm/src/index";
+import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
 import { createEditor, type EditorAPI } from "../src/index";
 
 beforeAll(() => {
@@ -2538,6 +2539,41 @@ describe("live preview", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("italic");
     expect(text).not.toContain("*italic*");
+    editor.destroy();
+  });
+
+  it("isolates table widget edits into separate undo groups", () => {
+    const container = document.createElement("div");
+    const initial = "| A |\n| --- |\n| 1 |";
+    const editor = createEditor({
+      container,
+      initialValue: initial,
+      livePreview: true,
+      plugins: [createGfmPreset(), createHistoryPlugin()],
+    });
+
+    const clickAddRow = () => {
+      const button = Array.from(container.querySelectorAll("button")).find(
+        (el) => el.title === "Add row",
+      );
+      expect(button).toBeDefined();
+      button!.click();
+    };
+
+    clickAddRow();
+    const afterFirst = editor.getDocument();
+    expect(afterFirst).not.toBe(initial);
+
+    clickAddRow();
+    const afterSecond = editor.getDocument();
+    expect(afterSecond).not.toBe(afterFirst);
+
+    // Each widget-driven row insert is its own undo group — one undo reverts
+    // exactly one structural op, never both merged into surrounding edits.
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe(afterFirst);
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe(initial);
     editor.destroy();
   });
 });

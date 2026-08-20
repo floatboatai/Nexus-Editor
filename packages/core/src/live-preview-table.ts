@@ -1,4 +1,5 @@
 import { EditorView, WidgetType, runScopeHandlers } from "@codemirror/view";
+import { isolateHistory } from "@codemirror/commands";
 import type { Table } from "mdast";
 
 import type { LivePreviewLabels } from "./types";
@@ -599,7 +600,14 @@ export class EditableTableWidget extends WidgetType {
     if (tableEnd > v.state.doc.length || v.state.doc.sliceString(this.tableFrom, tableEnd) !== this.source) {
       return;
     }
-    v.dispatch({ changes: { from: this.tableFrom, to: this.tableFrom + this.source.length, insert: newSource } });
+    // Widget-driven rewrites (structural ops and cell commits) get their own
+    // undo group: they carry no userEvent and are adjacent to surrounding
+    // edits, so without isolation CodeMirror would merge them into the
+    // user's typing group and a single undo would revert both.
+    v.dispatch({
+      changes: { from: this.tableFrom, to: tableEnd, insert: newSource },
+      annotations: isolateHistory.of("full"),
+    });
   }
 
   private deleteColumn(colIdx: number): void {
@@ -632,9 +640,9 @@ export class EditableTableWidget extends WidgetType {
   private addRow(): void {
     const cc = (this.node.children?.[0] as any)?.children?.length ?? 2;
     const nr = "\n| " + Array(cc).fill("  ").join(" | ") + " |";
-    const v = this.viewRef.current;
-    if (!v) return;
-    v.dispatch({ changes: { from: this.tableFrom + this.source.length, insert: nr } });
+    // Route through the shared dispatch so row inserts get the same source
+    // staleness guard and undo-group isolation as other structural ops.
+    this.dispatch(this.source + nr);
   }
 
   private moveColumn(from: number, to: number, source = this.source): void {
