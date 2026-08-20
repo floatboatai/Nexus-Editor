@@ -124,6 +124,27 @@ describe("createWordCountPlugin", () => {
     expect(wordcount.getSelectionStats().words).toBe(0);
   });
 
+  it("counts all active selection ranges when multi-cursor is enabled", async () => {
+    const wordcount = createWordCountPlugin();
+    editor = createEditor({
+      container,
+      initialValue: "alpha bravo charlie delta",
+      multiCursor: true,
+      plugins: [wordcount]
+    });
+    attachWordCountPlugin(wordcount, editor);
+    await flushMicrotasks();
+
+    editor.setSelections([
+      { anchor: 0, head: 5 },
+      { anchor: 20, head: 25 }
+    ]);
+
+    expect(wordcount.isSelectionActive()).toBe(true);
+    expect(wordcount.getSelectionStats().words).toBe(2);
+    expect(wordcount.getSelectionStats().characters).toBe(10);
+  });
+
   it("destroy detaches listeners and silences further emissions", async () => {
     const wordcount = createWordCountPlugin({ debounceMs: 0 });
     editor = createEditor({ container, initialValue: "hello", plugins: [wordcount] });
