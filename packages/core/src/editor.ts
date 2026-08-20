@@ -1,4 +1,4 @@
-import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
+import { Annotation, EditorSelection, EditorState, Transaction } from "@codemirror/state";
 
 // Annotation attached to dispatches that load content programmatically (e.g.
 // setDocument from file open) so updateListener can skip the user-edit path —
@@ -455,7 +455,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
         to: view.state.doc.length,
         insert: next
       },
-      annotations: silent ? silentDocChange.of(true) : undefined,
+      // Silent loads (file open from the host) must not enter the undo
+      // history — pressing Ctrl+Z right after opening a document should never
+      // revert it to the previously open one. addToHistory=false keeps prior
+      // history events mapped through the load instead of recording it.
+      annotations: silent
+        ? [silentDocChange.of(true), Transaction.addToHistory.of(false)]
+        : undefined,
       ...(selection ? { selection } : {}),
     };
 
