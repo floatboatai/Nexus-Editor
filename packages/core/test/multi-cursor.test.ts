@@ -4,10 +4,15 @@ import { describe, expect, it, vi } from "vitest";
 import {
   addCursorAbove,
   addCursorBelow,
+  addCursorToLineEnds,
   collapseToMainSelection,
   createEditor,
   handleMarkdownEnter,
+  selectAllOccurrences,
+  selectAllWordOccurrences,
   selectNextOccurrence,
+  skipNextOccurrence,
+  undoSkipOccurrence,
 } from "../src/index";
 
 function createTestEditor(initialValue: string, multiCursor = true) {
@@ -255,6 +260,227 @@ describe("collapseToMainSelection", () => {
   });
 });
 
+describe("selectAllOccurrences", () => {
+  it("selects all occurrences of the selected text", () => {
+    const { editor, view } = createTestEditor("foo bar foo baz foo");
+    editor.setSelection(0, 3);
+
+    expect(selectAllOccurrences(view)).toBe(true);
+
+    expect(editor.getSelections().ranges).toEqual([
+      { anchor: 0, head: 3 },
+      { anchor: 8, head: 11 },
+      { anchor: 16, head: 19 },
+    ]);
+    editor.destroy();
+  });
+
+  it("expands empty cursor to word and selects all occurrences", () => {
+    const { editor, view } = createTestEditor("foo bar foo");
+    editor.setSelection(1);
+
+    expect(selectAllOccurrences(view)).toBe(true);
+
+    expect(editor.getSelections().ranges).toEqual([
+      { anchor: 0, head: 3 },
+      { anchor: 8, head: 11 },
+    ]);
+    editor.destroy();
+  });
+
+  it("returns false when there are no occurrences", () => {
+    const { editor, view } = createTestEditor("foo");
+    editor.setSelection(0, 3);
+
+    expect(selectAllOccurrences(view)).toBe(false);
+    editor.destroy();
+  });
+
+  it("returns false when there is only one occurrence", () => {
+    const { editor, view } = createTestEditor("foo bar baz");
+    editor.setSelection(0, 3);
+
+    expect(selectAllOccurrences(view)).toBe(false);
+    editor.destroy();
+  });
+
+  it("returns false when selection is empty and no word is under cursor", () => {
+    const { editor, view } = createTestEditor("");
+    editor.setSelection(0);
+
+    expect(selectAllOccurrences(view)).toBe(false);
+    editor.destroy();
+  });
+});
+
+describe("selectAllWordOccurrences", () => {
+  it("selects all word-boundary occurrences (does not match substring)", () => {
+    const { editor, view } = createTestEditor("foo bar foobar foo");
+    editor.setSelection(0, 3);
+
+    expect(selectAllWordOccurrences(view)).toBe(true);
+
+    // Only matches complete words "foo", not "foo" inside "foobar"
+    // "foo bar foobar foo": positions are 0-3, 15-18
+    expect(editor.getSelections().ranges).toEqual([
+      { anchor: 0, head: 3 },
+      { anchor: 15, head: 18 },
+    ]);
+    editor.destroy();
+  });
+
+  it("expands empty cursor to word and selects all word occurrences", () => {
+    const { editor, view } = createTestEditor("foo bar foo");
+    editor.setSelection(1);
+
+    expect(selectAllWordOccurrences(view)).toBe(true);
+
+    expect(editor.getSelections().ranges).toEqual([
+      { anchor: 0, head: 3 },
+      { anchor: 8, head: 11 },
+    ]);
+    editor.destroy();
+  });
+
+  it("returns false when there are no word occurrences", () => {
+    const { editor, view } = createTestEditor("foo");
+    editor.setSelection(0, 3);
+
+    expect(selectAllWordOccurrences(view)).toBe(false);
+    editor.destroy();
+  });
+
+  it("returns false when there is only one word occurrence", () => {
+    const { editor, view } = createTestEditor("foo bar baz");
+    editor.setSelection(0, 3);
+
+    expect(selectAllWordOccurrences(view)).toBe(false);
+    editor.destroy();
+  });
+});
+
+describe("addCursorToLineEnds", () => {
+  it("adds cursor at end of each line in selection", () => {
+    const { editor, view } = createTestEditor("line1\nline2\nline3");
+    editor.setSelection(0, 16); // Select all three lines
+
+    expect(addCursorToLineEnds(view)).toBe(true);
+
+    // Cursors at end of each line: line1 ends at 5, line2 ends at 11, line3 ends at 17
+    expect(editor.getSelections().ranges).toEqual([
+      { anchor: 5, head: 5 },
+      { anchor: 11, head: 11 },
+      { anchor: 17, head: 17 },
+    ]);
+    editor.destroy();
+  });
+
+  it("returns false when only one line is selected", () => {
+    const { editor, view } = createTestEditor("single line");
+    editor.setSelection(0, 11);
+
+    expect(addCursorToLineEnds(view)).toBe(false);
+    editor.destroy();
+  });
+});
+
+describe("skipNextOccurrence", () => {
+  it("skips current selection and selects next occurrence", () => {
+    const { editor, view } = createTestEditor("foo bar foo baz foo");
+    // Select first two "foo" via selectNextOccurrence
+    editor.setSelection(0, 3);
+    selectNextOccurrence(view); // adds second foo (8-11)
+
+    // Now skip the second foo, should select third foo (16-19)
+    expect(skipNextOccurrence(view)).toBe(true);
+
+    // Should have first foo and third foo (second was skipped)
+    expect(editor.getSelections().ranges).toEqual([
+      { anchor: 0, head: 3 },
+      { anchor: 16, head: 19 },
+    ]);
+    editor.destroy();
+  });
+
+  it("skipped occurrence is not re-selected by subsequent Ctrl+D", () => {
+    const { editor, view } = createTestEditor("foo bar foo baz foo");
+    editor.setSelection(0, 3);
+    selectNextOccurrence(view); // adds second foo (8-11)
+
+    // Skip second foo
+    skipNextOccurrence(view); // selects third foo (16-19)
+
+    // Press Ctrl+D again — should not re-select skipped second foo
+    expect(selectNextOccurrence(view)).toBe(false); // no more unselected, unskipped occurrences
+
+    expect(editor.getSelections().ranges).toEqual([
+      { anchor: 0, head: 3 },
+      { anchor: 16, head: 19 },
+    ]);
+    editor.destroy();
+  });
+
+  it("selectAllOccurrences respects skip list", () => {
+    const { editor, view } = createTestEditor("foo bar foo baz foo");
+    editor.setSelection(0, 3);
+    selectNextOccurrence(view); // adds second foo (8-11)
+    skipNextOccurrence(view); // skip second, select third (16-19)
+
+    // Ctrl+Shift+L should select all except skipped
+    expect(selectAllOccurrences(view)).toBe(false); // only 2 unskipped occurrences, already selected
+
+    expect(editor.getSelections().ranges).toEqual([
+      { anchor: 0, head: 3 },
+      { anchor: 16, head: 19 },
+    ]);
+    editor.destroy();
+  });
+
+  it("returns false when there is no next occurrence to skip to", () => {
+    const { editor, view } = createTestEditor("foo bar baz");
+    editor.setSelection(0, 3);
+
+    expect(skipNextOccurrence(view)).toBe(false);
+    editor.destroy();
+  });
+
+  it("returns false when main selection is empty", () => {
+    const { editor, view } = createTestEditor("foo bar foo");
+    editor.setSelection(1);
+
+    expect(skipNextOccurrence(view)).toBe(false);
+    editor.destroy();
+  });
+});
+
+describe("undoSkipOccurrence", () => {
+  it("restores the last skipped position", () => {
+    const { editor, view } = createTestEditor("foo bar foo baz foo");
+    editor.setSelection(0, 3);
+    selectNextOccurrence(view); // adds second foo (8-11)
+    skipNextOccurrence(view); // skip second, select third (16-19)
+
+    // Undo the skip — should re-select second foo (8-11)
+    expect(undoSkipOccurrence(view)).toBe(true);
+
+    // EditorSelection.create sorts ranges by position
+    expect(editor.getSelections().ranges).toEqual([
+      { anchor: 0, head: 3 },
+      { anchor: 8, head: 11 },
+      { anchor: 16, head: 19 },
+    ]);
+    editor.destroy();
+  });
+
+  it("returns false when skip list is empty", () => {
+    const { editor, view } = createTestEditor("foo bar foo");
+    editor.setSelection(0, 3);
+
+    expect(undoSkipOccurrence(view)).toBe(false);
+    editor.destroy();
+  });
+});
+
 describe("multi-cursor keymap", () => {
   function keydown(container: HTMLElement, init: KeyboardEventInit): void {
     const content = container.querySelector("[contenteditable='true']");
@@ -270,6 +496,47 @@ describe("multi-cursor keymap", () => {
     keydown(container, { key: "d", ctrlKey: true });
 
     expect(editor.getSelections().ranges).toEqual([{ anchor: 0, head: 3 }]);
+    editor.destroy();
+  });
+
+  it("binds Mod-Shift-l to selectAllOccurrences", () => {
+    const { editor, container } = createTestEditor("foo bar foo");
+    editor.setSelection(0, 3);
+
+    keydown(container, { key: "l", ctrlKey: true, shiftKey: true });
+
+    expect(editor.getSelections().ranges).toEqual([
+      { anchor: 0, head: 3 },
+      { anchor: 8, head: 11 },
+    ]);
+    editor.destroy();
+  });
+
+  it("binds Mod-F2 to selectAllWordOccurrences", () => {
+    const { editor, container } = createTestEditor("foo bar foobar foo");
+    editor.setSelection(0, 3);
+
+    keydown(container, { key: "F2", ctrlKey: true });
+
+    // Only matches complete words, not "foo" inside "foobar"
+    expect(editor.getSelections().ranges).toEqual([
+      { anchor: 0, head: 3 },
+      { anchor: 15, head: 18 },
+    ]);
+    editor.destroy();
+  });
+
+  it("binds Mod-Shift-; to addCursorToLineEnds", () => {
+    const { editor, container } = createTestEditor("line1\nline2\nline3");
+    editor.setSelection(0, 16);
+
+    keydown(container, { key: ";", ctrlKey: true, shiftKey: true });
+
+    expect(editor.getSelections().ranges).toEqual([
+      { anchor: 5, head: 5 },
+      { anchor: 11, head: 11 },
+      { anchor: 17, head: 17 },
+    ]);
     editor.destroy();
   });
 
