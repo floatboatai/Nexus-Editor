@@ -9,6 +9,7 @@ export interface SearchBar {
   destroy(): void;
 }
 
+//search container style
 const BAR_STYLES = `
   display: none;
   align-items: center;
@@ -21,6 +22,7 @@ const BAR_STYLES = `
   flex-shrink: 0;
 `;
 
+//input style
 const INPUT_STYLES = `
   padding: 4px 8px;
   border: 1px solid var(--nexus-border, #ddd);
@@ -33,6 +35,7 @@ const INPUT_STYLES = `
   width: 200px;
 `;
 
+//btn style
 const BTN_STYLES = `
   padding: 4px 10px;
   border: 1px solid var(--nexus-border, #ddd);
@@ -45,12 +48,14 @@ const BTN_STYLES = `
   transition: background 0.1s;
 `;
 
+//match count dsiplay style
 const COUNT_STYLES = `
   color: var(--nexus-text-muted, #888);
   font-size: 12px;
   min-width: 60px;
 `;
 
+//close btn style
 const CLOSE_BTN_STYLES = `
   background: none;
   border: none;
@@ -120,12 +125,15 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   let currentIdx = -1;
   let visible = false;
 
+  // update match list and position nearest match
+  // @param focus - is editor get focus
   function updateMatches() {
     const query = findInput.value;
     if (!query) {
       matches = [];
       currentIdx = -1;
       countLabel.textContent = "";
+      clearSelection();
       return;
     }
     const doc = editor.getDocument();
@@ -133,6 +141,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     if (matches.length === 0) {
       currentIdx = -1;
       countLabel.textContent = "0 results";
+      clearSelection();
     } else {
       // Find nearest match to current cursor
       const { anchor } = editor.getSelection();
@@ -140,28 +149,36 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       for (let i = 0; i < matches.length; i++) {
         if (matches[i].from >= anchor) { currentIdx = i; break; }
       }
-      highlightCurrent();
+      //  only update count display,not turn cursor
+      updateMatchDisplayAndFocus();
     }
   }
 
-  function highlightCurrent() {
+  // @param focus - is editor get focus
+  function updateMatchDisplayAndFocus(focus: boolean = false) {
     if (currentIdx < 0 || currentIdx >= matches.length) return;
     const m = matches[currentIdx];
     editor.setSelection(m.from, m.to);
-    editor.focus();
+    if (focus) {
+      editor.focus();
+    }
     countLabel.textContent = `${currentIdx + 1} / ${matches.length}`;
   }
 
+  function clearSelection() {
+    const { anchor } = editor.getSelection();
+    editor.setSelection(anchor, anchor);
+  }
   function goNext() {
     if (matches.length === 0) return;
     currentIdx = (currentIdx + 1) % matches.length;
-    highlightCurrent();
+    updateMatchDisplayAndFocus(true);
   }
 
   function goPrev() {
     if (matches.length === 0) return;
     currentIdx = (currentIdx - 1 + matches.length) % matches.length;
-    highlightCurrent();
+    updateMatchDisplayAndFocus(true);
   }
 
   function doReplace() {
