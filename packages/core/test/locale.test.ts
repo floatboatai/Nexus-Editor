@@ -40,6 +40,31 @@ describe("internationalization", () => {
     editor.destroy();
   });
 
+  it("editor uses locale for live-preview accessibility labels", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "[Nexus](https://example.com)\n\n```ts\nconst value = 1;\n```",
+      livePreview: true,
+      locale: {
+        openLink: "Visit link",
+        codeBlockLabel: "Source code"
+      }
+    });
+
+    editor.setSelection(30);
+    expect(
+      container.querySelector("[role='link'][aria-label='Visit link: Nexus']")
+    ).not.toBeNull();
+
+    editor.setSelection(38);
+    expect(
+      container.querySelector("[role='code']")?.getAttribute("aria-label")
+    ).toBe("Source code: ts");
+
+    editor.destroy();
+  });
+
   it("enLocale has all required keys", () => {
     const keys: (keyof typeof enLocale)[] = [
       "addColumn", "addRow", "deleteColumn", "deleteRow",

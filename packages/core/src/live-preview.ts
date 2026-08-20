@@ -27,16 +27,21 @@ const COMPOSITION_REDECORATE_DELAY_MS = 60;
 interface NormalizedLivePreviewConfig {
   enabled: boolean;
   renderers: Partial<Record<LivePreviewNodeType, LivePreviewRenderer>>;
-  labels: Required<LivePreviewLabels>;
+  labels: Required<LivePreviewLabels> & {
+    codeBlockLabel: string;
+    openLink: string;
+  };
 }
 
-const DEFAULT_LABELS: Required<LivePreviewLabels> = {
+const DEFAULT_LABELS: NormalizedLivePreviewConfig["labels"] = {
   addColumn: "Add column",
   addRow: "Add row",
   deleteColumn: "Delete column",
   deleteRow: "Delete row",
   insertColumnAfter: "Insert column after",
   insertRowBelow: "Insert row below",
+  codeBlockLabel: "Code",
+  openLink: "Open link",
 };
 
 function createEmptyAst(): Root {
@@ -863,7 +868,8 @@ function buildCodeBlockDecorations(
   selection: readonly SelectionRange[],
   decos: Range<Decoration>[],
   viewRef: { current: EditorView | null },
-  codeTokens?: readonly import("./types").CodeHighlightToken[]
+  codeTokens: readonly import("./types").CodeHighlightToken[] | undefined,
+  codeBlockLabel: string
 ): void {
   const source = range.source;
   const lines = source.split("\n");
@@ -916,7 +922,9 @@ function buildCodeBlockDecorations(
     const lineAttrs: Record<string, string> = { style: LINE_BG + radius + firstLineExtra };
     if (isFirstLine) {
       lineAttrs.role = "code";
-      if (lang) lineAttrs["aria-label"] = `Code block: ${lang}`;
+      lineAttrs["aria-label"] = lang
+        ? `${codeBlockLabel}: ${lang}`
+        : codeBlockLabel;
     }
     decos.push(Decoration.line({ attributes: lineAttrs }).range(lineStart));
 
@@ -1112,7 +1120,14 @@ function buildDecorations(
         parentSpans.push([range.from, alertInfo.alertHeadEnd]);
       }
     } else if (range.node.type === "code" && !config.renderers.code) {
-      buildCodeBlockDecorations(range as { from: number; to: number; node: Code; source: string }, selection, decos, viewRef, codeTokens);
+      buildCodeBlockDecorations(
+        range as { from: number; to: number; node: Code; source: string },
+        selection,
+        decos,
+        viewRef,
+        codeTokens,
+        config.labels.codeBlockLabel
+      );
     } else if (range.node.type === "image") {
       // Cursor-aware + preview-alongside:
       //   * cursor OUT  → replace widget (source hidden).
@@ -1165,6 +1180,8 @@ function buildDecorations(
         if (attrs) {
           for (const [k, v] of Object.entries(attrs)) span.setAttribute(k, v);
         }
+        span.setAttribute("role", "link");
+        span.setAttribute("aria-label", `${config.labels.openLink}: ${linkText}`);
         const linkKey = `link:${range.from}-${range.to}:${range.source}`;
         decos.push(
           Decoration.replace({
@@ -1304,7 +1321,10 @@ function buildDecorations(
 
 export function createLivePreviewExtension(
   config: boolean | LivePreviewConfig | undefined,
-  localeLabels?: LivePreviewLabels
+  localeLabels?: LivePreviewLabels & {
+    codeBlockLabel?: string;
+    openLink?: string;
+  }
 ): Extension[] {
   const normalized = normalizeConfig(config);
   if (!normalized.enabled) return [];
