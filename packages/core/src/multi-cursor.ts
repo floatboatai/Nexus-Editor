@@ -24,8 +24,14 @@ function isCovered(ranges: readonly SelectionRange[], from: number, to: number):
 
 /**
  * Find the next occurrence of `query` that no selection range covers yet,
- * scanning forward from the end of the last range and wrapping around to the
+ * scanning forward from the end of the main range and wrapping around to the
  * document start. Returns null when every occurrence is already selected.
+ *
+ * The search origin is the main range, not the last range in the array, to
+ * match VS Code / Sublime behaviour: `Mod-d` extends from the range the user
+ * most recently acted on. Treating `ranges[length - 1]` as the origin would
+ * skip past occurrences between the main range and a trailing secondary
+ * cursor — see the regression test added in 2026-08.
  */
 function findNextOccurrence(
   state: EditorState,
@@ -33,7 +39,7 @@ function findNextOccurrence(
 ): { from: number; to: number } | null {
   const doc = state.doc.toString();
   const ranges = state.selection.ranges;
-  const searchOrigin = ranges[ranges.length - 1].to;
+  const searchOrigin = state.selection.main.to;
 
   for (const start of [searchOrigin, 0]) {
     let index = doc.indexOf(query, start);

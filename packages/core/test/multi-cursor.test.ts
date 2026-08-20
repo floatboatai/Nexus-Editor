@@ -164,6 +164,36 @@ describe("selectNextOccurrence", () => {
     expect(selectNextOccurrence(view)).toBe(false);
     editor.destroy();
   });
+
+  // Regression: when the main range is not the last range, the search for
+  // the next occurrence must start after the main range — matching VS Code /
+  // Sublime, where Mod-d extends from the range the user most recently acted
+  // on. Starting from `ranges[length - 1]` skips any unselected occurrence
+  // that sits between the main range and the trailing range.
+  it("starts the search from the main range, not the last range", () => {
+    const DOC4 = "foo bar foo baz foo foo";
+    // "foo" at 0..3, 8..11, 16..19, 20..23.
+    const { editor, view } = createTestEditor(DOC4);
+    // Main = first "foo" (mainIndex 0); trailing range = third "foo".
+    editor.setSelections(
+      [{ anchor: 0, head: 3 }, { anchor: 16, head: 19 }],
+      0
+    );
+
+    expect(selectNextOccurrence(view)).toBe(true);
+
+    // The next occurrence after the main range is the second "foo" at 8..11.
+    // With the old `ranges[length-1].to` origin the search starts after the
+    // third "foo" and picks the fourth one (20..23) instead.
+    const { ranges, mainIndex } = editor.getSelections();
+    expect(ranges).toEqual([
+      { anchor: 0, head: 3 },
+      { anchor: 8, head: 11 },
+      { anchor: 16, head: 19 },
+    ]);
+    expect(mainIndex).toBe(1);
+    editor.destroy();
+  });
 });
 
 describe("addCursorAbove / addCursorBelow", () => {
