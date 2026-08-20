@@ -1,4 +1,4 @@
-import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
+import { Annotation, EditorSelection, EditorState, Transaction } from "@codemirror/state";
 
 // Annotation attached to dispatches that load content programmatically (e.g.
 // setDocument from file open) so updateListener can skip the user-edit path —
@@ -455,7 +455,11 @@ export function createEditor(config: EditorConfig): EditorAPI {
         to: view.state.doc.length,
         insert: next
       },
-      annotations: silent ? silentDocChange.of(true) : undefined,
+      // Silent loads skip onChange *and* the undo stack — opening / syncing a
+      // file must not become a Ctrl+Z step that restores the previous buffer.
+      annotations: silent
+        ? [silentDocChange.of(true), Transaction.addToHistory.of(false)]
+        : undefined,
       ...(selection ? { selection } : {}),
     };
 
@@ -885,7 +889,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
           ? { anchor: selection.anchor, head: selection.head ?? selection.anchor }
           : undefined,
         scrollIntoView: true,
-        annotations: silent ? silentDocChange.of(true) : undefined,
+        annotations: silent
+          ? [silentDocChange.of(true), Transaction.addToHistory.of(false)]
+          : undefined,
       });
       if (silent) {
         const next = view.state.doc.toString();

@@ -173,6 +173,50 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("silent setDocument does not create an undo entry", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "draft",
+      plugins: [createHistoryPlugin()]
+    });
+
+    editor.setDocument("opened from disk", { silent: true });
+    expect(editor.getDocument()).toBe("opened from disk");
+    // File-open must not become a Ctrl+Z step that restores the empty/previous buffer.
+    expect(editor.undo()).toBe(false);
+    expect(editor.getDocument()).toBe("opened from disk");
+    editor.destroy();
+  });
+
+  it("silent replaceRange does not erase prior undoable user edits from the stack", () => {
+    const container = document.createElement("div");
+    let capturedView: EditorView | null = null;
+    const editor = createEditor({
+      container,
+      initialValue: "hello",
+      plugins: [
+        createHistoryPlugin(),
+        {
+          name: "capture-view",
+          cmExtensions: [captureViewPlugin((view) => (capturedView = view))]
+        }
+      ]
+    });
+
+    const cm = requireEditorView(capturedView);
+    cm.dispatch({ changes: { from: 5, to: 5, insert: "!" } });
+    expect(editor.getDocument()).toBe("hello!");
+
+    // Silent host tweak must not be undoable itself; the earlier user
+    // insertion must still undo cleanly around it.
+    editor.replaceRange(0, 1, "H", undefined, { silent: true });
+    expect(editor.getDocument()).toBe("Hello!");
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("Hello");
+    editor.destroy();
+  });
+
   it("keeps the editor usable when the parser throws", () => {
     const container = document.createElement("div");
     const docs: string[] = [];
@@ -605,6 +649,21 @@ describe("createEditor", () => {
     expect(editor.undo()).toBe(true);
     expect(editor.getDocument()).toBe("hello world");
     expect(editor.undo()).toBe(false);
+    editor.destroy();
+  });
+
+  it("replaceRange: silent does not create an undo entry", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "hello world",
+      plugins: [createHistoryPlugin()]
+    });
+
+    editor.replaceRange(0, 5, "HELLO", undefined, { silent: true });
+    expect(editor.getDocument()).toBe("HELLO world");
+    expect(editor.undo()).toBe(false);
+    expect(editor.getDocument()).toBe("HELLO world");
     editor.destroy();
   });
 

@@ -20,7 +20,7 @@ We ship in priority tiers — **P0 is what we're working on right now**.
 | Tier | Theme | Highlights |
 |---|---|---|
 | **P0 — Now** | Core API completeness | `getSelectedText()`, slash command sorting, `<Editor />` `onReady`, TS strict coverage |
-| **P1 — Next** | Power-user features | Multi-cursor, regex search, undo/redo grouping, widget API standardization, Electron packaging |
+| **P1 — Next** | Power-user features | Multi-cursor, regex search, widget API standardization, Electron packaging |
 | **P2 — Mid-term** | UX & ecosystem | Advanced toolbar (emoji / table / color), fuzzy search, sync-scroll preview, web-component wrapper |
 | **P3 — Long-term** | Collaboration | Realtime CRDT collab, shared comments / @mention, plugin hot-reload |
 
@@ -173,7 +173,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 | `@floatboat/nexus-react` | React binding — `useEditor` hook and `<Editor />` component |
 | `@floatboat/nexus-vue` | Vue 3 binding — `useEditor` composable |
 | `@floatboat/nexus-preset-gfm` | GitHub Flavored Markdown preset (tables, strikethrough, task lists) |
-| `@floatboat/nexus-plugin-history` | Undo/redo with `Ctrl+Z` / `Ctrl+Shift+Z` |
+| `@floatboat/nexus-plugin-history` | Undo/redo with configurable grouping, silent-load exclusion, `Ctrl+Z` / `Ctrl+Shift+Z` |
 | `@floatboat/nexus-plugin-search` | Search and replace helpers |
 | `@floatboat/nexus-plugin-slash` | Slash command detection, ranking, and a vanilla-DOM floating menu UI |
 | `@floatboat/nexus-plugin-toolbar` | Toolbar primitives for formatting commands |

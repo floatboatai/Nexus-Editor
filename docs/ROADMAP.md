@@ -36,7 +36,7 @@ This document maps every planned feature to **package ownership / priority / sta
 | 5 | `getSelectedText()` API | `core` | P0 | done | No | Plus atomic `replaceRange()` (single undo entry) — see `openspec/changes/add-selection-api` |
 | 6 | Multi-cursor / multi-selection | `core` | P1 | done | Yes | `openspec/changes/add-core-multi-cursor` — opt-in `multiCursor` config; live-preview reveal + table checks verified by regression tests |
 | 7 | AST enhancement / Markdown extensions | `core` + `preset-gfm` | P2 | planned | Yes | Affects serialization and every AST-dependent plugin |
-| 8 | Undo / redo grouping | `plugin-history` | P1 | planned | No | Coordinate with table's `tableEditingCount`; consolidate competing impls before merge |
+| 8 | Undo / redo grouping | `plugin-history` | P1 | done | No | Configurable `history()` options + `forceHistoryBoundary` / `notInHistory` / `withHistoryControl`; silent `setDocument`/`replaceRange` excluded from undo stack. In-cell contentEditable undo unification deferred. |
 
 ## 4. Plugin System
 

@@ -390,9 +390,10 @@ export interface EditorAPI {
   /**
    * Replace the document content.
    *
-   * @param opts.silent  When true, skip the onChange pipeline. Use when
-   *   loading a file from disk — avoids treating a file-open as a user
-   *   edit (no redundant mdast parse / link-index rebuild).
+   * @param opts.silent  When true, skip the onChange pipeline **and** exclude
+   *   the transaction from the undo stack. Use when loading a file from disk —
+   *   avoids treating a file-open as a user edit (no redundant mdast parse /
+   *   link-index rebuild, and Ctrl+Z will not restore the previous buffer).
    *
    * 组合输入（IME）进行中时，整文档替换会打断输入法、丢失正在合成的文字
    * 并把视口重置到顶部。此时本次替换会延迟到 compositionend 再应用，只保留
@@ -413,10 +414,11 @@ export interface EditorAPI {
    * - `selection` is optional. When omitted CM6 maps the existing selection
    *   through the change using its default position mapping — callers that
    *   don't care where the cursor lands after the edit can skip this.
-   * - `silent` mirrors `setDocument`: skips `onChange` / the `change` event.
-   *   The AST is still resynced inline so `getAst()` stays consistent for
-   *   immediate callers. Intended for non-user edits only (file-open, seeding).
-   *   Plugin code should leave `silent` unset.
+   * - `silent` mirrors `setDocument`: skips `onChange` / the `change` event
+   *   **and** excludes the transaction from the undo stack. The AST is still
+   *   resynced inline so `getAst()` stays consistent for immediate callers.
+   *   Intended for non-user edits only (file-open, seeding). Plugin code
+   *   should leave `silent` unset.
    * - Positions (`from`, `to`, and `selection` offsets) are in pre-edit doc
    *   coordinates — the same coordinate space as `getSelection()` returns.
    * - Bounds: callers are responsible for valid offsets. CM6 throws

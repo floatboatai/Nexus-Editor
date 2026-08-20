@@ -36,7 +36,7 @@
 | 5 | `getSelectedText()` API | `core` | P0 | done | 否 | 另含原子 `replaceRange()`（单条 undo）—— 见 `openspec/changes/add-selection-api` |
 | 6 | 多光标 / 多选支持 | `core` | P1 | done | 是 | `openspec/changes/add-core-multi-cursor` — opt-in `multiCursor` 配置；live-preview 揭示与表格检查已有回归测试覆盖 |
 | 7 | AST 增强 / Markdown 扩展 | `core` + `preset-gfm` | P2 | planned | 是 | 影响序列化与所有依赖 AST 的插件 |
-| 8 | undo / redo 分组 | `plugin-history` | P1 | planned | 否 | 注意与表格交互的 `tableEditingCount` 协同；合并前需收敛多个竞品实现 |
+| 8 | undo / redo 分组 | `plugin-history` | P1 | done | 否 | 可配置 `history()` 选项 + `forceHistoryBoundary` / `notInHistory` / `withHistoryControl`；silent `setDocument`/`replaceRange` 不进撤销栈。单元格 contentEditable 与文档撤销栈打通留作后续。 |
 
 ## 4. 插件系统
 
