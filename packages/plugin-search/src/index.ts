@@ -35,6 +35,7 @@ export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  fuzzy?: boolean;
 }
 
 export interface SearchHistoryStorage {
@@ -641,6 +642,55 @@ function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp 
   }
 }
 
+function isWordChar(value: string): boolean {
+  return /[\p{L}\p{N}_]/u.test(value);
+}
+
+function isWholeWordBoundary(doc: string, from: number, to: number): boolean {
+  const before = from > 0 ? doc[from - 1] : "";
+  const after = to < doc.length ? doc[to] : "";
+  return (!before || !isWordChar(before)) && (!after || !isWordChar(after));
+}
+
+function findFuzzySearchMatches(
+  doc: string,
+  query: string,
+  options: SearchOptions = {}
+): SearchMatch[] {
+  const matches: SearchMatch[] = [];
+  const haystack = options.caseSensitive ? doc : doc.toLocaleLowerCase();
+  const needle = options.caseSensitive ? query : query.toLocaleLowerCase();
+  let start = 0;
+
+  while (start < haystack.length) {
+    let queryIndex = 0;
+    let from = -1;
+    let to = -1;
+
+    for (let index = start; index < haystack.length && queryIndex < needle.length; index++) {
+      if (haystack[index] !== needle[queryIndex]) continue;
+
+      if (from < 0) from = index;
+      queryIndex += 1;
+      to = index + 1;
+    }
+
+    if (queryIndex !== needle.length || from < 0 || to <= from) break;
+
+    if (!options.wholeWord || isWholeWordBoundary(doc, from, to)) {
+      matches.push({
+        from,
+        to,
+        text: doc.slice(from, to)
+      });
+    }
+
+    start = Math.max(to, from + 1);
+  }
+
+  return matches;
+}
+
 export function findSearchMatches(
   doc: string,
   query: string,
@@ -648,6 +698,10 @@ export function findSearchMatches(
 ): SearchMatch[] {
   if (!query) {
     return [];
+  }
+
+  if (options.fuzzy && !options.regexp) {
+    return findFuzzySearchMatches(doc, query, options);
   }
 
   const pattern = buildSearchPattern(query, options);
