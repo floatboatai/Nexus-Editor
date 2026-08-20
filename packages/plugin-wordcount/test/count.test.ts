@@ -119,6 +119,33 @@ describe("countMarkdown — markdown awareness", () => {
     expect(result.words).toBe(5);
   });
 
+  it("keeps words in adjacent GFM table cells separate", () => {
+    const source = [
+      "| Alpha | Beta |",
+      "| --- | --- |",
+      "| Gamma | Delta |",
+    ].join("\n");
+    const result = countMarkdown(source);
+
+    expect(result.words).toBe(4);
+    expect(result.latinWords).toBe(4);
+    expect(result.characters).toBe("AlphaBetaGammaDelta".length);
+    expect(result.charactersNoSpaces).toBe("AlphaBetaGammaDelta".length);
+  });
+
+  it("keeps CJK runs in adjacent GFM table cells separate", () => {
+    const source = [
+      "| 你好 | 世界 |",
+      "| --- | --- |",
+      "| 东京 | 首尔 |",
+    ].join("\n");
+    const result = countMarkdown(source, { cjkUnit: "word" });
+
+    expect(result.words).toBe(4);
+    expect(result.cjkCharacters).toBe(8);
+    expect(result.characters).toBe(8);
+  });
+
   it("recovers gracefully when content forms only excluded nodes", () => {
     const result = countMarkdown("```js\nlet x = 1;\n```\n");
     expect(result.words).toBe(0);
