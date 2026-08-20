@@ -34,6 +34,81 @@ describe("LinkIndex.resolve", () => {
   });
 });
 
+describe("LinkIndex — Windows path normalization", () => {
+  it("normalizes indexed paths across files, resolution, and backlinks", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "C:\\vault\\Topics\\AI.md", content: "# AI" },
+      { path: "C:\\vault\\Daily\\Today.md", content: "See [[AI]]" },
+    ]);
+
+    expect(new Set(idx.getAllFiles())).toEqual(
+      new Set(["C:/vault/Topics/AI.md", "C:/vault/Daily/Today.md"])
+    );
+    expect(idx.resolve("AI", "C:\\vault\\Daily\\Today.md")).toBe(
+      "C:/vault/Topics/AI.md"
+    );
+    expect(idx.getBacklinks("C:\\vault\\Topics\\AI.md")).toEqual([
+      expect.objectContaining({
+        sourcePath: "C:/vault/Daily/Today.md",
+        target: "AI",
+      }),
+    ]);
+  });
+
+  it("treats slash variants as the same file during incremental updates", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "C:\\vault\\X.md", content: "" },
+      { path: "C:\\vault\\Y.md", content: "" },
+      { path: "C:\\vault\\Source.md", content: "[[X]]" },
+    ]);
+
+    idx.updateFile("C:/vault/Source.md", "[[Y]]");
+
+    expect(new Set(idx.getAllFiles())).toEqual(
+      new Set(["C:/vault/X.md", "C:/vault/Y.md", "C:/vault/Source.md"])
+    );
+    expect(idx.getBacklinks("C:\\vault\\X.md")).toEqual([]);
+    expect(idx.getBacklinks("C:/vault/Y.md")).toEqual([
+      expect.objectContaining({ sourcePath: "C:/vault/Source.md" }),
+    ]);
+  });
+
+  it("accepts either slash style when removing an indexed file", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "C:\\vault\\Target.md", content: "" },
+      { path: "C:\\vault\\Source.md", content: "[[Target]]" },
+    ]);
+
+    idx.removeFile("C:/vault/Source.md");
+
+    expect(idx.getAllFiles()).toEqual(["C:/vault/Target.md"]);
+    expect(idx.getBacklinks("C:\\vault\\Target.md")).toEqual([]);
+  });
+
+  it("normalizes both sides of a rename and preserves outgoing links", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "C:\\vault\\Target.md", content: "" },
+      { path: "C:\\vault\\Old\\Source.md", content: "[[Target]]" },
+    ]);
+
+    idx.renameFile("C:/vault/Old/Source.md", "C:\\vault\\New\\Source.md");
+
+    expect(new Set(idx.getAllFiles())).toEqual(
+      new Set(["C:/vault/Target.md", "C:/vault/New/Source.md"])
+    );
+    expect(idx.resolve("Source", "C:\\vault\\New\\Sibling.md")).toBe(
+      "C:/vault/New/Source.md"
+    );
+    expect(idx.getBacklinks("C:/vault/Target.md")).toEqual([
+      expect.objectContaining({ sourcePath: "C:/vault/New/Source.md" }),
+    ]);
+  });
+});
+
 describe("LinkIndex.backlinks", () => {
   it("lists inbound references with source path and snippet", () => {
     const idx = new LinkIndex();
