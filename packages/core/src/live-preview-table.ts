@@ -2014,7 +2014,7 @@ export class EditableTableWidget extends WidgetType {
                       to: Math.max(rawCaretOffset, rawSelectionEndOffset),
                     }
                   : null;
-              const currentNativeRange = rawSourceRangeFromNativeSelection(td) ?? hitTestRange;
+              const currentNativeRange = hitTestRange ?? rawSourceRangeFromNativeSelection(td);
               if (currentNativeRange) {
                 armRange(currentNativeRange);
                 return;
