@@ -684,7 +684,12 @@ export function replaceAllMatches(
   if (!pattern) {
     return doc;
   }
-  return doc.replace(pattern, replacement);
+
+  // String replacements interpret $-patterns. That is useful for regexp
+  // captures, but plain-text replacement input must be inserted verbatim.
+  return options.regexp
+    ? doc.replace(pattern, replacement)
+    : doc.replace(pattern, () => replacement);
 }
 
 function resolveLabel(
