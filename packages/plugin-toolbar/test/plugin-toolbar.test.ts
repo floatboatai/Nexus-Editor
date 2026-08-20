@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { createEditor } from "@floatboat/nexus-core";
+import { createEditor, type EditorAPI } from "@floatboat/nexus-core";
 import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
 import {
   toggleBold,
@@ -10,14 +10,40 @@ import {
   toggleHeading,
   toggleOrderedList,
   toggleUnorderedList,
+  toggleBlockquote,
+  toggleStrikethrough,
+  insertCodeBlock,
+  insertImage,
+  insertHorizontalRule,
+  applyTextColor,
+  applyHighlight,
+  toggleWrap,
   createToolbarPlugin,
   createToolbarUI,
 } from "../src/index";
 
+const editors: EditorAPI[] = [];
+
+afterEach(() => {
+  while (editors.length) {
+    try {
+      editors.pop()?.destroy();
+    } catch {
+      /* already torn down */
+    }
+  }
+});
+
+function makeEditor(config: Parameters<typeof createEditor>[0]): EditorAPI {
+  const ed = createEditor(config);
+  editors.push(ed);
+  return ed;
+}
+
 describe("toggleBold", () => {
   it("wraps selected text with **", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "hello world" });
+    const editor = makeEditor({ container, initialValue: "hello world" });
 
     editor.setSelection(6, 11);
     toggleBold(editor);
@@ -28,7 +54,7 @@ describe("toggleBold", () => {
 
   it("removes ** when already wrapped", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "hello **world**" });
+    const editor = makeEditor({ container, initialValue: "hello **world**" });
 
     editor.setSelection(8, 13);
     toggleBold(editor);
@@ -41,7 +67,7 @@ describe("toggleBold", () => {
 describe("toggleItalic", () => {
   it("wraps selected text with *", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "hello world" });
+    const editor = makeEditor({ container, initialValue: "hello world" });
 
     editor.setSelection(6, 11);
     toggleItalic(editor);
@@ -54,7 +80,7 @@ describe("toggleItalic", () => {
 describe("toggleInlineCode", () => {
   it("wraps selected text with backticks", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "hello world" });
+    const editor = makeEditor({ container, initialValue: "hello world" });
 
     editor.setSelection(6, 11);
     toggleInlineCode(editor);
@@ -67,7 +93,7 @@ describe("toggleInlineCode", () => {
 describe("insertLink", () => {
   it("inserts a link template with selected text", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "click here" });
+    const editor = makeEditor({ container, initialValue: "click here" });
 
     editor.setSelection(6, 10);
     insertLink(editor);
@@ -78,7 +104,7 @@ describe("insertLink", () => {
 
   it("inserts default link text when nothing is selected", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "text " });
+    const editor = makeEditor({ container, initialValue: "text " });
 
     editor.setSelection(5, 5);
     insertLink(editor);
@@ -91,7 +117,7 @@ describe("insertLink", () => {
 describe("toggleHeading", () => {
   it("adds heading prefix to current line", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "Title" });
+    const editor = makeEditor({ container, initialValue: "Title" });
 
     editor.setSelection(2);
     toggleHeading(editor, 2);
@@ -102,7 +128,7 @@ describe("toggleHeading", () => {
 
   it("removes heading when same level is toggled", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "## Title" });
+    const editor = makeEditor({ container, initialValue: "## Title" });
 
     editor.setSelection(5);
     toggleHeading(editor, 2);
@@ -113,7 +139,7 @@ describe("toggleHeading", () => {
 
   it("switches heading level", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "## Title" });
+    const editor = makeEditor({ container, initialValue: "## Title" });
 
     editor.setSelection(5);
     toggleHeading(editor, 1);
@@ -126,7 +152,7 @@ describe("toggleHeading", () => {
 describe("toggleUnorderedList — single line (existing behaviour)", () => {
   it("adds bullet marker to current line", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "hello" });
+    const editor = makeEditor({ container, initialValue: "hello" });
 
     editor.setSelection(2);
     toggleUnorderedList(editor);
@@ -137,7 +163,7 @@ describe("toggleUnorderedList — single line (existing behaviour)", () => {
 
   it("removes bullet marker when already present", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "- hello" });
+    const editor = makeEditor({ container, initialValue: "- hello" });
 
     editor.setSelection(4);
     toggleUnorderedList(editor);
@@ -148,7 +174,7 @@ describe("toggleUnorderedList — single line (existing behaviour)", () => {
 
   it("replaces ordered-list marker with bullet", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "1. hello" });
+    const editor = makeEditor({ container, initialValue: "1. hello" });
 
     editor.setSelection(4);
     toggleUnorderedList(editor);
@@ -161,7 +187,7 @@ describe("toggleUnorderedList — single line (existing behaviour)", () => {
 describe("toggleUnorderedList — multi-line selection", () => {
   it("adds bullet markers to every selected line", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "foo\nbar\nbaz" });
+    const editor = makeEditor({ container, initialValue: "foo\nbar\nbaz" });
 
     editor.setSelection(0, 11);
     toggleUnorderedList(editor);
@@ -172,7 +198,7 @@ describe("toggleUnorderedList — multi-line selection", () => {
 
   it("removes bullet markers when all selected lines already have one", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "- foo\n- bar\n- baz" });
+    const editor = makeEditor({ container, initialValue: "- foo\n- bar\n- baz" });
 
     editor.setSelection(0, 17);
     toggleUnorderedList(editor);
@@ -183,7 +209,7 @@ describe("toggleUnorderedList — multi-line selection", () => {
 
   it("adds bullets when only some lines have markers (mixed → toggle on)", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "- foo\nbar" });
+    const editor = makeEditor({ container, initialValue: "- foo\nbar" });
 
     editor.setSelection(0, 9);
     toggleUnorderedList(editor);
@@ -194,7 +220,7 @@ describe("toggleUnorderedList — multi-line selection", () => {
 
   it("normalizes reversed selection (head before anchor)", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "foo\nbar" });
+    const editor = makeEditor({ container, initialValue: "foo\nbar" });
 
     editor.setSelection(7, 0); // reversed
     toggleUnorderedList(editor);
@@ -206,7 +232,7 @@ describe("toggleUnorderedList — multi-line selection", () => {
   it("does not include the next line when selection ends at its start", () => {
     const container = document.createElement("div");
     // selection covers "foo\n" (positions 0-4); "bar" starts at 4
-    const editor = createEditor({ container, initialValue: "foo\nbar" });
+    const editor = makeEditor({ container, initialValue: "foo\nbar" });
 
     editor.setSelection(0, 4);
     toggleUnorderedList(editor);
@@ -217,7 +243,7 @@ describe("toggleUnorderedList — multi-line selection", () => {
 
   it("replaces ordered-list markers with bullets across lines", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "1. foo\n2. bar" });
+    const editor = makeEditor({ container, initialValue: "1. foo\n2. bar" });
 
     editor.setSelection(0, 13);
     toggleUnorderedList(editor);
@@ -230,7 +256,7 @@ describe("toggleUnorderedList — multi-line selection", () => {
 describe("toggleOrderedList — single line (existing behaviour)", () => {
   it("adds numbered marker to current line", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "hello" });
+    const editor = makeEditor({ container, initialValue: "hello" });
 
     editor.setSelection(2);
     toggleOrderedList(editor);
@@ -241,7 +267,7 @@ describe("toggleOrderedList — single line (existing behaviour)", () => {
 
   it("removes numbered marker when already present", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "1. hello" });
+    const editor = makeEditor({ container, initialValue: "1. hello" });
 
     editor.setSelection(4);
     toggleOrderedList(editor);
@@ -254,7 +280,7 @@ describe("toggleOrderedList — single line (existing behaviour)", () => {
 describe("toggleOrderedList — multi-line selection", () => {
   it("adds sequential numbers to every selected line", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "foo\nbar\nbaz" });
+    const editor = makeEditor({ container, initialValue: "foo\nbar\nbaz" });
 
     editor.setSelection(0, 11);
     toggleOrderedList(editor);
@@ -265,7 +291,7 @@ describe("toggleOrderedList — multi-line selection", () => {
 
   it("removes numbered markers when all selected lines already have one", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "1. foo\n2. bar\n3. baz" });
+    const editor = makeEditor({ container, initialValue: "1. foo\n2. bar\n3. baz" });
 
     editor.setSelection(0, 20); // doc length = 20
     toggleOrderedList(editor);
@@ -276,7 +302,7 @@ describe("toggleOrderedList — multi-line selection", () => {
 
   it("adds numbers when only some lines have markers (mixed → toggle on)", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "1. foo\nbar" });
+    const editor = makeEditor({ container, initialValue: "1. foo\nbar" });
 
     editor.setSelection(0, 10);
     toggleOrderedList(editor);
@@ -287,7 +313,7 @@ describe("toggleOrderedList — multi-line selection", () => {
 
   it("replaces bullet markers with sequential numbers", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "- foo\n- bar" });
+    const editor = makeEditor({ container, initialValue: "- foo\n- bar" });
 
     editor.setSelection(0, 11);
     toggleOrderedList(editor);
@@ -298,7 +324,7 @@ describe("toggleOrderedList — multi-line selection", () => {
 
   it("normalizes reversed selection (head before anchor)", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "foo\nbar" });
+    const editor = makeEditor({ container, initialValue: "foo\nbar" });
 
     editor.setSelection(7, 0); // reversed
     toggleOrderedList(editor);
@@ -314,7 +340,7 @@ describe("list toggle — round-trip stability", () => {
   it("UL: toggle on then off restores original document", () => {
     const container = document.createElement("div");
     const original = "foo\nbar\nbaz";
-    const editor = createEditor({ container, initialValue: original });
+    const editor = makeEditor({ container, initialValue: original });
 
     editor.setSelection(0, 11);
     toggleUnorderedList(editor); // on
@@ -329,7 +355,7 @@ describe("list toggle — round-trip stability", () => {
   it("OL: toggle on then off restores original document", () => {
     const container = document.createElement("div");
     const original = "foo\nbar\nbaz";
-    const editor = createEditor({ container, initialValue: original });
+    const editor = makeEditor({ container, initialValue: original });
 
     editor.setSelection(0, 11);
     toggleOrderedList(editor); // on → "1. foo\n2. bar\n3. baz"
@@ -343,7 +369,7 @@ describe("list toggle — round-trip stability", () => {
 
   it("UL→OL→UL produces consistent output at each step", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "foo\nbar" });
+    const editor = makeEditor({ container, initialValue: "foo\nbar" });
 
     editor.setSelection(0, 7);
     toggleUnorderedList(editor);
@@ -366,7 +392,7 @@ describe("list toggle — round-trip stability", () => {
 describe("list toggle — selection at document boundary", () => {
   it("handles selection that reaches the last character of the document", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "foo\nbar" });
+    const editor = makeEditor({ container, initialValue: "foo\nbar" });
     const len = "foo\nbar".length; // 7
 
     editor.setSelection(0, len);
@@ -378,7 +404,7 @@ describe("list toggle — selection at document boundary", () => {
 
   it("single line at end of document toggles correctly", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "foo\nbar" });
+    const editor = makeEditor({ container, initialValue: "foo\nbar" });
 
     editor.setSelection(4); // cursor on "bar"
     toggleOrderedList(editor);
@@ -391,7 +417,7 @@ describe("list toggle — selection at document boundary", () => {
 describe("getSelectedText and range-aware toggles — API collaboration", () => {
   it("getSelectedText reflects the full multi-line selection before toggle", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "foo\nbar\nbaz" });
+    const editor = makeEditor({ container, initialValue: "foo\nbar\nbaz" });
 
     editor.setSelection(0, 11);
     expect(editor.getSelectedText()).toBe("foo\nbar\nbaz");
@@ -403,7 +429,7 @@ describe("getSelectedText and range-aware toggles — API collaboration", () => 
 
   it("getSelectedText on collapsed cursor returns empty string even after toggle", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "hello" });
+    const editor = makeEditor({ container, initialValue: "hello" });
 
     editor.setSelection(2);
     expect(editor.getSelectedText()).toBe("");
@@ -426,7 +452,7 @@ describe("createToolbarPlugin", () => {
 
   it("integrates with the editor shortcut system", () => {
     const container = document.createElement("div");
-    const editor = createEditor({
+    const editor = makeEditor({
       container,
       initialValue: "hello world",
       plugins: [createToolbarPlugin()],
@@ -453,7 +479,7 @@ describe("createToolbarPlugin", () => {
 
   it("executes a slash command through the editor's command list", () => {
     const container = document.createElement("div");
-    const editor = createEditor({
+    const editor = makeEditor({
       container,
       initialValue: "hello world",
       plugins: [createToolbarPlugin()],
@@ -471,7 +497,7 @@ describe("createToolbarPlugin", () => {
 describe("createToolbarUI", () => {
   it("shows custom text tooltip for icon-only toolbar buttons", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "hello world" });
+    const editor = makeEditor({ container, initialValue: "hello world" });
     const toolbar = createToolbarUI(editor);
     document.body.appendChild(toolbar.element);
 
@@ -505,7 +531,7 @@ describe("toggleUnorderedList — atomic undo", () => {
   it("Case 1: multi-line toggle → single undo fully restores document", () => {
     const container = document.createElement("div");
     const original = "foo\nbar\nbaz";
-    const editor = createEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
+    const editor = makeEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
 
     editor.setSelection(0, 11);
     toggleUnorderedList(editor);
@@ -518,7 +544,7 @@ describe("toggleUnorderedList — atomic undo", () => {
 
   it("Case 2: toggle → undo → redo recovers toggled state in one step", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "foo\nbar", plugins: [createHistoryPlugin()] });
+    const editor = makeEditor({ container, initialValue: "foo\nbar", plugins: [createHistoryPlugin()] });
 
     editor.setSelection(0, 7);
     toggleUnorderedList(editor);
@@ -530,7 +556,7 @@ describe("toggleUnorderedList — atomic undo", () => {
 
   it("Case 3: single-line toggle → undo restores original (regression guard)", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "hello", plugins: [createHistoryPlugin()] });
+    const editor = makeEditor({ container, initialValue: "hello", plugins: [createHistoryPlugin()] });
 
     editor.setSelection(2);
     toggleUnorderedList(editor);
@@ -547,7 +573,7 @@ describe("toggleUnorderedList — atomic undo", () => {
     // leaves the document half-reverted). After the atomic replaceRange
     // refactor, undo() exhausts history after one call.
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "foo\nbar", plugins: [createHistoryPlugin()] });
+    const editor = makeEditor({ container, initialValue: "foo\nbar", plugins: [createHistoryPlugin()] });
 
     editor.setSelection(0, 7);
     toggleUnorderedList(editor);
@@ -560,7 +586,7 @@ describe("toggleUnorderedList — atomic undo", () => {
   it("Case 5: reversed multi-line selection → toggle → undo restores original", () => {
     const container = document.createElement("div");
     const original = "foo\nbar";
-    const editor = createEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
+    const editor = makeEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
 
     editor.setSelection(7, 0); // reversed: head before anchor
     toggleUnorderedList(editor);
@@ -574,7 +600,7 @@ describe("toggleUnorderedList — atomic undo", () => {
   it("Case 6: collapsed cursor → toggle → undo restores original", () => {
     const container = document.createElement("div");
     const original = "foo\nbar\nbaz";
-    const editor = createEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
+    const editor = makeEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
 
     editor.setSelection(5); // cursor inside "bar" line
     toggleUnorderedList(editor);
@@ -588,7 +614,7 @@ describe("toggleUnorderedList — atomic undo", () => {
   it("Case 7: toggle → undo → redo → undo round-trip is consistent", () => {
     const container = document.createElement("div");
     const original = "foo\nbar";
-    const editor = createEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
+    const editor = makeEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
 
     editor.setSelection(0, 7);
     toggleUnorderedList(editor);
@@ -603,6 +629,97 @@ describe("toggleUnorderedList — atomic undo", () => {
 
     editor.undo();
     expect(editor.getDocument()).toBe(original);
+    editor.destroy();
+  });
+});
+
+describe("additional formatting helpers", () => {
+  it("toggleBlockquote adds and removes the > prefix", () => {
+    const container = document.createElement("div");
+    const editor = makeEditor({ container, initialValue: "hello" });
+    toggleBlockquote(editor);
+    expect(editor.getDocument()).toBe("> hello");
+    toggleBlockquote(editor);
+    expect(editor.getDocument()).toBe("hello");
+    editor.destroy();
+  });
+
+  it("insertCodeBlock wraps the selection in a fenced block", () => {
+    const container = document.createElement("div");
+    const editor = makeEditor({ container, initialValue: "code" });
+    editor.setSelection(0, 4);
+    insertCodeBlock(editor);
+    expect(editor.getDocument()).toBe("```\ncode\n```");
+    editor.destroy();
+  });
+
+  it("insertImage inserts a markdown image and selects the url", () => {
+    const container = document.createElement("div");
+    const editor = makeEditor({ container, initialValue: "pic" });
+    editor.setSelection(0, 3);
+    insertImage(editor);
+    expect(editor.getDocument()).toBe("![pic](url)");
+    editor.destroy();
+  });
+
+  it("insertHorizontalRule inserts --- at the cursor", () => {
+    const container = document.createElement("div");
+    const editor = makeEditor({ container, initialValue: "ab" });
+    editor.setSelection(2, 2);
+    insertHorizontalRule(editor);
+    expect(editor.getDocument()).toBe("ab\n---\n");
+    editor.destroy();
+  });
+
+  it("applyTextColor wraps the selection and returns true", () => {
+    const container = document.createElement("div");
+    const editor = makeEditor({ container, initialValue: "red" });
+    editor.setSelection(0, 3);
+    const ok = applyTextColor(editor, "#f00");
+    expect(ok).toBe(true);
+    expect(editor.getDocument()).toBe('<span style="color:#f00">red</span>');
+    editor.destroy();
+  });
+
+  it("applyTextColor returns false on an empty selection", () => {
+    const container = document.createElement("div");
+    const editor = makeEditor({ container, initialValue: "red" });
+    editor.setSelection(1, 1);
+    const ok = applyTextColor(editor, "#f00");
+    expect(ok).toBe(false);
+    expect(editor.getDocument()).toBe("red");
+    editor.destroy();
+  });
+
+  it("applyHighlight wraps the selection in a mark", () => {
+    const container = document.createElement("div");
+    const editor = makeEditor({ container, initialValue: "hi" });
+    editor.setSelection(0, 2);
+    const ok = applyHighlight(editor, "#ff0");
+    expect(ok).toBe(true);
+    expect(editor.getDocument()).toBe('<mark style="background:#ff0">hi</mark>');
+    editor.destroy();
+  });
+
+  it("toggleStrikethrough wraps and unwraps ~~", () => {
+    const container = document.createElement("div");
+    const editor = makeEditor({ container, initialValue: "text" });
+    editor.setSelection(0, 4);
+    toggleStrikethrough(editor);
+    expect(editor.getDocument()).toBe("~~text~~");
+    toggleStrikethrough(editor);
+    expect(editor.getDocument()).toBe("text");
+    editor.destroy();
+  });
+
+  it("toggleWrap wraps and unwraps an arbitrary marker", () => {
+    const container = document.createElement("div");
+    const editor = makeEditor({ container, initialValue: "x" });
+    editor.setSelection(0, 1);
+    toggleWrap(editor, "==");
+    expect(editor.getDocument()).toBe("==x==");
+    toggleWrap(editor, "==");
+    expect(editor.getDocument()).toBe("x");
     editor.destroy();
   });
 });
