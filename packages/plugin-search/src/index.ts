@@ -35,6 +35,7 @@ export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  fuzzy?: boolean;
 }
 
 export interface SearchHistoryStorage {
@@ -80,6 +81,7 @@ export interface SearchPluginLabels {
   matchCase: string;
   regexp: string;
   byWord: string;
+  fuzzy: string;
   replaceNext: string;
   replaceAll: string;
   close: string;
@@ -96,6 +98,7 @@ const DEFAULT_LABELS: SearchPluginLabels = {
   matchCase: "Match case",
   regexp: "Regexp",
   byWord: "By word",
+  fuzzy: "Fuzzy",
   replaceNext: "Replace",
   replaceAll: "Replace all",
   close: "Close"
@@ -623,7 +626,141 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+export interface FuzzyMatch {
+  from: number;
+  to: number;
+  text: string;
+  score: number;
+}
+
+function findBestFuzzyMatchInRange(
+  text: string,
+  haystack: string,
+  needle: string,
+  startPos: number,
+  maxRange: number
+): FuzzyMatch | null {
+  let bestMatch: FuzzyMatch | null = null;
+  let bestScore = -Infinity;
+  const needleLen = needle.length;
+
+  for (let start = startPos; start < Math.min(startPos + maxRange, haystack.length - needleLen + 1); start++) {
+    if (haystack[start] !== needle[0]) continue;
+
+    let haystackIdx = start;
+    let needleIdx = 0;
+    let gaps = 0;
+    let consecutive = 0;
+    let maxConsecutive = 0;
+    let lastMatch = start;
+
+    while (haystackIdx < haystack.length && needleIdx < needleLen) {
+      if (haystack[haystackIdx] === needle[needleIdx]) {
+        consecutive++;
+        maxConsecutive = Math.max(maxConsecutive, consecutive);
+        lastMatch = haystackIdx;
+        needleIdx++;
+      } else {
+        if (consecutive > 0) {
+          gaps++;
+        }
+        consecutive = 0;
+      }
+      haystackIdx++;
+      if (gaps > needleLen) break;
+    }
+
+    if (needleIdx === needleLen) {
+      const matchLength = lastMatch - start + 1;
+      const prefixBonus = start === 0 ? 2 : 0;
+      const consecutiveBonus = maxConsecutive * 1.5;
+      const gapPenalty = gaps * 0.5;
+      const lengthPenalty = matchLength * 0.1;
+      const score = needleLen + prefixBonus + consecutiveBonus - gapPenalty - lengthPenalty;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = {
+          from: start,
+          to: lastMatch + 1,
+          text: text.slice(start, lastMatch + 1),
+          score
+        };
+      }
+    }
+  }
+
+  return bestMatch;
+}
+
+function findAllFuzzyMatchesInLine(line: string, query: string, caseSensitive: boolean): FuzzyMatch[] {
+  if (query.length === 0 || line.length === 0) return [];
+
+  const haystack = caseSensitive ? line : line.toLowerCase();
+  const needle = caseSensitive ? query : query.toLowerCase();
+  const needleLen = needle.length;
+  const allMatches: FuzzyMatch[] = [];
+
+  let searchPos = 0;
+  while (searchPos <= haystack.length - needleLen) {
+    const firstCharPos = haystack.indexOf(needle[0], searchPos);
+    if (firstCharPos === -1) break;
+
+    const match = findBestFuzzyMatchInRange(line, haystack, needle, firstCharPos, line.length);
+    if (match) {
+      allMatches.push(match);
+    }
+    searchPos = firstCharPos + 1;
+  }
+
+  allMatches.sort((a, b) => b.score - a.score);
+
+  const selected: FuzzyMatch[] = [];
+  const used: boolean[] = new Array(allMatches.length).fill(false);
+
+  for (let i = 0; i < allMatches.length; i++) {
+    if (used[i]) continue;
+    const current = allMatches[i];
+    selected.push(current);
+
+    for (let j = i + 1; j < allMatches.length; j++) {
+      if (used[j]) continue;
+      const other = allMatches[j];
+      if (other.from < current.to && other.to > current.from) {
+        used[j] = true;
+      }
+    }
+  }
+
+  selected.sort((a, b) => a.from - b.from);
+  return selected;
+}
+
+function findFuzzyMatches(doc: string, query: string, caseSensitive: boolean): SearchMatch[] {
+  if (query.length === 0) return [];
+
+  const matches: SearchMatch[] = [];
+  const lines = doc.split("\n");
+  let lineOffset = 0;
+
+  for (const line of lines) {
+    const lineMatches = findAllFuzzyMatchesInLine(line, query, caseSensitive);
+    for (const m of lineMatches) {
+      matches.push({
+        from: lineOffset + m.from,
+        to: lineOffset + m.to,
+        text: m.text
+      });
+    }
+    lineOffset += line.length + 1;
+  }
+
+  return matches;
+}
+
 function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp | null {
+  if (options.fuzzy) return null;
+
   const flags = options.caseSensitive ? "g" : "gi";
 
   let pattern: string;
@@ -648,6 +785,10 @@ export function findSearchMatches(
 ): SearchMatch[] {
   if (!query) {
     return [];
+  }
+
+  if (options.fuzzy) {
+    return findFuzzyMatches(doc, query, options.caseSensitive ?? false);
   }
 
   const pattern = buildSearchPattern(query, options);
@@ -678,6 +819,19 @@ export function replaceAllMatches(
 ): string {
   if (!query) {
     return doc;
+  }
+
+  if (options.fuzzy) {
+    const matches = findFuzzyMatches(doc, query, options.caseSensitive ?? false);
+    if (matches.length === 0) return doc;
+    let result = "";
+    let lastEnd = 0;
+    for (const match of matches) {
+      result += doc.slice(lastEnd, match.from) + replacement;
+      lastEnd = match.to;
+    }
+    result += doc.slice(lastEnd);
+    return result;
   }
 
   const pattern = buildSearchPattern(query, options);
@@ -712,6 +866,7 @@ function resolveLabels(view: EditorView, labels: Partial<SearchPluginLabels> | u
     matchCase: resolveLabel(view, labels, "matchCase", DEFAULT_LABELS.matchCase),
     regexp: resolveLabel(view, labels, "regexp", DEFAULT_LABELS.regexp),
     byWord: resolveLabel(view, labels, "byWord", DEFAULT_LABELS.byWord),
+    fuzzy: resolveLabel(view, labels, "fuzzy", DEFAULT_LABELS.fuzzy),
     replaceNext: resolveLabel(view, labels, "replaceNext", DEFAULT_LABELS.replaceNext),
     replaceAll: resolveLabel(view, labels, "replaceAll", DEFAULT_LABELS.replaceAll),
     close: resolveLabel(view, labels, "close", DEFAULT_LABELS.close)

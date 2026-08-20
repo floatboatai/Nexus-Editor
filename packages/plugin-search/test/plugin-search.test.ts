@@ -303,6 +303,71 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  describe("fuzzy search", () => {
+    it("finds exact matches", () => {
+      expect(findSearchMatches("hello world", "hello", { fuzzy: true })).toEqual([
+        { from: 0, to: 5, text: "hello" }
+      ]);
+    });
+
+    it("finds matches with missing characters in between", () => {
+      const matches = findSearchMatches("hello world", "hlo", { fuzzy: true });
+      expect(matches.length).toBeGreaterThan(0);
+      expect(matches[0].from).toBe(0);
+      expect(matches[0].to).toBeGreaterThanOrEqual(3);
+    });
+
+    it("finds fuzzy matches across multiple characters", () => {
+      const matches = findSearchMatches("abcdefghij", "aei", { fuzzy: true });
+      expect(matches.length).toBeGreaterThan(0);
+      expect(matches[0].from).toBe(0);
+      expect(matches[0].to).toBeGreaterThanOrEqual(9);
+    });
+
+    it("is case-insensitive by default", () => {
+      const matches = findSearchMatches("Hello World", "hw", { fuzzy: true });
+      expect(matches.length).toBeGreaterThan(0);
+    });
+
+    it("supports case-sensitive fuzzy search", () => {
+      const matchesCaseSensitive = findSearchMatches("Hello World", "hw", { fuzzy: true, caseSensitive: true });
+      const matchesCaseInsensitive = findSearchMatches("Hello World", "hw", { fuzzy: true, caseSensitive: false });
+      expect(matchesCaseSensitive.length).toBeLessThan(matchesCaseInsensitive.length);
+    });
+
+    it("returns empty array for empty query", () => {
+      expect(findSearchMatches("hello world", "", { fuzzy: true })).toEqual([]);
+    });
+
+    it("returns empty array when no match is found", () => {
+      expect(findSearchMatches("hello world", "xyz", { fuzzy: true })).toEqual([]);
+    });
+
+    it("finds matches on multiple lines", () => {
+      const doc = "first line\nsecond line\nthird line";
+      const matches = findSearchMatches(doc, "fline", { fuzzy: true });
+      expect(matches.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("replaces all fuzzy matches", () => {
+      const result = replaceAllMatches("hello world", "hlo", "X", { fuzzy: true });
+      expect(result).not.toBe("hello world");
+      expect(result).toContain("X");
+    });
+
+    it("returns original doc when no fuzzy matches for replace", () => {
+      expect(replaceAllMatches("hello world", "xyz", "X", { fuzzy: true })).toBe("hello world");
+    });
+
+    it("prefers matches with more consecutive characters", () => {
+      const matches = findSearchMatches("reinstall initialization", "init", { fuzzy: true });
+      expect(matches.length).toBeGreaterThan(0);
+      const exactMatch = matches.find(m => m.text === "init");
+      expect(exactMatch).toBeDefined();
+      expect(exactMatch!.from).toBeGreaterThan(9);
+    });
+  });
+
   it("creates a search plugin descriptor", () => {
     const plugin = createSearchPlugin();
 

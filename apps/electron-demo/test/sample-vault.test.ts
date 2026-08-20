@@ -5,7 +5,7 @@ import { scanWikiLinks } from "@floatboat/nexus-core";
 import { LinkIndex, findAnchorPosition, parseAnchor } from "../src/renderer/link-index";
 import { normalizeSlashes } from "../src/renderer/path-utils";
 
-const VAULT_ROOT = path.resolve(__dirname, "../sample-vault");
+const VAULT_ROOT = normalizeSlashes(path.resolve(__dirname, "../sample-vault"));
 const SUPPORTED = new Set([".md", ".markdown", ".txt"]);
 const SKIP_DIRS = new Set(["node_modules", ".git"]);
 
