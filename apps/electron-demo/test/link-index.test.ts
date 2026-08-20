@@ -242,6 +242,31 @@ describe("LinkIndex.getUnlinkedMentions", () => {
     expect(hits.every((h) => h.sourcePath === "/v/a.md")).toBe(true);
   });
 
+  it("finds CJK note names without relying on ASCII word boundaries", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "/v/项目计划.md", content: "" },
+      { path: "/v/a.md", content: "今天更新项目计划，明天继续项目计划。" },
+    ]);
+
+    const hits = idx.getUnlinkedMentions("/v/项目计划.md");
+
+    expect(hits).toHaveLength(2);
+    expect(hits.map((hit) => hit.from)).toEqual([4, 13]);
+  });
+
+  it("uses Unicode-aware boundaries for accented note names", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([
+      { path: "/v/Café.md", content: "" },
+      { path: "/v/a.md", content: "Café, caféine, and CAFÉ." },
+    ]);
+
+    const hits = idx.getUnlinkedMentions("/v/Café.md");
+
+    expect(hits.map((hit) => hit.from)).toEqual([0, 19]);
+  });
+
   it("excludes occurrences that fall inside existing wiki links", () => {
     const idx = new LinkIndex();
     idx.rebuild([
