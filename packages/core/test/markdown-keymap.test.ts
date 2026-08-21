@@ -91,6 +91,60 @@ describe("markdown keymap", () => {
     view.destroy();
   });
 
+  it("continues an unordered list inside a blockquote", () => {
+    const view = createView("> - item");
+    const handled = handleMarkdownEnter(view);
+
+    expect(handled).toBe(true);
+    expect(view.state.doc.toString()).toBe("> - item\n> - ");
+    view.destroy();
+  });
+
+  it("continues and increments an ordered list inside a nested blockquote", () => {
+    const view = createView("> > 9) item");
+    const handled = handleMarkdownEnter(view);
+
+    expect(handled).toBe(true);
+    expect(view.state.doc.toString()).toBe("> > 9) item\n> > 10) ");
+    view.destroy();
+  });
+
+  it("continues a task list inside a blockquote with an unchecked item", () => {
+    const view = createView("> - [x] done");
+    const handled = handleMarkdownEnter(view);
+
+    expect(handled).toBe(true);
+    expect(view.state.doc.toString()).toBe("> - [x] done\n> - [ ] ");
+    view.destroy();
+  });
+
+  it("preserves nested blockquote depth on Enter", () => {
+    const view = createView("> > quote");
+    const handled = handleMarkdownEnter(view);
+
+    expect(handled).toBe(true);
+    expect(view.state.doc.toString()).toBe("> > quote\n> > ");
+    view.destroy();
+  });
+
+  it("exits an empty quoted list item but remains in the blockquote", () => {
+    const view = createView("> - ");
+    const handled = handleMarkdownEnter(view);
+
+    expect(handled).toBe(true);
+    expect(view.state.doc.toString()).toBe("> ");
+    view.destroy();
+  });
+
+  it("exits an empty quoted task item but remains in the blockquote", () => {
+    const view = createView("> - [ ] ");
+    const handled = handleMarkdownEnter(view);
+
+    expect(handled).toBe(true);
+    expect(view.state.doc.toString()).toBe("> ");
+    view.destroy();
+  });
+
   // ── No-op cases ──
 
   it("does not trigger on plain text lines", () => {

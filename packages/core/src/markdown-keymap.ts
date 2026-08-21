@@ -3,15 +3,24 @@ import { type EditorView, keymap } from "@codemirror/view";
 
 const LIST_RE = /^(\s*)([-*+]|\d+[.)]) /;
 const CHECKBOX_RE = /^\[([ xX])\] /;
-const BLOCKQUOTE_RE = /^(\s*>+ ?)/;
+const BLOCKQUOTE_PREFIX_RE = /^(\s*(?:> ?)+)/;
+
+type Continuation = {
+  prefix: string;
+  content: string;
+  emptyItemReplacement: string;
+};
 
 /** The markdown continuation prefix for the line, or null when the line is plain text. */
-function continuationFor(text: string): { prefix: string; content: string } | null {
-  const listMatch = LIST_RE.exec(text);
+function continuationFor(text: string): Continuation | null {
+  const quoteMatch = BLOCKQUOTE_PREFIX_RE.exec(text);
+  const quotePrefix = quoteMatch?.[1] ?? "";
+  const body = text.slice(quotePrefix.length);
+  const listMatch = LIST_RE.exec(body);
   if (listMatch) {
     const indent = listMatch[1];
     const marker = listMatch[2];
-    const afterMarker = text.slice(listMatch[0].length);
+    const afterMarker = body.slice(listMatch[0].length);
 
     const cbMatch = CHECKBOX_RE.exec(afterMarker);
     const content = cbMatch ? afterMarker.slice(cbMatch[0].length) : afterMarker;
@@ -23,14 +32,12 @@ function continuationFor(text: string): { prefix: string; content: string } | nu
       nextMarker = `${parseInt(numMatch[1]) + 1}${numMatch[2]}`;
     }
 
-    const prefix = cbMatch ? `${indent}${nextMarker} [ ] ` : `${indent}${nextMarker} `;
-    return { prefix, content };
+    const listPrefix = cbMatch ? `${indent}${nextMarker} [ ] ` : `${indent}${nextMarker} `;
+    return { prefix: quotePrefix + listPrefix, content, emptyItemReplacement: quotePrefix };
   }
 
-  const quoteMatch = BLOCKQUOTE_RE.exec(text);
   if (quoteMatch) {
-    const prefix = quoteMatch[1];
-    return { prefix, content: text.slice(prefix.length) };
+    return { prefix: quotePrefix, content: body, emptyItemReplacement: "" };
   }
 
   return null;
@@ -84,8 +91,8 @@ export function handleMarkdownEnter(view: EditorView): boolean {
         }
         exitedLines.add(line.from);
         return {
-          changes: { from: line.from, to: line.to, insert: "" },
-          range: EditorSelection.cursor(line.from),
+          changes: { from: line.from, to: line.to, insert: continuation.emptyItemReplacement },
+          range: EditorSelection.cursor(line.from + continuation.emptyItemReplacement.length),
         };
       }
 
