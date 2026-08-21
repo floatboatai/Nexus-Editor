@@ -309,6 +309,20 @@ describe("markdown Enter with multiple cursors", () => {
     editor.destroy();
   });
 
+  it("continues quoted list items at multiple cursors", () => {
+    const { editor, view } = createTestEditor("> - a\n> 1. b");
+    editor.setSelections([{ anchor: 5 }, { anchor: 12 }]);
+
+    expect(handleMarkdownEnter(view)).toBe(true);
+
+    expect(editor.getDocument()).toBe("> - a\n> - \n> 1. b\n> 2. ");
+    expect(editor.getSelections().ranges).toEqual([
+      { anchor: 10, head: 10 },
+      { anchor: 23, head: 23 },
+    ]);
+    editor.destroy();
+  });
+
   it("mixes list continuation and plain newline across cursors", () => {
     const { editor, view } = createTestEditor("- a\nplain");
     editor.setSelections([{ anchor: 3 }, { anchor: 9 }]);
