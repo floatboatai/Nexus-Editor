@@ -79,6 +79,30 @@ describe("event system", () => {
     editor.destroy();
   });
 
+  it("applies listener mutations to the next event emission", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container });
+    const calls: string[] = [];
+    const addedHandler = vi.fn(() => calls.push("added"));
+    const removedHandler = vi.fn(() => calls.push("removed"));
+    const mutatingHandler = vi.fn(() => {
+      calls.push("mutating");
+      editor.on("change", addedHandler);
+      editor.off("change", removedHandler);
+    });
+
+    editor.on("change", mutatingHandler);
+    editor.on("change", removedHandler);
+    editor.setDocument("first");
+
+    expect(calls).toEqual(["mutating", "removed"]);
+
+    editor.setDocument("second");
+
+    expect(calls).toEqual(["mutating", "removed", "mutating", "added"]);
+    editor.destroy();
+  });
+
   it("does not emit events after destroy", () => {
     const container = document.createElement("div");
     const handler = vi.fn();

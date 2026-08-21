@@ -19,7 +19,8 @@ export class EventEmitter<EventMap extends { [K in keyof EventMap]: EventHandler
   emit<K extends keyof EventMap>(event: K, ...args: Parameters<EventMap[K]>): void {
     const set = this.listeners.get(event);
     if (set) {
-      for (const handler of set) {
+      // Mutations made by a handler apply to the next emit, not this in-flight dispatch.
+      for (const handler of [...set]) {
         // Handlers enter this set only through on<K>, preserving the event-key correlation.
         const eventHandler = handler as EventMap[K];
         eventHandler(...args);

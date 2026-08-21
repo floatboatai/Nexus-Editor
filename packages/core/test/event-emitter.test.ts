@@ -46,6 +46,45 @@ describe("EventEmitter", () => {
     expect(retainedHandler).toHaveBeenCalledOnce();
   });
 
+  it("defers handlers added during emit until the next emission", () => {
+    const emitter = new EventEmitter<TestEventMap>();
+    const calls: string[] = [];
+    const addedHandler = vi.fn(() => calls.push("added"));
+    const addingHandler = vi.fn(() => {
+      calls.push("adding");
+      emitter.on("ready", addedHandler);
+    });
+
+    emitter.on("ready", addingHandler);
+    emitter.emit("ready");
+
+    expect(calls).toEqual(["adding"]);
+
+    emitter.emit("ready");
+
+    expect(calls).toEqual(["adding", "adding", "added"]);
+  });
+
+  it("finishes the current emission when a handler removes another handler", () => {
+    const emitter = new EventEmitter<TestEventMap>();
+    const calls: string[] = [];
+    const removedHandler = vi.fn(() => calls.push("removed"));
+    const removingHandler = vi.fn(() => {
+      calls.push("removing");
+      emitter.off("ready", removedHandler);
+    });
+
+    emitter.on("ready", removingHandler);
+    emitter.on("ready", removedHandler);
+    emitter.emit("ready");
+
+    expect(calls).toEqual(["removing", "removed"]);
+
+    emitter.emit("ready");
+
+    expect(calls).toEqual(["removing", "removed", "removing"]);
+  });
+
   it("clears handlers for every event", () => {
     const emitter = new EventEmitter<TestEventMap>();
     const readyHandler = vi.fn<TestEventMap["ready"]>();
