@@ -136,6 +136,15 @@ describe("markdown keymap", () => {
     view.destroy();
   });
 
+  it("exits an empty quoted task item but remains in the blockquote", () => {
+    const view = createView("> - [ ] ");
+    const handled = handleMarkdownEnter(view);
+
+    expect(handled).toBe(true);
+    expect(view.state.doc.toString()).toBe("> ");
+    view.destroy();
+  });
+
   // ── No-op cases ──
 
   it("does not trigger on plain text lines", () => {

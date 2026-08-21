@@ -3,17 +3,17 @@ import { type EditorView, keymap } from "@codemirror/view";
 
 const LIST_RE = /^(\s*)([-*+]|\d+[.)]) /;
 const CHECKBOX_RE = /^\[([ xX])\] /;
-const BLOCKQUOTE_RE = /^(\s*(?:> ?)+)/;
+const BLOCKQUOTE_PREFIX_RE = /^(\s*(?:> ?)+)/;
 
 type Continuation = {
   prefix: string;
   content: string;
-  exitPrefix: string;
+  emptyItemReplacement: string;
 };
 
 /** The markdown continuation prefix for the line, or null when the line is plain text. */
 function continuationFor(text: string): Continuation | null {
-  const quoteMatch = BLOCKQUOTE_RE.exec(text);
+  const quoteMatch = BLOCKQUOTE_PREFIX_RE.exec(text);
   const quotePrefix = quoteMatch?.[1] ?? "";
   const body = text.slice(quotePrefix.length);
   const listMatch = LIST_RE.exec(body);
@@ -33,11 +33,11 @@ function continuationFor(text: string): Continuation | null {
     }
 
     const listPrefix = cbMatch ? `${indent}${nextMarker} [ ] ` : `${indent}${nextMarker} `;
-    return { prefix: quotePrefix + listPrefix, content, exitPrefix: quotePrefix };
+    return { prefix: quotePrefix + listPrefix, content, emptyItemReplacement: quotePrefix };
   }
 
   if (quoteMatch) {
-    return { prefix: quotePrefix, content: body, exitPrefix: "" };
+    return { prefix: quotePrefix, content: body, emptyItemReplacement: "" };
   }
 
   return null;
@@ -91,8 +91,8 @@ export function handleMarkdownEnter(view: EditorView): boolean {
         }
         exitedLines.add(line.from);
         return {
-          changes: { from: line.from, to: line.to, insert: continuation.exitPrefix },
-          range: EditorSelection.cursor(line.from + continuation.exitPrefix.length),
+          changes: { from: line.from, to: line.to, insert: continuation.emptyItemReplacement },
+          range: EditorSelection.cursor(line.from + continuation.emptyItemReplacement.length),
         };
       }
 
