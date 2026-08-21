@@ -608,6 +608,29 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("setDocument silent: host document loads stay out of undo history", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "start", plugins: [createHistoryPlugin()] });
+
+    editor.setDocument("loaded from disk", { silent: true });
+    expect(editor.getDocument()).toBe("loaded from disk");
+    // Undo right after opening a file must not revert the fresh document
+    // back to the previously open one.
+    expect(editor.undo()).toBe(false);
+    expect(editor.getDocument()).toBe("loaded from disk");
+    editor.destroy();
+  });
+
+  it("setDocument non-silent: programmatic edits remain undoable", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "start", plugins: [createHistoryPlugin()] });
+
+    editor.setDocument("next");
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("start");
+    editor.destroy();
+  });
+
   // ── HTML export ──
 
   it("exports markdown to semantic HTML", () => {
