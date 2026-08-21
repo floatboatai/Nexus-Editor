@@ -85,6 +85,35 @@ describe("EventEmitter", () => {
     expect(calls).toEqual(["removing", "removed", "removing"]);
   });
 
+  it("uses updated listeners for nested emissions without changing the outer snapshot", () => {
+    const emitter = new EventEmitter<TestEventMap>();
+    const calls: string[] = [];
+    let nested = false;
+    const addedHandler = vi.fn(() => calls.push("added"));
+    const removedHandler = vi.fn(() => calls.push("removed"));
+    const mutatingHandler = vi.fn(() => {
+      calls.push(nested ? "mutating:nested" : "mutating:outer");
+      if (nested) return;
+
+      emitter.on("ready", addedHandler);
+      emitter.off("ready", removedHandler);
+      nested = true;
+      emitter.emit("ready");
+      nested = false;
+    });
+
+    emitter.on("ready", mutatingHandler);
+    emitter.on("ready", removedHandler);
+    emitter.emit("ready");
+
+    expect(calls).toEqual([
+      "mutating:outer",
+      "mutating:nested",
+      "added",
+      "removed",
+    ]);
+  });
+
   it("clears handlers for every event", () => {
     const emitter = new EventEmitter<TestEventMap>();
     const readyHandler = vi.fn<TestEventMap["ready"]>();
