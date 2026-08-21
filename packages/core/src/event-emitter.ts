@@ -1,5 +1,7 @@
-export class EventEmitter<EventMap extends { [K in keyof EventMap]: (...args: any[]) => void }> {
-  private listeners = new Map<keyof EventMap, Set<Function>>();
+type EventHandler = (...args: never[]) => void;
+
+export class EventEmitter<EventMap extends { [K in keyof EventMap]: EventHandler }> {
+  private listeners = new Map<keyof EventMap, Set<EventHandler>>();
 
   on<K extends keyof EventMap>(event: K, handler: EventMap[K]): void {
     let set = this.listeners.get(event);
@@ -18,7 +20,9 @@ export class EventEmitter<EventMap extends { [K in keyof EventMap]: (...args: an
     const set = this.listeners.get(event);
     if (set) {
       for (const handler of set) {
-        (handler as (...a: any[]) => void)(...args);
+        // Handlers enter this set only through on<K>, preserving the event-key correlation.
+        const eventHandler = handler as EventMap[K];
+        eventHandler(...args);
       }
     }
   }
