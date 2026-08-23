@@ -17,6 +17,21 @@ Target behavior: **Obsidian-style element-granular reveal** — only the element
 
 Precedent in this codebase: images already use element-granular cursor awareness (cursor inside image range → source visible + preview; outside → widget only). See `packages/core/test/live-preview-regressions.test.ts` ("image widget-only when cursor outside; source + preview when inside").
 
+## Historical research (2026-08-23, evidence-research)
+
+Whether line-granularity is "design or bug" was researched across prd.md, openspec, README/CLAUDE/AGENTS, and git history:
+
+- `prd.md:96` (original product intent, Chinese): element-granular — "当光标不在某个特定的 Markdown 结构（如 `**加粗**`）内部时，将其折叠；当光标移入时，展开为源码供编辑" (collapse when cursor NOT inside the structure; expand when cursor moves INTO it).
+- First implementation used per-character range intersection with transparent-color/font-size:0 hiding → caused CM6 coordinate/DOM mismatch (scroll click desync).
+- Commit `9e2a5eb` (2026-04-17, "fix: switch to line-level edit/preview mode — fixes scroll click desync") deliberately switched to LINE-LEVEL. Its claim "This matches Obsidian's approach: clicking anywhere on a line reveals all formatting markers on that line" is factually incorrect about Obsidian (Obsidian reveals only the element containing the cursor). The fix bundled two changes: hiding mechanism (transparent text → `Decoration.replace`) and granularity (element → line).
+- `openspec/changes/add-wikilinks/proposal.md:11` + `design.md:13` (Goals/D2) adopt line-level for wikilinks for consistency with the post-9e2a5eb inline formats. This change was never archived into `openspec/specs/` (which contains only plugin-* capabilities).
+- `openspec/changes/add-missing-features/specs/live-preview/spec.md:12` says "markers SHALL be hidden when cursor is outside" — ambiguous about outside-element vs outside-line.
+- `README.md:192` says "reveals raw syntax on cursor focus (Obsidian-style)" — ambiguous.
+
+**Verdict:** the current line-level behavior is a *deliberate, documented* design decision (commit message + wikilinks proposal/design) — not an implementation bug — but it deviates from the original PRD intent, its Obsidian-parity justification is wrong, and it never reached the authoritative `openspec/specs/` truth.
+
+**Constraint carried forward:** the click-desync root cause in `9e2a5eb` was the *hiding mechanism* (transparent text / font-size:0), not granularity per se. This change keeps the current hiding mechanism (`Decoration.replace` zero-width + mark) untouched and changes only the reveal predicate — the height-neutral invariant documented in `live-preview.ts:283-293` and CLAUDE.md-referenced commits (`3cf8c6b`, `5ec8daf`, `b73abef`) must not regress. Manual smoke: scroll + click accuracy around mixed rendered/raw lines.
+
 ## Requirements
 
 1. **Element-granular reveal for all inline syntax** (wikilinks, strong, emphasis, delete, inlineCode, `[text](url)` links, autolinks): an element's raw markers are revealed only when a selection head is strictly inside the element's document span.
