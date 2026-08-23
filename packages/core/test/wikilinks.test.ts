@@ -103,7 +103,7 @@ describe("wikilinks decorations (rendered output)", () => {
 
   it("expands only the link containing the cursor when several share a line", () => {
     const { container, editor } = mount("a [[A]] b [[B]] c\n\nend");
-    // cursor inside [[A]]: "a [[A]]" → index of "A" is 5
+    // cursor inside [[A]]: "a [[A]]" → index of "A" is 4
     editor.setSelection(5);
     const text = container.textContent ?? "";
     expect(text).toContain("[[A]]");

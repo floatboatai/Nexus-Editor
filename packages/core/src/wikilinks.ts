@@ -8,6 +8,7 @@ import { StateEffect, StateField, type Extension, type Range, type Transaction }
 import { Decoration, type DecorationSet, EditorView } from "@codemirror/view";
 
 import type { NexusPlugin } from "./types";
+import { selectionInsideSpan } from "./live-preview-ranges";
 
 const COMPOSITION_REDECORATE_DELAY_MS = 60;
 
@@ -31,8 +32,9 @@ const COMPOSITION_REDECORATE_DELAY_MS = 60;
  *   - Uses ONLY Decoration.mark + zero-width Decoration.replace. No widgets,
  *     no height-changing styles (matches the invariants documented in
  *     live-preview.ts:283-293 and CLAUDE.md).
- *   - Markers are hidden only when the cursor is off the same line as the
- *     wikilink — same policy as inline strong/emphasis/link.
+ *   - Markers are revealed only while a selection head is strictly inside
+ *     the wikilink span (element-granular, PRD §4.1) — same policy as
+ *     inline strong/emphasis/link via selectionInsideSpan.
  */
 
 export interface WikiLinkMatch {
@@ -116,21 +118,6 @@ function lineBoundaries(doc: string, pos: number): { start: number; end: number 
   return { start, end: nl === -1 ? doc.length : nl };
 }
 
-function selectionOnLine(
-  doc: string,
-  from: number,
-  to: number,
-  selectionHeads: readonly number[]
-): boolean {
-  const nodeLineStart = doc.lastIndexOf("\n", from - 1) + 1;
-  const nl = doc.indexOf("\n", to);
-  const nodeLineEnd = nl === -1 ? doc.length : nl;
-  for (const head of selectionHeads) {
-    if (head >= nodeLineStart && head <= nodeLineEnd) return true;
-  }
-  return false;
-}
-
 const RESOLVED_STYLE =
   "color:var(--nexus-accent);cursor:pointer;text-decoration:underline;text-decoration-color:var(--nexus-accent);text-decoration-thickness:1px;";
 const UNRESOLVED_STYLE =
@@ -157,9 +144,9 @@ function buildWikiLinkDecorations(
     if (unresolved) attrs["data-wikilink-unresolved"] = "true";
     if (m.alias) attrs["data-wikilink-alias"] = m.alias;
 
-    const onLine = selectionOnLine(doc, m.from, m.to, selectionHeads);
+    const active = selectionInsideSpan(m.from, m.to, selectionHeads);
 
-    if (onLine) {
+    if (active) {
       // Cursor on line → show raw `[[...]]` but still style the full span so
       // the user can see what they're editing. No replaces.
       decos.push(Decoration.mark({ attributes: attrs }).range(m.from, m.to));
