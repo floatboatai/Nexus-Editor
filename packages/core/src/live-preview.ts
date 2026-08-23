@@ -1067,6 +1067,7 @@ function buildDecorations(
   const astHit = !!ctx.ast;
   const decos: Range<Decoration>[] = [];
   const parentSpans: [number, number][] = [];
+  const heads = selection.map((r) => r.head);
 
   for (const range of ranges) {
     if (parentSpans.some(([from, to]) => range.from >= from && range.to <= to)) continue;
@@ -1227,7 +1228,6 @@ function buildDecorations(
       const inlineStyle = getInlineMarkerStyle(range.node.type, range.source);
       if (inlineStyle && !config.renderers[range.node.type]) {
         const { openLen, closeLen, style, attrs } = inlineStyle;
-        const heads = selection.map((r) => r.head);
         const cursorInside = selectionInsideSpan(range.from, range.to, heads);
         const textFrom = range.from + openLen;
         const textTo = range.to - closeLen;

@@ -132,7 +132,7 @@ describe("live preview", () => {
     editor.destroy();
   });
 
-  it("reveals markdown [text](url) link markers only inside the link span", () => {
+  it("pins existing element-granular reveal for markdown [text](url) links (inclusive right edge)", () => {
     const container = document.createElement("div");
     const editor = createEditor({
       container,

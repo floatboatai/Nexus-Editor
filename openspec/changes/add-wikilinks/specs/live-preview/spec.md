@@ -18,10 +18,14 @@ The live-preview extension SHALL recognize `[[target]]` and `[[target|alias]]` i
 - **AND** the visible text SHALL be `my note`
 - **AND** the target SHALL still be exposed as `data-wikilink-target="MyNote"`
 
-#### Scenario: Cursor on the line reveals the raw markers
-- **WHEN** the cursor is on the same line as a wikilink
+#### Scenario: Cursor strictly inside the wikilink span reveals the raw markers
+- **WHEN** the cursor is strictly inside the wikilink span (between its first and last character)
 - **THEN** the `[[` / `]]` markers SHALL NOT be replaced
 - **AND** the wikilink target text SHALL still receive the mark styling so the user can continue typing inside the brackets
+
+#### Scenario: Cursor elsewhere on the same line keeps the link rendered
+- **WHEN** the cursor is on the same line as a wikilink but NOT strictly inside its span
+- **THEN** the `[[` / `]]` markers SHALL be hidden and only the display text remains visible
 
 #### Scenario: Escape sequence is not matched
 - **WHEN** a document contains `\[[NotALink]]`

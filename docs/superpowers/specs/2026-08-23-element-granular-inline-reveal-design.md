@@ -64,6 +64,7 @@ Every premise for line-granularity fails: the PRD specifies element-level (Step 
 
 1. **Element-granular reveal for all inline syntax** (wikilinks, strong, emphasis, delete, inlineCode, `[text](url)` links, autolinks): an element's raw markers are revealed only when a selection head is strictly inside the element's document span.
 2. **Strict containment**: `from < head < to`. Caret at span boundaries or on an adjacent space MUST NOT expand the element.
+   - **Exception (human-approved 2026-08-23)**: markdown links `[text](url)` and autolinks keep their pre-existing element-granular-with-inclusive-edges reveal (`selectionIntersects(..., true)`, live-preview.ts ~:1149-1174); strict containment applies to wikilinks and the generic inline formats (strong/emphasis/delete/inlineCode).
 3. **Multi-cursor**: any `range.head` inside an element expands that element (each cursor is an independent reveal trigger, matching existing multi-cursor regression semantics).
 4. **Nested formats**: ancestor chain auto-reveals (each ancestor node's span contains the head, so its markers show too). No extra logic needed; must be covered by tests.
 5. **Click semantics unchanged**: plain mousedown on a rendered wikilink navigates (`onNavigate`). Editing a link stays keyboard-driven; arrowing into a link span reveals that link only.

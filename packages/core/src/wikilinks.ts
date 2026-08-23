@@ -147,13 +147,13 @@ function buildWikiLinkDecorations(
     const active = selectionInsideSpan(m.from, m.to, selectionHeads);
 
     if (active) {
-      // Cursor on line → show raw `[[...]]` but still style the full span so
+      // Cursor inside span → show raw `[[...]]` but still style the full span so
       // the user can see what they're editing. No replaces.
       decos.push(Decoration.mark({ attributes: attrs }).range(m.from, m.to));
       continue;
     }
 
-    // Cursor off line → hide `[[`, `]]`, and (for aliased) the `target|` prefix.
+    // Cursor outside span → hide `[[`, `]]`, and (for aliased) the `target|` prefix.
     // Then mark the visible `display` text.
     // Replace from `from` up to `displayFrom`, and from `displayTo` up to `to`.
     if (m.displayFrom > m.from) {

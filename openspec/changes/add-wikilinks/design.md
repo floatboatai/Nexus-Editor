@@ -10,7 +10,7 @@ An additional constraint comes from the recent live-preview click-drift invarian
 
 Goals:
 - `[[target]]` and `[[target|alias]]` render as inline pills with resolved/unresolved styling.
-- Cursor on the wikilink's line reveals `[[ ]]` brackets; cursor off hides them.
+- Cursor inside the wikilink span reveals `[[ ]]` brackets; cursor outside hides them.
 - Click navigates via host-supplied callback; unresolved clicks create the target file.
 - Autocomplete triggers after `[[` and suggests from a host-supplied candidate list.
 - Vault-wide backlinks panel shows who links to the currently-open file, with a one-line context snippet.

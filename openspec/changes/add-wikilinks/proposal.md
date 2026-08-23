@@ -8,7 +8,7 @@ Note-taking users expect Obsidian-style `[[target]]` bidirectional links: type a
 
 - **Core package** gains a new `wikilinks` extension:
   - Recognizes `[[target]]`, `[[target|alias]]` inline syntax via doc-scan (no parser dependency needed).
-  - Renders wiki links as cursor-aware mark decorations: `[[` / `]]` hidden when cursor is off the line, shown for editing when on the line.
+  - Renders wiki links as cursor-aware mark decorations: `[[` / `]]` hidden unless the cursor is strictly inside the wikilink span (element-granular reveal).
   - Accepts a `resolve(name, fromPath)` callback; resolved links get accent styling + pointer cursor, unresolved links get muted red/dashed styling.
   - Accepts an `onNavigate(target)` callback invoked on click.
   - Accepts a `suggest(query)` async callback to drive CM6 autocomplete after `[[`.
