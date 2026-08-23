@@ -67,6 +67,21 @@ export function selectionOnSameLine(
   });
 }
 
+/**
+ * Element-granular reveal: true when ANY selection head lies strictly
+ * inside the span (from, to). Inline syntax (wikilinks, bold, italic, ...)
+ * reveals raw markers only for the element containing the cursor —
+ * adjacent spaces and other elements on the same line stay rendered.
+ * Heads are absolute document offsets, one per selection range.
+ */
+export function selectionInsideSpan(
+  from: number,
+  to: number,
+  heads: readonly number[]
+): boolean {
+  return heads.some((head) => head > from && head < to);
+}
+
 function collectImageRanges(
   doc: string,
   selection: readonly SelectionRange[]
