@@ -83,11 +83,43 @@ describe("wikilinks decorations (rendered output)", () => {
     editor.destroy();
   });
 
-  it("shows raw [[ ]] when cursor is on the same line", () => {
+  it("shows raw [[ ]] only when the cursor is inside the link span", () => {
     const { container, editor } = mount("Look at [[MyNote]] now\n\nend");
-    editor.setSelection(10); // inside the first line
+    // inside the link: offset of "MyNote"
+    const inside = ("Look at [[MyNote]] now").indexOf("MyNote");
+    editor.setSelection(inside);
+    expect(container.textContent).toContain("[[MyNote]]");
+
+    // same line, before the link → stays rendered
+    editor.setSelection(1);
+    expect(container.textContent).not.toContain("[[");
+    expect(container.textContent).toContain("MyNote");
+
+    // same line, after the link → stays rendered
+    editor.setSelection(("Look at [[MyNote]] now").length - 1);
+    expect(container.textContent).not.toContain("[[");
+    editor.destroy();
+  });
+
+  it("expands only the link containing the cursor when several share a line", () => {
+    const { container, editor } = mount("a [[A]] b [[B]] c\n\nend");
+    // cursor inside [[A]]: "a [[A]]" → index of "A" is 5
+    editor.setSelection(5);
     const text = container.textContent ?? "";
-    expect(text).toContain("[[MyNote]]");
+    expect(text).toContain("[[A]]");
+    expect(text).not.toContain("[[B]]");
+    expect(text).toContain("B");
+    editor.destroy();
+  });
+
+  it("does not expand the link when the cursor is on an adjacent space", () => {
+    const { container, editor } = mount("x [[A]] y\n\nend");
+    // "x [[A]] y": space before the link is at offset 1, "x" is 0, "[[" starts at 2.
+    // head=2 is the span boundary (from) — strict containment keeps it collapsed.
+    editor.setSelection(2);
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("[[");
+    expect(text).toContain("A");
     editor.destroy();
   });
 
