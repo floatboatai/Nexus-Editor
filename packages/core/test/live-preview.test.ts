@@ -58,8 +58,9 @@ async function nextAnimationFrame(): Promise<void> {
 
 describe("live preview", () => {
   // ── Inline formatting ──
-  // Note: inline markers are hidden when cursor is on a DIFFERENT line (line-level detection).
-  // Tests use multi-line content with cursor moved to a separate line.
+  // Inline markers are hidden unless a selection head is strictly inside the
+  // element's span (element-granular reveal). Caret elsewhere on the same
+  // line, or on an adjacent space, keeps the element rendered.
 
   it("hides markers and shows styled text for inline formatting", () => {
     const container = document.createElement("div");
@@ -83,21 +84,72 @@ describe("live preview", () => {
     editor.destroy();
   });
 
-  it("restores raw markdown when cursor enters the same line", () => {
+  it("reveals raw markdown only when the cursor enters the element span", () => {
     const container = document.createElement("div");
     const editor = createEditor({
       container,
-      initialValue: "Text **bold**\n\nend",
+      initialValue: "Text **bold** end\n\nother",
       livePreview: true
     });
 
-    // Cursor on different line → markers hidden
+    // Cursor on a different line → markers hidden
     editor.setSelection(editor.getDocument().length);
     expect(container.textContent).not.toContain("**");
 
-    // Cursor on same line → markers visible
+    // Cursor on the same line but OUTSIDE the element → still rendered
+    editor.setSelection(1);
+    expect(container.textContent).not.toContain("**");
+    editor.setSelection(("Text **bold** end").length - 1);
+    expect(container.textContent).not.toContain("**");
+
+    // Cursor inside the element → markers visible
     editor.setSelection(8);
     expect(container.textContent).toContain("**bold**");
+    editor.destroy();
+  });
+
+  it("expands only the touched element when several share a line", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "a **one** b **two** c\n\nend",
+      livePreview: true
+    });
+
+    // inside **one**: "a **one**" → offset of "one" is 5
+    editor.setSelection(5);
+    let text = container.textContent ?? "";
+    expect(text).toContain("**one**");
+    expect(text).not.toContain("**two**");
+    expect(text).toContain("two");
+
+    // move into **two** → first re-collapses, second expands
+    editor.setSelection(("a **one** b **two** c").indexOf("two"));
+    text = container.textContent ?? "";
+    expect(text).not.toContain("**one**");
+    expect(text).toContain("one");
+    expect(text).toContain("**two**");
+    editor.destroy();
+  });
+
+  it("reveals markdown [text](url) link markers only inside the link span", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "x [link](https://example.com) y\n\nend",
+      livePreview: true
+    });
+
+    editor.setSelection(editor.getDocument().length);
+    expect(container.textContent).not.toContain("](");
+
+    // same line, outside → stays collapsed
+    editor.setSelection(0);
+    expect(container.textContent).not.toContain("](");
+
+    // inside the link text
+    editor.setSelection(("x [link](https://example.com) y").indexOf("link"));
+    expect(container.textContent).toContain("[link](https://example.com)");
     editor.destroy();
   });
 

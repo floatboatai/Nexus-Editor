@@ -78,7 +78,16 @@ describe("live preview regressions", () => {
     expect(revealed).toContain("**bold**");
     expect(revealed).toContain("**also**");
 
-    // Collapse to a single cursor on the blank line between them: both hide
+    // Element-granular: two bold spans on ONE line, cursor in the first →
+    // only the first reveals. Offsets: "aa **bb** cc **dd**"
+    editor.setDocument("aa **bb** cc **dd**\n\nend");
+    editor.setSelection(5); // inside **bb**
+    const granular = container.textContent ?? "";
+    expect(granular).toContain("**bb**");
+    expect(granular).not.toContain("**dd**");
+
+    // Collapse to a single cursor outside any element: both hide
+    editor.setDocument("Text **bold** end\n\nother **also** line");
     editor.setSelection(18);
     const hidden = container.textContent ?? "";
     expect(hidden).toContain("bold");
@@ -241,6 +250,29 @@ describe("live preview regressions", () => {
     const widgetBack = container.querySelector("[data-live-preview-image]");
     expect(widgetBack).not.toBeNull();
     expect(container.textContent).not.toContain("![alt]");
+    editor.destroy();
+  });
+
+  // Nested formats: the ancestor chain reveals because each ancestor's span
+  // contains the head. Cursor in the italic inside bold shows both marker
+  // sets; styled rendering of the content is preserved.
+  it("reveals the ancestor marker chain for nested inline formats", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "a **x *y* z** b\n\nend",
+      livePreview: true
+    });
+
+    // "a **x *y* z** b": offset of "y" is 8
+    editor.setSelection(8);
+    const text = container.textContent ?? "";
+    expect(text).toContain("**x *y* z**");
+
+    // move out to the trailing " b" → all markers hidden again
+    editor.setSelection(("a **x *y* z** b").length - 1);
+    expect(container.textContent).not.toContain("**");
+    expect(container.textContent).not.toContain("*y*");
     editor.destroy();
   });
 });
