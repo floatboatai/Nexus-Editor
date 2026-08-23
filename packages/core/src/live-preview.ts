@@ -12,7 +12,7 @@ import {
 } from "./markdown-contributions";
 
 import { createLivePreviewDiagnostics } from "./live-preview-diag";
-import { collectLivePreviewRanges, selectionIntersects, selectionOnSameLine } from "./live-preview-ranges";
+import { collectLivePreviewRanges, selectionInsideSpan, selectionIntersects, selectionOnSameLine } from "./live-preview-ranges";
 import { renderLivePreviewNode } from "./live-preview-renderers";
 import { EditableTableWidget, isTableEditing } from "./live-preview-table";
 import type {
@@ -1217,22 +1217,22 @@ function buildDecorations(
         parentSpans.push([range.from, range.to]);
       }
 
-      // Inline formatting: Decoration.replace hides the syntactic markers when
-      // the cursor isn't on the same line. The inner style (bold/italic/etc.)
-      // is applied via Decoration.mark on the content range REGARDLESS of
-      // cursor position — that way editing a line with **bold** still shows
-      // the bold rendering, just with the `**` markers visible. Without this,
-      // any line under the cursor flattens to raw markup with no styling,
-      // which is what made nested markers (checked task + **bold** + ~~strike~~)
-      // look broken when the user was editing the line.
+      // Inline formatting: Decoration.replace hides the syntactic markers
+      // unless a selection head is strictly inside this element's span
+      // (element-granular reveal, PRD §4.1). Nested ancestors reveal too
+      // because each ancestor span contains the head. The inner style
+      // (bold/italic/etc.) is applied via Decoration.mark on the content
+      // range REGARDLESS of cursor position — editing **bold** still shows
+      // the bold rendering, just with the `**` markers visible.
       const inlineStyle = getInlineMarkerStyle(range.node.type, range.source);
       if (inlineStyle && !config.renderers[range.node.type]) {
         const { openLen, closeLen, style, attrs } = inlineStyle;
-        const cursorOnLine = selectionOnSameLine(range.from, range.to, doc, selection);
+        const heads = selection.map((r) => r.head);
+        const cursorInside = selectionInsideSpan(range.from, range.to, heads);
         const textFrom = range.from + openLen;
         const textTo = range.to - closeLen;
 
-        if (!cursorOnLine) {
+        if (!cursorInside) {
           if (openLen > 0) {
             decos.push(Decoration.replace({}).range(range.from, range.from + openLen));
           }
