@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol, session, shell } from "electron";
 import { randomUUID } from "node:crypto";
-import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promises";
-import { existsSync, watch, type FSWatcher } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -24,6 +24,7 @@ import {
   PluginHostBrokerError,
   type SenderIdentity,
 } from "./plugin-host-broker";
+import { LegacyVaultBroker } from "./legacy-vault-broker";
 import { SenderWindowRegistry } from "./window-registry";
 
 // Must be called before app ready — declares our custom scheme as privileged
@@ -37,6 +38,7 @@ protocol.registerSchemesAsPrivileged([
 
 let externalNavigationBroker: ElectronExternalNavigationBroker | null = null;
 let pluginVaultBroker: ElectronVaultBroker | null = null;
+let legacyVaultBroker: LegacyVaultBroker | null = null;
 let pluginStorageBroker: ElectronPluginStorageBroker | null = null;
 let appIsQuitting = false;
 let forceQuit = false;
@@ -46,9 +48,6 @@ let quitDrainPromise: Promise<void> | null = null;
 interface WindowRuntimeState {
   readonly windowSession: Electron.Session;
   readonly hostMode: NexusHostMode;
-  activeVault: string | null;
-  activeWatcher: FSWatcher | null;
-  watchNotifyTimer: NodeJS.Timeout | null;
   shutdownTimer: NodeJS.Timeout | null;
   shutdownInProgress: boolean;
   finalizePromise: Promise<void> | null;
@@ -71,20 +70,10 @@ const MAIN_PLUGIN_PERMISSION_POLICIES = new Map<string, MainOwnedPluginPermissio
   ["obsidian-sample-port", { declaredPermissions: [], grantedPermissions: [] }],
 ]);
 
-export interface VaultNode {
-  name: string;
-  path: string;
-  kind: "file" | "directory";
-  children?: VaultNode[];
-}
-
 interface VaultState {
   lastVault: string | null;
   recents: string[];
 }
-
-const SUPPORTED_EXT = new Set([".md", ".markdown", ".txt"]);
-const SKIP_DIRS = new Set(["node_modules", ".git", ".svn", ".hg", ".DS_Store"]);
 
 export interface CreateWindowOptions {
   readonly hostMode?: NexusHostMode;
@@ -121,9 +110,6 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
   const state: WindowRuntimeState = {
     windowSession,
     hostMode,
-    activeVault: null,
-    activeWatcher: null,
-    watchNotifyTimer: null,
     shutdownTimer: null,
     shutdownInProgress: false,
     finalizePromise: null,
@@ -283,6 +269,11 @@ function requirePluginVaultBroker(): ElectronVaultBroker {
   return pluginVaultBroker;
 }
 
+function requireLegacyVaultBroker(): LegacyVaultBroker {
+  if (!legacyVaultBroker) throw new Error("Legacy Vault broker is not ready.");
+  return legacyVaultBroker;
+}
+
 function requireExternalNavigationBroker(): ElectronExternalNavigationBroker {
   if (!externalNavigationBroker) throw new Error("External navigation broker is not ready.");
   return externalNavigationBroker;
@@ -313,6 +304,20 @@ export function registerPluginHostIpc(): void {
     trashItem: (absolutePath) => shell.trashItem(absolutePath),
     onChange: (senderId, event) => {
       windowForSenderId(senderId)?.webContents.send("nexus:vault:changed", event);
+    },
+  });
+  legacyVaultBroker = new LegacyVaultBroker({
+    isSenderAuthorized: (sender) => {
+      const registration = windowRegistry.registrationForSenderId(sender.id);
+      return Boolean(
+        registration &&
+        registration.state.hostMode === "legacy" &&
+        isTrustedRendererLocation(sender.url),
+      );
+    },
+    trashItem: (absolutePath) => shell.trashItem(absolutePath),
+    onLegacyChange: (senderId, root) => {
+      windowForSenderId(senderId)?.webContents.send("vault:changed", { vault: root });
     },
   });
   pluginStorageBroker = new ElectronPluginStorageBroker(
@@ -448,9 +453,9 @@ function releaseWindowResources(senderId: number): void {
   const { state } = registration;
   if (state.shutdownTimer) clearTimeout(state.shutdownTimer);
   state.shutdownTimer = null;
-  stopWatcher(state);
   externalNavigationBroker?.closeSender(senderId);
   pluginVaultBroker?.closeSender(senderId);
+  legacyVaultBroker?.closeSender(senderId);
   try {
     state.windowSession.protocol.unhandle("nexus-vault");
   } catch {
@@ -474,6 +479,7 @@ async function finalizeWindowShutdown(senderId: number): Promise<void> {
 function finishAppQuitIfReady(): void {
   if (!appIsQuitting || windowRegistry.liveRegistrations.length > 0 || forceQuit) return;
   pluginVaultBroker?.closeAll();
+  legacyVaultBroker?.closeAll();
   if (quitDrainPromise) return;
   quitDrainPromise = pluginStorageBroker?.drain() ?? Promise.resolve();
   void quitDrainPromise.finally(() => {
@@ -495,6 +501,7 @@ function forceFinishAppQuit(): void {
     if (!window.isDestroyed()) window.destroy();
   }
   pluginVaultBroker?.closeAll();
+  legacyVaultBroker?.closeAll();
   app.quit();
 }
 
@@ -558,97 +565,6 @@ ipcMain.handle(
   }
 );
 
-// -- vault helpers ------------------------------------------------------------
-
-function assertInsideVault(state: WindowRuntimeState, target: string): string {
-  if (!state.activeVault) {
-    throw new Error("No active vault");
-  }
-  const resolved = path.resolve(target);
-  const rel = path.relative(state.activeVault, resolved);
-  if (rel === "" || rel === "." ) return resolved;
-  if (rel.startsWith("..") || path.isAbsolute(rel)) {
-    throw new Error(`Path escapes vault: ${target}`);
-  }
-  return resolved;
-}
-
-async function scanDirectory(dir: string): Promise<VaultNode[]> {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const nodes: VaultNode[] = [];
-
-  for (const entry of entries) {
-    if (entry.name.startsWith(".") && SKIP_DIRS.has(entry.name)) continue;
-    if (SKIP_DIRS.has(entry.name)) continue;
-    if (entry.name.startsWith(".")) continue; // skip all dotfiles/dotdirs
-
-    const childPath = path.join(dir, entry.name);
-
-    if (entry.isDirectory()) {
-      const children = await scanDirectory(childPath);
-      if (children.length > 0) {
-        nodes.push({
-          name: entry.name,
-          path: childPath,
-          kind: "directory",
-          children,
-        });
-      }
-      continue;
-    }
-
-    if (entry.isFile()) {
-      const ext = path.extname(entry.name).toLowerCase();
-      if (!SUPPORTED_EXT.has(ext)) continue;
-      nodes.push({ name: entry.name, path: childPath, kind: "file" });
-    }
-  }
-
-  nodes.sort((a, b) => {
-    if (a.kind !== b.kind) return a.kind === "directory" ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
-
-  return nodes;
-}
-
-function stopWatcher(state: WindowRuntimeState): void {
-  if (state.watchNotifyTimer) clearTimeout(state.watchNotifyTimer);
-  state.watchNotifyTimer = null;
-  if (state.activeWatcher) {
-    try {
-      state.activeWatcher.close();
-    } catch {
-      /* noop */
-    }
-    state.activeWatcher = null;
-  }
-}
-
-function startWatcher(senderId: number, state: WindowRuntimeState, vaultPath: string): void {
-  stopWatcher(state);
-
-  const notify = () => {
-    if (state.watchNotifyTimer) clearTimeout(state.watchNotifyTimer);
-    state.watchNotifyTimer = setTimeout(() => {
-      state.watchNotifyTimer = null;
-      windowForSenderId(senderId)?.webContents.send("vault:changed", { vault: vaultPath });
-    }, 150);
-  };
-
-  try {
-    state.activeWatcher = watch(vaultPath, { recursive: true }, notify);
-  } catch (err) {
-    // Linux without recursive support — fall back to non-recursive on the root.
-    try {
-      state.activeWatcher = watch(vaultPath, notify);
-    } catch (innerErr) {
-      console.warn("[vault] watcher init failed:", innerErr);
-      state.activeWatcher = null;
-    }
-  }
-}
-
 function vaultStatePath(): string {
   return path.join(app.getPath("userData"), "vault.json");
 }
@@ -684,158 +600,54 @@ ipcMain.handle("vault:pick", async (event) => {
 });
 
 ipcMain.handle("vault:list", async (event, vaultPath: string) => {
-  const { senderId, state } = registrationForEvent(event);
-  const abs = path.resolve(vaultPath);
-  const info = await stat(abs);
-  if (!info.isDirectory()) throw new Error(`Not a directory: ${abs}`);
-
-  state.activeVault = abs;
-  startWatcher(senderId, state, abs);
-
-  return scanDirectory(abs);
+  registrationForEvent(event);
+  const sender = senderIdentity(event);
+  const absoluteRoot = path.resolve(vaultPath);
+  return requireLegacyVaultBroker().open(sender, absoluteRoot);
 });
 
 ipcMain.handle("vault:read", async (event, filePath: string) => {
-  const { state } = registrationForEvent(event);
-  const abs = assertInsideVault(state, filePath);
-  const content = await readFile(abs, "utf-8");
-  return { path: abs, content };
+  registrationForEvent(event);
+  return requireLegacyVaultBroker().read(senderIdentity(event), filePath);
 });
 
-// Bulk read every markdown file in the active vault — used to seed the
-// wiki-link index without N individual round-trips.
-async function collectFiles(dir: string, acc: string[]): Promise<void> {
-  const entries = await readdir(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (entry.name.startsWith(".")) continue;
-    if (SKIP_DIRS.has(entry.name)) continue;
-    const childPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      await collectFiles(childPath, acc);
-      continue;
-    }
-    if (entry.isFile() && SUPPORTED_EXT.has(path.extname(entry.name).toLowerCase())) {
-      acc.push(childPath);
-    }
-  }
-}
-
 ipcMain.handle("vault:read-all", async (event) => {
-  const { state } = registrationForEvent(event);
-  const activeVault = state.activeVault;
-  if (!activeVault) return [];
-  const paths: string[] = [];
-  await collectFiles(activeVault, paths);
-  // Bounded-concurrency parallel read — ~5-10x faster than serial on large
-  // vaults, without risking EMFILE.
-  const CONCURRENCY = 32;
-  const out: { path: string; content: string }[] = [];
-  let cursor = 0;
-  async function worker(): Promise<void> {
-    while (cursor < paths.length) {
-      const i = cursor++;
-      const p = paths[i];
-      try {
-        const abs = assertInsideVault(state, p);
-        const content = await readFile(abs, "utf-8");
-        out.push({ path: abs, content });
-      } catch {
-        // Skip unreadable files rather than failing the whole batch.
-      }
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, paths.length) }, worker));
-  return out;
+  registrationForEvent(event);
+  return requireLegacyVaultBroker().readAll(senderIdentity(event));
 });
 
 ipcMain.handle("vault:write", async (event, filePath: string, content: string) => {
-  const { state } = registrationForEvent(event);
-  const abs = assertInsideVault(state, filePath);
-  await writeFile(abs, content, "utf-8");
-  return { path: abs };
+  registrationForEvent(event);
+  return requireLegacyVaultBroker().write(senderIdentity(event), filePath, content);
 });
 
 ipcMain.handle(
   "vault:create-file",
   async (event, parentDir: string, name: string) => {
-    const { state } = registrationForEvent(event);
-    const safeInput = name.trim() || "untitled";
-    // Allow the caller to pass a subpath like `Folder/NewNote` — we split it
-    // into an extra parent path relative to `parentDir` and create any
-    // intermediate folders as needed. This is what the wiki-link
-    // create-on-click flow needs when the user types `[[Projects/X]]`.
-    const normInput = safeInput.replace(/\\/g, "/");
-    const segments = normInput.split("/").filter((s) => s.length > 0);
-    if (segments.length === 0) throw new Error("Invalid file name");
-    const baseNameRaw = segments.pop()!;
-    const subDirs = segments.join("/");
-
-    const parent = assertInsideVault(
-      state,
-      subDirs ? path.join(parentDir, subDirs) : parentDir
-    );
-    if (subDirs) {
-      await mkdir(parent, { recursive: true });
-    }
-
-    const hasExt = SUPPORTED_EXT.has(path.extname(baseNameRaw).toLowerCase());
-    const baseName = hasExt ? baseNameRaw : `${baseNameRaw}.md`;
-    const ext = path.extname(baseName);
-    const stem = baseName.slice(0, baseName.length - ext.length);
-
-    let candidate = path.join(parent, baseName);
-    let suffix = 1;
-    while (existsSync(candidate)) {
-      candidate = path.join(parent, `${stem}-${suffix}${ext}`);
-      suffix += 1;
-    }
-
-    const finalPath = assertInsideVault(state, candidate);
-    await writeFile(finalPath, "", "utf-8");
-    return { path: finalPath };
+    registrationForEvent(event);
+    return requireLegacyVaultBroker().createFile(senderIdentity(event), parentDir, name);
   }
 );
 
 ipcMain.handle(
   "vault:create-folder",
   async (event, parentDir: string, name: string) => {
-    const { state } = registrationForEvent(event);
-    const parent = assertInsideVault(state, parentDir);
-    const safeName = name.trim() || "new-folder";
-    const target = assertInsideVault(state, path.join(parent, safeName));
-    if (existsSync(target)) {
-      throw new Error(`Folder already exists: ${safeName}`);
-    }
-    await mkdir(target, { recursive: false });
-    return { path: target };
+    registrationForEvent(event);
+    return requireLegacyVaultBroker().createFolder(senderIdentity(event), parentDir, name);
   }
 );
 
 ipcMain.handle(
   "vault:rename",
   async (event, oldPath: string, newName: string) => {
-    const { state } = registrationForEvent(event);
-    const src = assertInsideVault(state, oldPath);
-    const parent = path.dirname(src);
-    const trimmed = newName.trim();
-    if (!trimmed) throw new Error("New name cannot be empty");
-    if (trimmed.includes("/") || trimmed.includes("\\")) {
-      throw new Error("New name cannot contain path separators");
-    }
-    const target = assertInsideVault(state, path.join(parent, trimmed));
-    if (existsSync(target) && target !== src) {
-      throw new Error(`Target already exists: ${trimmed}`);
-    }
-    await rename(src, target);
-    return { path: target };
+    registrationForEvent(event);
+    return requireLegacyVaultBroker().rename(senderIdentity(event), oldPath, newName);
   }
 );
 
 ipcMain.handle("vault:delete", async (event, targetPath: string) => {
-  const { state } = registrationForEvent(event);
-  const abs = assertInsideVault(state, targetPath);
-  await shell.trashItem(abs);
-  return { ok: true };
+  registrationForEvent(event);
+  return requireLegacyVaultBroker().trash(senderIdentity(event), targetPath);
 });
 
 ipcMain.handle("vault:get-last", async (event) => {
