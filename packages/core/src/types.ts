@@ -76,6 +76,16 @@ export interface LivePreviewConfig {
   labels?: LivePreviewLabels;
 }
 
+/** Per-behavior toggles for {@link EditorConfig.smartPaste}. */
+export interface SmartPasteOptions {
+  /** Convert `text/html` table payloads to GFM pipe tables. Default `true`. */
+  tables?: boolean;
+  /** Wrap selections when a URL is pasted over them. Default `true`. */
+  linkify?: boolean;
+  /** Attach a `text/markdown` flavor on copy / cut. Default `true`. */
+  markdownCopy?: boolean;
+}
+
 export interface EditorConfig {
   container: HTMLElement;
   initialValue?: string;
@@ -85,6 +95,18 @@ export interface EditorConfig {
   plugins?: NexusPlugin[];
   theme?: import("./theme").NexusTheme;
   locale?: Partial<import("./locale").NexusLocale>;
+  /**
+   * Markdown-aware clipboard behaviors. Default: false.
+   *
+   * When enabled, pasting HTML that contains a `<table>` inserts an equivalent
+   * GFM pipe table, pasting a URL over a selection wraps it as
+   * `[selection](url)`, and copy / cut additionally expose a
+   * `text/markdown` clipboard flavor. Pass an object to toggle the three
+   * behaviors independently (`tables` / `linkify` / `markdownCopy`, each
+   * defaulting to true). Off by default because it changes paste output for
+   * existing consumers.
+   */
+  smartPaste?: boolean | SmartPasteOptions;
   /** Tab size in spaces. Default: 4 */
   tabSize?: number;
   /** Text direction. Default: "ltr" */

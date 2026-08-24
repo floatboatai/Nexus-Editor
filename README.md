@@ -192,6 +192,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 - **Live Preview** — inline rendering that reveals raw syntax on cursor focus (Obsidian-style).
 - **Plugin System** — three tiers: shortcuts & slash commands, remark plugins & widgets, raw CM6 extensions.
 - **Event System** — subscribe to `change`, `focus`, `blur`, `selectionChange`, `slashMenuChange`.
+- **Smart Paste & Copy** — opt-in clipboard smarts: HTML tables paste as GFM pipe tables, URLs pasted over a selection become links, copy advertises a `text/markdown` flavor.
 - **Widget API** — render custom components for any AST node type (code blocks, tables, diagrams).
 - **Local-First** — built for Electron/Tauri with file IO hooks and debounced parsing.
 

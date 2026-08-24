@@ -31,6 +31,7 @@ import { resolveLocale } from "./locale";
 import { markdownAutoPair } from "./markdown-autopair";
 import { markdownKeymap } from "./markdown-keymap";
 import { multiCursorExtension } from "./multi-cursor";
+import { createSmartPasteBehavior } from "./smart-paste";
 import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { createThemeExtension, lightTheme, type NexusTheme } from "./theme";
 import { computeSlashState } from "./slash-state";
@@ -303,6 +304,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
   };
   const locale = resolveLocale(config.locale);
   const parseDelayMs = config.parseDelayMs ?? 0;
+  const smartPaste = createSmartPasteBehavior(config.smartPaste);
   const emitter = new EventEmitter<EditorEventMap>();
   let destroyed = false;
   let destroying = false;
@@ -724,14 +726,28 @@ export function createEditor(config: EditorConfig): EditorAPI {
               event.preventDefault();
               return true;
             }
-            // 默认兜底：剪贴板里有图片 / 文件时走资源上传；纯文本粘贴交回 CodeMirror。
-            if (!config.onAssetUpload || destroyed) return false;
             const files = collectFilesFromDataTransfer(event.clipboardData);
-            if (files.length === 0) return false;
-
-            event.preventDefault();
-            insertUploadedAssets(files);
-            return true;
+            if (files.length > 0) {
+              // 默认兜底：剪贴板里有图片 / 文件时走资源上传；宿主未配置
+              // 上传管线时放行（保持既有行为）。
+              if (!config.onAssetUpload || destroyed) return false;
+              event.preventDefault();
+              insertUploadedAssets(files);
+              return true;
+            }
+            // 智能粘贴（HTML 表格 → GFM、URL → 链接）。插件钩子与文件管线
+            // 都未消费时才介入，纯文本粘贴默认路径不受影响。
+            if (smartPaste && !destroyed && smartPaste.paste(event, view)) {
+              event.preventDefault();
+              return true;
+            }
+            return false;
+          },
+          copy(event) {
+            if (smartPaste && !destroyed) smartPaste.copy(event, view);
+          },
+          cut(event) {
+            if (smartPaste && !destroyed) smartPaste.cut(event, view);
           },
           drop(event) {
             if (runEventHandlers(dropHandlers, event)) {
