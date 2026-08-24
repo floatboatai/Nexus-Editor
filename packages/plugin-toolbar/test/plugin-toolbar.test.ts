@@ -62,6 +62,119 @@ describe("toggleInlineCode", () => {
     expect(editor.getDocument()).toBe("hello `world`");
     editor.destroy();
   });
+
+  it("uses a longer delimiter when the selection contains backticks", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "foo`bar" });
+
+    editor.setSelection(0, 7);
+    toggleInlineCode(editor);
+
+    expect(editor.getDocument()).toBe("``foo`bar``");
+    expect(editor.getSelectedText()).toBe("foo`bar");
+    expect(editor.getAst().children[0]).toMatchObject({
+      type: "paragraph",
+      children: [{ type: "inlineCode", value: "foo`bar" }]
+    });
+    editor.destroy();
+  });
+
+  it("chooses a delimiter longer than the longest backtick run", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "foo``bar" });
+
+    editor.setSelection(0, 8);
+    toggleInlineCode(editor);
+
+    expect(editor.getDocument()).toBe("```foo``bar```");
+    expect(editor.getSelectedText()).toBe("foo``bar");
+    editor.destroy();
+  });
+
+  it("pads content that starts or ends with a backtick", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "`value`" });
+
+    editor.setSelection(0, 7);
+    toggleInlineCode(editor);
+
+    expect(editor.getDocument()).toBe("`` `value` ``");
+    expect(editor.getSelectedText()).toBe("`value`");
+
+    toggleInlineCode(editor);
+    expect(editor.getDocument()).toBe("`value`");
+    expect(editor.getSelectedText()).toBe("`value`");
+    editor.destroy();
+  });
+
+  it("preserves matching leading and trailing spaces", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: " value " });
+
+    editor.setSelection(0, 7);
+    toggleInlineCode(editor);
+
+    expect(editor.getDocument()).toBe("`  value  `");
+    expect(editor.getSelectedText()).toBe(" value ");
+
+    toggleInlineCode(editor);
+    expect(editor.getDocument()).toBe(" value ");
+    expect(editor.getSelectedText()).toBe(" value ");
+    editor.destroy();
+  });
+
+  it("unwraps a variable-length code span", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "``foo`bar``" });
+
+    editor.setSelection(2, 9);
+    toggleInlineCode(editor);
+
+    expect(editor.getDocument()).toBe("foo`bar");
+    expect(editor.getSelectedText()).toBe("foo`bar");
+    editor.destroy();
+  });
+
+  it("places a collapsed cursor between an empty delimiter pair", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello " });
+
+    editor.setSelection(6);
+    toggleInlineCode(editor);
+
+    expect(editor.getDocument()).toBe("hello ``");
+    expect(editor.getSelection()).toEqual({ anchor: 7, head: 7 });
+    editor.destroy();
+  });
+
+  it("normalizes a reversed selection around the original content", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "foo`bar" });
+
+    editor.setSelection(7, 0);
+    toggleInlineCode(editor);
+
+    expect(editor.getDocument()).toBe("``foo`bar``");
+    expect(editor.getSelectedText()).toBe("foo`bar");
+    editor.destroy();
+  });
+
+  it("wraps inline code in one undo step", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "foo`bar",
+      plugins: [createHistoryPlugin()]
+    });
+
+    editor.setSelection(0, 7);
+    toggleInlineCode(editor);
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("foo`bar");
+    expect(editor.undo()).toBe(false);
+    editor.destroy();
+  });
 });
 
 describe("insertLink", () => {
@@ -439,6 +552,21 @@ describe("createToolbarPlugin", () => {
     editor.destroy();
   });
 
+  it("uses a safe inline-code fence through Mod-e", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "foo`bar",
+      plugins: [createToolbarPlugin()],
+    });
+
+    editor.setSelection(0, 7);
+    editor.runShortcut("Mod-e");
+
+    expect(editor.getDocument()).toBe("``foo`bar``");
+    editor.destroy();
+  });
+
   it("registers every formatting action as a slash command", () => {
     const plugin = createToolbarPlugin();
     const ids = (plugin.slashCommands ?? []).map((c) => c.id);
@@ -466,6 +594,24 @@ describe("createToolbarPlugin", () => {
     expect(editor.getDocument()).toBe("hello **world**");
     editor.destroy();
   });
+
+  it("uses a safe inline-code fence through the slash command", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "foo`bar",
+      plugins: [createToolbarPlugin()],
+    });
+
+    editor.setSelection(0, 7);
+    const inlineCode = editor
+      .getSlashCommands()
+      .find((command) => command.id === "inline-code");
+    expect(inlineCode).toBeDefined();
+    expect(inlineCode?.run?.(editor)).toBe(true);
+    expect(editor.getDocument()).toBe("``foo`bar``");
+    editor.destroy();
+  });
 });
 
 describe("createToolbarUI", () => {
@@ -491,6 +637,21 @@ describe("createToolbarUI", () => {
     button?.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }));
     expect(document.getElementById(button?.getAttribute("aria-describedby") ?? "")).toBeNull();
 
+    toolbar.destroy();
+    editor.destroy();
+  });
+
+  it("applies a safe inline-code fence from the toolbar button", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "foo`bar" });
+    const toolbar = createToolbarUI(editor);
+
+    editor.setSelection(0, 7);
+    toolbar.element
+      .querySelector<HTMLButtonElement>('[data-toolbar-action="inline-code"]')
+      ?.click();
+
+    expect(editor.getDocument()).toBe("``foo`bar``");
     toolbar.destroy();
     editor.destroy();
   });

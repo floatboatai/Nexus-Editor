@@ -43,8 +43,87 @@ export function toggleStrikethrough(editor: EditorAPI): boolean {
   return toggleWrap(editor, "~~");
 }
 
+interface EnclosingCodeSpan {
+  from: number;
+  to: number;
+}
+
+function longestBacktickRun(value: string): number {
+  let longest = 0;
+  for (const match of value.matchAll(/`+/g)) {
+    longest = Math.max(longest, match[0].length);
+  }
+  return longest;
+}
+
+function countBackticksBefore(doc: string, position: number): number {
+  let cursor = position;
+  while (cursor > 0 && doc[cursor - 1] === "`") cursor -= 1;
+  return position - cursor;
+}
+
+function countBackticksAfter(doc: string, position: number): number {
+  let cursor = position;
+  while (cursor < doc.length && doc[cursor] === "`") cursor += 1;
+  return cursor - position;
+}
+
+function findEnclosingCodeSpan(
+  doc: string,
+  from: number,
+  to: number,
+  selected: string
+): EnclosingCodeSpan | null {
+  for (const padding of [0, 1]) {
+    const openingEnd = from - padding;
+    const closingStart = to + padding;
+    if (padding === 1 && (doc[openingEnd] !== " " || doc[to] !== " ")) continue;
+
+    const openingLength = countBackticksBefore(doc, openingEnd);
+    const closingLength = countBackticksAfter(doc, closingStart);
+    if (openingLength === 0 || openingLength !== closingLength) continue;
+    if (openingLength <= longestBacktickRun(selected)) continue;
+
+    const spanFrom = openingEnd - openingLength;
+    const spanTo = closingStart + closingLength;
+    if (doc[spanFrom - 1] === "`" || doc[spanTo] === "`") continue;
+    return { from: spanFrom, to: spanTo };
+  }
+  return null;
+}
+
 export function toggleInlineCode(editor: EditorAPI): boolean {
-  return toggleWrap(editor, "`");
+  const doc = editor.getDocument();
+  const { anchor, head } = editor.getSelection();
+  const from = Math.min(anchor, head);
+  const to = Math.max(anchor, head);
+  const selected = doc.slice(from, to);
+  const enclosing = findEnclosingCodeSpan(doc, from, to, selected);
+
+  if (enclosing) {
+    editor.replaceRange(enclosing.from, enclosing.to, selected, {
+      anchor: enclosing.from,
+      head: enclosing.from + selected.length
+    });
+    return true;
+  }
+
+  const delimiter = "`".repeat(longestBacktickRun(selected) + 1);
+  // Padding prevents an edge backtick from merging with the delimiter and
+  // preserves paired edge spaces after CommonMark's code-span normalization.
+  const needsPadding =
+    selected.startsWith("`") ||
+    selected.endsWith("`") ||
+    (selected.startsWith(" ") && selected.endsWith(" ") && !/^ +$/.test(selected));
+  const padding = needsPadding ? " " : "";
+  const replacement = `${delimiter}${padding}${selected}${padding}${delimiter}`;
+  const selectionFrom = from + delimiter.length + padding.length;
+
+  editor.replaceRange(from, to, replacement, {
+    anchor: selectionFrom,
+    head: selectionFrom + selected.length
+  });
+  return true;
 }
 
 export function insertLink(editor: EditorAPI): boolean {
