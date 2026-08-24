@@ -160,6 +160,59 @@ describe("HotkeyRegistry", () => {
 });
 
 describe("ScopeRegistry", () => {
+  it("rolls back a scope reservation when owner registration fails", () => {
+    const registry = new ScopeRegistry({ platform: "windows" });
+    const failingService = registry.createService(owner(), () => {
+      throw new Error("owner rejected resource");
+    });
+
+    expect(() => failingService.createScope("modal")).toThrow("owner rejected resource");
+
+    const resources: ManagedResource[] = [];
+    const retryService = registry.createService(owner(), (resource) =>
+      resources.push(resource),
+    );
+    expect(() => retryService.createScope("modal")).not.toThrow();
+  });
+
+  it("releases scope ids on owner teardown so a plugin can recreate them", async () => {
+    const registry = new ScopeRegistry({ platform: "windows" });
+    const firstResources: ManagedResource[] = [];
+    const firstService = registry.createService(owner(), (resource) =>
+      firstResources.push(resource),
+    );
+    const firstScope = firstService.createScope("modal");
+    const firstHandler = vi.fn(() => "handled" as const);
+    firstScope.registerHotkey({ key: "K" }, firstHandler);
+    firstService.pushScope(firstScope);
+    activate(firstResources);
+
+    expect(registry.dispatchKeyboardEvent(key("k"), commandContext)).toMatchObject({
+      status: "handled",
+      scopeId: "sample-tools:modal",
+    });
+
+    for (const resource of firstResources) resource.quiesce?.();
+    for (const resource of [...firstResources].reverse()) await resource.dispose();
+
+    const secondResources: ManagedResource[] = [];
+    const secondService = registry.createService(owner(), (resource) =>
+      secondResources.push(resource),
+    );
+    const secondScope = secondService.createScope("modal");
+    const secondHandler = vi.fn(() => "handled" as const);
+    secondScope.registerHotkey({ key: "K" }, secondHandler);
+    secondService.pushScope(secondScope);
+    activate(secondResources);
+
+    expect(registry.dispatchKeyboardEvent(key("k"), commandContext)).toMatchObject({
+      status: "handled",
+      scopeId: "sample-tools:modal",
+    });
+    expect(firstHandler).toHaveBeenCalledOnce();
+    expect(secondHandler).toHaveBeenCalledOnce();
+  });
+
   it("walks top scope through parents and application, then auto-pops on quiesce", () => {
     const resources: ManagedResource[] = [];
     const registry = new ScopeRegistry({ platform: "windows" });

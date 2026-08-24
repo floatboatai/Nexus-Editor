@@ -218,6 +218,20 @@ export class ScopeRegistry {
           entries: new Map(),
         };
         this.nodes.set(globalId, node);
+        const releaseNode = (): void => {
+          if (this.nodes.get(globalId) === node) this.nodes.delete(globalId);
+        };
+        try {
+          registerResource({
+            // Scope ids are reservations too: release them as soon as their
+            // owner quiesces so a later plugin instance can reuse the id.
+            quiesce: releaseNode,
+            dispose: releaseNode,
+          });
+        } catch (error) {
+          releaseNode();
+          throw error;
+        }
         return facadeFor(node);
       },
       pushScope: (scope) => {
