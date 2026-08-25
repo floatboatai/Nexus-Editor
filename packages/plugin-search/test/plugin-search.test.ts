@@ -303,11 +303,39 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("supports fuzzy subsequence matching", () => {
+    expect(findSearchMatches("alpha table beta", "tbl", { fuzzy: true })).toEqual([
+      { from: 6, to: 10, text: "tabl" }
+    ]);
+  });
+
+  it("supports fuzzy matching across skipped characters", () => {
+    expect(findSearchMatches("alpha table beta", "tbe", { fuzzy: true })).toEqual([
+      { from: 6, to: 11, text: "table" }
+    ]);
+  });
+
+  it("supports case-sensitive fuzzy matching", () => {
+    expect(findSearchMatches("Table table", "Tbe", { fuzzy: true, caseSensitive: true })).toEqual([
+      { from: 0, to: 5, text: "Table" }
+    ]);
+  });
+
+  it("supports fuzzy whole-word matching", () => {
+    expect(findSearchMatches("catalog table", "tbe", { fuzzy: true, wholeWord: true })).toEqual([
+      { from: 8, to: 13, text: "table" }
+    ]);
+  });
+
+  it("replaces all fuzzy matches from end to start", () => {
+    expect(replaceAllMatches("table table", "tbe", "desk", { fuzzy: true })).toBe("desk desk");
+  });
+
   it("creates a search plugin descriptor", () => {
     const plugin = createSearchPlugin();
 
     expect(plugin.name).toBe("plugin-search");
-    expect(plugin.cmExtensions).toHaveLength(4);
+    expect(plugin.cmExtensions).toHaveLength(5);
   });
 
   it("highlights rendered table cell matches through CSS Highlight ranges", () => {
