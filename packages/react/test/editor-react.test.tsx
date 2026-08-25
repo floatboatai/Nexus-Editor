@@ -237,6 +237,70 @@ describe("@floatboat/nexus-react", () => {
     );
   });
 
+  it("forwards multiCursor to createEditor, enabling multi-selection", async () => {
+    let ready: EditorAPI | null = null;
+
+    const { container } = render(
+      <Editor
+        initialValue="hello world"
+        multiCursor
+        onReady={(editor) => {
+          ready = editor;
+        }}
+      />
+    );
+
+    await waitFor(() => {
+      expect(ready).not.toBeNull();
+    });
+
+    ready!.setSelections([
+      { anchor: 0, head: 5 },
+      { anchor: 6, head: 11 },
+    ]);
+
+    const { ranges } = ready!.getSelections();
+    expect(ranges).toHaveLength(2);
+    expect(ranges).toEqual([
+      { anchor: 0, head: 5 },
+      { anchor: 6, head: 11 },
+    ]);
+
+    // multiCursor must NOT leak into the DOM — it was destructured
+    // out of divProps and forwarded to useEditor().
+    const editorContainer = container.querySelector(".cm-editor")?.parentElement;
+    expect(editorContainer?.hasAttribute("multiCursor")).toBe(false);
+
+    ready!.destroy();
+  });
+
+  it("uses single-selection by default when multiCursor is omitted", async () => {
+    let ready: EditorAPI | null = null;
+
+    render(
+      <Editor
+        initialValue="hello world"
+        onReady={(editor) => {
+          ready = editor;
+        }}
+      />
+    );
+
+    await waitFor(() => {
+      expect(ready).not.toBeNull();
+    });
+
+    ready!.setSelections([
+      { anchor: 0, head: 5 },
+      { anchor: 6, head: 11 },
+    ]);
+
+    const { ranges } = ready!.getSelections();
+    expect(ranges).toHaveLength(1);
+
+    ready!.destroy();
+  });
+
   it("keeps initialValue behavior in uncontrolled mode", async () => {
     function Harness() {
       const { containerRef, editor } = useEditor({ initialValue: "uncontrolled" });

@@ -250,6 +250,71 @@ describe("@floatboat/nexus-vue", () => {
     });
   });
 
+  it("forwards multiCursor to createEditor, enabling multi-selection", async () => {
+    let ready: EditorAPI | null = null;
+
+    const wrapper = mount(Editor, {
+      props: {
+        initialValue: "hello world",
+        multiCursor: true,
+        onReady: (editor: EditorAPI) => {
+          ready = editor;
+        }
+      }
+    });
+
+    await nextTick();
+    await vi.waitFor(() => {
+      expect(ready).not.toBeNull();
+    });
+
+    ready!.setSelections([
+      { anchor: 0, head: 5 },
+      { anchor: 6, head: 11 },
+    ]);
+
+    const { ranges } = ready!.getSelections();
+    expect(ranges).toHaveLength(2);
+    expect(ranges).toEqual([
+      { anchor: 0, head: 5 },
+      { anchor: 6, head: 11 },
+    ]);
+
+    // multiCursor must NOT leak into the DOM — it is a declared prop
+    // (inheritAttrs: false, so non-prop attrs go to the container div).
+    expect(wrapper.element.hasAttribute("multiCursor")).toBe(false);
+
+    ready!.destroy();
+  });
+
+  it("uses single-selection by default when multiCursor is omitted", async () => {
+    let ready: EditorAPI | null = null;
+
+    mount(Editor, {
+      props: {
+        initialValue: "hello world",
+        onReady: (editor: EditorAPI) => {
+          ready = editor;
+        }
+      }
+    });
+
+    await nextTick();
+    await vi.waitFor(() => {
+      expect(ready).not.toBeNull();
+    });
+
+    ready!.setSelections([
+      { anchor: 0, head: 5 },
+      { anchor: 6, head: 11 },
+    ]);
+
+    const { ranges } = ready!.getSelections();
+    expect(ranges).toHaveLength(1);
+
+    ready!.destroy();
+  });
+
   it("keeps initialValue behavior in uncontrolled mode", async () => {
     const wrapper = mount(Editor, {
       props: {
