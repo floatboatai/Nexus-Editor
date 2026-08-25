@@ -64,6 +64,14 @@ export default defineConfig({
         __dirname,
         "../../packages/plugin-slash/src/index.ts"
       ),
+      "@floatboat/nexus-plugin-math": path.resolve(
+        __dirname,
+        "../../packages/plugin-math/src/index.ts"
+      ),
+      "@floatboat/nexus-plugin-vim": path.resolve(
+        __dirname,
+        "../../packages/plugin-vim/src/index.ts"
+      ),
       "@floatboat/nexus-plugin-wordcount": path.resolve(
         __dirname,
         "../../packages/plugin-wordcount/src/index.ts"
