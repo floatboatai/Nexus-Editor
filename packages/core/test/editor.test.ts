@@ -917,4 +917,99 @@ describe("createEditor — DOM event hook layer", () => {
     expect(passthrough.defaultPrevented).toBe(false);
     editor.destroy();
   });
+
+  describe("lineWrapping", () => {
+    it("does not wrap lines by default", () => {
+      const container = document.createElement("div");
+      const editor = createEditor({ container, initialValue: "a".repeat(500) });
+      const line = container.querySelector(".cm-line") as HTMLElement;
+
+      // Without lineWrapping CodeMirror keeps lines on a single visual row —
+      // overflow-wrap is not set to "anywhere" or "break-word".
+      const style = getComputedStyle(line);
+      expect(style.overflowWrap).not.toBe("anywhere");
+      expect(style.wordBreak).not.toBe("break-word");
+
+      editor.destroy();
+    });
+
+    it("wraps long lines when lineWrapping config is true", () => {
+      const container = document.createElement("div");
+      const editor = createEditor({
+        container,
+        initialValue: "a".repeat(500),
+        lineWrapping: true,
+      });
+      const line = container.querySelector(".cm-line") as HTMLElement;
+
+      const style = getComputedStyle(line);
+      expect(style.overflowWrap).toBe("anywhere");
+      expect(style.wordBreak).toBe("break-word");
+
+      editor.destroy();
+    });
+
+    it("can enable line wrapping at runtime via setLineWrapping", () => {
+      const container = document.createElement("div");
+      const editor = createEditor({ container, initialValue: "a".repeat(500) });
+      const line = container.querySelector(".cm-line") as HTMLElement;
+
+      expect(getComputedStyle(line).overflowWrap).not.toBe("anywhere");
+
+      editor.setLineWrapping(true);
+
+      expect(getComputedStyle(line).overflowWrap).toBe("anywhere");
+      expect(getComputedStyle(line).wordBreak).toBe("break-word");
+
+      editor.destroy();
+    });
+
+    it("can disable line wrapping at runtime via setLineWrapping", () => {
+      const container = document.createElement("div");
+      const editor = createEditor({
+        container,
+        initialValue: "a".repeat(500),
+        lineWrapping: true,
+      });
+      const line = container.querySelector(".cm-line") as HTMLElement;
+
+      expect(getComputedStyle(line).overflowWrap).toBe("anywhere");
+
+      editor.setLineWrapping(false);
+
+      expect(getComputedStyle(line).overflowWrap).not.toBe("anywhere");
+      expect(getComputedStyle(line).wordBreak).not.toBe("break-word");
+
+      editor.destroy();
+    });
+
+    it("setLineWrapping is a no-op on a destroyed editor", () => {
+      const container = document.createElement("div");
+      const editor = createEditor({ container, initialValue: "# Hello" });
+      editor.destroy();
+
+      expect(() => editor.setLineWrapping(true)).not.toThrow();
+    });
+
+    it("line wrapping can be toggled multiple times without leaking state", () => {
+      const container = document.createElement("div");
+      const editor = createEditor({ container, initialValue: "a".repeat(500) });
+      const line = container.querySelector(".cm-line") as HTMLElement;
+
+      editor.setLineWrapping(true);
+      expect(getComputedStyle(line).overflowWrap).toBe("anywhere");
+
+      editor.setLineWrapping(false);
+      expect(getComputedStyle(line).overflowWrap).not.toBe("anywhere");
+
+      editor.setLineWrapping(true);
+      expect(getComputedStyle(line).overflowWrap).toBe("anywhere");
+
+      // Verify the editor is still fully functional
+      editor.setDocument("# After toggle");
+      expect(editor.getDocument()).toBe("# After toggle");
+
+      editor.destroy();
+    });
+  });
 });

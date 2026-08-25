@@ -105,6 +105,11 @@ export interface EditorConfig {
    */
   multiCursor?: boolean;
   /**
+   * Whether the editor should wrap lines that are longer than the viewport.
+   * When disabled, a horizontal scrollbar appears for long lines. Default: false.
+   */
+  lineWrapping?: boolean;
+  /**
    * Maximum number of slash-menu entries emitted on `slashMenuChange`
    * after ranking. Default: 8. A limit of 0 keeps the menu state open
    * but emits an empty command list (useful for "no results" UIs).
@@ -372,6 +377,8 @@ export interface EditorAPI {
   getTableOfContents(): TocEntry[];
   exportHTML(): string;
   setTheme(theme: import("./theme").NexusTheme): void;
+  /** Enable or disable line wrapping at runtime. */
+  setLineWrapping(enabled: boolean): void;
   getSelection(): { anchor: number; head: number };
   /** All selection ranges plus the main-range index. Single-range editors return one entry. */
   getSelections(): SelectionState;
