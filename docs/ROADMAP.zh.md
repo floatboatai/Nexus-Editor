@@ -25,7 +25,7 @@
 | 2  | whole-word 匹配 | `plugin-search` | P1 | done | 否 | 经 `buildSearchPattern` 的 `wholeWord` 选项，使用 `\b` 边界 |
 | 15 | 正则搜索 | `plugin-search` | P1 | done | 否 | `regexp` 选项与 whole-word 一并落地；非法正则有保护 |
 | 16 | 历史命令 / 搜索记忆 | `plugin-search` + `plugin-slash` | P2 | done | 是 | 宿主注入式存储（不隐式写 localStorage）—— `add-search-query-history` + `add-slash-recent-command-history` |
-| 17 | 模糊搜索 | `plugin-search` | P2 | planned | 否 | 评估 fzf-like 算法 vs. 第三方 lib；需带回溯的匹配器 |
+| 17 | 模糊搜索 | `plugin-search` | P2 | done | 否 | `fuzzyMatch` / `fuzzyFilter`——O(m·n) 动态规划子序列匹配器，带位置打分；纯函数，不耦合 UI |
 | 3  | Slash 命令排序与 limit | `plugin-slash` | P0 | done | 是 | 与浮层菜单 UI 一并落地 —— 见 `openspec/changes/add-slash-menu-ui` |
 | 27 | Slash 命令浮层菜单 UI | `plugin-slash` + `electron-demo` | P0 | done | 是 | `createSlashMenuUI(editor, options)` —— 见 `openspec/changes/add-slash-menu-ui` |
 
