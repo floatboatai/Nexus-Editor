@@ -19,6 +19,14 @@ pnpm-debug.log*
 .env.*
 !.env.example
 
+# Local audit documents (not part of the project)
+.local_audit/
+
+# Temporary debug scripts (not part of the project)
+_test_*.mjs
+$null
+packages/plugin-search/test/_verify_scoring.mjs
+
 # OS / editor files
 .DS_Store
 Thumbs.db

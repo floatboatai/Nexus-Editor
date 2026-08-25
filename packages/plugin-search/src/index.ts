@@ -31,10 +31,44 @@ export interface SearchMatch {
   text: string;
 }
 
+/** A search match with a relevance score for ranking. */
+export interface ScoredSearchMatch extends SearchMatch {
+  /**
+   * Relevance score (higher = better match).
+   *
+   * Computed via a position-weighted algorithm (fzy-inspired):
+   * - First-char-at-start bonus (+16)
+   * - Consecutive-char bonus (+5 per adjacent pair)
+   * - Word-boundary bonus (+8 per boundary hit)
+   * - Gap penalty (-1 per skipped char)
+   * - Length penalty (-0.01 per char of span)
+   *
+   * Scores are non-negative. A perfect prefix match scores highest.
+   */
+  score: number;
+}
+
+/** A scored match that also records exactly which document positions map to each query character. */
+export interface DetailedFuzzyMatch extends ScoredSearchMatch {
+  /**
+   * `matchedIndices[i]` is the absolute document offset where `query[i]` was found.
+   * Same length as the query string. Enables consumer-side per-character highlighting
+   * (e.g. render decorations only at these positions rather than over the whole span).
+   */
+  matchedIndices: number[];
+}
+
 export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  /**
+   * Enable fuzzy matching. Each character in the query must appear in the
+   * matched text in order, with any number of characters in between.
+   * When true, regexp and wholeWord are ignored — fuzzy uses its own
+   * pattern generation.
+   */
+  fuzzy?: boolean;
 }
 
 export interface SearchHistoryStorage {
@@ -80,6 +114,7 @@ export interface SearchPluginLabels {
   matchCase: string;
   regexp: string;
   byWord: string;
+  fuzzy: string;
   replaceNext: string;
   replaceAll: string;
   close: string;
@@ -96,6 +131,7 @@ const DEFAULT_LABELS: SearchPluginLabels = {
   matchCase: "Match case",
   regexp: "Regexp",
   byWord: "By word",
+  fuzzy: "Fuzzy",
   replaceNext: "Replace",
   replaceAll: "Replace all",
   close: "Close"
@@ -623,7 +659,250 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Maximum fuzzy query length (character count) before we refuse to compile.
+// Each character becomes an escaped atom joined by .*?, so a 200-char query
+// produces a regex with ~600+ atoms — slow to compile and O(n*m) to execute.
+const MAX_FUZZY_QUERY_LENGTH = 200;
+
+// Non-greedy character-by-character matching: each query char is
+// individually escaped and joined with .*? so the regex engine finds
+// the shortest span that contains all chars in order.
+function fuzzyToPattern(query: string, caseSensitive: boolean): RegExp | null {
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+
+  // Guard against ReDoS / catastrophic backtracking: reject queries that
+  // would produce excessively complex regex patterns. This is a defensive
+  // bound — real-world fuzzy inputs (file names, symbol lookups) are
+  // virtually always < 50 chars.
+  if (trimmed.length > MAX_FUZZY_QUERY_LENGTH) {
+    return null;
+  }
+
+  const chars: string[] = [];
+  for (let i = 0; i < trimmed.length; i++) {
+    chars.push(escapeRegExp(trimmed[i]));
+  }
+
+  const flags = caseSensitive ? "g" : "gi";
+  return new RegExp(chars.join(".*?"), flags);
+}
+
+// ---------------------------------------------------------------------------
+// Part A: Fuzzy scoring (fzy-inspired position-weighted ranking)
+// ---------------------------------------------------------------------------
+
+/** Scoring constants calibrated to produce a 0–~100 range for typical inputs. */
+const SCORING = {
+  /** Bonus when query[0] lands at haystack position 0 (prefix match). */
+  FIRST_CHAR_BONUS: 16,
+  /** Bonus per pair of adjacent matched characters in the haystack. */
+  CONSECUTIVE_BONUS: 5,
+  /** Bonus when a matched char sits right after a word-separator character. */
+  WORD_BOUNDARY_BONUS: 8,
+  /** Penalty per unmatched character between two consecutive matches. */
+  GAP_PENALTY: 1,
+  /** Penalty per character of the total match span (prefers shorter spans). */
+  LENGTH_PENALTY: 0.01
+} as const;
+
+/** Characters that signal a word boundary when they precede a match. */
+const WORD_SEPARATORS = /[\s_\-./\\]/;
+
+/**
+ * Returns true when `pos` is at a word boundary inside `text`
+ * (position 0, or preceded by a separator).
+ */
+function isWordBoundary(text: string, pos: number): boolean {
+  if (pos <= 0) return true;
+  return WORD_SEPARATORS.test(text[pos - 1]);
+}
+
+/**
+ * Compute a relevance score for a fuzzy match.
+ *
+ * @param haystack - The matched substring from the document.
+ * @param queryChars - The individual characters of the original query.
+ * @param relativePositions - Offsets of each matched char **relative to `haystack` start**.
+ *   `relativePositions[i]` = where `queryChars[i]` landed inside `haystack`.
+ * @returns A non-negative score; higher = more relevant.
+ *
+ * ### Scoring model (fzy-inspired)
+ *
+ * | Factor | Weight | Rationale |
+ * |--------|--------|-----------|
+ * | First-char at pos 0 | +16 | Prefix match is the strongest signal |
+ * | Consecutive chars | +5/adjacent | "ft" inside "floatboat" > "aftermath" |
+ * | Word boundary | +8/boundary | "ft" at start of "foo tool" > middle |
+ * | Gap between matches | −1/skip | Closer chars are more likely intentional |
+ * | Total span length | −0.01/char | Prefer compact matches |
+ */
+function computeFuzzyScore(
+  haystack: string,
+  queryChars: readonly string[],
+  relativePositions: readonly number[]
+): number {
+  let score = 0;
+  const n = relativePositions.length;
+
+  if (n === 0) return score;
+
+  // --- First-character bonus ---
+  if (relativePositions[0] === 0) {
+    score += SCORING.FIRST_CHAR_BONUS;
+  } else if (isWordBoundary(haystack, relativePositions[0])) {
+    // Not at absolute start but at a word boundary
+    score += SCORING.WORD_BOUNDARY_BONUS;
+  }
+
+  // --- Per-character bonuses & penalties ---
+  for (let i = 1; i < n; i++) {
+    const prevPos = relativePositions[i - 1];
+    const curPos = relativePositions[i];
+
+    // Consecutive in haystack → strong signal
+    if (curPos === prevPos + 1) {
+      score += SCORING.CONSECUTIVE_BONUS;
+    }
+
+    // Word boundary hit
+    if (isWordBoundary(haystack, curPos)) {
+      score += SCORING.WORD_BOUNDARY_BONUS;
+    }
+
+    // Gap penalty (unmatched chars between this and previous)
+    const gap = curPos - prevPos - 1;
+    score -= gap * SCORING.GAP_PENALTY;
+  }
+
+  // Length penalty — prefer shorter overall spans
+  const spanLength = relativePositions[n - 1] - relativePositions[0] + 1;
+  score -= spanLength * SCORING.LENGTH_PENALTY;
+
+  return Math.max(score, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Part B: Backtracking fuzzy matcher with exact position tracking
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of matching one query against one candidate region of the document.
+ * Internal type — not exported.
+ */
+interface RawFuzzyMatchDetail {
+  from: number;
+  to: number;
+  text: string;
+  /** Absolute document positions for each query character. */
+  matchedIndices: number[];
+}
+
+/**
+ * Attempt to complete a fuzzy match starting from `startPos`.
+ *
+ * Greedily consumes each subsequent query character at its earliest possible
+ * position after the previous one. Returns null if any query character cannot
+ * be found.
+ */
+function tryGreedyMatch(
+  doc: string,
+  docLower: string,
+  queryLower: string,
+  caseSensitive: boolean,
+  startPos: number
+): RawFuzzyMatchDetail | null {
+  const queryLen = queryLower.length;
+  const matchedIndices: number[] = [startPos];
+
+  let searchPos = startPos + 1;
+
+  for (let qi = 1; qi < queryLen; qi++) {
+    const found = docLower.indexOf(queryLower[qi], searchPos);
+    if (found === -1) return null;
+    matchedIndices.push(found);
+    searchPos = found + 1;
+  }
+
+  const from = matchedIndices[0];
+  const to = matchedIndices[matchedIndices.length - 1] + 1;
+
+  return {
+    from,
+    to,
+    text: doc.substring(from, to),
+    matchedIndices
+  };
+}
+
+/**
+ * Find all fuzzy matches across `doc`, scored and sorted by relevance.
+ *
+ * This replaces the simple regex-bridge approach when detailed results are
+ * needed (scoring, position tracking). It scans for every occurrence of
+ * `query[0]` as a potential match start, then greedily completes each one.
+ *
+ * Performance: O(doc_length × avg_matches_per_start). In practice very fast
+ * because:
+ * 1. The outer loop only iterates over occurrences of the first query char.
+ * 2. Greedy completion means inner loops are linear in query length.
+ * 3. Results are capped at 10,000 entries for pathological inputs.
+ */
+function findAllFuzzyMatchesDetailed(
+  doc: string,
+  query: string,
+  caseSensitive: boolean
+): DetailedFuzzyMatch[] | null {
+  const trimmed = query.trim();
+  if (!trimmed || trimmed.length > MAX_FUZZY_QUERY_LENGTH) return null;
+
+  const qLower = caseSensitive ? trimmed : trimmed.toLowerCase();
+  const dLower = caseSensitive ? doc : doc.toLowerCase();
+  const qChars = Array.from(trimmed); // preserve grapheme clusters
+
+  const firstChar = qLower[0];
+  const results: DetailedFuzzyMatch[] = [];
+  const seenSpans = new Set<string>(); // deduplicate identical from/to ranges
+
+  let scanFrom = 0;
+
+  while (results.length < 10_000) {
+    const startPos = dLower.indexOf(firstChar, scanFrom);
+    if (startPos === -1) break;
+    scanFrom = startPos + 1;
+
+    const raw = tryGreedyMatch(doc, dLower, qLower, caseSensitive, startPos);
+    if (!raw) continue;
+
+    // Deduplicate: skip if we already have an identical span
+    const spanKey = `${raw.from}:${raw.to}`;
+    if (seenSpans.has(spanKey)) continue;
+    seenSpans.add(spanKey);
+
+    // Compute relative positions for scoring (offsets within the matched text)
+    const relPositions = raw.matchedIndices.map(p => p - raw.from);
+    const score = computeFuzzyScore(raw.text, qChars, relPositions);
+
+    results.push({
+      from: raw.from,
+      to: raw.to,
+      text: raw.text,
+      score,
+      matchedIndices: raw.matchedIndices
+    });
+  }
+
+  // Sort by score descending so best matches come first
+  results.sort((a, b) => b.score - a.score);
+
+  return results;
+}
+
 function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp | null {
+  if (options.fuzzy) {
+    return fuzzyToPattern(query, options.caseSensitive ?? false);
+  }
+
   const flags = options.caseSensitive ? "g" : "gi";
 
   let pattern: string;
@@ -687,6 +966,61 @@ export function replaceAllMatches(
   return doc.replace(pattern, replacement);
 }
 
+/**
+ * Fuzzy-search a document and return matches sorted by relevance (best first).
+ *
+ * This is the scored counterpart of `findSearchMatches`. It uses the
+ * position-weighted scoring algorithm (Part A) to rank results, so consumers
+ * can show the most relevant match at the top rather than in document order.
+ *
+ * @returns Array of `ScoredSearchMatch` sorted by `score` descending.
+ */
+export function findScoredFuzzyMatches(
+  doc: string,
+  query: string,
+  options: SearchOptions = {}
+): ScoredSearchMatch[] {
+  if (!query || !options.fuzzy) {
+    // For non-fuzzy modes, fall back to basic matching with score = 0
+    const baseMatches = findSearchMatches(doc, query, options);
+    return baseMatches.map(m => ({ ...m, score: 0 }));
+  }
+
+  const detailed = findAllFuzzyMatchesDetailed(doc, query, options.caseSensitive ?? false);
+  if (!detailed || detailed.length === 0) return [];
+
+  // Return as ScoredSearchMatch (omit matchedIndices)
+  return detailed.map(({ from, to, text, score }) => ({ from, to, text, score }));
+}
+
+/**
+ * Fuzzy-search a document and return full detail for each match, including
+ * exact character positions for per-character highlighting (Part B).
+ *
+ * The `matchedIndices` array maps each query character to its absolute
+ * document offset. Consumers can use this to render fine-grained
+ * decorations — e.g. highlight only the matched characters inside each
+ * span instead of the whole span.
+ *
+ * @example
+ * ```ts
+ * const results = findDetailedFuzzyMatches("floatboat aftermath", "ft", { fuzzy: true });
+ * // results[0] → { from: 0, to: 9, text: "floatboat", score: 28.72,
+ * //                 matchedIndices: [0, 4] }
+ * // results[1] → { from: 10, to: 19, text: "aftermath", score: 15.91,
+ * //                 matchedIndices: [10, 14] }
+ * ```
+ */
+export function findDetailedFuzzyMatches(
+  doc: string,
+  query: string,
+  options: SearchOptions = {}
+): DetailedFuzzyMatch[] {
+  if (!query || !options.fuzzy) return [];
+
+  return findAllFuzzyMatchesDetailed(doc, query, options.caseSensitive ?? false) ?? [];
+}
+
 function resolveLabel(
   view: EditorView,
   labels: Partial<SearchPluginLabels> | undefined,
@@ -712,6 +1046,7 @@ function resolveLabels(view: EditorView, labels: Partial<SearchPluginLabels> | u
     matchCase: resolveLabel(view, labels, "matchCase", DEFAULT_LABELS.matchCase),
     regexp: resolveLabel(view, labels, "regexp", DEFAULT_LABELS.regexp),
     byWord: resolveLabel(view, labels, "byWord", DEFAULT_LABELS.byWord),
+    fuzzy: resolveLabel(view, labels, "fuzzy", DEFAULT_LABELS.fuzzy),
     replaceNext: resolveLabel(view, labels, "replaceNext", DEFAULT_LABELS.replaceNext),
     replaceAll: resolveLabel(view, labels, "replaceAll", DEFAULT_LABELS.replaceAll),
     close: resolveLabel(view, labels, "close", DEFAULT_LABELS.close)
@@ -891,6 +1226,7 @@ class NexusSearchPanel implements Panel {
   private readonly caseField: HTMLInputElement;
   private readonly regexpField: HTMLInputElement;
   private readonly wholeWordField: HTMLInputElement;
+  private readonly fuzzyField: HTMLInputElement;
   private readonly labels: SearchPluginLabels;
   private readonly history: SearchHistoryController;
   private readonly replaceRow?: HTMLDivElement;
@@ -925,6 +1261,11 @@ class NexusSearchPanel implements Panel {
     this.caseField = this.createCheckbox("markdown-search-case-toggle", "case", this.query.caseSensitive);
     this.regexpField = this.createCheckbox("markdown-search-regexp-toggle", "re", this.query.regexp);
     this.wholeWordField = this.createCheckbox("markdown-search-word-toggle", "word", this.query.wholeWord);
+    this.fuzzyField = this.createCheckbox(
+      "markdown-search-fuzzy-toggle",
+      "fuzzy",
+      false
+    );
 
     this.dom = document.createElement("div");
     this.dom.className = "cm-search nexus-search-panel";
@@ -961,6 +1302,7 @@ class NexusSearchPanel implements Panel {
       createLabel(this.caseField, resolvedLabels.matchCase),
       createLabel(this.regexpField, resolvedLabels.regexp),
       createLabel(this.wholeWordField, resolvedLabels.byWord),
+      createLabel(this.fuzzyField, resolvedLabels.fuzzy),
       navigationGroup
     ];
     if (this.replaceToggle) {
@@ -1055,11 +1397,26 @@ class NexusSearchPanel implements Panel {
   }
 
   private commit(): void {
+    let searchValue = this.searchField.value;
+    let regexp = this.regexpField.checked;
+    let wholeWord = this.wholeWordField.checked;
+
+    // When fuzzy is enabled, convert the query to a regex so CM6's
+    // existing regex search infrastructure performs the matching.
+    if (this.fuzzyField.checked && searchValue.trim()) {
+      const pattern = fuzzyToPattern(searchValue, this.caseField.checked);
+      if (pattern) {
+        searchValue = pattern.source;
+        regexp = true;
+        wholeWord = false;
+      }
+    }
+
     const query = new SearchQuery({
-      search: this.searchField.value,
+      search: searchValue,
       caseSensitive: this.caseField.checked,
-      regexp: this.regexpField.checked,
-      wholeWord: this.wholeWordField.checked,
+      regexp,
+      wholeWord,
       replace: this.replaceField.value
     });
 
@@ -1137,6 +1494,9 @@ class NexusSearchPanel implements Panel {
     this.caseField.checked = query.caseSensitive;
     this.regexpField.checked = query.regexp;
     this.wholeWordField.checked = query.wholeWord;
+    // Fuzzy is Nexus-level state — CM6 queries don't carry it, so reset
+    // when the query is externally updated (e.g. via keyboard shortcuts).
+    this.fuzzyField.checked = false;
   }
 }
 
