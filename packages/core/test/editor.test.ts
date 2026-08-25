@@ -778,7 +778,14 @@ describe("createEditor — command registry", () => {
       ],
     });
 
-    expect(editor.getCommands().map((command) => command.id)).toEqual(["say-hi", "stop"]);
+    expect(editor.getCommands().map((command) => command.id)).toEqual([
+      "say-hi",
+      "stop",
+      "editor:fold",
+      "editor:unfold",
+      "editor:fold-all",
+      "editor:unfold-all",
+    ]);
     expect(editor.runCommand("say-hi")).toBe(true);
     expect(ran).toEqual(["hi"]);
     // run 返回 false 视为未消费。

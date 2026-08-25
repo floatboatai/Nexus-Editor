@@ -91,6 +91,12 @@ export interface EditorConfig {
   direction?: "ltr" | "rtl";
   /** Show indentation guide lines. Default: false */
   indentGuides?: boolean;
+  /**
+   * Show a fold gutter for headings, fenced code, and GFM alerts.
+   * Default: true. Fold keymap and `editor:fold*` commands stay available
+   * even when the gutter is hidden.
+   */
+  foldGutter?: boolean;
   /** Prevent user edits while preserving selection and scrolling. Default: false */
   readOnly?: boolean;
   /**

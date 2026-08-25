@@ -73,4 +73,32 @@ Multiple ranges in `setSelections` require `multiCursor: true` — without the f
 
 ## Other config highlights
 
-See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.
+See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `foldGutter`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.
+
+## Markdown folding
+
+Heading sections, fenced code blocks, and GFM alerts (`> [!NOTE]`) are foldable. The editor ships a fold gutter, the standard CodeMirror fold keymap, and named commands:
+
+| Interaction | Effect |
+|---|---|
+| Click the gutter marker | Fold / unfold the section on that line |
+| `Ctrl-Shift-[` (`Cmd-Alt-[` on macOS) | Fold at the cursor |
+| `Ctrl-Shift-]` (`Cmd-Alt-]` on macOS) | Unfold at the cursor |
+| `Ctrl-Alt-[` / `Ctrl-Alt-]` | Fold / unfold all |
+| `editor.runCommand("editor:fold")` | Same as fold-at-cursor |
+
+Set `foldGutter: false` to hide the gutter (keymap and commands stay registered):
+
+```ts
+const editor = createEditor({
+  container,
+  initialValue: "# Hello\n\nBody",
+  foldGutter: false,
+});
+```
+
+The fold service is also exported for hosts that assemble their own CM6 extensions:
+
+```ts
+import { markdownFold, markdownFoldService } from "@floatboat/nexus-core";
+```
