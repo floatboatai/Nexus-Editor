@@ -42,7 +42,20 @@ const BTN_STYLES = `
   cursor: pointer;
   font-size: 12px;
   font-family: inherit;
-  transition: background 0.1s;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+`;
+
+const BTN_ACTIVE_STYLES = `
+  padding: 4px 10px;
+  border: 1px solid var(--nexus-accent-border, #0969da);
+  border-radius: 4px;
+  background: var(--nexus-accent-bg, #ddf4ff);
+  color: var(--nexus-accent-text, #0969da);
+  font-weight: 500;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
 `;
 
 const COUNT_STYLES = `
@@ -72,6 +85,13 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   findInput.type = "text";
   findInput.placeholder = "Find...";
   findInput.style.cssText = INPUT_STYLES;
+
+  // Fuzzy toggle button
+  let fuzzyEnabled = false;
+  const fuzzyBtn = document.createElement("button");
+  fuzzyBtn.textContent = "Fuzzy";
+  fuzzyBtn.title = "Toggle fuzzy subsequence search";
+  fuzzyBtn.style.cssText = BTN_STYLES;
 
   // Replace input
   const replaceInput = document.createElement("input");
@@ -113,7 +133,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   const spacer = document.createElement("div");
   spacer.style.flex = "1";
 
-  bar.append(findInput, prevBtn, nextBtn, countLabel, replaceInput, replaceBtn, replaceAllBtn, spacer, closeBtn);
+  bar.append(findInput, fuzzyBtn, prevBtn, nextBtn, countLabel, replaceInput, replaceBtn, replaceAllBtn, spacer, closeBtn);
 
   // State
   let matches: Array<{ from: number; to: number }> = [];
@@ -129,7 +149,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       return;
     }
     const doc = editor.getDocument();
-    matches = findSearchMatches(doc, query);
+    matches = findSearchMatches(doc, query, { fuzzy: fuzzyEnabled });
     if (matches.length === 0) {
       currentIdx = -1;
       countLabel.textContent = "0 results";
@@ -142,6 +162,12 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       }
       highlightCurrent();
     }
+  }
+
+  function toggleFuzzy() {
+    fuzzyEnabled = !fuzzyEnabled;
+    fuzzyBtn.style.cssText = fuzzyEnabled ? BTN_ACTIVE_STYLES : BTN_STYLES;
+    updateMatches();
   }
 
   function highlightCurrent() {
@@ -185,6 +211,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
 
   // Event handlers
   findInput.addEventListener("input", updateMatches);
+  fuzzyBtn.addEventListener("click", toggleFuzzy);
   findInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.shiftKey ? goPrev() : goNext(); e.preventDefault(); }
     if (e.key === "Escape") { close(); }
