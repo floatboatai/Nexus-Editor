@@ -8,7 +8,14 @@
 框架无关核心 · 官方 React 与 Vue 绑定 · MIT 协议。
 
 [English](./README.md) · [快速开始](#-快速开始) · [为什么选 Nexus？](#-为什么选-nexus-editor) · [路线图](#-路线图-tldr) · [参与贡献](#-参与贡献)
+### 本地启动教程
+#### 1. 环境要求
+- Node.js >= 18
+- pnpm 包管理器
 
+#### 2. 安装依赖
+```bash
+pnpm install
 </div>
 
 ---
