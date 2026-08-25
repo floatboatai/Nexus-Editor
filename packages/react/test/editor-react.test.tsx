@@ -1,8 +1,22 @@
-import type { EditorAPI } from "@floatboat/nexus-core";
+import type { EditorAPI, EditorConfig } from "@floatboat/nexus-core";
 import { render, waitFor } from "@testing-library/react";
 import { StrictMode, useEffect, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Editor, useEditor } from "../src/index";
+
+const createEditorConfigs = vi.hoisted(() => [] as EditorConfig[]);
+
+vi.mock("@floatboat/nexus-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@floatboat/nexus-core")>();
+
+  return {
+    ...actual,
+    createEditor: vi.fn((config: EditorConfig) => {
+      createEditorConfigs.push(config);
+      return actual.createEditor(config);
+    })
+  };
+});
 
 describe("@floatboat/nexus-react", () => {
   it("renders an editor into the provided container through the Editor component", () => {
@@ -60,6 +74,32 @@ describe("@floatboat/nexus-react", () => {
     const { container } = render(<Editor className="host" />);
 
     expect(container.querySelector(".host")).not.toBeNull();
+  });
+
+  it("forwards multiCursor=true from the Editor component to core", async () => {
+    createEditorConfigs.length = 0;
+
+    const { unmount } = render(<Editor multiCursor={true} />);
+
+    await waitFor(() => {
+      expect(createEditorConfigs.length).toBeGreaterThan(0);
+    });
+    expect(createEditorConfigs.at(-1)?.multiCursor).toBe(true);
+
+    unmount();
+  });
+
+  it("forwards multiCursor=false from the Editor component to core", async () => {
+    createEditorConfigs.length = 0;
+
+    const { unmount } = render(<Editor multiCursor={false} />);
+
+    await waitFor(() => {
+      expect(createEditorConfigs.length).toBeGreaterThan(0);
+    });
+    expect(createEditorConfigs.at(-1)?.multiCursor).toBe(false);
+
+    unmount();
   });
 
   it("calls onReady from useEditor on first mount", () => {
