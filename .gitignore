@@ -24,3 +24,18 @@ pnpm-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+# npm package lock files (we use pnpm)
+package-lock.json
+npm-debug.log*
+yarn.lock
+
+# pnpm
+.pnpm-store/
+node_modules/.pnpm-debug.log
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

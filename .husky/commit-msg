@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+
+echo "📝 Checking commit message..."
+
+commit_msg=$(cat "$1")
+
+if ! echo "$commit_msg" | grep -qE "^(feat|fix|docs|style|refactor|test|chore|perf|build|ci|revert)(\(.+\))?: .+$"; then
+  echo "❌ Commit message does not follow Conventional Commits format."
+  echo "   Expected: type(scope): description"
+  exit 1
+fi
+
+echo "✅ Commit message format is valid!"
