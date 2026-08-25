@@ -31,6 +31,11 @@ export interface SearchMatch {
   text: string;
 }
 
+export interface SearchMatchCount {
+  current: number;
+  total: number;
+}
+
 export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
@@ -882,6 +887,31 @@ function createSearchRow(testId: string): HTMLDivElement {
   return row;
 }
 
+function getSearchMatchCount(view: EditorView, query: SearchQuery): SearchMatchCount {
+  if (!query.search || !query.valid) {
+    return { current: 0, total: 0 };
+  }
+
+  const mainSelection = view.state.selection.main;
+  let current = 0;
+  let total = 0;
+  const cursor = query.getCursor(view.state);
+
+  for (let result = cursor.next(); !result.done; result = cursor.next()) {
+    const match = result.value;
+    total += 1;
+    if (match.from === mainSelection.from && match.to === mainSelection.to) {
+      current = total;
+    }
+  }
+
+  return { current, total };
+}
+
+function formatSearchMatchCount(count: SearchMatchCount): string {
+  return `${count.current} / ${count.total}`;
+}
+
 class NexusSearchPanel implements Panel {
   readonly dom: HTMLElement;
   readonly pos = 80;
@@ -891,6 +921,7 @@ class NexusSearchPanel implements Panel {
   private readonly caseField: HTMLInputElement;
   private readonly regexpField: HTMLInputElement;
   private readonly wholeWordField: HTMLInputElement;
+  private readonly matchCountField: HTMLSpanElement;
   private readonly labels: SearchPluginLabels;
   private readonly history: SearchHistoryController;
   private readonly replaceRow?: HTMLDivElement;
@@ -925,6 +956,10 @@ class NexusSearchPanel implements Panel {
     this.caseField = this.createCheckbox("markdown-search-case-toggle", "case", this.query.caseSensitive);
     this.regexpField = this.createCheckbox("markdown-search-regexp-toggle", "re", this.query.regexp);
     this.wholeWordField = this.createCheckbox("markdown-search-word-toggle", "word", this.query.wholeWord);
+    this.matchCountField = document.createElement("span");
+    this.matchCountField.className = "nexus-search-match-count";
+    this.matchCountField.dataset.testId = "markdown-search-match-count";
+    this.matchCountField.setAttribute("aria-live", "polite");
 
     this.dom = document.createElement("div");
     this.dom.className = "cm-search nexus-search-panel";
@@ -958,6 +993,7 @@ class NexusSearchPanel implements Panel {
 
     const searchRowChildren: HTMLElement[] = [
       this.searchField,
+      this.matchCountField,
       createLabel(this.caseField, resolvedLabels.matchCase),
       createLabel(this.regexpField, resolvedLabels.regexp),
       createLabel(this.wholeWordField, resolvedLabels.byWord),
@@ -997,15 +1033,21 @@ class NexusSearchPanel implements Panel {
     closeButton.setAttribute("aria-label", resolvedLabels.close);
     closeButton.title = resolvedLabels.close;
     this.dom.append(closeButton);
+    this.updateMatchCount();
   }
 
   update(update: ViewUpdate): void {
+    let queryChanged = false;
     for (const transaction of update.transactions) {
       for (const effect of transaction.effects) {
         if (effect.is(setSearchQuery) && !effect.value.eq(this.query)) {
           this.setQuery(effect.value);
+          queryChanged = true;
         }
       }
+    }
+    if (queryChanged || update.docChanged || update.selectionSet) {
+      this.updateMatchCount();
     }
   }
 
@@ -1066,6 +1108,7 @@ class NexusSearchPanel implements Panel {
     if (!query.eq(this.query)) {
       this.query = query;
       this.view.dispatch({ effects: setSearchQuery.of(query) });
+      this.updateMatchCount();
     }
   }
 
@@ -1073,6 +1116,7 @@ class NexusSearchPanel implements Panel {
     this.commit();
     this.history.record(this.searchField.value);
     runSearchCommand();
+    this.updateMatchCount();
   }
 
   private setReplaceExpanded(expanded: boolean, focusReplace = false): void {
@@ -1137,6 +1181,13 @@ class NexusSearchPanel implements Panel {
     this.caseField.checked = query.caseSensitive;
     this.regexpField.checked = query.regexp;
     this.wholeWordField.checked = query.wholeWord;
+    this.updateMatchCount();
+  }
+
+  private updateMatchCount(): void {
+    this.matchCountField.textContent = formatSearchMatchCount(
+      getSearchMatchCount(this.view, this.query)
+    );
   }
 }
 

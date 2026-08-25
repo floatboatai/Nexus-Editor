@@ -653,6 +653,36 @@ describe("@floatboat/nexus-plugin-search", () => {
     container.remove();
   });
 
+  it("shows the current and total search match count", () => {
+    const harness = setupSearchPanel();
+    const count = harness.container.querySelector<HTMLElement>(
+      '[data-test-id="markdown-search-match-count"]'
+    );
+    expect(count).not.toBeNull();
+    expect(count?.textContent).toBe("0 / 0");
+
+    harness.input.value = "alpha";
+    harness.input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    expect(count?.textContent).toBe("0 / 2");
+
+    submitSearch(harness.input, "alpha");
+    expect(count?.textContent).toBe("1 / 2");
+
+    submitSearch(harness.input, "alpha");
+    expect(count?.textContent).toBe("2 / 2");
+
+    harness.input.value = "missing";
+    harness.input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    expect(count?.textContent).toBe("0 / 0");
+
+    const closeButton = harness.container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-close"]'
+    );
+    expect(closeButton?.textContent).toBe("\u00d7");
+
+    harness.destroy();
+  });
+
   it("keeps existing Enter navigation when search history is disabled", () => {
     const harness = setupSearchPanel({ history: false } as Parameters<typeof createSearchPlugin>[0]);
 
