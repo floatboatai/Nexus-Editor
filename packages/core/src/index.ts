@@ -25,6 +25,7 @@ export {
 export { markdownAutoPair } from "./markdown-autopair";
 export { markdownFold, markdownFoldService } from "./markdown-fold";
 export { markdownKeymap, handleMarkdownEnter } from "./markdown-keymap";
+export { applyUrlLinkify, htmlTableToGfm } from "./smart-paste";
 export {
   addCursorAbove,
   addCursorBelow,
@@ -96,6 +97,7 @@ export type {
   SelectionState,
   SlashCommandDef,
   SlashMenuState,
+  SmartPasteOptions,
   SetDocumentOptions,
   TocEntry,
   WidgetDefinition,

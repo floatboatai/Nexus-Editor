@@ -37,6 +37,7 @@ This document maps every planned feature to **package ownership / priority / sta
 | 6 | Multi-cursor / multi-selection | `core` | P1 | done | Yes | `openspec/changes/add-core-multi-cursor` — opt-in `multiCursor` config; live-preview reveal + table checks verified by regression tests |
 | 7 | AST enhancement / Markdown extensions | `core` + `preset-gfm` | P2 | planned | Yes | Affects serialization and every AST-dependent plugin |
 | 8 | Undo / redo grouping | `plugin-history` | P1 | planned | No | Coordinate with table's `tableEditingCount`; consolidate competing impls before merge |
+| 30 | Markdown smart paste & copy | `core` | P1 | in-progress | Yes | Opt-in `smartPaste` config — HTML table→GFM, URL linkify, `text/markdown` copy flavor — see `openspec/changes/add-smart-paste` |
 
 ## 4. Plugin System
 

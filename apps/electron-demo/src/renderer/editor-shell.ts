@@ -135,6 +135,10 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     // Multi-cursor editing: Alt-click adds a cursor, Mod-d selects the next
     // occurrence, Mod-Alt-ArrowUp/Down stacks cursors (ROADMAP #6).
     multiCursor: true,
+    // Smart clipboard: HTML tables paste as GFM pipe tables, URLs pasted over
+    // a selection become [selection](url) links, copy/cut expose a
+    // text/markdown flavor (ROADMAP #30).
+    smartPaste: true,
     plugins: [
       createGfmPreset(),
       createHistoryPlugin(),

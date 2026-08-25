@@ -71,6 +71,23 @@ editor.on("selectionChange", ({ anchor, head, ranges, mainIndex }) => {
 
 Multiple ranges in `setSelections` require `multiCursor: true` — without the flag CodeMirror collapses the selection to its main range.
 
+## Smart paste & copy
+
+Opt-in via `smartPaste: true` (off by default — it changes what a paste inserts):
+
+```ts
+const editor = createEditor({
+  container,
+  smartPaste: true,          // or { tables, linkify, markdownCopy } toggles
+});
+```
+
+- **HTML tables → GFM** — paste from Excel / a web page and the `<table>` markup lands as a pipe table (alignment preserved, `|` escaped, `<br>` flattened, inline bold/italic/code/links serialized)
+- **URL linkify** — paste a URL over selected text and it becomes `[selection](url)`; pasting over a URL selection swaps the link target; collapsed selections and multi-line / link-syntax selections fall through to the default paste
+- **Markdown copy flavor** — copy / cut additionally writes the selected source under the `text/markdown` MIME type alongside the browser defaults
+
+Every smart-paste insertion is a single transaction — one `undo()` reverts it completely.
+
 ## Other config highlights
 
-See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.
+See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `smartPaste`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.
