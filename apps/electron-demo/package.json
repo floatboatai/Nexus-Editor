@@ -14,6 +14,7 @@
     "start": "electron dist-electron/main.js",
     "test": "vitest run --config ../../vitest.config.ts",
     "smoke:multi-window": "node scripts/electron-multi-window-smoke-run.mjs",
+    "smoke:sidebar-layout": "pnpm run build && node scripts/electron-sidebar-layout-smoke-run.mjs",
     "dist": "pnpm run build && electron-builder",
     "dist:mac": "pnpm run build && electron-builder --mac",
     "dist:mac-arm64": "pnpm run build && electron-builder --mac --arm64",

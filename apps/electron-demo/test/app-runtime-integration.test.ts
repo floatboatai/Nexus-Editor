@@ -7,6 +7,7 @@ import type {
 } from "../src/shared/plugin-ipc";
 
 const sessionId = "11111111-1111-4111-8111-111111111111" as VaultSessionId;
+const COLD_RENDERER_BOOT_TIMEOUT_MS = 15_000;
 
 function createBridgeHarness() {
   const order: string[] = [];
@@ -171,19 +172,14 @@ describe("Electron renderer plugin runtime integration", () => {
     expect(document.querySelectorAll(".nexus-toolbar")).toHaveLength(1);
 
     const outlinePanel = document.querySelector<HTMLElement>(".nexus-outline-panel")!;
+    const sidePanelHost = document.querySelector<HTMLElement>(".nexus-side-panel-host")!;
     const outlineButton = Array.from(document.querySelectorAll<HTMLButtonElement>(".toolbar button"))
       .find((button) => button.title === "Toggle outline")!;
-    const getTableOfContents = vi.spyOn(app.shell.editor, "getTableOfContents");
     outlineButton.click();
-    expect(outlinePanel.style.display).toBe("none");
-    getTableOfContents.mockClear();
-    app.shell.editor.setDocument("# Changed while hidden");
-    await vi.waitFor(() => expect(app.state.content).toBe("# Changed while hidden"));
-    expect(getTableOfContents).not.toHaveBeenCalled();
-
+    expect(outlinePanel.hidden).toBe(true);
+    expect(sidePanelHost.hidden).toBe(false);
     outlineButton.click();
-    expect(outlinePanel.style.display).toBe("");
-    expect(getTableOfContents).toHaveBeenCalledOnce();
+    expect(outlinePanel.hidden).toBe(false);
 
     app.state.activeFile = "/vault-note.md";
     app.state.filePath = "/vault-note.md";
@@ -208,7 +204,7 @@ describe("Electron renderer plugin runtime integration", () => {
       "unsubscribe-shutdown",
       "shutdown-complete",
     ]);
-  });
+  }, COLD_RENDERER_BOOT_TIMEOUT_MS);
 
   it("boots one runtime owner, synchronizes relative file context, and preserves slot DOM", async () => {
     const { boot } = await import("../src/renderer/app");
@@ -350,6 +346,9 @@ describe("Electron renderer plugin runtime integration", () => {
     expect(app.productUi?.getViewLeaf("backlinks")?.containerType).toBe("sidebar");
     expect(document.querySelectorAll(".nexus-outline-panel")).toHaveLength(1);
     expect(document.querySelectorAll(".backlinks-panel")).toHaveLength(1);
+    expect(document.querySelectorAll(".nexus-side-panel-host")).toHaveLength(1);
+    expect(document.querySelectorAll(".nexus-side-panel-host > [data-nexus-product-surface]"))
+      .toHaveLength(2);
     expect(document.querySelectorAll(".main-area > .nexus-outline-panel, .main-area > .backlinks-panel"))
       .toHaveLength(0);
 

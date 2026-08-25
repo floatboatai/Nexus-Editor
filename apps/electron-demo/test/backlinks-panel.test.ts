@@ -157,4 +157,26 @@ describe("BacklinksPanel visibility lifecycle", () => {
     expect(idle.request).not.toHaveBeenCalled();
     panel.destroy();
   });
+
+  it("coalesces a burst of visible index invalidations", async () => {
+    const idle = installIdleHarness();
+    const index = createIndexHarness();
+    const panel = createBacklinksPanel({
+      index: index.index,
+      getActiveFile: () => "/vault/target.md",
+      onOpenFile: vi.fn(),
+    });
+    idle.scheduled[0]?.callback();
+    vi.mocked(index.index.getBacklinks).mockClear();
+    idle.request.mockClear();
+
+    for (let count = 0; count < 100; count += 1) index.emit();
+    expect(index.index.getBacklinks).not.toHaveBeenCalled();
+
+    await Promise.resolve();
+    expect(index.index.getBacklinks).toHaveBeenCalledOnce();
+    expect(idle.request).toHaveBeenCalledOnce();
+
+    panel.destroy();
+  });
 });

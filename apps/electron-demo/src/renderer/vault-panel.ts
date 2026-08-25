@@ -83,7 +83,7 @@ export function createLegacyVaultPanelBackend(
 }
 
 const PANEL_STYLES = `
-  width: 240px;
+  width: var(--nexus-vault-panel-width, 240px);
   flex-shrink: 0;
   border-right: 1px solid var(--nexus-border, #eee);
   background: var(--nexus-bg, #fff);

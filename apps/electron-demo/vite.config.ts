@@ -76,5 +76,8 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Electron's development entry points at this exact URL. Falling back to
+    // another port would make the window silently load a stale renderer.
+    strictPort: true,
   },
 });

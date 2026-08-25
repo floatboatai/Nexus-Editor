@@ -63,4 +63,21 @@ describe("OutlinePanel visibility lifecycle", () => {
     panel.destroy();
     editor.destroy();
   });
+
+  it("keeps stable outline DOM while updating heading positions", () => {
+    const editorContainer = document.createElement("div");
+    document.body.append(editorContainer);
+    const editor = createEditor({ container: editorContainer, initialValue: "# Heading" });
+    const panel = createOutlinePanel(editor);
+    const originalButton = panel.element.querySelector<HTMLButtonElement>("button")!;
+
+    editor.setDocument("prefix\n\n# Heading");
+
+    expect(panel.element.querySelector("button")).toBe(originalButton);
+    originalButton.click();
+    expect(editor.getSelection()).toEqual({ anchor: 8, head: 8 });
+
+    panel.destroy();
+    editor.destroy();
+  });
 });
