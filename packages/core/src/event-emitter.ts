@@ -26,4 +26,12 @@ export class EventEmitter<EventMap extends { [K in keyof EventMap]: (...args: an
   clear(): void {
     this.listeners.clear();
   }
+
+  once<K extends keyof EventMap>(event: K, handler: EventMap[K]): void {
+  const wrapper = ((...args: any[]) => {
+    this.off(event, wrapper);
+    (handler as (...a: any[]) => void)(...args);
+  }) as EventMap[K];
+  this.on(event, wrapper);
+}
 }

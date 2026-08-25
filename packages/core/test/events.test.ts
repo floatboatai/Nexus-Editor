@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-
 import { createEditor } from "../src/index";
 
 describe("event system", () => {
@@ -235,6 +234,47 @@ describe("slashMenuChange", () => {
     const lastCall = handler.mock.calls[handler.mock.calls.length - 1][0];
     expect(lastCall.commands[0].id).toBe("h1");
     expect(lastCall.commands[0].run).toBe(run);
+    editor.destroy();
+  });
+});
+
+describe("once", () => {
+  it("fires handler only once", () => {
+    const container = document.createElement("div");
+    const handler = vi.fn();
+    const editor = createEditor({ container, initialValue: "" });
+
+    editor.once("change", handler);
+    editor.setDocument("first");
+    editor.setDocument("second");
+
+    expect(handler).toHaveBeenCalledOnce();
+    editor.destroy();
+  });
+
+  it("auto-removes handler after first invocation", () => {
+    const container = document.createElement("div");
+    const handler = vi.fn();
+    const editor = createEditor({ container, initialValue: "" });
+
+    editor.once("change", handler);
+    editor.setDocument("test");
+
+    // Trigger change again — handler should not fire
+    editor.setDocument("test again");
+    expect(handler).toHaveBeenCalledTimes(1);
+    editor.destroy();
+  });
+
+  it("receives correct arguments on first call", () => {
+    const container = document.createElement("div");
+    const handler = vi.fn();
+    const editor = createEditor({ container, initialValue: "" });
+
+    editor.once("change", handler);
+    editor.setDocument("hello");
+
+    expect(handler).toHaveBeenCalledWith("hello", expect.objectContaining({ type: "root" }));
     editor.destroy();
   });
 });

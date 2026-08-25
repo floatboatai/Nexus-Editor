@@ -103,3 +103,9 @@ export type {
   WidgetDefinitionSnapshot,
   WidgetRenderContext
 } from "./types";
+
+export {
+  isControlledDocument,
+  resolveInitialDocument,
+  shouldSyncControlledDocument,
+}from "./controlled-document";
