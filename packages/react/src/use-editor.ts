@@ -2,28 +2,40 @@ import { createEditor } from "@floatboat/nexus-core";
 import type { Root } from "mdast";
 import { useEffect, useRef, useState } from "react";
 
-import { resolveInitialDocument, shouldSyncControlledDocument } from "./controlled-document";
+import {
+  resolveInitialDocument,
+  shouldSyncControlledDocument,
+} from "./controlled-document";
 import type { UseEditorConfig, UseEditorResult } from "./types";
 
 function buildCreateConfig(
   container: HTMLDivElement,
   config: UseEditorConfig,
-  onDocChange: (doc: string, ast: Root) => void
+  onDocChange: (doc: string, ast: Root) => void,
 ) {
-  const { value, initialValue, onChange, onReady, runtime: _runtime, ...rest } = config;
+  const {
+    value,
+    initialValue,
+    onChange,
+    onReady,
+    runtime: _runtime,
+    ...rest
+  } = config;
 
   return {
     container,
     ...rest,
     initialValue: resolveInitialDocument(value, initialValue),
-    onChange: onDocChange
+    onChange: onDocChange,
   };
 }
 
 export function useEditor(config: UseEditorConfig): UseEditorResult {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<ReturnType<typeof createEditor> | null>(null);
-  const [editor, setEditor] = useState<ReturnType<typeof createEditor> | null>(null);
+  const [editor, setEditor] = useState<ReturnType<typeof createEditor> | null>(
+    null,
+  );
   const [, setSyncRevision] = useState(0);
   const configRef = useRef(config);
   const lastSyncedDocRef = useRef<string | null>(null);
@@ -44,17 +56,20 @@ export function useEditor(config: UseEditorConfig): UseEditorResult {
     };
 
     const { onReady } = configRef.current;
-    const instance = createEditor(buildCreateConfig(container, configRef.current, onDocChange));
+    const instance = createEditor(
+      buildCreateConfig(container, configRef.current, onDocChange),
+    );
     const ownership = configRef.current.runtime;
-    const ownedRuntime = ownership?.kind === "owned"
-      ? ownership.createRuntime()
-      : null;
-    const runtime = ownedRuntime ?? (ownership?.kind === "borrowed" ? ownership.runtime : undefined);
+    const ownedRuntime =
+      ownership?.kind === "owned" ? ownership.createRuntime() : null;
+    const runtime =
+      ownedRuntime ??
+      (ownership?.kind === "borrowed" ? ownership.runtime : undefined);
     const attachment = runtime?.attachEditor(instance, container);
 
     lastSyncedDocRef.current = resolveInitialDocument(
       configRef.current.value,
-      configRef.current.initialValue
+      configRef.current.initialValue,
     );
 
     editorRef.current = instance;
@@ -72,7 +87,7 @@ export function useEditor(config: UseEditorConfig): UseEditorResult {
       if (ownedRuntime) {
         void Promise.resolve(detached).then(
           () => ownedRuntime.dispose(),
-          () => ownedRuntime.dispose()
+          () => ownedRuntime.dispose(),
         );
       }
       editorRef.current = null;
@@ -98,8 +113,32 @@ export function useEditor(config: UseEditorConfig): UseEditorResult {
     setSyncRevision((revision) => revision + 1);
   }, [config.value, editor]);
 
+  useEffect(() => {
+    const instance = editorRef.current;
+    if (!instance) {
+      return;
+    }
+
+    instance.reconfigure({
+      readOnly: config.readOnly,
+      tabSize: config.tabSize,
+      direction: config.direction,
+      indentGuides: config.indentGuides,
+      theme: config.theme,
+      locale: config.locale,
+    });
+  }, [
+    config.readOnly,
+    config.tabSize,
+    config.direction,
+    config.indentGuides,
+    config.theme,
+    config.locale,
+    editor,
+  ]);
+
   return {
     containerRef,
-    editor
+    editor,
   };
 }

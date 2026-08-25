@@ -62,6 +62,7 @@ export type {
   CoreEditorTransactionHookOptions,
   CoreEditorUpdateContext,
   CoreEditorUpdateListener,
+  DynamicEditorConfig,
   EditorAPI,
   EditorCommand,
   EditorConfig,
@@ -101,5 +102,5 @@ export type {
   WidgetDefinition,
   WidgetDefinitionContribution,
   WidgetDefinitionSnapshot,
-  WidgetRenderContext
+  WidgetRenderContext,
 } from "./types";

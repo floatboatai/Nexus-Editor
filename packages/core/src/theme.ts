@@ -106,8 +106,12 @@ function themeToEditorTheme(theme: NexusTheme): Extension {
   }
 
   const fontSize = (theme.fontSize ?? 15) + "px";
-  const fontFamily = theme.fontFamily ?? "system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  const fontFamilyMono = theme.fontFamilyMono ?? "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+  const fontFamily =
+    theme.fontFamily ??
+    "system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+  const fontFamilyMono =
+    theme.fontFamilyMono ??
+    "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
   const contentMaxWidth = theme.contentMaxWidth;
 
   const contentStyles: Record<string, string> = { padding: "16px 0" };
@@ -123,7 +127,7 @@ function themeToEditorTheme(theme: NexusTheme): Extension {
       color: "var(--nexus-text)",
       fontSize,
       fontFamily,
-      ...vars
+      ...vars,
     },
     ".cm-content": contentStyles,
     ".cm-line": { padding: "0 20px" },
@@ -151,15 +155,18 @@ function themeToEditorTheme(theme: NexusTheme): Extension {
 const themeCompartment = new Compartment();
 
 /** Create the theme extension. Returns [extension, reconfigure function]. */
-export function createThemeExtension(theme: NexusTheme): {
+export function createThemeExtension(
+  theme: NexusTheme,
+  compartment: Compartment = new Compartment(),
+): {
   extension: Extension;
   reconfigure: (next: NexusTheme) => { effects: any };
 } {
-  const ext = themeCompartment.of(themeToEditorTheme(theme));
+  const ext = compartment.of(themeToEditorTheme(theme));
   return {
     extension: ext,
     reconfigure(next: NexusTheme) {
-      return { effects: themeCompartment.reconfigure(themeToEditorTheme(next)) };
-    }
+      return { effects: compartment.reconfigure(themeToEditorTheme(next)) };
+    },
   };
 }
