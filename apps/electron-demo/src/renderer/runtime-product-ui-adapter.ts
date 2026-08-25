@@ -92,10 +92,12 @@ class ElectronProductWorkspaceView extends NexusComponent implements NexusView {
   }
 
   onOpen(): void {
-    this.refresh();
+    this.setVisible(true);
   }
 
-  onClose(): void {}
+  onClose(): void {
+    this.setVisible(false);
+  }
 
   getState(): JsonObject {
     return { ...this.persistentState };
@@ -116,6 +118,11 @@ class ElectronProductWorkspaceView extends NexusComponent implements NexusView {
   refresh(): void {
     this.resource.update?.();
     this.resource.refresh?.();
+  }
+
+  setVisible(visible: boolean): void {
+    if (this.resource.setVisible) this.resource.setVisible(visible);
+    else if (visible) this.refresh();
   }
 }
 
@@ -193,7 +200,7 @@ export class ElectronRuntimeProductUiAdapter {
   setViewVisible(surface: ProductViewSurface, visible: boolean): void {
     const leaf = this.requireLeaf(surface);
     leaf.containerEl.hidden = !visible;
-    if (visible && leaf.view instanceof ElectronProductWorkspaceView) leaf.view.refresh();
+    if (leaf.view instanceof ElectronProductWorkspaceView) leaf.view.setVisible(visible);
   }
 
   toggleView(surface: ProductViewSurface): void {

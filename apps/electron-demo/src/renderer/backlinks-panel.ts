@@ -12,6 +12,7 @@ export interface BacklinksPanelOptions {
 
 export interface BacklinksPanel {
   element: HTMLElement;
+  setVisible(visible: boolean): void;
   refresh(): void;
   destroy(): void;
 }
@@ -206,20 +207,30 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
   }
 
   let pendingUnlinkedCancel: (() => void) | null = null;
+  // Cancellation is best-effort, so callbacks also prove they still own the latest scan.
+  let scanRevision = 0;
+  let visible = true;
+  let dirty = false;
   let destroyed = false;
 
-  function refresh(): void {
-    if (destroyed) return;
-    if (pendingUnlinkedCancel) {
-      pendingUnlinkedCancel();
-      pendingUnlinkedCancel = null;
-    }
+  function cancelPendingUnlinked(): boolean {
+    scanRevision += 1;
+    if (!pendingUnlinkedCancel) return false;
+    pendingUnlinkedCancel();
+    pendingUnlinkedCancel = null;
+    return true;
+  }
+
+  function render(): void {
+    if (destroyed || !visible) return;
+    cancelPendingUnlinked();
     list.textContent = "";
     const activeFile = getActiveFile();
     const active = activeFile ? toIndexPath(activeFile) : null;
     if (!activeFile || !active) {
       header.textContent = "Backlinks";
       renderEmpty("No active file", list);
+      dirty = false;
       return;
     }
 
@@ -242,13 +253,32 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
     const unlinkedContainer = document.createElement("div");
     list.appendChild(unlinkedContainer);
 
+    const scheduledRevision = scanRevision;
     pendingUnlinkedCancel = scheduleLowPriority(() => {
+      if (scheduledRevision !== scanRevision) return;
       pendingUnlinkedCancel = null;
-      // Bail if the active file changed while we were waiting.
-      if (destroyed || getActiveFile() !== activeFile) return;
+      if (destroyed || !visible) {
+        dirty = true;
+        return;
+      }
+      if (getActiveFile() !== activeFile) {
+        dirty = true;
+        render();
+        return;
+      }
       const t0 = performance.now();
       const unlinked = index.getUnlinkedMentions(active);
       const t1 = performance.now();
+      if (destroyed || scheduledRevision !== scanRevision) return;
+      if (!visible) {
+        dirty = true;
+        return;
+      }
+      if (getActiveFile() !== activeFile) {
+        dirty = true;
+        render();
+        return;
+      }
       if ((globalThis as { NEXUS_PERF?: boolean }).NEXUS_PERF !== false && t1 - t0 > 5) {
         // eslint-disable-next-line no-console
         console.log("%c[perf]", "color:#0aa;font-weight:bold",
@@ -264,6 +294,26 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
         for (const hit of unlinked) renderItem(hit, unlinkedContainer);
       }
     });
+    dirty = false;
+  }
+
+  function refresh(): void {
+    if (destroyed) return;
+    if (!visible) {
+      dirty = true;
+      return;
+    }
+    render();
+  }
+
+  function setVisible(next: boolean): void {
+    if (destroyed || visible === next) return;
+    visible = next;
+    if (!visible) {
+      if (cancelPendingUnlinked()) dirty = true;
+      return;
+    }
+    if (dirty) render();
   }
 
   const unsubscribe = index.subscribe(() => refresh());
@@ -271,13 +321,13 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
 
   return {
     element: root,
+    setVisible,
     refresh,
     destroy() {
+      if (destroyed) return;
       destroyed = true;
-      if (pendingUnlinkedCancel) {
-        pendingUnlinkedCancel();
-        pendingUnlinkedCancel = null;
-      }
+      visible = false;
+      cancelPendingUnlinked();
       unsubscribe();
       root.remove();
     },

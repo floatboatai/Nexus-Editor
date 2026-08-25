@@ -2,6 +2,7 @@ import type { EditorAPI, TocEntry } from "@floatboat/nexus-core";
 
 export interface OutlinePanel {
   element: HTMLElement;
+  setVisible(visible: boolean): void;
   update(): void;
   destroy(): void;
 }
@@ -74,6 +75,10 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
 
   panel.append(header, list);
 
+  let visible = true;
+  let dirty = false;
+  let destroyed = false;
+
   function renderItems(entries: TocEntry[]) {
     list.innerHTML = "";
 
@@ -110,18 +115,38 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
     }
   }
 
-  function update() {
+  function render() {
+    if (destroyed) return;
     renderItems(editor.getTableOfContents());
+    dirty = false;
+  }
+
+  function update() {
+    if (destroyed) return;
+    if (!visible) {
+      dirty = true;
+      return;
+    }
+    render();
+  }
+
+  function setVisible(next: boolean): void {
+    if (destroyed || visible === next) return;
+    visible = next;
+    if (visible && dirty) render();
   }
 
   // Initial render + listen for changes
-  update();
+  render();
   editor.on("change", update);
 
   return {
     element: panel,
+    setVisible,
     update,
     destroy() {
+      if (destroyed) return;
+      destroyed = true;
       editor.off("change", update);
       panel.remove();
     },

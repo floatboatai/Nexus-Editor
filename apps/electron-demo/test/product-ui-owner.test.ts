@@ -82,6 +82,45 @@ describe("ElectronProductUiOwner", () => {
     owner.destroy();
   });
 
+  it("propagates visibility without double-refreshing lifecycle-aware views", () => {
+    const owner = new ElectronProductUiOwner(document);
+    const layout = document.createElement("main");
+    const outlineElement = document.createElement("aside");
+    const outlineVisibility = vi.fn();
+    const outlineUpdate = vi.fn();
+    const outlineRefresh = vi.fn();
+    const outline = owner.registerView("outline", {
+      element: outlineElement,
+      setVisible: outlineVisibility,
+      update: outlineUpdate,
+      refresh: outlineRefresh,
+      destroy: vi.fn(),
+    }, { containerEl: layout });
+
+    expect(outlineVisibility.mock.calls).toEqual([[true]]);
+    outline.hide();
+    outline.show();
+    outline.show();
+    expect(outlineVisibility.mock.calls).toEqual([[true], [false], [true]]);
+    expect(outlineUpdate).not.toHaveBeenCalled();
+    expect(outlineRefresh).not.toHaveBeenCalled();
+
+    const backlinksUpdate = vi.fn();
+    const backlinksRefresh = vi.fn();
+    const backlinks = owner.registerView("backlinks", {
+      element: document.createElement("aside"),
+      update: backlinksUpdate,
+      refresh: backlinksRefresh,
+      destroy: vi.fn(),
+    }, { containerEl: layout });
+    backlinks.hide();
+    backlinks.show();
+    expect(backlinksUpdate).toHaveBeenCalledOnce();
+    expect(backlinksRefresh).toHaveBeenCalledOnce();
+
+    owner.destroy();
+  });
+
   it("keeps one host settings dialog and replaces the short-lived Vault menu", () => {
     const owner = new ElectronProductUiOwner(document);
     const createSettings = vi.fn(() => createSettingsPanel(defaultSettings(), vi.fn()));

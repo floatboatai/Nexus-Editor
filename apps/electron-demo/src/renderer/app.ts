@@ -362,12 +362,13 @@ function handleSettings(): void {
   settingsPanels.add(panel);
 }
 
-function togglePanel(panel: HTMLElement, onShow?: () => void): void {
+function togglePanel(panel: HTMLElement): boolean {
   if (panel.style.display === "none") {
     panel.style.display = "";
-    onShow?.();
+    return true;
   } else {
     panel.style.display = "none";
+    return false;
   }
 }
 
@@ -377,7 +378,7 @@ function toggleOutline(): void {
     runtimeProductUi.toggleView("outline");
     return;
   }
-  togglePanel(outline.element, () => outline.update());
+  outline.setVisible(togglePanel(outline.element));
 }
 
 function toggleVault(): void {
@@ -391,7 +392,7 @@ function toggleBacklinks(): void {
     runtimeProductUi.toggleView("backlinks");
     return;
   }
-  togglePanel(backlinks.element, () => backlinks.refresh());
+  backlinks.setVisible(togglePanel(backlinks.element));
 }
 
 function settingValue<T extends SettingValue>(

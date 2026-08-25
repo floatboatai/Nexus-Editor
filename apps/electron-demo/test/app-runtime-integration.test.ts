@@ -170,6 +170,21 @@ describe("Electron renderer plugin runtime integration", () => {
     expect(app.shell.wordcount).not.toBeNull();
     expect(document.querySelectorAll(".nexus-toolbar")).toHaveLength(1);
 
+    const outlinePanel = document.querySelector<HTMLElement>(".nexus-outline-panel")!;
+    const outlineButton = Array.from(document.querySelectorAll<HTMLButtonElement>(".toolbar button"))
+      .find((button) => button.title === "Toggle outline")!;
+    const getTableOfContents = vi.spyOn(app.shell.editor, "getTableOfContents");
+    outlineButton.click();
+    expect(outlinePanel.style.display).toBe("none");
+    getTableOfContents.mockClear();
+    app.shell.editor.setDocument("# Changed while hidden");
+    await vi.waitFor(() => expect(app.state.content).toBe("# Changed while hidden"));
+    expect(getTableOfContents).not.toHaveBeenCalled();
+
+    outlineButton.click();
+    expect(outlinePanel.style.display).toBe("");
+    expect(getTableOfContents).toHaveBeenCalledOnce();
+
     app.state.activeFile = "/vault-note.md";
     app.state.filePath = "/vault-note.md";
     app.state.content = "outside";
