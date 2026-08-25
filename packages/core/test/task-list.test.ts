@@ -90,4 +90,48 @@ describe("Task List Pipeline & Keymap", () => {
     );
     view.destroy();
   });
+
+  it("preserves indentation when promoting nested list items or plain text", () => {
+    const view = createView("    - Nested bullet", 10);
+    expect(handleToggleTaskItem(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe("    - [ ] Nested bullet");
+    view.destroy();
+
+    const viewIndent = createView("  indented text", 5);
+    expect(handleToggleTaskItem(viewIndent)).toBe(true);
+    expect(viewIndent.state.doc.toString()).toBe("  - [ ] indented text");
+    viewIndent.destroy();
+  });
+
+  it("handles ordered list item promotion to task item", () => {
+    const view = createView("1. First numbered item", 5);
+    expect(handleToggleTaskItem(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe("1. [ ] First numbered item");
+    view.destroy();
+  });
+
+  it("toggles tasks across multiple disjoint cursors in a single atomic undo transaction", () => {
+    const doc = "- [ ] Line 1\n- [x] Line 2\n- Line 3";
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: EditorSelection.create([
+          EditorSelection.cursor(3),
+          EditorSelection.cursor(17),
+          EditorSelection.cursor(30),
+        ]),
+        extensions: [history(), EditorState.allowMultipleSelections.of(true)],
+      }),
+    });
+
+    const handled = handleToggleTaskItem(view);
+    expect(handled).toBe(true);
+    expect(view.state.doc.toString()).toBe(
+      "- [x] Line 1\n- [ ] Line 2\n- [ ] Line 3",
+    );
+
+    undo(view);
+    expect(view.state.doc.toString()).toBe(doc);
+    view.destroy();
+  });
 });
