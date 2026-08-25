@@ -22,6 +22,7 @@ import {
   ELECTRON_PRODUCT_VIEW_TYPES,
   ElectronRuntimeProductUiAdapter,
 } from "../src/renderer/runtime-product-ui-adapter";
+import { createSidePanelHost } from "../src/renderer/side-panel-host";
 
 function owner(pluginId: string): ResourceOwner {
   return {
@@ -86,27 +87,41 @@ describe("ElectronRuntimeProductUiAdapter", () => {
     workspace.focusLeaf(primary.id);
     const layout = document.createElement("main");
     document.body.append(layout);
+    const viewHost = createSidePanelHost(document);
+    layout.append(viewHost.element);
     const storage = memoryStorage();
     const ui = new RuntimeUiHost({
       defaultWindow: window,
       resolveStorage: () => storage,
     });
     const destroys = { outline: vi.fn(), backlinks: vi.fn() };
+    const visibility = { outline: vi.fn(), backlinks: vi.fn() };
+    const updates = { outline: vi.fn(), backlinks: vi.fn() };
     const adapter = new ElectronRuntimeProductUiAdapter({
       workspace,
       ui,
       window,
       primaryLeaf: primary,
-      layoutContainer: layout,
+      viewHost,
       createOutline: () => {
         const element = document.createElement("aside");
         element.className = "nexus-outline-panel";
-        return { element, update: vi.fn(), destroy: destroys.outline };
+        return {
+          element,
+          setVisible: visibility.outline,
+          update: updates.outline,
+          destroy: destroys.outline,
+        };
       },
       createBacklinks: () => {
         const element = document.createElement("aside");
         element.className = "backlinks-panel";
-        return { element, refresh: vi.fn(), destroy: destroys.backlinks };
+        return {
+          element,
+          setVisible: visibility.backlinks,
+          refresh: updates.backlinks,
+          destroy: destroys.backlinks,
+        };
       },
       settingTab: {
         id: "settings",
@@ -131,15 +146,25 @@ describe("ElectronRuntimeProductUiAdapter", () => {
     expect(backlinksLeaf.viewType).toBe(ELECTRON_PRODUCT_VIEW_TYPES.backlinks);
     expect(outlineLeaf.view?.owner).toMatchObject({ pluginId: ELECTRON_PRODUCT_UI_OWNER.pluginId });
     expect(backlinksLeaf.view?.owner).toMatchObject({ pluginId: ELECTRON_PRODUCT_UI_OWNER.pluginId });
-    expect(layout.querySelectorAll(".nexus-workspace-leaf")).toHaveLength(2);
+    expect(viewHost.element.querySelectorAll(".nexus-workspace-leaf")).toHaveLength(2);
     expect(layout.querySelectorAll(".nexus-outline-panel")).toHaveLength(1);
     expect(layout.querySelectorAll(".backlinks-panel")).toHaveLength(1);
     expect(layout.querySelector("[data-plugin-slot], [data-ui-action-id]")).toBeNull();
+    expect(visibility.outline.mock.calls).toEqual([[true]]);
+    expect(visibility.backlinks.mock.calls).toEqual([[true]]);
+    expect(updates.outline).not.toHaveBeenCalled();
+    expect(updates.backlinks).not.toHaveBeenCalled();
 
     adapter.toggleView("outline");
     expect(outlineLeaf.containerEl.hidden).toBe(true);
+    expect(viewHost.element.hidden).toBe(false);
+    adapter.toggleView("backlinks");
+    expect(viewHost.element.hidden).toBe(true);
     adapter.toggleView("outline");
     expect(outlineLeaf.containerEl.hidden).toBe(false);
+    expect(viewHost.element.hidden).toBe(false);
+    expect(visibility.outline.mock.calls).toEqual([[true], [false], [true]]);
+    expect(adapter.getViewLeaf("outline")).toBe(outlineLeaf);
 
     await adapter.destroy();
     expect(workspace.getLeaves()).toEqual([primary]);
@@ -148,6 +173,10 @@ describe("ElectronRuntimeProductUiAdapter", () => {
     expect(workspace.getLeavesOfType(ELECTRON_PRODUCT_VIEW_TYPES.backlinks)).toEqual([]);
     expect(destroys.outline).toHaveBeenCalledOnce();
     expect(destroys.backlinks).toHaveBeenCalledOnce();
+    expect(visibility.outline).toHaveBeenLastCalledWith(false);
+    expect(visibility.backlinks).toHaveBeenLastCalledWith(false);
+    expect(viewHost.element.childElementCount).toBe(0);
+    viewHost.destroy();
     expect(layout.childElementCount).toBe(0);
   });
 
@@ -161,12 +190,14 @@ describe("ElectronRuntimeProductUiAdapter", () => {
     const ui = new RuntimeUiHost({ defaultWindow: window, resolveStorage: () => storage });
     const layout = document.createElement("main");
     document.body.append(layout);
+    const viewHost = createSidePanelHost(document);
+    layout.append(viewHost.element);
     const adapter = new ElectronRuntimeProductUiAdapter({
       workspace,
       ui,
       window,
       primaryLeaf: primary,
-      layoutContainer: layout,
+      viewHost,
       createOutline: () => ({ element: document.createElement("aside"), destroy: vi.fn() }),
       createBacklinks: () => ({ element: document.createElement("aside"), destroy: vi.fn() }),
       settingTab: {
@@ -235,6 +266,7 @@ describe("ElectronRuntimeProductUiAdapter", () => {
     expect(document.querySelector<HTMLButtonElement>('[data-menu-item-id="first-only"]')).toBeNull();
 
     await adapter.destroy();
+    viewHost.destroy();
     expect((await ui.displaySettingTab(ELECTRON_PRODUCT_SETTING_TAB_ID, window, settingContainer)).ok).toBe(false);
     const remainingMenu = pluginUi.menus.createMenu(context);
     await remainingMenu.showAt({ x: 0, y: 0 });
@@ -255,12 +287,14 @@ describe("ElectronRuntimeProductUiAdapter", () => {
     pluginSlot.dataset.pluginSlot = "view-toolbar";
     const nested = document.createElement("div");
     pluginSlot.append(nested);
+    const viewHost = createSidePanelHost(document);
+    nested.append(viewHost.element);
     const adapter = new ElectronRuntimeProductUiAdapter({
       workspace,
       ui: new RuntimeUiHost({ defaultWindow: createWindowContext("main", document), resolveStorage: () => memoryStorage() }),
       window,
       primaryLeaf: primary,
-      layoutContainer: nested,
+      viewHost,
       createOutline: () => ({ element: document.createElement("aside"), destroy: vi.fn() }),
       createBacklinks: () => ({ element: document.createElement("aside"), destroy: vi.fn() }),
       settingTab: { id: "settings", name: "Settings" },

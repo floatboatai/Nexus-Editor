@@ -78,16 +78,43 @@ function pickOverlayMount(anchor: HTMLElement | Document): HTMLElement {
   return doc.body;
 }
 
+const TOOLTIP_STYLES = `
+  position: fixed;
+  z-index: 10001;
+  transform: translateX(-50%);
+  pointer-events: none;
+  max-width: min(240px, calc(100vw - 16px));
+  padding: 4px 8px;
+  border: 1px solid var(--nexus-border, #d0d7de);
+  border-radius: 4px;
+  background: var(--nexus-text, #24292e);
+  color: var(--nexus-bg, #fff);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+  font: 12px/1.4 system-ui, -apple-system, sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
 function positionToolbarTooltip(button: HTMLElement, tooltip: HTMLElement): void {
   const rect = button.getBoundingClientRect();
-  tooltip.style.left = `${rect.left + rect.width / 2}px`;
+  const viewportWidth = button.ownerDocument.defaultView?.innerWidth ?? rect.right;
+  const halfWidth = tooltip.offsetWidth / 2;
+  const preferredLeft = rect.left + rect.width / 2;
+  const left = Math.min(
+    Math.max(preferredLeft, halfWidth + 8),
+    Math.max(halfWidth + 8, viewportWidth - halfWidth - 8),
+  );
+  tooltip.style.left = `${left}px`;
   tooltip.style.top = `${rect.bottom + 8}px`;
 }
 
 function installToolbarTooltip(button: HTMLButtonElement): () => void {
-  const tooltip = document.createElement("div");
+  const ownerWindow = button.ownerDocument.defaultView ?? window;
+  const tooltip = button.ownerDocument.createElement("div");
   tooltip.className = "nexus-toolbar-tooltip";
   tooltip.id = `nexus-toolbar-tooltip-${++tooltipId}`;
+  tooltip.style.cssText = TOOLTIP_STYLES;
   tooltip.setAttribute("role", "tooltip");
   button.setAttribute("aria-describedby", tooltip.id);
 
@@ -116,8 +143,8 @@ function installToolbarTooltip(button: HTMLButtonElement): () => void {
   button.addEventListener("blur", hide);
   button.addEventListener("click", hide);
   button.addEventListener("keydown", handleKeyDown);
-  window.addEventListener("scroll", updatePosition, true);
-  window.addEventListener("resize", updatePosition);
+  ownerWindow.addEventListener("scroll", updatePosition, true);
+  ownerWindow.addEventListener("resize", updatePosition);
 
   return () => {
     button.removeEventListener("mouseenter", show);
@@ -126,8 +153,8 @@ function installToolbarTooltip(button: HTMLButtonElement): () => void {
     button.removeEventListener("blur", hide);
     button.removeEventListener("click", hide);
     button.removeEventListener("keydown", handleKeyDown);
-    window.removeEventListener("scroll", updatePosition, true);
-    window.removeEventListener("resize", updatePosition);
+    ownerWindow.removeEventListener("scroll", updatePosition, true);
+    ownerWindow.removeEventListener("resize", updatePosition);
     hide();
   };
 }

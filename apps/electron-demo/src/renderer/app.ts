@@ -36,6 +36,7 @@ import {
 import {
   ElectronRuntimeProductUiAdapter,
 } from "./runtime-product-ui-adapter";
+import { createSidePanelHost, type SidePanelHost } from "./side-panel-host";
 
 installLongTaskWatch(50);
 
@@ -46,6 +47,7 @@ let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+let sidePanelHost: SidePanelHost;
 let rootElement: HTMLElement;
 let statusText: HTMLElement;
 let pluginOwnsDocumentStats = false;
@@ -174,7 +176,7 @@ function createAppToolbar(): HTMLElement {
   saveAsBtn.addEventListener("click", handleSaveAs);
 
   const spacer = document.createElement("div");
-  spacer.style.flex = "1";
+  spacer.className = "toolbar__spacer";
 
   const vaultToggleBtn = document.createElement("button");
   vaultToggleBtn.textContent = "\uD83D\uDCD1"; // 📑
@@ -362,10 +364,9 @@ function handleSettings(): void {
   settingsPanels.add(panel);
 }
 
-function togglePanel(panel: HTMLElement, onShow?: () => void): void {
+function togglePanel(panel: HTMLElement): void {
   if (panel.style.display === "none") {
     panel.style.display = "";
-    onShow?.();
   } else {
     panel.style.display = "none";
   }
@@ -377,7 +378,7 @@ function toggleOutline(): void {
     runtimeProductUi.toggleView("outline");
     return;
   }
-  togglePanel(outline.element, () => outline.update());
+  outline.setVisible(sidePanelHost.toggle("outline"));
 }
 
 function toggleVault(): void {
@@ -391,7 +392,7 @@ function toggleBacklinks(): void {
     runtimeProductUi.toggleView("backlinks");
     return;
   }
-  togglePanel(backlinks.element, () => backlinks.refresh());
+  backlinks.setVisible(sidePanelHost.toggle("backlinks"));
 }
 
 function settingValue<T extends SettingValue>(
@@ -706,6 +707,7 @@ async function destroyShellAndPanels(): Promise<void> {
     await attempt(() => backlinks.destroy());
     await attempt(() => outline.destroy());
   }
+  await attempt(() => sidePanelHost.destroy());
   await attempt(() => searchBar.destroy());
   await attempt(() => vault.destroy());
   await attempt(() => shell.destroy());
@@ -763,6 +765,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
   let outlineCreated = false;
   let searchBarCreated = false;
   let backlinksCreated = false;
+  let sidePanelHostCreated = false;
   const cleanupBootUi = async () => {
     const errors: unknown[] = [];
     const attempt = async (operation: () => void | Promise<void>) => {
@@ -779,6 +782,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
       if (backlinksCreated) await attempt(() => backlinks.destroy());
       if (outlineCreated) await attempt(() => outline.destroy());
     }
+    if (sidePanelHostCreated) await attempt(() => sidePanelHost.destroy());
     if (searchBarCreated) await attempt(() => searchBar.destroy());
     if (vaultCreated) await attempt(() => vault.destroy());
     if (shellCreated) await attempt(() => shell.destroy());
@@ -819,6 +823,9 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
 
   const mainArea = document.createElement("div");
   mainArea.className = "main-area";
+
+  sidePanelHost = createSidePanelHost(root.ownerDocument);
+  sidePanelHostCreated = true;
 
   const editorColumn = document.createElement("div");
   editorColumn.className = "editor-column";
@@ -951,7 +958,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
   searchBarCreated = true;
 
   editorColumn.append(searchBar.element, editorContainer);
-  mainArea.append(vault.element, editorColumn);
+  mainArea.append(vault.element, editorColumn, sidePanelHost.element);
 
   if (bootPlan.mode === "runtime") {
     await pluginRuntime!.attachEditor(shell.editor, editorContainer);
@@ -960,7 +967,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
       ui: pluginRuntime!.ui,
       window: pluginRuntime!.windowContext,
       primaryLeaf: pluginRuntime!.leaf,
-      layoutContainer: mainArea,
+      viewHost: sidePanelHost,
       createOutline: () => {
         outline = createOutlinePanel(shell.editor);
         outlineCreated = true;
@@ -993,7 +1000,8 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
       fromIndexPath,
     });
     backlinksCreated = true;
-    mainArea.append(outline.element, backlinks.element);
+    sidePanelHost.mount("outline", outline.element);
+    sidePanelHost.mount("backlinks", backlinks.element);
     removeLegacyShutdownListener = window.nexusHost.onShutdown(() => {
       void shutdown();
     });

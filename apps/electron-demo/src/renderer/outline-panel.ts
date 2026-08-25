@@ -2,14 +2,16 @@ import type { EditorAPI, TocEntry } from "@floatboat/nexus-core";
 
 export interface OutlinePanel {
   element: HTMLElement;
+  setVisible(visible: boolean): void;
   update(): void;
   destroy(): void;
 }
 
 const PANEL_STYLES = `
-  width: 220px;
+  width: var(--nexus-outline-panel-width, 220px);
+  min-height: 0;
   flex-shrink: 0;
-  border-right: 1px solid var(--nexus-border, #eee);
+  border-right: var(--nexus-outline-panel-border, 1px solid var(--nexus-border, #eee));
   background: var(--nexus-bg, #fff);
   overflow-y: auto;
   font-family: system-ui, -apple-system, sans-serif;
@@ -31,6 +33,7 @@ const HEADER_STYLES = `
 
 const LIST_STYLES = `
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 4px 0;
 `;
@@ -74,20 +77,40 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
 
   panel.append(header, list);
 
-  function renderItems(entries: TocEntry[]) {
-    list.innerHTML = "";
+  let visible = true;
+  let dirty = false;
+  let destroyed = false;
+  let hasRendered = false;
+  let currentEntries: readonly TocEntry[] = [];
+
+  function hasSameStructure(entries: readonly TocEntry[]): boolean {
+    return hasRendered && entries.length === currentEntries.length && entries.every((entry, index) => {
+      const current = currentEntries[index];
+      return current?.level === entry.level && current.text === entry.text;
+    });
+  }
+
+  function renderItems(entries: readonly TocEntry[]) {
+    const structureIsStable = hasSameStructure(entries);
+    currentEntries = entries;
+    if (structureIsStable) return;
+    hasRendered = true;
+
+    const fragment = document.createDocumentFragment();
 
     if (entries.length === 0) {
       const empty = document.createElement("div");
       empty.style.cssText = EMPTY_STYLES;
       empty.textContent = "No headings";
-      list.appendChild(empty);
+      fragment.append(empty);
+      list.replaceChildren(fragment);
       return;
     }
 
-    for (const entry of entries) {
+    entries.forEach((entry, index) => {
       const item = document.createElement("button");
       item.type = "button";
+      item.dataset.outlineIndex = String(index);
       item.textContent = entry.text;
       item.title = entry.text;
       item.style.cssText = ITEM_BASE;
@@ -95,34 +118,76 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
       item.style.fontWeight = entry.level <= 2 ? "600" : "400";
       item.style.fontSize = entry.level === 1 ? "14px" : "13px";
 
-      item.addEventListener("mouseenter", () => {
-        item.style.background = "var(--nexus-bg-muted, #f0f0f0)";
-      });
-      item.addEventListener("mouseleave", () => {
-        item.style.background = "transparent";
-      });
-      item.addEventListener("click", () => {
-        editor.setSelection(entry.from);
-        editor.focus();
-      });
+      fragment.append(item);
+    });
+    list.replaceChildren(fragment);
+  }
 
-      list.appendChild(item);
-    }
+  function findItem(event: Event): HTMLButtonElement | null {
+    const target = event.target;
+    if (!target || typeof (target as Element).closest !== "function") return null;
+    const item = (target as Element).closest<HTMLButtonElement>("button[data-outline-index]");
+    return item && list.contains(item) ? item : null;
+  }
+
+  function handleClick(event: MouseEvent): void {
+    const item = findItem(event);
+    if (!item) return;
+    const entry = currentEntries[Number(item.dataset.outlineIndex)];
+    if (!entry) return;
+    editor.setSelection(entry.from);
+    editor.focus();
+  }
+
+  function handlePointerOver(event: PointerEvent): void {
+    const item = findItem(event);
+    if (item) item.style.background = "var(--nexus-bg-muted, #f0f0f0)";
+  }
+
+  function handlePointerOut(event: PointerEvent): void {
+    const item = findItem(event);
+    if (item) item.style.background = "transparent";
+  }
+
+  function render() {
+    if (destroyed) return;
+    renderItems(editor.getTableOfContents());
+    dirty = false;
   }
 
   function update() {
-    renderItems(editor.getTableOfContents());
+    if (destroyed) return;
+    if (!visible) {
+      dirty = true;
+      return;
+    }
+    render();
+  }
+
+  function setVisible(next: boolean): void {
+    if (destroyed || visible === next) return;
+    visible = next;
+    if (visible && dirty) render();
   }
 
   // Initial render + listen for changes
-  update();
+  render();
+  list.addEventListener("click", handleClick);
+  list.addEventListener("pointerover", handlePointerOver);
+  list.addEventListener("pointerout", handlePointerOut);
   editor.on("change", update);
 
   return {
     element: panel,
+    setVisible,
     update,
     destroy() {
+      if (destroyed) return;
+      destroyed = true;
       editor.off("change", update);
+      list.removeEventListener("click", handleClick);
+      list.removeEventListener("pointerover", handlePointerOver);
+      list.removeEventListener("pointerout", handlePointerOut);
       panel.remove();
     },
   };

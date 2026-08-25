@@ -21,6 +21,8 @@ export interface ProductUiResource {
 }
 
 export interface ProductViewResource extends ProductUiResource {
+  /** Lets a mounted resource suspend work without destroying its cached DOM. */
+  setVisible?(visible: boolean): void;
   update?(): void;
   refresh?(): void;
 }
@@ -93,6 +95,7 @@ export class ElectronProductUiOwner {
     this.assertCanRegister(surface, "view", resource, mount.containerEl);
     const state = this.track(surface, "view", resource);
     mount.containerEl.insertBefore(resource.element, mount.before ?? null);
+    resource.setVisible?.(!resource.element.hidden);
 
     const registration = this.createRegistration(state) as ProductViewRegistration & {
       visible: boolean;
@@ -107,14 +110,18 @@ export class ElectronProductUiOwner {
       },
     });
     registration.show = () => {
-      if (state.disposed) return;
+      if (state.disposed || !resource.element.hidden) return;
       resource.element.hidden = false;
-      resource.update?.();
-      resource.refresh?.();
+      if (resource.setVisible) resource.setVisible(true);
+      else {
+        resource.update?.();
+        resource.refresh?.();
+      }
     };
     registration.hide = () => {
-      if (state.disposed) return;
+      if (state.disposed || resource.element.hidden) return;
       resource.element.hidden = true;
+      resource.setVisible?.(false);
     };
     registration.toggle = () => {
       if (resource.element.hidden) registration.show();

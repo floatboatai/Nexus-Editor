@@ -24,6 +24,7 @@ import {
 } from "@floatboat/nexus-plugin-runtime";
 
 import type { ProductViewResource, ProductViewSurface } from "./product-ui-owner";
+import type { SidePanelHost } from "./side-panel-host";
 
 export const ELECTRON_PRODUCT_UI_OWNER: ResourceOwner = Object.freeze({
   pluginId: "electron-host-ui" as PluginId,
@@ -46,7 +47,7 @@ export interface ElectronRuntimeProductUiAdapterOptions {
   readonly ui: RuntimeUiHost;
   readonly window: RuntimeWorkspaceWindow;
   readonly primaryLeaf: RuntimeWorkspaceLeaf;
-  readonly layoutContainer: HTMLElement;
+  readonly viewHost: SidePanelHost;
   readonly createOutline: RuntimeProductViewFactory;
   readonly createBacklinks: RuntimeProductViewFactory;
   readonly settingTab: SettingTabDefinition;
@@ -92,10 +93,12 @@ class ElectronProductWorkspaceView extends NexusComponent implements NexusView {
   }
 
   onOpen(): void {
-    this.refresh();
+    this.setVisible(true);
   }
 
-  onClose(): void {}
+  onClose(): void {
+    this.setVisible(false);
+  }
 
   getState(): JsonObject {
     return { ...this.persistentState };
@@ -116,6 +119,11 @@ class ElectronProductWorkspaceView extends NexusComponent implements NexusView {
   refresh(): void {
     this.resource.update?.();
     this.resource.refresh?.();
+  }
+
+  setVisible(visible: boolean): void {
+    if (this.resource.setVisible) this.resource.setVisible(visible);
+    else if (visible) this.refresh();
   }
 }
 
@@ -173,7 +181,7 @@ export class ElectronRuntimeProductUiAdapter {
       return Object.freeze({
         viewType: ELECTRON_PRODUCT_VIEW_TYPES[surface],
         leafId: leaf?.id ?? null,
-        visible: Boolean(leaf && !leaf.containerEl.hidden),
+        visible: Boolean(leaf && this.options.viewHost.isVisible(surface)),
       });
     };
     return Object.freeze({
@@ -192,13 +200,13 @@ export class ElectronRuntimeProductUiAdapter {
 
   setViewVisible(surface: ProductViewSurface, visible: boolean): void {
     const leaf = this.requireLeaf(surface);
-    leaf.containerEl.hidden = !visible;
-    if (visible && leaf.view instanceof ElectronProductWorkspaceView) leaf.view.refresh();
+    this.options.viewHost.setVisible(surface, visible);
+    if (leaf.view instanceof ElectronProductWorkspaceView) leaf.view.setVisible(visible);
   }
 
   toggleView(surface: ProductViewSurface): void {
-    const leaf = this.requireLeaf(surface);
-    this.setViewVisible(surface, leaf.containerEl.hidden);
+    this.requireLeaf(surface);
+    this.setViewVisible(surface, !this.options.viewHost.isVisible(surface));
   }
 
   async displaySettings(container?: HTMLElement): Promise<ServiceResult<HTMLElement>> {
@@ -325,7 +333,7 @@ export class ElectronRuntimeProductUiAdapter {
     if (this.options.primaryLeaf.window !== this.options.window) {
       throw new Error("Primary Markdown leaf belongs to another WindowContext");
     }
-    if (isPluginActionContainer(this.options.layoutContainer)) {
+    if (isPluginActionContainer(this.options.viewHost.element)) {
       throw new Error("Electron product views cannot mount inside a plugin action slot");
     }
 
@@ -388,7 +396,7 @@ export class ElectronRuntimeProductUiAdapter {
     leaf.containerEl.dataset.nexusUiOwner = "electron-host-ui";
     leaf.containerEl.setAttribute("role", "complementary");
     leaf.containerEl.setAttribute("aria-label", surface === "outline" ? "Outline" : "Backlinks");
-    this.options.layoutContainer.append(leaf.containerEl);
+    this.options.viewHost.mount(surface, leaf.containerEl);
   }
 
   private requireLeaf(surface: ProductViewSurface): RuntimeWorkspaceLeaf {
@@ -426,11 +434,13 @@ export class ElectronRuntimeProductUiAdapter {
     } catch (error) {
       errors.push(error);
     }
-    for (const leaf of [...this.leaves.values()].reverse()) {
+    for (const [surface, leaf] of [...this.leaves.entries()].reverse()) {
       try {
         await this.options.workspace.closeLeaf(leaf);
       } catch (error) {
         errors.push(error);
+      } finally {
+        this.options.viewHost.unmount(surface);
       }
     }
     this.leaves.clear();

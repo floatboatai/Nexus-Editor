@@ -12,6 +12,7 @@ export interface BacklinksPanelOptions {
 
 export interface BacklinksPanel {
   element: HTMLElement;
+  setVisible(visible: boolean): void;
   refresh(): void;
   destroy(): void;
 }
@@ -36,9 +37,10 @@ function scheduleLowPriority(cb: () => void): () => void {
 }
 
 const PANEL_STYLES = `
-  width: 280px;
+  width: var(--nexus-backlinks-panel-width, 280px);
+  min-height: 0;
   flex-shrink: 0;
-  border-left: 1px solid var(--nexus-border, #eee);
+  border-left: var(--nexus-backlinks-panel-border, 1px solid var(--nexus-border, #eee));
   background: var(--nexus-bg, #fff);
   display: flex;
   flex-direction: column;
@@ -77,6 +79,7 @@ const SECTION_HEADER_STYLES = `
 
 const LIST_STYLES = `
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
 `;
 
@@ -151,7 +154,7 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
   list.style.cssText = LIST_STYLES;
   root.appendChild(list);
 
-  function renderSectionHeader(title: string, count: number, parent: HTMLElement): HTMLElement {
+  function renderSectionHeader(title: string, count: number, parent: ParentNode): HTMLElement {
     const h = document.createElement("div");
     h.style.cssText = SECTION_HEADER_STYLES;
     renderSectionHeaderInto(h, title, count);
@@ -169,7 +172,7 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
     h.append(label, badge);
   }
 
-  function renderItem(hit: BacklinkHit, parent: HTMLElement): void {
+  function renderItem(hit: BacklinkHit, parent: ParentNode): void {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.style.cssText = ITEM_STYLES;
@@ -198,7 +201,7 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
     parent.appendChild(btn);
   }
 
-  function renderEmpty(reason: string, parent: HTMLElement): void {
+  function renderEmpty(reason: string, parent: ParentNode): void {
     const empty = document.createElement("div");
     empty.style.cssText = EMPTY_STYLES;
     empty.textContent = reason;
@@ -206,20 +209,32 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
   }
 
   let pendingUnlinkedCancel: (() => void) | null = null;
+  // Cancellation is best-effort, so callbacks also prove they still own the latest scan.
+  let scanRevision = 0;
+  let visible = true;
+  let dirty = false;
   let destroyed = false;
+  let indexRefreshQueued = false;
 
-  function refresh(): void {
-    if (destroyed) return;
-    if (pendingUnlinkedCancel) {
-      pendingUnlinkedCancel();
-      pendingUnlinkedCancel = null;
-    }
-    list.textContent = "";
+  function cancelPendingUnlinked(): boolean {
+    scanRevision += 1;
+    if (!pendingUnlinkedCancel) return false;
+    pendingUnlinkedCancel();
+    pendingUnlinkedCancel = null;
+    return true;
+  }
+
+  function render(): void {
+    if (destroyed || !visible) return;
+    cancelPendingUnlinked();
+    const fragment = document.createDocumentFragment();
     const activeFile = getActiveFile();
     const active = activeFile ? toIndexPath(activeFile) : null;
     if (!activeFile || !active) {
       header.textContent = "Backlinks";
-      renderEmpty("No active file", list);
+      renderEmpty("No active file", fragment);
+      list.replaceChildren(fragment);
+      dirty = false;
       return;
     }
 
@@ -227,28 +242,50 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
     const linked = index.getBacklinks(active);
     header.textContent = `Backlinks · ${linked.length} linked · … mentions`;
 
-    renderSectionHeader("Linked mentions", linked.length, list);
+    renderSectionHeader("Linked mentions", linked.length, fragment);
     if (linked.length === 0) {
-      renderEmpty("No linked mentions", list);
+      renderEmpty("No linked mentions", fragment);
     } else {
-      for (const hit of linked) renderItem(hit, list);
+      for (const hit of linked) renderItem(hit, fragment);
     }
 
     // Placeholder for unlinked section — filled asynchronously so we don't
     // block the UI thread with the O(vault-size) regex scan in
     // getUnlinkedMentions.
-    const unlinkedHeader = renderSectionHeader("Unlinked mentions", 0, list);
+    const unlinkedHeader = renderSectionHeader("Unlinked mentions", 0, fragment);
     unlinkedHeader.textContent = "Unlinked mentions — scanning…";
     const unlinkedContainer = document.createElement("div");
-    list.appendChild(unlinkedContainer);
+    fragment.appendChild(unlinkedContainer);
+    // Commit a complete linked snapshot in one DOM operation. The asynchronous
+    // unlinked scan updates only its own section later.
+    list.replaceChildren(fragment);
 
+    const scheduledRevision = scanRevision;
     pendingUnlinkedCancel = scheduleLowPriority(() => {
+      if (scheduledRevision !== scanRevision) return;
       pendingUnlinkedCancel = null;
-      // Bail if the active file changed while we were waiting.
-      if (destroyed || getActiveFile() !== activeFile) return;
+      if (destroyed || !visible) {
+        dirty = true;
+        return;
+      }
+      if (getActiveFile() !== activeFile) {
+        dirty = true;
+        render();
+        return;
+      }
       const t0 = performance.now();
       const unlinked = index.getUnlinkedMentions(active);
       const t1 = performance.now();
+      if (destroyed || scheduledRevision !== scanRevision) return;
+      if (!visible) {
+        dirty = true;
+        return;
+      }
+      if (getActiveFile() !== activeFile) {
+        dirty = true;
+        render();
+        return;
+      }
       if ((globalThis as { NEXUS_PERF?: boolean }).NEXUS_PERF !== false && t1 - t0 > 5) {
         // eslint-disable-next-line no-console
         console.log("%c[perf]", "color:#0aa;font-weight:bold",
@@ -258,26 +295,63 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
       header.textContent = `Backlinks · ${linked.length} linked · ${unlinked.length} mention${unlinked.length === 1 ? "" : "s"}`;
       unlinkedHeader.textContent = "";
       renderSectionHeaderInto(unlinkedHeader, "Unlinked mentions", unlinked.length);
+      const unlinkedFragment = document.createDocumentFragment();
       if (unlinked.length === 0) {
-        renderEmpty("No unlinked mentions", unlinkedContainer);
+        renderEmpty("No unlinked mentions", unlinkedFragment);
       } else {
-        for (const hit of unlinked) renderItem(hit, unlinkedContainer);
+        for (const hit of unlinked) renderItem(hit, unlinkedFragment);
       }
+      unlinkedContainer.replaceChildren(unlinkedFragment);
+    });
+    dirty = false;
+  }
+
+  function queueIndexRefresh(): void {
+    if (destroyed) return;
+    if (!visible) {
+      dirty = true;
+      return;
+    }
+    if (indexRefreshQueued) return;
+    indexRefreshQueued = true;
+    queueMicrotask(() => {
+      indexRefreshQueued = false;
+      if (destroyed) return;
+      refresh();
     });
   }
 
-  const unsubscribe = index.subscribe(() => refresh());
+  function refresh(): void {
+    if (destroyed) return;
+    if (!visible) {
+      dirty = true;
+      return;
+    }
+    render();
+  }
+
+  function setVisible(next: boolean): void {
+    if (destroyed || visible === next) return;
+    visible = next;
+    if (!visible) {
+      if (cancelPendingUnlinked()) dirty = true;
+      return;
+    }
+    if (dirty) render();
+  }
+
+  const unsubscribe = index.subscribe(queueIndexRefresh);
   refresh();
 
   return {
     element: root,
+    setVisible,
     refresh,
     destroy() {
+      if (destroyed) return;
       destroyed = true;
-      if (pendingUnlinkedCancel) {
-        pendingUnlinkedCancel();
-        pendingUnlinkedCancel = null;
-      }
+      visible = false;
+      cancelPendingUnlinked();
       unsubscribe();
       root.remove();
     },

@@ -10,6 +10,11 @@ body,
   height: 100%;
 }
 
+html,
+body {
+  overflow: hidden;
+}
+
 #app {
   display: flex;
   flex-direction: column;
@@ -18,11 +23,16 @@ body,
 
 .toolbar {
   display: flex;
+  min-width: 0;
   gap: 8px;
   padding: 8px 12px;
   background: #f0f0f0;
   border-bottom: 1px solid #ddd;
   flex-shrink: 0;
+}
+
+.toolbar__spacer {
+  flex: 1;
 }
 
 .toolbar button {
@@ -65,11 +75,15 @@ body,
 .main-area {
   flex: 1;
   display: flex;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
 }
 
 .editor-column {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -77,6 +91,7 @@ body,
 
 .editor-container {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -87,6 +102,8 @@ body,
 .editor-container > [data-nexus-toolbar],
 .editor-container > [role="toolbar"] {
   flex-shrink: 0;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .editor-container .cm-editor {
@@ -115,16 +132,80 @@ body,
   white-space: nowrap;
 }
 
+.nexus-vault-panel {
+  --nexus-vault-panel-width: clamp(104px, 28vw, 240px);
+  min-width: 104px;
+}
+
+.nexus-side-panel-host {
+  --nexus-outline-panel-width: 100%;
+  --nexus-outline-panel-border: 0;
+  --nexus-backlinks-panel-width: 100%;
+  --nexus-backlinks-panel-border: 0;
+  width: clamp(140px, 24vw, 280px);
+  min-width: 140px;
+  max-width: 280px;
+  min-height: 0;
+  flex: 0 0 clamp(140px, 24vw, 280px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--nexus-border, #eee);
+  background: var(--nexus-bg, #fff);
+}
+
+.nexus-side-panel-host[hidden],
+.nexus-side-panel-host > [hidden] {
+  display: none !important;
+}
+
+.nexus-side-panel-host > [data-nexus-product-surface] {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0;
+  overflow: hidden;
+}
+
+.nexus-side-panel-host > [data-nexus-product-surface]:not([hidden])
+  ~ [data-nexus-product-surface]:not([hidden]) {
+  border-top: 1px solid var(--nexus-border, #eee);
+}
+
+.nexus-side-panel-host .nexus-outline-panel,
+.nexus-side-panel-host .backlinks-panel {
+  min-width: 0;
+  min-height: 0;
+}
+
 .nexus-workspace-leaf[data-nexus-product-surface] {
   display: flex;
-  flex-shrink: 0;
+  flex: 1 1 0;
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
 }
 
 .nexus-workspace-leaf[data-nexus-product-surface] > aside,
 .nexus-workspace-leaf[data-nexus-product-surface] > .nexus-outline-panel {
   height: 100%;
+}
+
+@media (max-width: 760px) {
+  .toolbar {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .toolbar__spacer {
+    display: none;
+  }
+
+  .editor-container > .nexus-toolbar,
+  .editor-container > [data-nexus-toolbar],
+  .editor-container > [role="toolbar"] {
+    flex-wrap: wrap;
+  }
 }
 
 .nexus-plugin-menu {
