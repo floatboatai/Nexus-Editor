@@ -174,7 +174,7 @@ pnpm dev:electron-demo
 | `@floatboat/nexus-vue` | Vue 3 绑定 —— `useEditor` 组合式函数 |
 | `@floatboat/nexus-preset-gfm` | GitHub Flavored Markdown 预设（表格、删除线、任务列表） |
 | `@floatboat/nexus-plugin-history` | 撤销/重做，支持 `Ctrl+Z` / `Ctrl+Shift+Z` |
-| `@floatboat/nexus-plugin-search` | 搜索替换辅助函数 |
+| `@floatboat/nexus-plugin-search` | 搜索 / 替换面板，支持实时匹配数与当前匹配反馈 |
 | `@floatboat/nexus-plugin-slash` | 斜杠命令检测、排序与 vanilla DOM 浮层菜单 UI |
 | `@floatboat/nexus-plugin-toolbar` | 工具栏基础组件与格式化命令 |
 | `@floatboat/nexus-plugin-math` | 行内 / 块级数学公式渲染（KaTeX） |
@@ -191,6 +191,7 @@ pnpm dev:electron-demo
 - **AST 驱动** —— 每次输入都实时把 Markdown 解析成 mdast。
 - **实时预览** —— 类 Obsidian 内联渲染，光标聚焦时展开原始语法。
 - **插件系统** —— 三层架构：快捷键与斜杠命令、remark 插件与 Widget、原生 CM6 扩展。
+- **搜索反馈** —— 搜索 / 替换 UI 实时展示匹配总数、当前匹配位置与无结果状态。
 - **事件系统** —— 订阅 `change`、`focus`、`blur`、`selectionChange`、`slashMenuChange`。
 - **Widget API** —— 为任意 AST 节点类型（代码块、表格、图表等）渲染自定义组件。
 - **本地优先** —— 为 Electron / Tauri 设计，内置文件 IO 钩子与防抖解析。
