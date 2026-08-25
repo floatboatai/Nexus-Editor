@@ -1,0 +1,11 @@
+{
+  "ExpandedNodes": [
+    "",
+    "\\packages",
+    "\\packages\\plugin-history",
+    "\\packages\\plugin-history\\src",
+    "\\packages\\plugin-history\\test"
+  ],
+  "SelectedNode": "\\packages\\plugin-history\\src\\index.ts",
+  "PreviewInSolutionExplorer": false
+}
