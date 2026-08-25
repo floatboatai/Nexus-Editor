@@ -119,6 +119,57 @@ export function handleMarkdownEnter(view: EditorView): boolean {
   return true;
 }
 
+const TASK_CHECKBOX_PREFIX = "[ ] ";
+const TASK_LINE_PREFIX = "- [ ] ";
+
+interface TaskLineMutation {
+  from: number;
+  to: number;
+  insert: string;
+  cursorDelta: number;
+}
+
+function getTaskLineMutation(
+  lineText: string,
+  lineFrom: number,
+): TaskLineMutation {
+  const taskMatch = TASK_ITEM_RE.exec(lineText);
+  if (taskMatch) {
+    const isChecked = taskMatch[2] !== " ";
+    const newChar = isChecked ? " " : "x";
+    const markerWithBracket = taskMatch[0];
+    const bracketRelPos = markerWithBracket.indexOf("[");
+    const charPos = lineFrom + taskMatch.index + bracketRelPos + 1;
+    return {
+      from: charPos,
+      to: charPos + 1,
+      insert: newChar,
+      cursorDelta: 0,
+    };
+  }
+
+  const listMatch = LIST_ITEM_RE.exec(lineText);
+  if (listMatch) {
+    const insertPos = lineFrom + listMatch[0].length;
+    return {
+      from: insertPos,
+      to: insertPos,
+      insert: TASK_CHECKBOX_PREFIX,
+      cursorDelta: TASK_CHECKBOX_PREFIX.length,
+    };
+  }
+
+  const indentMatch = INDENT_RE.exec(lineText);
+  const indentLen = indentMatch ? indentMatch[1].length : 0;
+  const insertPos = lineFrom + indentLen;
+  return {
+    from: insertPos,
+    to: insertPos,
+    insert: TASK_LINE_PREFIX,
+    cursorDelta: TASK_LINE_PREFIX.length,
+  };
+}
+
 /**
  * Toggle task item checkbox status `[ ]` <-> `[x]` on current line or selection.
  * If current line is a plain list item or text, converts it to `- [ ] ...`.
@@ -139,41 +190,18 @@ export function handleToggleTaskItem(view: EditorView): boolean {
       }
       processedLines.add(line.from);
 
-      const taskMatch = TASK_ITEM_RE.exec(line.text);
-      if (taskMatch) {
-        const isChecked = taskMatch[2] !== " ";
-        const newChar = isChecked ? " " : "x";
-        const bracketPos = line.text.indexOf("[");
-        const charPos = line.from + bracketPos + 1;
-        hasChanges = true;
-        return {
-          changes: { from: charPos, to: charPos + 1, insert: newChar },
-          range: EditorSelection.cursor(range.head),
-        };
-      }
-
-      const listMatch = LIST_ITEM_RE.exec(line.text);
-      if (listMatch) {
-        const insertPos = line.from + listMatch[0].length;
-        hasChanges = true;
-        const insertText = "[ ] ";
-        const newHead =
-          range.head >= insertPos ? range.head + insertText.length : range.head;
-        return {
-          changes: { from: insertPos, insert: insertText },
-          range: EditorSelection.cursor(newHead),
-        };
-      }
-
-      const indentMatch = INDENT_RE.exec(line.text);
-      const indent = indentMatch ? indentMatch[1] : "";
-      const insertPos = line.from + indent.length;
-      const insertText = "- [ ] ";
+      const mutation = getTaskLineMutation(line.text, line.from);
       hasChanges = true;
       const newHead =
-        range.head >= insertPos ? range.head + insertText.length : range.head;
+        range.head >= mutation.from
+          ? range.head + mutation.cursorDelta
+          : range.head;
       return {
-        changes: { from: insertPos, insert: insertText },
+        changes: {
+          from: mutation.from,
+          to: mutation.to,
+          insert: mutation.insert,
+        },
         range: EditorSelection.cursor(newHead),
       };
     }
@@ -187,28 +215,13 @@ export function handleToggleTaskItem(view: EditorView): boolean {
       const line = state.doc.lineAt(pos);
       if (!processedLines.has(line.from)) {
         processedLines.add(line.from);
-
-        const taskMatch = TASK_ITEM_RE.exec(line.text);
-        if (taskMatch) {
-          const isChecked = taskMatch[2] !== " ";
-          const newChar = isChecked ? " " : "x";
-          const bracketPos = line.text.indexOf("[");
-          const charPos = line.from + bracketPos + 1;
-          changes.push({ from: charPos, to: charPos + 1, insert: newChar });
-        } else {
-          const listMatch = LIST_ITEM_RE.exec(line.text);
-          if (listMatch) {
-            const insertPos = line.from + listMatch[0].length;
-            changes.push({ from: insertPos, insert: "[ ] " });
-            delta += 4;
-          } else {
-            const indentMatch = INDENT_RE.exec(line.text);
-            const indent = indentMatch ? indentMatch[1] : "";
-            const insertPos = line.from + indent.length;
-            changes.push({ from: insertPos, insert: "- [ ] " });
-            delta += 6;
-          }
-        }
+        const mutation = getTaskLineMutation(line.text, line.from);
+        changes.push({
+          from: mutation.from,
+          to: mutation.to,
+          insert: mutation.insert,
+        });
+        delta += mutation.cursorDelta;
       }
 
       if (line.to >= state.doc.length) break;

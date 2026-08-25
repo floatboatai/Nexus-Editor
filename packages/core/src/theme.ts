@@ -1,4 +1,8 @@
-import { Compartment, type Extension } from "@codemirror/state";
+import {
+  Compartment,
+  type Extension,
+  type StateEffect,
+} from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
 /** All customizable visual tokens for the editor. */
@@ -160,7 +164,7 @@ export function createThemeExtension(
   compartment: Compartment = new Compartment(),
 ): {
   extension: Extension;
-  reconfigure: (next: NexusTheme) => { effects: any };
+  reconfigure: (next: NexusTheme) => { effects: StateEffect<unknown> };
 } {
   const ext = compartment.of(themeToEditorTheme(theme));
   return {
