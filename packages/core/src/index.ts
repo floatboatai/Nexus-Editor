@@ -24,7 +24,11 @@ export {
 } from "./markdown-contributions";
 export { markdownAutoPair } from "./markdown-autopair";
 export { markdownFold, markdownFoldService } from "./markdown-fold";
-export { markdownKeymap, handleMarkdownEnter } from "./markdown-keymap";
+export {
+  markdownKeymap,
+  handleMarkdownEnter,
+  handleToggleTaskItem,
+} from "./markdown-keymap";
 export {
   addCursorAbove,
   addCursorBelow,
@@ -62,6 +66,7 @@ export type {
   CoreEditorTransactionHookOptions,
   CoreEditorUpdateContext,
   CoreEditorUpdateListener,
+  DynamicEditorConfig,
   EditorAPI,
   EditorCommand,
   EditorConfig,
@@ -101,5 +106,5 @@ export type {
   WidgetDefinition,
   WidgetDefinitionContribution,
   WidgetDefinitionSnapshot,
-  WidgetRenderContext
+  WidgetRenderContext,
 } from "./types";

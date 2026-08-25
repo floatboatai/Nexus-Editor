@@ -10,10 +10,26 @@ import {
   toggleStrikethrough,
 } from "./toolbar-commands";
 
-export { toggleBlockquote, toggleOrderedList, toggleUnorderedList, insertCodeBlock, insertImage, insertHorizontalRule, applyTextColor, applyHighlight } from "./formatting";
+export {
+  toggleBlockquote,
+  toggleOrderedList,
+  toggleTaskList,
+  toggleUnorderedList,
+  insertCodeBlock,
+  insertImage,
+  insertHorizontalRule,
+  applyTextColor,
+  applyHighlight,
+} from "./formatting";
 export { createToolbarUI } from "./toolbar-ui";
 export { colorDecorationExtension } from "./color-decoration";
-export type { ToolbarUI, ToolbarUIOptions, ToolbarButton, ToolbarGroup } from "./toolbar-ui";
+export { iconTaskList } from "./icons";
+export type {
+  ToolbarUI,
+  ToolbarUIOptions,
+  ToolbarButton,
+  ToolbarGroup,
+} from "./toolbar-ui";
 export {
   insertLink,
   toolbarSlashCommands,

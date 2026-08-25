@@ -7,35 +7,49 @@ import {
   shallowRef,
   toValue,
   watch,
-  type MaybeRefOrGetter
+  type MaybeRefOrGetter,
 } from "vue";
 
-import { resolveInitialDocument, shouldSyncControlledDocument } from "./controlled-document";
+import {
+  resolveInitialDocument,
+  shouldSyncControlledDocument,
+} from "./controlled-document";
 import type { UseEditorConfig, UseEditorResult } from "./types";
 
 function buildCreateConfig(
   container: HTMLDivElement,
   config: UseEditorConfig,
-  onDocChange: (doc: string, ast: Root) => void
+  onDocChange: (doc: string, ast: Root) => void,
 ) {
-  const { modelValue, initialValue, onChange, onReady, runtime: _runtime, ...rest } = config;
+  const {
+    modelValue,
+    initialValue,
+    onChange,
+    onReady,
+    runtime: _runtime,
+    ...rest
+  } = config;
 
   return {
     container,
     ...rest,
     initialValue: resolveInitialDocument(modelValue, initialValue),
-    onChange: onDocChange
+    onChange: onDocChange,
   };
 }
 
-export function useEditor(config: MaybeRefOrGetter<UseEditorConfig>): UseEditorResult {
+export function useEditor(
+  config: MaybeRefOrGetter<UseEditorConfig>,
+): UseEditorResult {
   const containerRef = ref<HTMLDivElement | null>(null);
   const editor = shallowRef<ReturnType<typeof createEditor> | null>(null);
   const lastSyncedDocRef = ref<string | null>(null);
   const syncRevision = ref(0);
-  let runtimeAttachment: ReturnType<NonNullable<UseEditorConfig["runtime"]> extends never
-    ? never
-    : import("./types").EditorRuntimeBinding["attachEditor"]> | null = null;
+  let runtimeAttachment: ReturnType<
+    NonNullable<UseEditorConfig["runtime"]> extends never
+      ? never
+      : import("./types").EditorRuntimeBinding["attachEditor"]
+  > | null = null;
   let ownedRuntime: import("./types").OwnedEditorRuntimeBinding | null = null;
 
   const resolveConfig = () => toValue(config);
@@ -52,17 +66,21 @@ export function useEditor(config: MaybeRefOrGetter<UseEditorConfig>): UseEditorR
       resolveConfig().onChange?.(doc, ast);
     };
 
-    const instance = createEditor(buildCreateConfig(containerRef.value, current, onDocChange));
+    const instance = createEditor(
+      buildCreateConfig(containerRef.value, current, onDocChange),
+    );
     const ownership = current.runtime;
-    const runtime = ownership?.kind === "owned"
-      ? (ownedRuntime = ownership.createRuntime())
-      : ownership?.runtime;
-    runtimeAttachment = runtime?.attachEditor(instance, containerRef.value) ?? null;
+    const runtime =
+      ownership?.kind === "owned"
+        ? (ownedRuntime = ownership.createRuntime())
+        : ownership?.runtime;
+    runtimeAttachment =
+      runtime?.attachEditor(instance, containerRef.value) ?? null;
     editor.value = instance;
 
     lastSyncedDocRef.value = resolveInitialDocument(
       current.modelValue,
-      current.initialValue
+      current.initialValue,
     );
 
     current.onReady?.(instance);
@@ -84,7 +102,29 @@ export function useEditor(config: MaybeRefOrGetter<UseEditorConfig>): UseEditorR
       instance.setDocument(value, { silent: true });
       lastSyncedDocRef.value = value;
       syncRevision.value += 1;
-    }
+    },
+  );
+
+  watch(
+    () => {
+      const current = resolveConfig();
+      return {
+        readOnly: current.readOnly,
+        tabSize: current.tabSize,
+        direction: current.direction,
+        indentGuides: current.indentGuides,
+        theme: current.theme,
+        locale: current.locale,
+      };
+    },
+    (dynamicConfig) => {
+      const instance = editor.value;
+      if (!instance) {
+        return;
+      }
+      instance.reconfigure(dynamicConfig);
+    },
+    { deep: true },
   );
 
   onBeforeUnmount(() => {
@@ -100,7 +140,7 @@ export function useEditor(config: MaybeRefOrGetter<UseEditorConfig>): UseEditorR
       const runtime = ownedRuntime;
       void Promise.resolve(detached).then(
         () => runtime.dispose(),
-        () => runtime.dispose()
+        () => runtime.dispose(),
       );
     }
     runtimeAttachment = null;
@@ -111,6 +151,6 @@ export function useEditor(config: MaybeRefOrGetter<UseEditorConfig>): UseEditorR
 
   return {
     containerRef,
-    editor
+    editor,
   };
 }

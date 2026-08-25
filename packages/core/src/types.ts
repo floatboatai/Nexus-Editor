@@ -1,5 +1,23 @@
 import type { Extension } from "@codemirror/state";
-import type { Blockquote, Code, Definition, Delete, Emphasis, FootnoteDefinition, FootnoteReference, Heading, Html, Image, InlineCode, Link, List, Root, Strong, Table, ThematicBreak } from "mdast";
+import type {
+  Blockquote,
+  Code,
+  Definition,
+  Delete,
+  Emphasis,
+  FootnoteDefinition,
+  FootnoteReference,
+  Heading,
+  Html,
+  Image,
+  InlineCode,
+  Link,
+  List,
+  Root,
+  Strong,
+  Table,
+  ThematicBreak,
+} from "mdast";
 import type { Plugin } from "unified";
 
 export interface CodeHighlightToken {
@@ -59,7 +77,9 @@ export interface LivePreviewRenderContext {
   to: number;
 }
 
-export type LivePreviewRenderer = (context: LivePreviewRenderContext) => HTMLElement;
+export type LivePreviewRenderer = (
+  context: LivePreviewRenderContext,
+) => HTMLElement;
 
 export interface LivePreviewLabels {
   addColumn?: string;
@@ -74,6 +94,15 @@ export interface LivePreviewConfig {
   enabled?: boolean;
   renderers?: Partial<Record<LivePreviewNodeType, LivePreviewRenderer>>;
   labels?: LivePreviewLabels;
+}
+
+export interface DynamicEditorConfig {
+  readOnly?: boolean;
+  tabSize?: number;
+  direction?: "ltr" | "rtl";
+  indentGuides?: boolean;
+  theme?: import("./theme").NexusTheme;
+  locale?: Partial<import("./locale").NexusLocale>;
 }
 
 export interface EditorConfig {
@@ -146,7 +175,9 @@ export interface EditorEventMap {
   focus: () => void;
   blur: () => void;
   /** `anchor` / `head` describe the main range; `ranges` carries all of them. */
-  selectionChange: (selection: { anchor: number; head: number } & SelectionState) => void;
+  selectionChange: (
+    selection: { anchor: number; head: number } & SelectionState,
+  ) => void;
   slashMenuChange: (state: SlashMenuState) => void;
 }
 
@@ -163,13 +194,7 @@ export interface EditorSelectionRange {
 }
 
 export type EditorDomEventType =
-  | "copy"
-  | "cut"
-  | "paste"
-  | "beforeinput"
-  | "drop"
-  | "contextmenu"
-  | "keydown";
+  "copy" | "cut" | "paste" | "beforeinput" | "drop" | "contextmenu" | "keydown";
 
 export interface EditorDomEventMap {
   copy: ClipboardEvent;
@@ -195,7 +220,11 @@ export interface EditorInputTarget {
     readonly files: readonly File[];
     readonly items: readonly (
       | { readonly kind: "file"; readonly type: string; readonly file: File }
-      | { readonly kind: "string"; readonly type: string; readonly value: string }
+      | {
+          readonly kind: "string";
+          readonly type: string;
+          readonly value: string;
+        }
     )[];
   };
 }
@@ -210,9 +239,11 @@ export interface EditorDomEventHookContext extends EditorEventContext {
 
 export type EditorDomEventHookResult = "consume" | "pass" | boolean | void;
 
-export type EditorDomEventHook<K extends EditorDomEventType = EditorDomEventType> = (
+export type EditorDomEventHook<
+  K extends EditorDomEventType = EditorDomEventType,
+> = (
   event: EditorDomEventMap[K],
-  context: EditorDomEventHookContext
+  context: EditorDomEventHookContext,
 ) => EditorDomEventHookResult;
 
 export interface EditorDomEventHookOptions {
@@ -237,17 +268,20 @@ export interface EditorContributionRegistration {
 }
 
 export interface EditorExtensionContributionSink {
-  registerExtension(ownerId: string, extension: Extension): EditorContributionRegistration;
+  registerExtension(
+    ownerId: string,
+    extension: Extension,
+  ): EditorContributionRegistration;
   registerDomEvent<K extends EditorDomEventType>(
     ownerId: string,
     event: K,
     handler: EditorDomEventHook<K>,
-    options?: EditorDomEventHookOptions
+    options?: EditorDomEventHookOptions,
   ): EditorContributionRegistration;
   registerInputTarget(
     ownerId: string,
     root: HTMLElement,
-    target: Omit<EditorInputTarget, "element">
+    target: Omit<EditorInputTarget, "element">,
   ): EditorContributionRegistration;
   /** True while IME, a mouse gesture, or an interactive table session blocks reconfiguration. */
   isInteractionActive(): boolean;
@@ -313,10 +347,12 @@ export type CoreEditorTransactionFilterResult =
   | { readonly action: "replace"; readonly transaction: CoreEditorTransaction };
 
 export type CoreEditorTransactionFilter = (
-  context: CoreEditorTransactionContext
+  context: CoreEditorTransactionContext,
 ) => CoreEditorTransactionFilterResult;
 
-export type CoreEditorUpdateListener = (context: CoreEditorUpdateContext) => void;
+export type CoreEditorUpdateListener = (
+  context: CoreEditorUpdateContext,
+) => void;
 
 export interface CoreEditorTransactionHookOptions {
   /** Bounded integer. Higher values run first, ties use registration order. */
@@ -327,22 +363,25 @@ export interface EditorTransactionContributionSink {
   registerTransactionFilter(
     ownerId: string,
     filter: CoreEditorTransactionFilter,
-    options?: CoreEditorTransactionHookOptions
+    options?: CoreEditorTransactionHookOptions,
   ): EditorContributionRegistration;
   registerUpdateListener(
     ownerId: string,
     listener: CoreEditorUpdateListener,
-    options?: CoreEditorTransactionHookOptions
+    options?: CoreEditorTransactionHookOptions,
   ): EditorContributionRegistration;
 }
 
 export interface EditorContributionSink
-  extends EditorExtensionContributionSink,
-    EditorTransactionContributionSink {}
+  extends EditorExtensionContributionSink, EditorTransactionContributionSink {}
 
 export type CoreEditorTransactionDispatchResult =
   | { readonly status: "success"; readonly update: CoreEditorUpdateContext }
-  | { readonly status: "rejected"; readonly ownerId: string; readonly reason?: string }
+  | {
+      readonly status: "rejected";
+      readonly ownerId: string;
+      readonly reason?: string;
+    }
   | { readonly status: "recursion-limit"; readonly limit: number };
 
 export interface SetDocumentOptions {
@@ -371,7 +410,17 @@ export interface EditorAPI {
   getAst(): Root;
   getTableOfContents(): TocEntry[];
   exportHTML(): string;
+  /**
+   * Reconfigure dynamic editor options (readOnly, tabSize, direction, indentGuides, theme, locale)
+   * in a single atomic CodeMirror transaction without re-creating the editor view or losing selection.
+   */
+  reconfigure(config: DynamicEditorConfig): void;
   setTheme(theme: import("./theme").NexusTheme): void;
+  setReadOnly(readOnly: boolean): void;
+  setTabSize(tabSize: number): void;
+  setDirection(direction: "ltr" | "rtl"): void;
+  setIndentGuides(enabled: boolean): void;
+  setLocale(locale: Partial<import("./locale").NexusLocale>): void;
   getSelection(): { anchor: number; head: number };
   /** All selection ranges plus the main-range index. Single-range editors return one entry. */
   getSelections(): SelectionState;
@@ -386,7 +435,10 @@ export interface EditorAPI {
    * ranges require `multiCursor: true` — without it CodeMirror collapses the
    * selection to the main range.
    */
-  setSelections(ranges: { anchor: number; head?: number }[], mainIndex?: number): void;
+  setSelections(
+    ranges: { anchor: number; head?: number }[],
+    mainIndex?: number,
+  ): void;
   /**
    * Replace the document content.
    *
@@ -431,7 +483,7 @@ export interface EditorAPI {
     to: number,
     insert: string,
     selection?: { anchor: number; head?: number },
-    opts?: { silent?: boolean }
+    opts?: { silent?: boolean },
   ): void;
   undo(): boolean;
   redo(): boolean;
@@ -448,9 +500,17 @@ export interface EditorAPI {
    */
   isComposing(): boolean;
   destroy(): void;
-  on<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
-  off<K extends keyof EditorEventMap>(event: K, handler: EditorEventMap[K]): void;
-  getCoordsAtPos(pos: number): { left: number; right: number; top: number; bottom: number } | null;
+  on<K extends keyof EditorEventMap>(
+    event: K,
+    handler: EditorEventMap[K],
+  ): void;
+  off<K extends keyof EditorEventMap>(
+    event: K,
+    handler: EditorEventMap[K],
+  ): void;
+  getCoordsAtPos(
+    pos: number,
+  ): { left: number; right: number; top: number; bottom: number } | null;
   /**
    * 返回某个 DOM 节点当前对应的文档偏移（基于 CodeMirror 的 DOM↔文档映射）。
    * 用于会被复用、平移的 live-preview widget（如图片）在事件发生时解析自身实时位置，
@@ -461,10 +521,12 @@ export interface EditorAPI {
   /** Dynamic, owner-scoped extension and real DOM event registration. */
   getContributionSink(): EditorContributionSink;
   /** Dispatch one stable transaction through application filters and update listeners. */
-  dispatchTransaction(transaction: CoreEditorTransaction): CoreEditorTransactionDispatchResult;
+  dispatchTransaction(
+    transaction: CoreEditorTransaction,
+  ): CoreEditorTransactionDispatchResult;
   /** Apply a sequential batch as one atomic CM6 transaction and one stable update. */
   dispatchTransactions(
-    transactions: readonly CoreEditorTransaction[]
+    transactions: readonly CoreEditorTransaction[],
   ): CoreEditorTransactionDispatchResult;
 }
 
@@ -563,7 +625,10 @@ export interface EditorEventContext {
  * 事件处理器：返回 `true` 表示已消费该事件——编辑器会阻止默认行为并停止把事件
  * 继续派发给后续处理器（含内置默认逻辑）。返回 `false`/`undefined` 表示放行。
  */
-export type EditorEventHandler<E extends Event> = (event: E, ctx: EditorEventContext) => boolean | void;
+export type EditorEventHandler<E extends Event> = (
+  event: E,
+  ctx: EditorEventContext,
+) => boolean | void;
 
 /**
  * 插件可注册的 DOM 事件钩子。内置的图片粘贴 / 拖拽资源上传会作为兜底，在所有

@@ -48,13 +48,18 @@ function getLinesInRange(doc: string, from: number, to: number): LineRange[] {
  * extracted to fix. Case 4 of the atomic-undo test suite is the
  * load-bearing regression guard for this constraint.
  */
-function applyLines(editor: EditorAPI, lines: LineRange[], newLines: string[]): boolean {
+function applyLines(
+  editor: EditorAPI,
+  lines: LineRange[],
+  newLines: string[],
+): boolean {
   const first = lines[0];
   const last = lines[lines.length - 1];
   const newBlock = newLines.join("\n");
-  const selection = lines.length === 1
-    ? { anchor: first.lineStart + newLines[0].length }
-    : { anchor: first.lineStart, head: first.lineStart + newBlock.length };
+  const selection =
+    lines.length === 1
+      ? { anchor: first.lineStart + newLines[0].length }
+      : { anchor: first.lineStart, head: first.lineStart + newBlock.length };
   editor.replaceRange(first.lineStart, last.lineEnd, newBlock, selection);
   return true;
 }
@@ -68,7 +73,9 @@ function toggleLinePrefix(editor: EditorAPI, prefix: string): boolean {
   const lineEnd = lineEndIdx === -1 ? doc.length : lineEndIdx;
   const line = doc.slice(lineStart, lineEnd);
 
-  const newLine = line.startsWith(prefix) ? line.slice(prefix.length) : prefix + line;
+  const newLine = line.startsWith(prefix)
+    ? line.slice(prefix.length)
+    : prefix + line;
   const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
   editor.setDocument(newDoc);
   editor.setSelection(lineStart + newLine.length);
@@ -120,6 +127,33 @@ export function toggleUnorderedList(editor: EditorAPI): boolean {
   return applyLines(editor, lines, newLines);
 }
 
+export function toggleTaskList(editor: EditorAPI): boolean {
+  const doc = editor.getDocument();
+  const { anchor, head } = editor.getSelection();
+  const from = Math.min(anchor, head);
+  const to = Math.max(anchor, head);
+  const lines = getLinesInRange(doc, from, to);
+
+  const allMarked = lines.every(({ line }) =>
+    /^\s*[-*+]\s+\[[ xX]\]\s/.test(line),
+  );
+
+  const newLines = lines.map(({ line }) => {
+    if (allMarked) {
+      return line.replace(/^(\s*)[-*+]\s+\[[ xX]\]\s?/, "$1");
+    }
+    const content = line.replace(
+      /^\s*(?:[-*+]\s+\[[ xX]\]\s+|[-*+]\s+|\d+[.)]\s+)/,
+      "",
+    );
+    const indentMatch = line.match(/^(\s*)/);
+    const indent = indentMatch ? indentMatch[1] : "";
+    return `${indent}- [ ] ${content}`;
+  });
+
+  return applyLines(editor, lines, newLines);
+}
+
 export function insertCodeBlock(editor: EditorAPI): boolean {
   const doc = editor.getDocument();
   const { anchor, head } = editor.getSelection();
@@ -132,7 +166,9 @@ export function insertCodeBlock(editor: EditorAPI): boolean {
 
   const block =
     (needsLeadingNewline ? "\n" : "") +
-    "```\n" + (selected || "") + "\n```" +
+    "```\n" +
+    (selected || "") +
+    "\n```" +
     (needsTrailingNewline ? "\n" : "");
 
   const newDoc = doc.slice(0, from) + block + doc.slice(to);

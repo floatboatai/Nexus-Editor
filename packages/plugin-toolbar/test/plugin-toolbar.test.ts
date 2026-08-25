@@ -9,6 +9,7 @@ import {
   insertLink,
   toggleHeading,
   toggleOrderedList,
+  toggleTaskList,
   toggleUnorderedList,
   createToolbarPlugin,
   createToolbarUI,
@@ -172,7 +173,10 @@ describe("toggleUnorderedList — multi-line selection", () => {
 
   it("removes bullet markers when all selected lines already have one", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "- foo\n- bar\n- baz" });
+    const editor = createEditor({
+      container,
+      initialValue: "- foo\n- bar\n- baz",
+    });
 
     editor.setSelection(0, 17);
     toggleUnorderedList(editor);
@@ -265,7 +269,10 @@ describe("toggleOrderedList — multi-line selection", () => {
 
   it("removes numbered markers when all selected lines already have one", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "1. foo\n2. bar\n3. baz" });
+    const editor = createEditor({
+      container,
+      initialValue: "1. foo\n2. bar\n3. baz",
+    });
 
     editor.setSelection(0, 20); // doc length = 20
     toggleOrderedList(editor);
@@ -445,7 +452,9 @@ describe("createToolbarPlugin", () => {
     // Spot-check the four user-facing categories; the full catalogue is
     // documented in src/index.ts and intentionally not pinned here so
     // adding more commands later isn't a test churn.
-    expect(ids).toEqual(expect.arrayContaining(["h1", "h2", "bold", "image", "hr"]));
+    expect(ids).toEqual(
+      expect.arrayContaining(["h1", "h2", "bold", "image", "hr"]),
+    );
     for (const cmd of plugin.slashCommands ?? []) {
       expect(typeof cmd.run).toBe("function");
     }
@@ -475,21 +484,29 @@ describe("createToolbarUI", () => {
     const toolbar = createToolbarUI(editor);
     document.body.appendChild(toolbar.element);
 
-    const button = toolbar.element.querySelector<HTMLButtonElement>('[data-toolbar-action="unordered-list"]');
+    const button = toolbar.element.querySelector<HTMLButtonElement>(
+      '[data-toolbar-action="unordered-list"]',
+    );
     expect(button).not.toBeNull();
     expect(button?.title).toBe("");
     expect(button?.getAttribute("aria-label")).toBe("Unordered list");
     expect(button?.dataset.toolbarTooltip).toBe("Unordered list");
-    expect(button?.getAttribute("aria-describedby")).toMatch(/^nexus-toolbar-tooltip-/);
+    expect(button?.getAttribute("aria-describedby")).toMatch(
+      /^nexus-toolbar-tooltip-/,
+    );
 
     button?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
 
-    const tooltip = document.getElementById(button?.getAttribute("aria-describedby") ?? "");
+    const tooltip = document.getElementById(
+      button?.getAttribute("aria-describedby") ?? "",
+    );
     expect(tooltip?.getAttribute("role")).toBe("tooltip");
     expect(tooltip?.textContent).toBe("Unordered list");
 
     button?.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }));
-    expect(document.getElementById(button?.getAttribute("aria-describedby") ?? "")).toBeNull();
+    expect(
+      document.getElementById(button?.getAttribute("aria-describedby") ?? ""),
+    ).toBeNull();
 
     toolbar.destroy();
     editor.destroy();
@@ -505,7 +522,11 @@ describe("toggleUnorderedList — atomic undo", () => {
   it("Case 1: multi-line toggle → single undo fully restores document", () => {
     const container = document.createElement("div");
     const original = "foo\nbar\nbaz";
-    const editor = createEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
+    const editor = createEditor({
+      container,
+      initialValue: original,
+      plugins: [createHistoryPlugin()],
+    });
 
     editor.setSelection(0, 11);
     toggleUnorderedList(editor);
@@ -518,7 +539,11 @@ describe("toggleUnorderedList — atomic undo", () => {
 
   it("Case 2: toggle → undo → redo recovers toggled state in one step", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "foo\nbar", plugins: [createHistoryPlugin()] });
+    const editor = createEditor({
+      container,
+      initialValue: "foo\nbar",
+      plugins: [createHistoryPlugin()],
+    });
 
     editor.setSelection(0, 7);
     toggleUnorderedList(editor);
@@ -530,7 +555,11 @@ describe("toggleUnorderedList — atomic undo", () => {
 
   it("Case 3: single-line toggle → undo restores original (regression guard)", () => {
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "hello", plugins: [createHistoryPlugin()] });
+    const editor = createEditor({
+      container,
+      initialValue: "hello",
+      plugins: [createHistoryPlugin()],
+    });
 
     editor.setSelection(2);
     toggleUnorderedList(editor);
@@ -547,7 +576,11 @@ describe("toggleUnorderedList — atomic undo", () => {
     // leaves the document half-reverted). After the atomic replaceRange
     // refactor, undo() exhausts history after one call.
     const container = document.createElement("div");
-    const editor = createEditor({ container, initialValue: "foo\nbar", plugins: [createHistoryPlugin()] });
+    const editor = createEditor({
+      container,
+      initialValue: "foo\nbar",
+      plugins: [createHistoryPlugin()],
+    });
 
     editor.setSelection(0, 7);
     toggleUnorderedList(editor);
@@ -560,7 +593,11 @@ describe("toggleUnorderedList — atomic undo", () => {
   it("Case 5: reversed multi-line selection → toggle → undo restores original", () => {
     const container = document.createElement("div");
     const original = "foo\nbar";
-    const editor = createEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
+    const editor = createEditor({
+      container,
+      initialValue: original,
+      plugins: [createHistoryPlugin()],
+    });
 
     editor.setSelection(7, 0); // reversed: head before anchor
     toggleUnorderedList(editor);
@@ -574,7 +611,11 @@ describe("toggleUnorderedList — atomic undo", () => {
   it("Case 6: collapsed cursor → toggle → undo restores original", () => {
     const container = document.createElement("div");
     const original = "foo\nbar\nbaz";
-    const editor = createEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
+    const editor = createEditor({
+      container,
+      initialValue: original,
+      plugins: [createHistoryPlugin()],
+    });
 
     editor.setSelection(5); // cursor inside "bar" line
     toggleUnorderedList(editor);
@@ -588,7 +629,11 @@ describe("toggleUnorderedList — atomic undo", () => {
   it("Case 7: toggle → undo → redo → undo round-trip is consistent", () => {
     const container = document.createElement("div");
     const original = "foo\nbar";
-    const editor = createEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
+    const editor = createEditor({
+      container,
+      initialValue: original,
+      plugins: [createHistoryPlugin()],
+    });
 
     editor.setSelection(0, 7);
     toggleUnorderedList(editor);
@@ -603,6 +648,100 @@ describe("toggleUnorderedList — atomic undo", () => {
 
     editor.undo();
     expect(editor.getDocument()).toBe(original);
+    editor.destroy();
+  });
+});
+
+describe("toggleTaskList", () => {
+  it("converts plain text lines to task list items", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Buy milk\nWalk dog",
+    });
+
+    editor.setSelection(0, 17);
+    toggleTaskList(editor);
+
+    expect(editor.getDocument()).toBe("- [ ] Buy milk\n- [ ] Walk dog");
+    editor.destroy();
+  });
+
+  it("removes task list markers when all lines are task items", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "- [ ] Buy milk\n- [x] Walk dog",
+    });
+
+    editor.setSelection(0, 29);
+    toggleTaskList(editor);
+
+    expect(editor.getDocument()).toBe("Buy milk\nWalk dog");
+    editor.destroy();
+  });
+
+  it("converts bullet list to task list items", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "- Buy milk\n- Walk dog",
+    });
+
+    editor.setSelection(0, 21);
+    toggleTaskList(editor);
+
+    expect(editor.getDocument()).toBe("- [ ] Buy milk\n- [ ] Walk dog");
+    editor.destroy();
+  });
+
+  it("executes atomic single-step undo for task list toggling", () => {
+    const container = document.createElement("div");
+    const original = "Task A\nTask B";
+    const editor = createEditor({
+      container,
+      initialValue: original,
+      plugins: [createHistoryPlugin()],
+    });
+
+    editor.setSelection(0, original.length);
+    toggleTaskList(editor);
+    expect(editor.getDocument()).toBe("- [ ] Task A\n- [ ] Task B");
+
+    editor.undo();
+    expect(editor.getDocument()).toBe(original);
+    expect(editor.undo()).toBe(false);
+    editor.destroy();
+  });
+
+  it("registers todo slash command", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Plan roadmap",
+      plugins: [createToolbarPlugin()],
+    });
+
+    editor.setSelection(0, 12);
+    const todoCmd = editor.getSlashCommands().find((c) => c.id === "todo");
+    expect(todoCmd).toBeDefined();
+    expect(todoCmd?.run?.(editor)).toBe(true);
+    expect(editor.getDocument()).toBe("- [ ] Plan roadmap");
+    editor.destroy();
+  });
+
+  it("includes checklist button in toolbar UI", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "test" });
+    const toolbar = createToolbarUI(editor);
+
+    const checklistBtn = toolbar.element.querySelector<HTMLButtonElement>(
+      '[data-toolbar-action="checklist"]',
+    );
+    expect(checklistBtn).not.toBeNull();
+    expect(checklistBtn?.getAttribute("aria-label")).toBe("Task list");
+
+    toolbar.destroy();
     editor.destroy();
   });
 });

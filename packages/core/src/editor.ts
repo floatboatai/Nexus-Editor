@@ -1,11 +1,28 @@
-import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
+import {
+  Annotation,
+  Compartment,
+  EditorSelection,
+  EditorState,
+  type Extension,
+  type StateEffect,
+} from "@codemirror/state";
 
 // Annotation attached to dispatches that load content programmatically (e.g.
 // setDocument from file open) so updateListener can skip the user-edit path —
 // no onChange emission, no AST reparse for the onChange pipeline.
 const silentDocChange = Annotation.define<boolean>();
-import { EditorView, keymap, dropCursor, lineNumbers, type Direction } from "@codemirror/view";
-import { indentWithTab, undo as cmUndo, redo as cmRedo } from "@codemirror/commands";
+import {
+  EditorView,
+  keymap,
+  dropCursor,
+  lineNumbers,
+  type Direction,
+} from "@codemirror/view";
+import {
+  indentWithTab,
+  undo as cmUndo,
+  redo as cmRedo,
+} from "@codemirror/commands";
 import { closeBrackets } from "@codemirror/autocomplete";
 import type { Root } from "mdast";
 import type { Heading } from "mdast";
@@ -27,7 +44,7 @@ import { flushPendingTableEdits } from "./live-preview-table";
 import { createMarkdownLanguageSupport } from "./lezer-markdown";
 import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
 import { markdownFoldService } from "./markdown-fold";
-import { resolveLocale } from "./locale";
+import { resolveLocale, type NexusLocale } from "./locale";
 import { markdownAutoPair } from "./markdown-autopair";
 import { markdownKeymap } from "./markdown-keymap";
 import { multiCursorExtension } from "./multi-cursor";
@@ -35,6 +52,7 @@ import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { createThemeExtension, lightTheme, type NexusTheme } from "./theme";
 import { computeSlashState } from "./slash-state";
 import type {
+  DynamicEditorConfig,
   EditorAPI,
   EditorCommand,
   EditorConfig,
@@ -66,7 +84,11 @@ function isNexusDebugEnabled(): boolean {
   if (debugGlobal.__FLOATBOAT_MARKDOWN_DEBUG__ === true) return true;
 
   try {
-    return debugGlobal.localStorage?.getItem(FLOATBOAT_MARKDOWN_DEBUG_STORAGE_KEY) === "1";
+    return (
+      debugGlobal.localStorage?.getItem(
+        FLOATBOAT_MARKDOWN_DEBUG_STORAGE_KEY,
+      ) === "1"
+    );
   } catch {
     return false;
   }
@@ -84,7 +106,7 @@ function debugNexus(message: string, details?: Record<string, unknown>): void {
 function createEmptyAst(): Root {
   return {
     type: "root",
-    children: []
+    children: [],
   };
 }
 
@@ -93,7 +115,9 @@ function createEmptyAst(): Root {
  * 因为截图、网页复制的图片往往以 `DataTransferItem`（kind === "file"）形式到达，
  * 而非 `files` 列表——这正是 cmd+v 粘贴图片在多数平台的真实形态。
  */
-function collectFilesFromDataTransfer(data: DataTransfer | null | undefined): File[] {
+function collectFilesFromDataTransfer(
+  data: DataTransfer | null | undefined,
+): File[] {
   if (!data) return [];
 
   const files: File[] = [];
@@ -187,7 +211,10 @@ function resolveDocumentSelection(
 ): EditorSelectionRange | undefined {
   if (opts?.selection) {
     const anchor = clampPosition(opts.selection.anchor, docLength);
-    const head = clampPosition(opts.selection.head ?? opts.selection.anchor, docLength);
+    const head = clampPosition(
+      opts.selection.head ?? opts.selection.anchor,
+      docLength,
+    );
     return { anchor, head };
   }
 
@@ -219,7 +246,7 @@ function createParser(plugins: NexusPlugin[]): ParserLike {
     parse(markdown) {
       const tree = processor.parse(markdown);
       return processor.runSync(tree) as Root;
-    }
+    },
   };
 }
 
@@ -229,7 +256,9 @@ function createParser(plugins: NexusPlugin[]): ParserLike {
  * No remark-parse, so the cost is whatever the user plugins cost — and it's
  * a no-op when no plugins are attached.
  */
-function createTransformProcessor(plugins: NexusPlugin[]): { runSync(tree: Root): Root } | null {
+function createTransformProcessor(
+  plugins: NexusPlugin[],
+): { runSync(tree: Root): Root } | null {
   let attached = 0;
   const processor = unified();
   for (const plugin of plugins) {
@@ -271,37 +300,55 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // 插件 DOM 事件钩子。内置资源上传作为兜底，在所有钩子都未消费时才执行。
   const pasteHandlers = plugins
     .map((plugin) => plugin.handlers?.paste)
-    .filter((handler): handler is EditorEventHandler<ClipboardEvent> => Boolean(handler));
+    .filter((handler): handler is EditorEventHandler<ClipboardEvent> =>
+      Boolean(handler),
+    );
   const dropHandlers = plugins
     .map((plugin) => plugin.handlers?.drop)
-    .filter((handler): handler is EditorEventHandler<DragEvent> => Boolean(handler));
+    .filter((handler): handler is EditorEventHandler<DragEvent> =>
+      Boolean(handler),
+    );
   const keydownHandlers = plugins
     .map((plugin) => plugin.handlers?.keydown)
-    .filter((handler): handler is EditorEventHandler<KeyboardEvent> => Boolean(handler));
+    .filter((handler): handler is EditorEventHandler<KeyboardEvent> =>
+      Boolean(handler),
+    );
 
   // The sync remark parser is only needed for the legacy WidgetDefinition
   // extension. Live preview, getAst(), table-of-contents, and normal change
   // events all use the Lezer path below, so avoid paying this startup cost in
   // the common no-widget case (including the Electron demo).
-  const fallbackParser = !customParser && widgetDefs.length > 0 ? createParser(plugins) : null;
-  const widgetParser: ParserLike = customParser ?? fallbackParser ?? {
-    parse: lezerStringToMdast,
-  };
+  const fallbackParser =
+    !customParser && widgetDefs.length > 0 ? createParser(plugins) : null;
+  const widgetParser: ParserLike = customParser ??
+    fallbackParser ?? {
+      parse: lezerStringToMdast,
+    };
   // Built only when the user passes remarkPlugins AND no custom parser.
   // Custom-parser callers run their plugins inside `parser.parse`, so the
   // transform pass would double-apply.
-  const hasRemarkPlugins = plugins.some((plugin) => (plugin.remarkPlugins?.length ?? 0) > 0);
-  const transformProcessor = !customParser && hasRemarkPlugins ? createTransformProcessor(plugins) : null;
+  const hasRemarkPlugins = plugins.some(
+    (plugin) => (plugin.remarkPlugins?.length ?? 0) > 0,
+  );
+  const transformProcessor =
+    !customParser && hasRemarkPlugins
+      ? createTransformProcessor(plugins)
+      : null;
   // Forward ref so AST transforms can read dynamic contribution facets after
   // the EditorView exists while retaining a headless initial parse.
   const viewRef: { current: EditorView | null } = { current: null };
   const transformAst = (ast: Root): Root => {
-    const staticallyTransformed = transformProcessor ? transformProcessor.runSync(ast) : ast;
+    const staticallyTransformed = transformProcessor
+      ? transformProcessor.runSync(ast)
+      : ast;
     return viewRef.current
-      ? applyMarkdownTransformSnapshots(viewRef.current.state, staticallyTransformed)
+      ? applyMarkdownTransformSnapshots(
+          viewRef.current.state,
+          staticallyTransformed,
+        )
       : staticallyTransformed;
   };
-  const locale = resolveLocale(config.locale);
+  let locale = resolveLocale(config.locale);
   const parseDelayMs = config.parseDelayMs ?? 0;
   const emitter = new EventEmitter<EditorEventMap>();
   let destroyed = false;
@@ -314,7 +361,8 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // 组合输入（IME）状态与被推迟的文档回灌。组合输入进行中调用 setDocument 会被
   // 推迟到 compositionend 再应用，避免整文档替换打断输入法、丢失合成中文字、视口跳顶。
   let composing = false;
-  let pendingDocumentLoad: { next: string; opts?: SetDocumentOptions } | null = null;
+  let pendingDocumentLoad: { next: string; opts?: SetDocumentOptions } | null =
+    null;
   // Initial AST: when a custom parser is provided, honour it (tests rely on
   // this — they install plugins that mutate the tree). Otherwise use the
   // Lezer string parser, which is dramatically faster than remark and
@@ -408,7 +456,11 @@ export function createEditor(config: EditorConfig): EditorAPI {
 
     compositionFlushTimer = setTimeout(() => {
       compositionFlushTimer = undefined;
-      if (destroyed || view.compositionStarted || pendingCompositionMarkdown === null) {
+      if (
+        destroyed ||
+        view.compositionStarted ||
+        pendingCompositionMarkdown === null
+      ) {
         return;
       }
 
@@ -439,13 +491,16 @@ export function createEditor(config: EditorConfig): EditorAPI {
     const selection = resolveDocumentSelection(
       { anchor: beforeSelection.anchor, head: beforeSelection.head },
       next.length,
-      opts
+      opts,
     );
     debugNexus("setDocument", {
       silent,
       oldLength: view.state.doc.length,
       nextLength: next.length,
-      beforeSelection: { anchor: beforeSelection.anchor, head: beforeSelection.head },
+      beforeSelection: {
+        anchor: beforeSelection.anchor,
+        head: beforeSelection.head,
+      },
       selection,
     });
 
@@ -453,7 +508,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
       changes: {
         from: 0,
         to: view.state.doc.length,
-        insert: next
+        insert: next,
       },
       annotations: silent ? silentDocChange.of(true) : undefined,
       ...(selection ? { selection } : {}),
@@ -496,7 +551,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
   }
 
   // 依次执行插件事件钩子；任一返回 true 视为已消费，停止派发。
-  function runEventHandlers<E extends Event>(handlers: EditorEventHandler<E>[], event: E): boolean {
+  function runEventHandlers<E extends Event>(
+    handlers: EditorEventHandler<E>[],
+    event: E,
+  ): boolean {
     if (destroyed || handlers.length === 0) return false;
     const ctx = createEventContext();
     for (const handler of handlers) {
@@ -526,17 +584,48 @@ export function createEditor(config: EditorConfig): EditorAPI {
     })();
   }
 
-  const themeExt = createThemeExtension(config.theme ?? lightTheme);
-  const tabSizeExt = config.tabSize && config.tabSize !== 4
-    ? EditorState.tabSize.of(config.tabSize)
-    : [];
-  const readOnlyExt = config.readOnly
-    ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
-    : [];
-  const directionExt = config.direction === "rtl"
-    ? EditorView.contentAttributes.of({ dir: "rtl" })
-    : [];
-  const indentGuidesExt = config.indentGuides ? indentationMarkers() : [];
+  const themeCompartment = new Compartment();
+  const themeExt = createThemeExtension(
+    config.theme ?? lightTheme,
+    themeCompartment,
+  );
+  const readOnlyCompartment = new Compartment();
+  const tabSizeCompartment = new Compartment();
+  const directionCompartment = new Compartment();
+  const indentGuidesCompartment = new Compartment();
+
+  function getReadOnlyExtension(readOnly?: boolean): Extension {
+    return readOnly
+      ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
+      : [];
+  }
+
+  function getTabSizeExtension(tabSize?: number): Extension {
+    return tabSize !== undefined && tabSize !== 4
+      ? EditorState.tabSize.of(tabSize)
+      : [];
+  }
+
+  function getDirectionExtension(direction?: "ltr" | "rtl"): Extension {
+    return direction === "rtl"
+      ? EditorView.contentAttributes.of({ dir: "rtl" })
+      : [];
+  }
+
+  function getIndentGuidesExtension(indentGuides?: boolean): Extension {
+    return indentGuides ? indentationMarkers() : [];
+  }
+
+  const readOnlyExt = readOnlyCompartment.of(
+    getReadOnlyExtension(config.readOnly),
+  );
+  const tabSizeExt = tabSizeCompartment.of(getTabSizeExtension(config.tabSize));
+  const directionExt = directionCompartment.of(
+    getDirectionExtension(config.direction),
+  );
+  const indentGuidesExt = indentGuidesCompartment.of(
+    getIndentGuidesExtension(config.indentGuides),
+  );
   const multiCursorExt = config.multiCursor ? multiCursorExtension() : [];
 
   const shortcutExtensions =
@@ -545,16 +634,16 @@ export function createEditor(config: EditorConfig): EditorAPI {
           keymap.of(
             shortcuts.map((shortcut) => ({
               key: shortcut.key,
-              run: () => shortcut.run(api)
-            }))
-          )
+              run: () => shortcut.run(api),
+            })),
+          ),
         ]
       : [];
 
   // 带 hotkey 的命名命令注册成 CodeMirror keymap；返回非 false 视为已消费。
   const hotkeyCommands = commands.filter(
     (command): command is EditorCommand & { hotkey: string } =>
-      typeof command.hotkey === "string" && command.hotkey.length > 0
+      typeof command.hotkey === "string" && command.hotkey.length > 0,
   );
   const commandKeymapExtensions =
     hotkeyCommands.length > 0
@@ -562,9 +651,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
           keymap.of(
             hotkeyCommands.map((command) => ({
               key: command.hotkey,
-              run: () => command.run(api) !== false
-            }))
-          )
+              run: () => command.run(api) !== false,
+            })),
+          ),
         ]
       : [];
 
@@ -613,22 +702,30 @@ export function createEditor(config: EditorConfig): EditorAPI {
             }
             flushCompositionChange(view, "compositionend");
             return false;
-          }
+          },
         }),
         EditorView.updateListener.of((update) => {
-          const markdownTransformRevision = getMarkdownTransformRevision(update.state);
+          const markdownTransformRevision = getMarkdownTransformRevision(
+            update.state,
+          );
           if (markdownTransformRevision !== lastMarkdownTransformRevision) {
             lastMarkdownTransformRevision = markdownTransformRevision;
             const markdown = update.state.doc.toString();
             const baseAst = customParser
               ? parseDocument(customParser, markdown)
               : transformProcessor
-                ? transformProcessor.runSync(lezerAstFromAnywhere(viewRef, markdown))
+                ? transformProcessor.runSync(
+                    lezerAstFromAnywhere(viewRef, markdown),
+                  )
                 : lezerAstFromAnywhere(viewRef, markdown);
             currentAst = applyMarkdownTransformSnapshots(update.state, baseAst);
           }
-          const silent = update.transactions.some((t) => t.annotation(silentDocChange) === true);
-          const compositionTransaction = update.transactions.some((t) => t.isUserEvent("input.type.compose"));
+          const silent = update.transactions.some(
+            (t) => t.annotation(silentDocChange) === true,
+          );
+          const compositionTransaction = update.transactions.some((t) =>
+            t.isUserEvent("input.type.compose"),
+          );
           if (update.docChanged || update.selectionSet) {
             const sel = update.state.selection.main;
             debugNexus("update", {
@@ -649,7 +746,11 @@ export function createEditor(config: EditorConfig): EditorAPI {
             // file from disk — that's not a user edit).
             if (!silent) {
               const markdown = update.state.doc.toString();
-              if (compositionTransaction || update.view.composing || update.view.compositionStarted) {
+              if (
+                compositionTransaction ||
+                update.view.composing ||
+                update.view.compositionStarted
+              ) {
                 debugNexus("composition-change-queued", {
                   documentLength: markdown.length,
                   compositionTransaction,
@@ -672,7 +773,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
               emitter.emit("selectionChange", {
                 anchor: sel.anchor,
                 head: sel.head,
-                ranges: selection.ranges.map((range) => ({ anchor: range.anchor, head: range.head })),
+                ranges: selection.ranges.map((range) => ({
+                  anchor: range.anchor,
+                  head: range.head,
+                })),
                 mainIndex: selection.mainIndex,
               });
             }
@@ -682,15 +786,22 @@ export function createEditor(config: EditorConfig): EditorAPI {
               const state = computeSlashState(doc, sel.head, slashCommands, {
                 limit: config.slashMenuLimit,
               });
-              let coords: { left: number; top: number; bottom: number } | null = null;
+              let coords: { left: number; top: number; bottom: number } | null =
+                null;
 
               if (state.isOpen && state.from !== null) {
                 try {
                   const raw = update.view.coordsAtPos(state.from);
                   if (raw) {
-                    coords = { left: raw.left, top: raw.top, bottom: raw.bottom };
+                    coords = {
+                      left: raw.left,
+                      top: raw.top,
+                      bottom: raw.bottom,
+                    };
                   }
-                } catch { /* out of range */ }
+                } catch {
+                  /* out of range */
+                }
               }
 
               emitter.emit("slashMenuChange", { ...state, coords });
@@ -766,9 +877,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
         ...createWidgetExtension(widgetParser, widgetDefs),
         ...shortcutExtensions,
         ...commandKeymapExtensions,
-        ...cmExtensions
-      ]
-    })
+        ...cmExtensions,
+      ],
+    }),
   });
 
   // Hand the view to lezerAstFromAnywhere consumers so getAst() / emitChange
@@ -787,15 +898,76 @@ export function createEditor(config: EditorConfig): EditorAPI {
       return extractToc(currentAst);
     },
     exportHTML() {
-      return markdownToHtml(
-        view.state.doc.toString(),
-        plugins,
-        (tree) => applyMarkdownTransformSnapshots(view.state, tree),
+      return markdownToHtml(view.state.doc.toString(), plugins, (tree) =>
+        applyMarkdownTransformSnapshots(view.state, tree),
       );
+    },
+    reconfigure(dynamicConfig: DynamicEditorConfig) {
+      if (destroyed) return;
+      const effects: StateEffect<unknown>[] = [];
+
+      if (dynamicConfig.theme !== undefined) {
+        effects.push(themeExt.reconfigure(dynamicConfig.theme).effects);
+      }
+      if (dynamicConfig.readOnly !== undefined) {
+        effects.push(
+          readOnlyCompartment.reconfigure(
+            getReadOnlyExtension(dynamicConfig.readOnly),
+          ),
+        );
+      }
+      if (dynamicConfig.tabSize !== undefined) {
+        effects.push(
+          tabSizeCompartment.reconfigure(
+            getTabSizeExtension(dynamicConfig.tabSize),
+          ),
+        );
+      }
+      if (dynamicConfig.direction !== undefined) {
+        effects.push(
+          directionCompartment.reconfigure(
+            getDirectionExtension(dynamicConfig.direction),
+          ),
+        );
+      }
+      if (dynamicConfig.indentGuides !== undefined) {
+        effects.push(
+          indentGuidesCompartment.reconfigure(
+            getIndentGuidesExtension(dynamicConfig.indentGuides),
+          ),
+        );
+      }
+      if (dynamicConfig.locale !== undefined) {
+        locale = resolveLocale({ ...locale, ...dynamicConfig.locale });
+      }
+
+      if (effects.length > 0) {
+        view.dispatch({ effects });
+      }
     },
     setTheme(theme: NexusTheme) {
       if (destroyed) return;
-      view.dispatch(themeExt.reconfigure(theme));
+      api.reconfigure({ theme });
+    },
+    setReadOnly(readOnly: boolean) {
+      if (destroyed) return;
+      api.reconfigure({ readOnly });
+    },
+    setTabSize(tabSize: number) {
+      if (destroyed) return;
+      api.reconfigure({ tabSize });
+    },
+    setDirection(direction: "ltr" | "rtl") {
+      if (destroyed) return;
+      api.reconfigure({ direction });
+    },
+    setIndentGuides(enabled: boolean) {
+      if (destroyed) return;
+      api.reconfigure({ indentGuides: enabled });
+    },
+    setLocale(nextLocale: Partial<NexusLocale>) {
+      if (destroyed) return;
+      api.reconfigure({ locale: nextLocale });
     },
     getSelection() {
       const sel = view.state.selection.main;
@@ -804,7 +976,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
     getSelections() {
       const selection = view.state.selection;
       return {
-        ranges: selection.ranges.map((range) => ({ anchor: range.anchor, head: range.head })),
+        ranges: selection.ranges.map((range) => ({
+          anchor: range.anchor,
+          head: range.head,
+        })),
         mainIndex: selection.mainIndex,
       };
     },
@@ -838,7 +1013,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
 
       view.dispatch({
         selection: { anchor, head },
-        scrollIntoView: true
+        scrollIntoView: true,
       });
     },
     setSelections(ranges, mainIndex) {
@@ -848,10 +1023,12 @@ export function createEditor(config: EditorConfig): EditorAPI {
 
       view.dispatch({
         selection: EditorSelection.create(
-          ranges.map((range) => EditorSelection.range(range.anchor, range.head ?? range.anchor)),
-          mainIndex ?? ranges.length - 1
+          ranges.map((range) =>
+            EditorSelection.range(range.anchor, range.head ?? range.anchor),
+          ),
+          mainIndex ?? ranges.length - 1,
         ),
-        scrollIntoView: true
+        scrollIntoView: true,
       });
     },
     setDocument(next, opts) {
@@ -882,7 +1059,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
       view.dispatch({
         changes: { from, to, insert },
         selection: selection
-          ? { anchor: selection.anchor, head: selection.head ?? selection.anchor }
+          ? {
+              anchor: selection.anchor,
+              head: selection.head ?? selection.anchor,
+            }
           : undefined,
         scrollIntoView: true,
         annotations: silent ? silentDocChange.of(true) : undefined,
@@ -981,13 +1161,21 @@ export function createEditor(config: EditorConfig): EditorAPI {
     },
     dispatchTransaction(transaction: CoreEditorTransaction) {
       if (destroyed || destroying) {
-        return { status: "rejected", ownerId: "host", reason: "editor-destroyed" };
+        return {
+          status: "rejected",
+          ownerId: "host",
+          reason: "editor-destroyed",
+        };
       }
       return transactionPipeline.dispatchTransaction(transaction);
     },
     dispatchTransactions(transactions: readonly CoreEditorTransaction[]) {
       if (destroyed || destroying) {
-        return { status: "rejected", ownerId: "host", reason: "editor-destroyed" };
+        return {
+          status: "rejected",
+          ownerId: "host",
+          reason: "editor-destroyed",
+        };
       }
       return transactionPipeline.dispatchTransactions(transactions);
     },
@@ -1051,7 +1239,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
       }
       destroying = false;
       if (hasError) throw firstError;
-    }
+    },
   };
 
   dynamicContributionSink = new DynamicEditorContributionSink({
@@ -1067,16 +1255,27 @@ export function createEditor(config: EditorConfig): EditorAPI {
   transactionPipeline = new CoreEditorTransactionPipeline({
     view,
     editor: api,
-    isDestroyed: () => destroyed || (destroying && !flushingTableEditsForDestroy),
+    isDestroyed: () =>
+      destroyed || (destroying && !flushingTableEditsForDestroy),
   });
   contributionSink = {
-    registerExtension: dynamicContributionSink.registerExtension.bind(dynamicContributionSink),
-    registerDomEvent: dynamicContributionSink.registerDomEvent.bind(dynamicContributionSink),
-    registerInputTarget: dynamicContributionSink.registerInputTarget.bind(dynamicContributionSink),
-    isInteractionActive: dynamicContributionSink.isInteractionActive.bind(dynamicContributionSink),
+    registerExtension: dynamicContributionSink.registerExtension.bind(
+      dynamicContributionSink,
+    ),
+    registerDomEvent: dynamicContributionSink.registerDomEvent.bind(
+      dynamicContributionSink,
+    ),
+    registerInputTarget: dynamicContributionSink.registerInputTarget.bind(
+      dynamicContributionSink,
+    ),
+    isInteractionActive: dynamicContributionSink.isInteractionActive.bind(
+      dynamicContributionSink,
+    ),
     refresh: dynamicContributionSink.refresh.bind(dynamicContributionSink),
-    registerTransactionFilter: transactionPipeline.registerTransactionFilter.bind(transactionPipeline),
-    registerUpdateListener: transactionPipeline.registerUpdateListener.bind(transactionPipeline),
+    registerTransactionFilter:
+      transactionPipeline.registerTransactionFilter.bind(transactionPipeline),
+    registerUpdateListener:
+      transactionPipeline.registerUpdateListener.bind(transactionPipeline),
   };
 
   return api;
