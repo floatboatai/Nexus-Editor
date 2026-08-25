@@ -39,3 +39,23 @@
 - **THEN** 编辑器变为不可编辑
 - **WHEN** 随后调用 `editor.setReadOnly(false)`
 - **THEN** 编辑器恢复正常编辑状态
+
+### Requirement: live preview task list checkbox readOnly guard
+
+Live Preview 中渲染的任务列表复选框控件，必须遵循编辑器的只读状态。
+
+#### Scenario: 只读模式下禁用 Checkbox 点击
+
+- **GIVEN** 编辑器处于 `readOnly: true` 状态
+- **WHEN** 用户点击渲染出的复选框
+- **THEN** 复选框处于 disabled 状态，点击事件被忽略，不触发任何文档修改或事务派发
+
+### Requirement: markdown keymap task list toggle
+
+Markdown 快捷键系统必须支持 `Mod-Enter` / `Alt-Enter` 快捷切换当前行或选区内的任务项勾选状态。
+
+#### Scenario: 快捷键切换任务项状态
+
+- **GIVEN** 光标位于 `- [ ] Buy milk`
+- **WHEN** 按下 `Mod-Enter` (Mac `Cmd-Enter` / Win `Ctrl-Enter`)
+- **THEN** 该行内容原子切换为 `- [x] Buy milk`，光标位置得到智能保留，单次 Undo 可完整撤销

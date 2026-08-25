@@ -6,6 +6,7 @@ import {
   insertImage,
   toggleBlockquote,
   toggleOrderedList,
+  toggleTaskList,
   toggleUnorderedList,
 } from "./formatting";
 
@@ -20,13 +21,17 @@ export function toggleWrap(editor: EditorAPI, marker: string): boolean {
 
   if (before === marker && after === marker) {
     editor.setDocument(
-      doc.slice(0, from - marker.length) + selected + doc.slice(to + marker.length),
+      doc.slice(0, from - marker.length) +
+        selected +
+        doc.slice(to + marker.length),
     );
     editor.setSelection(from - marker.length, to - marker.length);
     return true;
   }
 
-  editor.setDocument(doc.slice(0, from) + marker + selected + marker + doc.slice(to));
+  editor.setDocument(
+    doc.slice(0, from) + marker + selected + marker + doc.slice(to),
+  );
   editor.setSelection(from + marker.length, to + marker.length);
   return true;
 }
@@ -71,9 +76,10 @@ export function toggleHeading(editor: EditorAPI, level: number): boolean {
   const line = doc.slice(lineStart, end);
   const prefix = "#".repeat(level) + " ";
   const headingMatch = line.match(/^#{1,6}\s/);
-  const newLine = headingMatch?.[0] === prefix
-    ? line.slice(prefix.length)
-    : prefix + (headingMatch ? line.slice(headingMatch[0].length) : line);
+  const newLine =
+    headingMatch?.[0] === prefix
+      ? line.slice(prefix.length)
+      : prefix + (headingMatch ? line.slice(headingMatch[0].length) : line);
 
   editor.setDocument(doc.slice(0, lineStart) + newLine + doc.slice(end));
   editor.setSelection(lineStart + newLine.length);
@@ -158,6 +164,13 @@ export const toolbarSlashCommands: SlashCommandDef[] = [
     description: "Start an ordered list",
     keywords: ["list", "ol", "ordered", "numbered"],
     run: toggleOrderedList,
+  },
+  {
+    id: "todo",
+    title: "To-do list",
+    description: "Track tasks with a to-do list",
+    keywords: ["todo", "task", "check", "checklist", "[]"],
+    run: toggleTaskList,
   },
   {
     id: "link",

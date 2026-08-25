@@ -13,7 +13,18 @@
 - [x] 3. React 框架绑定与依赖同步 (`packages/react`) <!-- id: 3-react-integration -->
   - [x] 在 `packages/react/src/use-editor.ts` 中添加对动态配置依赖的 `useEffect`
   - [x] 编写 `packages/react/test/editor-reactivity.test.tsx` 单元测试，验证 React 组件重渲染时的配置同步
-- [x] 4. 全局质量验证与规范收尾 <!-- id: 4-verification-docs -->
-  - [x] 运行全工作区类型检查 (`pnpm typecheck`) 与 API 一致性检查 (`pnpm check:api`)
-  - [x] 运行全工作区单元测试 (`pnpm test`)，保证 100% 通过
-  - [x] 整理规范的 PR 描述文档与测试报告
+- [ ] 4. Core 层 GFM 交互式任务列表与快捷键增强 (`packages/core`) <!-- id: 4-core-tasklist -->
+  - [ ] 在 `packages/core/src/live-preview.ts` 中增加只读模式状态检测（只读时禁用 checkbox 并阻止 dispatch）
+  - [ ] 在 `packages/core/src/markdown-keymap.ts` 中实现 `handleToggleTaskItem`（支持 `Mod-Enter` / `Alt-Enter`，智能切换 `[ ]` ↔ `[x]`，支持多光标与单事务 Undo）
+  - [ ] 编写 Core 任务列表单元测试（只读守卫测试 + 快捷键任务切换测试）
+- [ ] 5. Toolbar 工具栏 Checklist 按钮与状态感知 (`packages/plugin-toolbar`) <!-- id: 5-toolbar-checklist -->
+  - [ ] 在 `packages/plugin-toolbar/src/formatting.ts` 中实现 `toggleTaskList` 及其辅助函数
+  - [ ] 在 `packages/plugin-toolbar/src/toolbar-ui.ts` 中注册 `checklist` 工具项及图标，支持 active 高亮检测
+  - [ ] 编写 Toolbar Checklist 单元测试
+- [ ] 6. Slash 斜杠菜单 `/todo` & `/task` 命令 (`packages/plugin-slash`) <!-- id: 6-slash-todo -->
+  - [ ] 在 `packages/plugin-slash/src/items.ts` / `commands.ts` 中添加 `todo` 与 `task` 命令
+  - [ ] 编写 Slash todo 命令测试
+- [ ] 7. 全局质量验证与规范收尾 <!-- id: 7-verification-docs -->
+  - [ ] 运行全工作区类型检查 (`pnpm typecheck`) 与 API 一致性检查 (`pnpm check:api`)
+  - [ ] 运行全工作区单元测试 (`pnpm test`)，保证 100% 通过
+  - [ ] 整理规范的 PR 描述文档与测试报告

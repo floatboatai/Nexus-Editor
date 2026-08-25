@@ -1,114 +1,64 @@
-# Design: 基于 CodeMirror 6 Compartments 的动态配置重配与框架双向响应系统
+# Design: 动态配置重配与 GFM 交互式任务列表全链路管线架构
 
-## 架构概览
-
-CodeMirror 6 提供了基于 `Compartment` 的精细化扩展动态重配（Dynamic Reconfiguration）机制。通过将可变配置切分为独立的 Compartment 槽位，重配时仅需调用 `compartment.reconfigure(extension)` 并作为 `StateEffect` 派发进单个 Transaction，即可实现：
-
-1. **DOM 零重建**：不销毁不替换 EditorView，避免整个编辑器闪烁或重新聚焦。
-2. **状态与选区无损**：历史记录（Undo/Redo 栈）、文档内容、多光标选区完全保持。
-3. **单事务批量合并**：一次性更新多个配置项（如同时切换深色主题与只读状态），在一次渲染帧内生效。
+## 1. 架构总览
 
 ```
-                    Vue / React 宿主组件 Props 变化
-                                 │
-                                 ▼
-            useEditor 响应式监听 (watch / useEffect)
-                                 │
-                                 ▼
-                     editor.reconfigure({ ... })
-                                 │
-                                 ▼
-                  Nexus-Core 统一原子 Transaction 派发
-        ┌────────────────────────┼────────────────────────┐
-        ▼                        ▼                        ▼
-  readOnlyCompartment    tabSizeCompartment    indentGuidesCompartment ...
+                            ┌──────────────────────────────────────────────┐
+                            │      Nexus-Editor 全链路架构与交互管线       │
+                            └──────────────────────┬───────────────────────┘
+                                                   │
+         ┌────────────────────────┬────────────────┴────────────────────────┬────────────────────────┐
+         ▼                        ▼                                         ▼                        ▼
+  【Core 动态重配】         【Core 任务列表与键盘】                    【Toolbar 工具栏】       【Slash 斜杠菜单】
+  - Compartment 槽位体系    - Live Preview Checkbox (只读保护)         - toggleTaskList         - /todo & /task
+  - batch reconfigure       - Mod-Enter 任务状态切换 (多光标)           - Checklist 按钮         - 自动补全 - [ ]
+  - Vue/React 响应式监听    - 单事务原子 Undo 保护                     - 激活高亮感知
 ```
 
-## 核心设计决策
+## 2. 核心技术设计
 
-### 1. CodeMirror 6 扩展槽位划分与构造
+### 2.1 CodeMirror 6 Compartments 槽位重配 (已实现)
 
-在 `packages/core/src/editor.ts` 中，为不同能力定义独立的 `Compartment` 实例：
+- `readOnlyCompartment`、`tabSizeCompartment`、`directionCompartment`、`indentGuidesCompartment`、`themeCompartment`。
+- 在 `EditorAPI` 暴露 `reconfigure(dynamicConfig)` 和专用 Setters。
 
-- `readOnlyCompartment`:
-  - 开启: `[EditorState.readOnly.of(true), EditorView.editable.of(false)]`
-  - 关闭: `[]`
-- `tabSizeCompartment`:
-  - 指定值: `EditorState.tabSize.of(tabSize)`
-  - 默认值: `[]` (CodeMirror 默认为 4)
-- `directionCompartment`:
-  - `rtl`: `EditorView.contentAttributes.of({ dir: "rtl" })`
-  - `ltr`: `[]`
-- `indentGuidesCompartment`:
-  - 开启: `indentationMarkers()`
-  - 关闭: `[]`
-- `themeCompartment`: 复用已有的 `createThemeExtension`。
+### 2.2 Live Preview Checkbox 只读保护与原子修改
 
-### 2. Core 统一重配接口定义 (`reconfigure`)
+在 `packages/core/src/live-preview.ts` 中：
 
-在 `packages/core/src/types.ts` 中定义 `DynamicEditorConfig`：
+- 渲染 checkbox 时检查 `viewRef.current?.state.readOnly` 或配置中的 `readOnly` 状态。若为只读，`checkbox.disabled = true`，且点击事件被忽略。
+- 点击时通过精确的 `changes: { from: toggleFrom, to: toggleFrom + 1, insert: isChecked ? " " : "x" }` 派发单个原子变更。
 
-```ts
-export interface DynamicEditorConfig {
-  readOnly?: boolean;
-  tabSize?: number;
-  direction?: "ltr" | "rtl";
-  indentGuides?: boolean;
-  theme?: NexusTheme;
-  locale?: Partial<NexusLocale>;
-}
-```
+### 2.3 快捷键任务切换 (`markdown-keymap`)
 
-`reconfigure` 实现按需生成 `StateEffect` 列表，当且仅当存在有效变更时通过 `view.dispatch({ effects })` 派发，避免空事务开销。
+在 `packages/core/src/markdown-keymap.ts` 中：
 
-### 3. Vue 3 响应式接入 (`packages/vue`)
+- 绑定 `Mod-Enter` (Mac `Cmd-Enter` / Win `Ctrl-Enter`) 或 `Alt-Enter` 执行 `handleToggleTaskItem`。
+- 智能匹配当前行前缀：
+  - 若为 `- [ ] ` → 切换为 `- [x] `
+  - 若为 `- [x] ` 或 `- [X] ` → 切换为 `- [ ] `
+  - 若为普通无序列表 `- ` / `* ` / `+ ` → 升级为 `- [ ] `
+  - 若为普通文本行 → 包装为 `- [ ] `
+- 支持多光标 (Multi-Cursor)：单次 `changeByRange` 派发，撤销栈仅占 1 步。
 
-在 `useEditor.ts` 中，利用 Vue 3 的 `watch` 监听配置解析函数的返回值：
+### 2.4 Toolbar Checklist 工具栏格式化与状态检测 (`packages/plugin-toolbar`)
 
-```ts
-watch(
-  () => {
-    const c = resolveConfig();
-    return {
-      readOnly: c.readOnly,
-      tabSize: c.tabSize,
-      direction: c.direction,
-      indentGuides: c.indentGuides,
-      theme: c.theme,
-      locale: c.locale,
-    };
-  },
-  (newConfig, oldConfig) => {
-    const instance = editor.value;
-    if (!instance) return;
-    instance.reconfigure(newConfig);
-  },
-  { deep: true },
-);
-```
+在 `packages/plugin-toolbar/src/formatting.ts`：
 
-### 4. React 声明式依赖同步 (`packages/react`)
+- 新增 `toggleTaskList(editor: EditorAPI): boolean`：
+  - 扫描选区内的所有行（`getLinesInRange`）。
+  - 判断是否全部行均已为任务列表项（`allTaskList`）。
+  - 若全部为任务项：移除 `[-*+]\s\[[ xX]\]\s` 前缀，恢复为普通文本或普通列表。
+  - 否则将选区内的每一行统一转换为 `- [ ] ${content}`。
+  - 使用 `applyLines(editor, lines, newLines)` 原子单事务替换，选区自动覆盖全块。
+- 在 `toolbar-ui.ts` 中：
+  - 增加 `CheckSquare` 图标。
+  - 注册 `checklist` 工具项，点击调用 `toggleTaskList`。
+  - `active` 状态判断：光标所在行包含 `^[-*+]\s\[[ xX]\]` 时工具栏按钮高亮。
 
-在 React `useEditor.ts` 中，通过 `useEffect` 挂载依赖并调用 `reconfigure`：
+### 2.5 Slash 斜杠菜单命令 (`packages/plugin-slash`)
 
-```ts
-useEffect(() => {
-  const instance = editorRef.current;
-  if (!instance) return;
-  instance.reconfigure({
-    readOnly: config.readOnly,
-    tabSize: config.tabSize,
-    direction: config.direction,
-    indentGuides: config.indentGuides,
-    theme: config.theme,
-    locale: config.locale,
-  });
-}, [
-  config.readOnly,
-  config.tabSize,
-  config.direction,
-  config.indentGuides,
-  config.theme,
-  config.locale,
-]);
-```
+在 `packages/plugin-slash` 中：
+
+- 注册 `todo` / `task` 内置命令，title 为 `"To-do list"`，description 为 `"Track tasks with a to-do list"`。
+- 执行时调用 `toggleTaskList` 或在当前插入点插入 `- [ ] `。

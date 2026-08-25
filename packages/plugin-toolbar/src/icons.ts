@@ -10,11 +10,13 @@ const SVG_SIZE = 18;
 
 function svgIcon(paths: string): HTMLElement {
   const wrap = document.createElement("span");
-  wrap.style.cssText = "display:flex;align-items:center;justify-content:center;width:18px;height:18px;";
+  wrap.style.cssText =
+    "display:flex;align-items:center;justify-content:center;width:18px;height:18px;";
   wrap.innerHTML =
     `<svg width="${SVG_SIZE}" height="${SVG_SIZE}" viewBox="0 0 ${SVG_SIZE} ${SVG_SIZE}" ` +
     `fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">` +
-    paths + `</svg>`;
+    paths +
+    `</svg>`;
   return wrap;
 }
 
@@ -29,22 +31,21 @@ function textLabel(text: string, extra = ""): HTMLElement {
 
 export function iconUndo(): HTMLElement {
   return svgIcon(
-    `<path d="M4 7h8a4 4 0 0 1 0 8H11"/>` +
-    `<polyline points="7 4 4 7 7 10"/>`
+    `<path d="M4 7h8a4 4 0 0 1 0 8H11"/>` + `<polyline points="7 4 4 7 7 10"/>`,
   );
 }
 
 export function iconRedo(): HTMLElement {
   return svgIcon(
     `<path d="M14 7H6a4 4 0 0 0 0 8h1"/>` +
-    `<polyline points="11 4 14 7 11 10"/>`
+      `<polyline points="11 4 14 7 11 10"/>`,
   );
 }
 
 export function iconLink(): HTMLElement {
   return svgIcon(
     `<path d="M10 6H7a3 3 0 0 0 0 6h1"/>` +
-    `<path d="M8 12h4a3 3 0 0 0 0-6h-1"/>`
+      `<path d="M8 12h4a3 3 0 0 0 0-6h-1"/>`,
   );
 }
 
@@ -58,12 +59,14 @@ export function iconH3(): HTMLElement {
 
 export function iconHeadingMenu(): HTMLElement {
   const wrap = document.createElement("span");
-  wrap.style.cssText = "display:inline-flex;align-items:baseline;gap:2px;font-family:system-ui,-apple-system,sans-serif;";
+  wrap.style.cssText =
+    "display:inline-flex;align-items:baseline;gap:2px;font-family:system-ui,-apple-system,sans-serif;";
   const t = document.createElement("span");
   t.textContent = "Hn";
   t.style.cssText = "font-size:11px;font-weight:600;line-height:1;";
   const dot = document.createElement("span");
-  dot.style.cssText = "width:3px;height:3px;border-radius:50%;background:currentColor;flex-shrink:0;margin-bottom:1px;";
+  dot.style.cssText =
+    "width:3px;height:3px;border-radius:50%;background:currentColor;flex-shrink:0;margin-bottom:1px;";
   wrap.append(t, dot);
   return wrap;
 }
@@ -87,67 +90,73 @@ export function iconUnderline(): HTMLElement {
 export function iconInlineCode(): HTMLElement {
   return svgIcon(
     `<polyline points="6 5 2 9 6 13"/>` +
-    `<polyline points="12 5 16 9 12 13"/>`
+      `<polyline points="12 5 16 9 12 13"/>`,
   );
 }
 
 export function iconBlockquote(): HTMLElement {
   return svgIcon(
     `<path d="M3 6h4l-1 4H4a2 2 0 0 1 2 2" fill="none"/>` +
-    `<path d="M11 6h4l-1 4h-2a2 2 0 0 1 2 2" fill="none"/>`
+      `<path d="M11 6h4l-1 4h-2a2 2 0 0 1 2 2" fill="none"/>`,
   );
 }
 
 export function iconCodeBlock(): HTMLElement {
   return svgIcon(
     `<rect x="2" y="2" width="14" height="14" rx="2"/>` +
-    `<polyline points="6 6 4 9 6 12"/>` +
-    `<polyline points="12 6 14 9 12 12"/>`
+      `<polyline points="6 6 4 9 6 12"/>` +
+      `<polyline points="12 6 14 9 12 12"/>`,
   );
 }
 
 export function iconOrderedList(): HTMLElement {
   return svgIcon(
     `<line x1="8" y1="4" x2="16" y2="4"/>` +
-    `<line x1="8" y1="9" x2="16" y2="9"/>` +
-    `<line x1="8" y1="14" x2="16" y2="14"/>` +
-    `<text x="3.5" y="6" fill="currentColor" stroke="none" font-size="6" font-family="system-ui" text-anchor="middle">1</text>` +
-    `<text x="3.5" y="11" fill="currentColor" stroke="none" font-size="6" font-family="system-ui" text-anchor="middle">2</text>` +
-    `<text x="3.5" y="16" fill="currentColor" stroke="none" font-size="6" font-family="system-ui" text-anchor="middle">3</text>`
+      `<line x1="8" y1="9" x2="16" y2="9"/>` +
+      `<line x1="8" y1="14" x2="16" y2="14"/>` +
+      `<text x="3.5" y="6" fill="currentColor" stroke="none" font-size="6" font-family="system-ui" text-anchor="middle">1</text>` +
+      `<text x="3.5" y="11" fill="currentColor" stroke="none" font-size="6" font-family="system-ui" text-anchor="middle">2</text>` +
+      `<text x="3.5" y="16" fill="currentColor" stroke="none" font-size="6" font-family="system-ui" text-anchor="middle">3</text>`,
   );
 }
 
 export function iconUnorderedList(): HTMLElement {
   return svgIcon(
     `<line x1="8" y1="4" x2="16" y2="4"/>` +
-    `<line x1="8" y1="9" x2="16" y2="9"/>` +
-    `<line x1="8" y1="14" x2="16" y2="14"/>` +
-    `<circle cx="3.5" cy="4" r="1.5" fill="currentColor" stroke="none"/>` +
-    `<circle cx="3.5" cy="9" r="1.5" fill="currentColor" stroke="none"/>` +
-    `<circle cx="3.5" cy="14" r="1.5" fill="currentColor" stroke="none"/>`
+      `<line x1="8" y1="9" x2="16" y2="9"/>` +
+      `<line x1="8" y1="14" x2="16" y2="14"/>` +
+      `<circle cx="3.5" cy="4" r="1.5" fill="currentColor" stroke="none"/>` +
+      `<circle cx="3.5" cy="9" r="1.5" fill="currentColor" stroke="none"/>` +
+      `<circle cx="3.5" cy="14" r="1.5" fill="currentColor" stroke="none"/>`,
   );
 }
 
 export function iconTextColor(): HTMLElement {
   const wrap = document.createElement("span");
-  wrap.style.cssText = "display:inline-flex;flex-direction:column;align-items:center;gap:1px;";
+  wrap.style.cssText =
+    "display:inline-flex;flex-direction:column;align-items:center;gap:1px;";
   const a = document.createElement("span");
   a.textContent = "A";
-  a.style.cssText = "font-family:system-ui,-apple-system,sans-serif;font-size:13px;font-weight:600;line-height:1;";
+  a.style.cssText =
+    "font-family:system-ui,-apple-system,sans-serif;font-size:13px;font-weight:600;line-height:1;";
   const bar = document.createElement("span");
-  bar.style.cssText = "width:12px;height:2px;border-radius:1px;background:var(--nexus-accent,#0969da);";
+  bar.style.cssText =
+    "width:12px;height:2px;border-radius:1px;background:var(--nexus-accent,#0969da);";
   wrap.append(a, bar);
   return wrap;
 }
 
 export function iconHighlight(): HTMLElement {
   const wrap = document.createElement("span");
-  wrap.style.cssText = "display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;position:relative;";
+  wrap.style.cssText =
+    "display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;position:relative;";
   const bg = document.createElement("span");
-  bg.style.cssText = "position:absolute;inset:2px;border-radius:2px;background:var(--nexus-accent,#0969da);opacity:0.15;";
+  bg.style.cssText =
+    "position:absolute;inset:2px;border-radius:2px;background:var(--nexus-accent,#0969da);opacity:0.15;";
   const a = document.createElement("span");
   a.textContent = "A";
-  a.style.cssText = "position:relative;font-family:system-ui,-apple-system,sans-serif;font-size:13px;font-weight:600;line-height:1;";
+  a.style.cssText =
+    "position:relative;font-family:system-ui,-apple-system,sans-serif;font-size:13px;font-weight:600;line-height:1;";
   wrap.append(bg, a);
   return wrap;
 }
@@ -155,22 +164,30 @@ export function iconHighlight(): HTMLElement {
 export function iconImage(): HTMLElement {
   return svgIcon(
     `<rect x="2" y="3" width="14" height="12" rx="2"/>` +
-    `<circle cx="6" cy="7" r="1.5" fill="currentColor" stroke="none"/>` +
-    `<path d="M2 12l4-4 3 3 2-2 5 5" fill="none" stroke-width="1.5"/>`
+      `<circle cx="6" cy="7" r="1.5" fill="currentColor" stroke="none"/>` +
+      `<path d="M2 12l4-4 3 3 2-2 5 5" fill="none" stroke-width="1.5"/>`,
   );
 }
 
 export function iconFullscreen(): HTMLElement {
   return svgIcon(
     `<polyline points="4 7 4 4 7 4"/>` +
-    `<polyline points="14 7 14 4 11 4"/>` +
-    `<polyline points="4 11 4 14 7 14"/>` +
-    `<polyline points="14 11 14 14 11 14"/>`
+      `<polyline points="14 7 14 4 11 4"/>` +
+      `<polyline points="4 11 4 14 7 14"/>` +
+      `<polyline points="14 11 14 14 11 14"/>`,
+  );
+}
+
+export function iconTaskList(): HTMLElement {
+  return svgIcon(
+    `<rect x="2" y="3" width="5" height="5" rx="1"/>` +
+      `<path d="M3.5 5.5l1 1 2-2" fill="none" stroke-width="1.2"/>` +
+      `<line x1="10" y1="5.5" x2="16" y2="5.5"/>` +
+      `<rect x="2" y="10" width="5" height="5" rx="1"/>` +
+      `<line x1="10" y1="12.5" x2="16" y2="12.5"/>`,
   );
 }
 
 export function iconHorizontalRule(): HTMLElement {
-  return svgIcon(
-    `<line x1="2" y1="9" x2="16" y2="9"/>`
-  );
+  return svgIcon(`<line x1="2" y1="9" x2="16" y2="9"/>`);
 }

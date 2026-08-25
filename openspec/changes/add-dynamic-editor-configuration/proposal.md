@@ -1,38 +1,47 @@
-# Change: 通过 CodeMirror 6 Compartments 实现编辑器动态配置响应与框架双向绑定
+# Change: 编辑器动态配置重配与 GFM 交互式任务列表全链路管线
 
 ## Why
 
-Nexus-Editor 在 `@floatboat/nexus-vue` 和 `@floatboat/nexus-react` 适配层中暴露了 `readOnly`、`theme`、`locale`、`tabSize`、`direction`、`indentGuides` 等常用 Props。然而在现行实现中：
+Nexus-Editor 作为面向现代 Web 与桌面端的下一代 Markdown 编辑器，在运行时响应性与任务列表交互上存在两处关键断层：
 
-1. **底层 Core 扩展缺乏动态更新机制**：在 `@floatboat/nexus-core` 中，仅 `theme` 封装了 CodeMirror 6 `Compartment`，其余配置（如 `readOnly`、`tabSize`、`direction`、`indentGuides`）均在 `createEditor` 时静态写死；且 `EditorAPI` 缺少统一的 `reconfigure` 派发接口与专用 Setter 方法。
-2. **上层框架封装响应式断层**：在 `@floatboat/nexus-vue` 与 `@floatboat/nexus-react` 中，`useEditor` 仅针对 `modelValue` / `value` 做了 `watch` / `useEffect` 监听。当宿主组件在运行时动态切换主题（暗黑/明亮）、切换只读状态、改变缩进空格或文本方向时，编辑器内部完全不响应，导致前端组件化使用时功能严重受限。
+1. **运行时配置无法响应式更新**：
+   在 `@floatboat/nexus-core` 中，除 `theme` 外的配置（`readOnly`、`tabSize`、`direction`、`indentGuides`）均在初始化时静态固化；`@floatboat/nexus-vue` 和 `@floatboat/nexus-react` 仅监听 `modelValue`/`value`，导致无法支持运行时动态切换主题、只读权限和排版选项。
+2. **GFM 任务列表（Task List）生态链路缺失**：
+   虽然底层具备基本的复选框解析，但在生产级交互上缺少全链路支持：
+   - Live Preview 复选框未受只读模式保护（只读下仍能点击触发 dispatch）。
+   - 缺少快捷键在当前行/选区快速切换待办状态（`[ ]` ↔ `[x]`）。
+   - 工具栏（`plugin-toolbar`）缺少任务列表格式化按钮与状态激活高亮。
+   - 斜杠菜单（`plugin-slash`）缺少 `/todo` 和 `/task` 快捷命令。
 
-本变更旨在利用 CodeMirror 6 的 `Compartment` 动态重配机制，打通 Core 层原子配置更新能力，并在 Vue 3 与 React 两套框架封装中建立完整的响应式监听与平滑重配管线，确保无 DOM 销毁重建、无选区丢失、无输入法打断。
+本变更构建了基于 CodeMirror 6 `Compartment` 的原子配置重配机制，打通 Vue 3 / React 响应式监听，并完整构建了覆盖 Core、Toolbar、Slash 的 GFM 交互式任务列表全链路工程闭环。
 
 ## What Changes
 
-- **新增 Core 动态重配接口与 Compartments 体系**：
-  - 在 `@floatboat/nexus-core` 内部为 `readOnly`、`tabSize`、`direction`、`indentGuides` 等特性引入独立的 `Compartment` 实例。
-  - 在 `EditorAPI` 上暴露统一的 `reconfigure(config: DynamicEditorConfig): void` 方法，支持单个或批量原子派发配置变更。
-  - 在 `EditorAPI` 上暴露高频属性便捷 Setter 方法：`setReadOnly(readOnly: boolean)`、`setTabSize(tabSize: number)`、`setDirection(direction: 'ltr' | 'rtl')`、`setIndentGuides(enabled: boolean)`、`setLocale(locale: Partial<NexusLocale>)`。
-- **Vue 3 响应式接入与平滑同步 (`packages/vue`)**：
-  - `useEditor` 与 `NexusEditor` 组件增加对动态 Props（`readOnly`、`theme`、`locale`、`tabSize`、`direction`、`indentGuides`）的深度响应式监听 (`watch`)。
-  - 当 Props 变更时，自动调用 `editor.reconfigure` 进行单事务原子重配，杜绝全量 Remount。
-- **React 响应式接入与生命周期同步 (`packages/react`)**：
-  - `useEditor` 与 `Editor` 组件通过 `useEffect` 监听动态配置依赖变化，自动同步至编辑器实例。
-- **自动化测试矩阵**：
-  - 在 Core、Vue、React 三个包中分别建立动态重配与响应式更新的单测用例，验证状态一致性与选区保持。
+- **Core 动态重配基础设施 (`packages/core`)**：
+  - 引入 `Compartment` 体系管理 `readOnly`、`tabSize`、`direction`、`indentGuides` 和 `theme`。
+  - 在 `EditorAPI` 暴露原子 `reconfigure(config: DynamicEditorConfig)` 派发接口及常用 Setter。
+- **Core 交互式任务列表与快捷键增强 (`packages/core`)**：
+  - 为 Live Preview 复选框增加 `readOnly` 状态守卫（只读模式下复选框处于 `disabled` 状态且点击被安全拦截）。
+  - 在 `markdownKeymap` 中增加快捷键 `Mod-Enter` / `Alt-Enter` 智能切换当前行或多光标行的任务项状态（`- [ ]` ↔ `- [x]`）。
+- **Vue 3 & React 响应式状态同步 (`packages/vue`, `packages/react`)**：
+  - 在 `useEditor` 中深度监听动态 Props 变化并原子重配，杜绝全量 Remount。
+- **Toolbar 工具栏 Checklist 按钮与状态感知 (`packages/plugin-toolbar`)**：
+  - 新增 `toggleTaskList` 格式化算法（单事务原子 Undo 保护，四态流转：文本 → 任务 → 完成 → 清除）。
+  - 工具栏 UI 新增 Checklist 按钮图标，并支持光标处任务状态激活高亮。
+- **Slash 斜杠菜单 `/todo` & `/task` 命令集成 (`packages/plugin-slash`)**：
+  - 内置 `/todo` 与 `/task` 斜杠命令，回车快速插入任务列表项。
+- **全链路测试矩阵与 OpenSpec 规范交付**。
 
 ## Capabilities
 
-### New Capabilities / Requirements
+### New / Modified Capabilities
 
-- `editor-core`: `reconfigure(config)` 统一事务派发与各特性 Compartment 动态重配能力；专用 Setter 接口。
-- `editor-vue`: 动态配置 Props 的 Vue 3 响应式驱动与同步。
-- `editor-react`: 动态配置 Props 的 React 声明式依赖同步。
+- `editor-core`: 动态配置 `reconfigure`；只读守卫；任务状态快捷键。
+- `editor-vue` & `editor-react`: 框架 Props 响应式同步。
+- `plugin-toolbar`: `toggleTaskList` 格式化与工具栏任务列表按钮。
+- `plugin-slash`: `/todo` 与 `/task` 斜杠命令定义。
 
 ## Impact
 
-- 核心包：`packages/core/src/types.ts`、`packages/core/src/editor.ts`。
-- 框架绑定包：`packages/vue/src/types.ts`、`packages/vue/src/use-editor.ts`、`packages/react/src/use-editor.ts`。
-- 兼容性：100% 向后兼容，不破坏现有任何 API 签名和调用方式。
+- 涉及包：`packages/core`、`packages/vue`、`packages/react`、`packages/plugin-toolbar`、`packages/plugin-slash`。
+- 兼容性：100% 向后兼容。

@@ -29,31 +29,43 @@ function requireEditorView(view: EditorView | null): EditorView {
 }
 
 async function blurCellOutsideTable(cell: HTMLElement): Promise<void> {
-  const activeElementSpy = vi.spyOn(document, "activeElement", "get").mockReturnValue(document.body);
+  const activeElementSpy = vi
+    .spyOn(document, "activeElement", "get")
+    .mockReturnValue(document.body);
   cell.dispatchEvent(new Event("blur"));
   await Promise.resolve();
   activeElementSpy.mockRestore();
 }
 
-function activateTableCell(cell: HTMLElement, clientX = 80, clientY = 40): void {
+function activateTableCell(
+  cell: HTMLElement,
+  clientX = 80,
+  clientY = 40,
+): void {
   document.getSelection()?.removeAllRanges();
-  cell.dispatchEvent(new MouseEvent("mousedown", {
-    bubbles: true,
-    cancelable: true,
-    button: 0,
-    clientX,
-    clientY,
-  }));
-  document.dispatchEvent(new MouseEvent("mouseup", {
-    bubbles: true,
-    button: 0,
-    clientX,
-    clientY,
-  }));
+  cell.dispatchEvent(
+    new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX,
+      clientY,
+    }),
+  );
+  document.dispatchEvent(
+    new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 0,
+      clientX,
+      clientY,
+    }),
+  );
 }
 
 async function nextAnimationFrame(): Promise<void> {
-  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+  await new Promise<void>((resolve) =>
+    window.requestAnimationFrame(() => resolve()),
+  );
 }
 
 describe("live preview", () => {
@@ -65,8 +77,9 @@ describe("live preview", () => {
     const container = document.createElement("div");
     const editor = createEditor({
       container,
-      initialValue: "Text **bold** *italic* `code` [link](https://example.com)\n\nend",
-      livePreview: true
+      initialValue:
+        "Text **bold** *italic* `code` [link](https://example.com)\n\nend",
+      livePreview: true,
     });
 
     // Move cursor to a different line
@@ -88,7 +101,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text **bold**\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     // Cursor on different line → markers hidden
@@ -107,7 +120,7 @@ describe("live preview", () => {
       container,
       initialValue: "Text ~~deleted~~\n\nend",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     editor.setSelection(editor.getDocument().length);
@@ -123,7 +136,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text **bold**\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     editor.setDocument("Text **changed**\n\nend");
@@ -144,7 +157,7 @@ describe("live preview", () => {
         constructor(readonly view: EditorView) {
           capturedView = view;
         }
-      }
+      },
     );
     const editor = createEditor({
       container,
@@ -168,7 +181,9 @@ describe("live preview", () => {
     expect(container.textContent).not.toContain("**");
 
     vi.useFakeTimers();
-    view.contentDOM.dispatchEvent(new Event("compositionend", { bubbles: true }));
+    view.contentDOM.dispatchEvent(
+      new Event("compositionend", { bubbles: true }),
+    );
     await vi.advanceTimersByTimeAsync(80);
     vi.useRealTimers();
 
@@ -183,7 +198,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text ***bold italic***\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     editor.setSelection(editor.getDocument().length);
@@ -200,7 +215,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text **_mixed_**\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     editor.setSelection(editor.getDocument().length);
@@ -219,7 +234,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Click [here](https://example.com)\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     editor.setSelection(editor.getDocument().length);
@@ -234,8 +249,9 @@ describe("live preview", () => {
     const container = document.createElement("div");
     const editor = createEditor({
       container,
-      initialValue: "## 目录\n\n1. [项目概述](#项目概述)\n2. [快速开始](#快速开始)\n3. [主要功能](#主要功能)\n\nend",
-      livePreview: true
+      initialValue:
+        "## 目录\n\n1. [项目概述](#项目概述)\n2. [快速开始](#快速开始)\n3. [主要功能](#主要功能)\n\nend",
+      livePreview: true,
     });
 
     editor.setSelection(editor.getDocument().length);
@@ -253,7 +269,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Click [here](https://example.com) now\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     editor.setSelection(editor.getDocument().length);
@@ -271,7 +287,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: source,
-      livePreview: true
+      livePreview: true,
     });
 
     editor.setSelection(source.indexOf(") now") + 1);
@@ -283,17 +299,20 @@ describe("live preview", () => {
 
   it("shows raw markdown for ordered-list links when the cursor reaches their right edge", () => {
     const container = document.createElement("div");
-    const source = "1. [标题层级](#标题层级)\n2. [段落与换行](#段落与换行)\n\nend";
+    const source =
+      "1. [标题层级](#标题层级)\n2. [段落与换行](#段落与换行)\n\nend";
     const editor = createEditor({
       container,
       initialValue: source,
-      livePreview: true
+      livePreview: true,
     });
 
     editor.setSelection(source.indexOf("\n2."));
 
     expect(container.textContent).toContain("[标题层级](#标题层级)");
-    expect(container.querySelector("[data-link-url]")?.textContent).toBe("段落与换行");
+    expect(container.querySelector("[data-link-url]")?.textContent).toBe(
+      "段落与换行",
+    );
     editor.destroy();
   });
 
@@ -304,10 +323,12 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Intro\n\n# Heading",
-      livePreview: true
+      livePreview: true,
     });
 
-    expect(container.querySelector("[data-heading-level='1']")?.textContent).toBe("Heading");
+    expect(
+      container.querySelector("[data-heading-level='1']")?.textContent,
+    ).toBe("Heading");
     editor.destroy();
   });
 
@@ -320,7 +341,7 @@ describe("live preview", () => {
         constructor(readonly view: EditorView) {
           capturedView = view;
         }
-      }
+      },
     );
     const editor = createEditor({
       container,
@@ -335,7 +356,9 @@ describe("live preview", () => {
 
     const view = requireEditorView(capturedView);
     vi.useFakeTimers();
-    view.contentDOM.dispatchEvent(new Event("compositionstart", { bubbles: true }));
+    view.contentDOM.dispatchEvent(
+      new Event("compositionstart", { bubbles: true }),
+    );
     expect(container.querySelector("[data-heading-level='1']")).toBeNull();
     expect(container.textContent).toContain("# 第一章");
 
@@ -349,11 +372,15 @@ describe("live preview", () => {
     expect(container.querySelector("[data-heading-level='1']")).toBeNull();
     expect(container.textContent).toContain("# 第一章一");
 
-    view.contentDOM.dispatchEvent(new Event("compositionend", { bubbles: true }));
+    view.contentDOM.dispatchEvent(
+      new Event("compositionend", { bubbles: true }),
+    );
     await vi.advanceTimersByTimeAsync(80);
     vi.useRealTimers();
 
-    expect(container.querySelector("[data-heading-level='1']")?.textContent).toBe("第一章一");
+    expect(
+      container.querySelector("[data-heading-level='1']")?.textContent,
+    ).toBe("第一章一");
     expect(container.textContent).not.toContain("# 第一章一");
     editor.destroy();
   });
@@ -379,7 +406,7 @@ describe("live preview", () => {
             effectOnlyUpdates++;
           }
         }
-      }
+      },
     );
     const editor = createEditor({
       container,
@@ -393,7 +420,9 @@ describe("live preview", () => {
 
     const view = requireEditorView(capturedView);
     vi.useFakeTimers();
-    view.contentDOM.dispatchEvent(new Event("compositionstart", { bubbles: true }));
+    view.contentDOM.dispatchEvent(
+      new Event("compositionstart", { bubbles: true }),
+    );
 
     expect(effectOnlyUpdates).toBe(0);
     expect(editor.getDocument().split("\n")[22]).toBe("### ");
@@ -407,7 +436,9 @@ describe("live preview", () => {
     expect(editor.getDocument().split("\n")[22]).toBe("### ddsadsada");
     expect(editor.getDocument().split("\n")[23]).toBe("end");
 
-    view.contentDOM.dispatchEvent(new Event("compositionend", { bubbles: true }));
+    view.contentDOM.dispatchEvent(
+      new Event("compositionend", { bubbles: true }),
+    );
     await vi.advanceTimersByTimeAsync(80);
     vi.useRealTimers();
 
@@ -423,15 +454,17 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Intro\n\n> Quote\n\n![Alt](https://example.com/image.png)",
-      livePreview: true
+      livePreview: true,
     });
 
     expect(container.querySelector("blockquote")).toBeNull();
     expect(container.textContent).toContain("Quote");
     expect(container.textContent).not.toContain("> Quote");
-    expect(container.querySelector("[data-live-preview-image]")?.getAttribute("data-live-preview-image")).toBe(
-      "https://example.com/image.png"
-    );
+    expect(
+      container
+        .querySelector("[data-live-preview-image]")
+        ?.getAttribute("data-live-preview-image"),
+    ).toBe("https://example.com/image.png");
 
     editor.setSelection(9);
     expect(container.textContent).toContain("> Quote");
@@ -443,7 +476,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text\n\n---\n\nMore",
-      livePreview: true
+      livePreview: true,
     });
 
     expect(container.querySelector("hr")).not.toBeNull();
@@ -457,7 +490,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text\n\n```js\nconsole.log(1)\n```",
-      livePreview: true
+      livePreview: true,
     });
 
     expect(container.textContent).toContain("console.log(1)");
@@ -472,7 +505,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text\n\n```js\nconsole.log(1)\n```",
-      livePreview: true
+      livePreview: true,
     });
 
     const textBefore = container.textContent ?? "";
@@ -491,12 +524,13 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text\n\n```py\nx = 1\ny = 2\n```",
-      livePreview: true
+      livePreview: true,
     });
 
     const codeLines = Array.from(container.querySelectorAll(".cm-line")).filter(
-      (line) => (line as HTMLElement).style.background === "rgb(246, 248, 250)"
-        || (line as HTMLElement).getAttribute("style")?.includes("background")
+      (line) =>
+        (line as HTMLElement).style.background === "rgb(246, 248, 250)" ||
+        (line as HTMLElement).getAttribute("style")?.includes("background"),
     );
     expect(codeLines.length).toBeGreaterThanOrEqual(2);
     editor.destroy();
@@ -509,15 +543,16 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text\n\n    indented code\n    second line",
-      livePreview: true
+      livePreview: true,
     });
 
     const text = container.textContent ?? "";
     expect(text).toContain("indented code");
     expect(text).toContain("second line");
     const codeLines = Array.from(container.querySelectorAll(".cm-line")).filter(
-      (line) => (line as HTMLElement).getAttribute("style")?.includes("background") ||
-        (line as HTMLElement).innerHTML.includes("monospace")
+      (line) =>
+        (line as HTMLElement).getAttribute("style")?.includes("background") ||
+        (line as HTMLElement).innerHTML.includes("monospace"),
     );
     expect(codeLines.length).toBeGreaterThanOrEqual(2);
     editor.destroy();
@@ -531,7 +566,7 @@ describe("live preview", () => {
       container,
       initialValue: "Text with footnote[^1]\n\n[^1]: Definition text",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     const sup = container.querySelector("sup");
@@ -548,7 +583,7 @@ describe("live preview", () => {
       container,
       initialValue: "Visit https://example.com today\n\nend",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     editor.setSelection(editor.getDocument().length);
@@ -567,7 +602,7 @@ describe("live preview", () => {
       container,
       initialValue: "Text\n\n| A | B |\n| --- | --- |\n| 1 | 2 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     const table = container.querySelector("table");
@@ -587,13 +622,16 @@ describe("live preview", () => {
         constructor(readonly view: EditorView) {
           capturedView = view;
         }
-      }
+      },
     );
     const editor = createEditor({
       container,
       initialValue: "before\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\nafter",
       livePreview: true,
-      plugins: [createGfmPreset(), { name: "capture", cmExtensions: [captureView] }]
+      plugins: [
+        createGfmPreset(),
+        { name: "capture", cmExtensions: [captureView] },
+      ],
     });
     const view = requireEditorView(capturedView);
     // 光标离开表格，使其渲染为不可逐字进入的 block widget。
@@ -622,29 +660,35 @@ describe("live preview", () => {
       container,
       initialValue: "| A | B |\n| --- | --- |\n| 1 | 222 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    const cell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
     expect(cell).not.toBeUndefined();
     expect(cell?.contentEditable).not.toBe("true");
 
-    cell?.dispatchEvent(new MouseEvent("mousedown", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 80,
-      clientY: 40
-    }));
+    cell?.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 80,
+        clientY: 40,
+      }),
+    );
 
     expect(cell?.contentEditable).not.toBe("true");
 
-    document.dispatchEvent(new MouseEvent("mouseup", {
-      bubbles: true,
-      button: 0,
-      clientX: 80,
-      clientY: 40
-    }));
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+        clientX: 80,
+        clientY: 40,
+      }),
+    );
 
     expect(cell?.contentEditable).toBe("true");
     editor.destroy();
@@ -660,34 +704,43 @@ describe("live preview", () => {
         constructor(readonly view: EditorView) {
           capturedView = view;
         }
-      }
+      },
     );
     const source = "| A | B |\n| --- | --- |\n| 1 | 222 |";
     const editor = createEditor({
       container,
       initialValue: source,
       livePreview: true,
-      plugins: [createGfmPreset(), { name: "capture-view", cmExtensions: [captureView] }]
+      plugins: [
+        createGfmPreset(),
+        { name: "capture-view", cmExtensions: [captureView] },
+      ],
     });
     const view = requireEditorView(capturedView);
     editor.setSelection(source.length);
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    const cell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
     expect(cell).not.toBeUndefined();
 
-    cell?.dispatchEvent(new MouseEvent("mousedown", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 80,
-      clientY: 40
-    }));
-    document.dispatchEvent(new MouseEvent("mouseup", {
-      bubbles: true,
-      button: 0,
-      clientX: 80,
-      clientY: 40
-    }));
+    cell?.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 80,
+        clientY: 40,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+        clientX: 80,
+        clientY: 40,
+      }),
+    );
 
     expect(cell?.contentEditable).toBe("true");
     expect(view.state.selection.main.anchor).toBe(source.indexOf("222"));
@@ -705,17 +758,22 @@ describe("live preview", () => {
         constructor(readonly view: EditorView) {
           capturedView = view;
         }
-      }
+      },
     );
     const source = "A \\| literal | B\n--- | ---\nvalue \\| one | target";
     const editor = createEditor({
       container,
       initialValue: source,
       livePreview: true,
-      plugins: [createGfmPreset(), { name: "capture-view", cmExtensions: [captureView] }]
+      plugins: [
+        createGfmPreset(),
+        { name: "capture-view", cmExtensions: [captureView] },
+      ],
     });
     const view = requireEditorView(capturedView);
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    const cell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
     expect(cell).not.toBeUndefined();
 
     activateTableCell(cell!);
@@ -733,34 +791,44 @@ describe("live preview", () => {
       container,
       initialValue: "| A | B |\n| --- | --- |\n| 1 | 222 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    const cell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
     expect(cell).not.toBeUndefined();
 
-    cell?.dispatchEvent(new MouseEvent("mousedown", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 80,
-      clientY: 40
-    }));
-    document.dispatchEvent(new MouseEvent("mouseup", {
-      bubbles: true,
-      button: 0,
-      clientX: 80,
-      clientY: 40
-    }));
+    cell?.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 80,
+        clientY: 40,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+        clientX: 80,
+        clientY: 40,
+      }),
+    );
 
     expect(cell?.contentEditable).toBe("true");
     const documentInputSpy = vi.fn();
     document.addEventListener("input", documentInputSpy);
     cell!.textContent = "2223";
-    cell!.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    cell!.dispatchEvent(
+      new Event("input", { bubbles: true, cancelable: true }),
+    );
     document.removeEventListener("input", documentInputSpy);
 
-    const currentCell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    const currentCell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
     expect(cell?.isConnected).toBe(true);
     expect(currentCell).toBe(cell);
     expect(cell?.contentEditable).toBe("true");
@@ -783,42 +851,62 @@ describe("live preview", () => {
       container,
       initialValue: "| A | B |\n| --- | --- |\n|  | aa |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
 
-    cell?.dispatchEvent(new MouseEvent("mousedown", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 80,
-      clientY: 40
-    }));
-    document.dispatchEvent(new MouseEvent("mouseup", {
-      bubbles: true,
-      button: 0,
-      clientX: 80,
-      clientY: 40
-    }));
+    cell?.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 80,
+        clientY: 40,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+        clientX: 80,
+        clientY: 40,
+      }),
+    );
 
     expect(cell?.contentEditable).toBe("true");
-    cell!.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, cancelable: true, data: "" }));
+    cell!.dispatchEvent(
+      new CompositionEvent("compositionstart", {
+        bubbles: true,
+        cancelable: true,
+        data: "",
+      }),
+    );
     cell!.textContent = "n";
-    cell!.dispatchEvent(new InputEvent("input", {
-      bubbles: true,
-      cancelable: true,
-      data: "n",
-      inputType: "insertCompositionText",
-      isComposing: true
-    }));
+    cell!.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        cancelable: true,
+        data: "n",
+        inputType: "insertCompositionText",
+        isComposing: true,
+      }),
+    );
 
     expect(editor.getDocument()).toContain("|  | aa |");
     expect(editor.getDocument()).not.toContain("| n | aa |");
 
     cell!.textContent = "你好";
-    cell!.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, cancelable: true, data: "你好" }));
+    cell!.dispatchEvent(
+      new CompositionEvent("compositionend", {
+        bubbles: true,
+        cancelable: true,
+        data: "你好",
+      }),
+    );
     await new Promise((resolve) => window.setTimeout(resolve, 0));
 
     expect(cell?.isConnected).toBe(true);
@@ -841,22 +929,30 @@ describe("live preview", () => {
       container,
       initialValue: "| A | B |\n| --- | --- |\n|  | aa |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
     activateTableCell(cell!);
 
-    cell!.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "" }));
+    cell!.dispatchEvent(
+      new CompositionEvent("compositionstart", { bubbles: true, data: "" }),
+    );
     cell!.textContent = "ni";
-    cell!.dispatchEvent(new InputEvent("input", {
-      bubbles: true,
-      data: "ni",
-      inputType: "insertCompositionText",
-      isComposing: true,
-    }));
+    cell!.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        data: "ni",
+        inputType: "insertCompositionText",
+        isComposing: true,
+      }),
+    );
     cell!.textContent = "你好";
-    cell!.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "你好" }));
+    cell!.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true, data: "你好" }),
+    );
 
     await blurCellOutsideTable(cell!);
 
@@ -881,13 +977,23 @@ describe("live preview", () => {
         docs.push(doc);
       },
     });
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
     activateTableCell(cell!);
     cell!.textContent = "edited";
-    cell!.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "edited" }));
+    cell!.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+        data: "edited",
+      }),
+    );
 
-    expect(() => editor.setDocument("replacement", { silent: true })).not.toThrow();
+    expect(() =>
+      editor.setDocument("replacement", { silent: true }),
+    ).not.toThrow();
 
     expect(docs).toHaveLength(1);
     expect(docs[0]).toContain("| edited | 2 |");
@@ -910,24 +1016,30 @@ describe("live preview", () => {
       container,
       initialValue: source,
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
-    const firstCell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const firstCell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(firstCell).not.toBeUndefined();
     activateTableCell(firstCell!);
 
     editor.setDocument(source, { silent: true });
 
-    const reloadedCell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const reloadedCell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(reloadedCell).not.toBeUndefined();
     expect(reloadedCell).not.toBe(firstCell);
     activateTableCell(reloadedCell!);
     reloadedCell!.textContent = "edited-after-reload";
-    reloadedCell!.dispatchEvent(new InputEvent("input", {
-      bubbles: true,
-      inputType: "insertText",
-      data: "edited-after-reload"
-    }));
+    reloadedCell!.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+        data: "edited-after-reload",
+      }),
+    );
 
     await blurCellOutsideTable(reloadedCell!);
 
@@ -945,23 +1057,29 @@ describe("live preview", () => {
       container,
       initialValue: `x\n\n${table}`,
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
-    const firstCell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const firstCell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(firstCell).not.toBeUndefined();
 
     editor.setDocument(`a much longer prefix\n\n${table}`, { silent: true });
 
-    const movedCell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const movedCell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(movedCell).not.toBeUndefined();
     expect(movedCell).not.toBe(firstCell);
     activateTableCell(movedCell!);
     movedCell!.textContent = "edited";
-    movedCell!.dispatchEvent(new InputEvent("input", {
-      bubbles: true,
-      inputType: "insertText",
-      data: "edited"
-    }));
+    movedCell!.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+        data: "edited",
+      }),
+    );
 
     await blurCellOutsideTable(movedCell!);
 
@@ -979,23 +1097,29 @@ describe("live preview", () => {
       container: firstContainer,
       initialValue: "| A |\n| --- |\n| editing |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
     const secondEditor = createEditor({
       container: secondContainer,
       initialValue: "| A |\n| --- |\n| Old |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
-    const activeCell = firstContainer.querySelectorAll<HTMLElement>("tr")[2]?.querySelector<HTMLElement>(".nexus-cell");
+    const activeCell = firstContainer
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelector<HTMLElement>(".nexus-cell");
     expect(activeCell).not.toBeUndefined();
     activateTableCell(activeCell!);
 
     secondEditor.setDocument("| A |\n| --- |\n| New |", { silent: true });
 
     expect(secondEditor.getDocument()).toContain("| New |");
-    expect(secondContainer.querySelector(".nexus-table-wrapper")?.textContent).toContain("New");
-    expect(secondContainer.querySelector(".nexus-table-wrapper")?.textContent).not.toContain("Old");
+    expect(
+      secondContainer.querySelector(".nexus-table-wrapper")?.textContent,
+    ).toContain("New");
+    expect(
+      secondContainer.querySelector(".nexus-table-wrapper")?.textContent,
+    ).not.toContain("Old");
 
     firstEditor.destroy();
     secondEditor.destroy();
@@ -1017,11 +1141,19 @@ describe("live preview", () => {
         docs.push(doc);
       },
     });
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
     activateTableCell(cell!);
     cell!.textContent = "saved-before-destroy";
-    cell!.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "saved-before-destroy" }));
+    cell!.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+        data: "saved-before-destroy",
+      }),
+    );
 
     editor.destroy();
 
@@ -1043,15 +1175,19 @@ describe("live preview", () => {
         throw new Error("host failure");
       },
     });
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
     activateTableCell(cell!);
     cell!.textContent = "edited";
-    cell!.dispatchEvent(new InputEvent("input", {
-      bubbles: true,
-      inputType: "insertText",
-      data: "edited"
-    }));
+    cell!.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+        data: "edited",
+      }),
+    );
 
     expect(() => editor.destroy()).toThrow("host failure");
 
@@ -1062,7 +1198,8 @@ describe("live preview", () => {
   it("rejects public transaction re-entry while flushing a table for destroy", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
-    let reentrantResult: ReturnType<EditorAPI["dispatchTransaction"]> | undefined;
+    let reentrantResult:
+      ReturnType<EditorAPI["dispatchTransaction"]> | undefined;
     let editor!: EditorAPI;
     editor = createEditor({
       container,
@@ -1077,15 +1214,19 @@ describe("live preview", () => {
         });
       },
     });
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
     activateTableCell(cell!);
     cell!.textContent = "edited";
-    cell!.dispatchEvent(new InputEvent("input", {
-      bubbles: true,
-      inputType: "insertText",
-      data: "edited",
-    }));
+    cell!.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+        data: "edited",
+      }),
+    );
 
     editor.destroy();
 
@@ -1105,25 +1246,58 @@ describe("live preview", () => {
       container,
       initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
-    const rows = Array.from(container.querySelectorAll<HTMLElement>("tr")).filter((row) => row.querySelector(".nexus-cell"));
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>("tr"),
+    ).filter((row) => row.querySelector(".nexus-cell"));
     const headerCells = rows[0].querySelectorAll<HTMLElement>(".nexus-cell");
     headerCells[0].getBoundingClientRect = () => new DOMRect(0, 0, 50, 30);
     headerCells[1].getBoundingClientRect = () => new DOMRect(50, 0, 50, 30);
     const cell = rows[1].querySelectorAll<HTMLElement>(".nexus-cell")[0];
     activateTableCell(cell);
     cell.textContent = "edited";
-    cell.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "edited" }));
+    cell.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+        data: "edited",
+      }),
+    );
 
     const grip = container.querySelectorAll<HTMLElement>(".nexus-col-grip")[0];
-    grip.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, clientX: 25, clientY: 5 }));
+    grip.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 25,
+        clientY: 5,
+      }),
+    );
     cell.dispatchEvent(new Event("blur"));
     await Promise.resolve();
-    document.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, cancelable: true, button: 0, clientX: 75, clientY: 5 }));
-    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, clientX: 75, clientY: 5 }));
+    document.dispatchEvent(
+      new MouseEvent("mousemove", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 75,
+        clientY: 5,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+        clientX: 75,
+        clientY: 5,
+      }),
+    );
 
-    expect(editor.getDocument()).toBe("| B | A |\n| --- | --- |\n| 2 | edited |");
+    expect(editor.getDocument()).toBe(
+      "| B | A |\n| --- | --- |\n| 2 | edited |",
+    );
 
     editor.destroy();
     container.remove();
@@ -1136,25 +1310,58 @@ describe("live preview", () => {
       container,
       initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
-    const rows = Array.from(container.querySelectorAll<HTMLElement>("tr")).filter((row) => row.querySelector(".nexus-cell"));
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>("tr"),
+    ).filter((row) => row.querySelector(".nexus-cell"));
     rows[1].getBoundingClientRect = () => new DOMRect(0, 30, 100, 30);
     rows[2].getBoundingClientRect = () => new DOMRect(0, 60, 100, 30);
     const cell = rows[1].querySelectorAll<HTMLElement>(".nexus-cell")[0];
     activateTableCell(cell);
     cell.textContent = "edited";
-    cell.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "edited" }));
+    cell.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+        data: "edited",
+      }),
+    );
 
     const grip = rows[1].querySelector<HTMLElement>(".nexus-row-grip");
     expect(grip).not.toBeNull();
-    grip!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, clientX: 5, clientY: 45 }));
+    grip!.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 5,
+        clientY: 45,
+      }),
+    );
     cell.dispatchEvent(new Event("blur"));
     await Promise.resolve();
-    document.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, cancelable: true, button: 0, clientX: 5, clientY: 75 }));
-    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, clientX: 5, clientY: 75 }));
+    document.dispatchEvent(
+      new MouseEvent("mousemove", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 5,
+        clientY: 75,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+        clientX: 5,
+        clientY: 75,
+      }),
+    );
 
-    expect(editor.getDocument()).toBe("| A | B |\n| --- | --- |\n| 3 | 4 |\n| edited | 2 |");
+    expect(editor.getDocument()).toBe(
+      "| A | B |\n| --- | --- |\n| 3 | 4 |\n| edited | 2 |",
+    );
 
     editor.destroy();
     container.remove();
@@ -1169,18 +1376,21 @@ describe("live preview", () => {
         constructor(readonly view: EditorView) {
           capturedView = view;
         }
-      }
+      },
     );
     const editor = createEditor({
       container,
       initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |",
       livePreview: true,
-      plugins: [createGfmPreset(), { name: "capture-view", cmExtensions: [captureView] }]
+      plugins: [
+        createGfmPreset(),
+        { name: "capture-view", cmExtensions: [captureView] },
+      ],
     });
 
-    const rows = Array.from(container.querySelectorAll<HTMLElement>("tr")).filter((row) =>
-      row.querySelector(".nexus-cell")
-    );
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>("tr"),
+    ).filter((row) => row.querySelector(".nexus-cell"));
     const firstCell = rows[1]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     const nextCell = rows[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(firstCell).not.toBeUndefined();
@@ -1188,10 +1398,14 @@ describe("live preview", () => {
 
     const view = requireEditorView(capturedView);
     const dispatchSpy = vi.spyOn(view, "dispatch");
-    const activeElementSpy = vi.spyOn(document, "activeElement", "get").mockReturnValue(nextCell!);
+    const activeElementSpy = vi
+      .spyOn(document, "activeElement", "get")
+      .mockReturnValue(nextCell!);
 
     firstCell!.textContent = "9";
-    firstCell!.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    firstCell!.dispatchEvent(
+      new Event("input", { bubbles: true, cancelable: true }),
+    );
     firstCell!.dispatchEvent(new Event("blur"));
     await Promise.resolve();
 
@@ -1211,12 +1425,12 @@ describe("live preview", () => {
       container,
       initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
-    const dataRows = Array.from(container.querySelectorAll<HTMLElement>("tr")).filter((row) =>
-      row.querySelector(".nexus-cell")
-    );
+    const dataRows = Array.from(
+      container.querySelectorAll<HTMLElement>("tr"),
+    ).filter((row) => row.querySelector(".nexus-cell"));
     const cellOf = (rowIndex: number, colIndex: number): HTMLElement =>
       dataRows[rowIndex].querySelectorAll<HTMLElement>(".nexus-cell")[colIndex];
 
@@ -1225,24 +1439,51 @@ describe("live preview", () => {
     // 因此这里用「事件是否被消费 + 目标单元格是否被激活为可编辑」来判定导航，
     // focus 的真实落点由 E2E 在真实 Chromium 中覆盖。
     const start = cellOf(1, 0);
-    start.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, clientX: 80, clientY: 40 }));
-    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, clientX: 80, clientY: 40 }));
+    start.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 80,
+        clientY: 40,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+        clientX: 80,
+        clientY: 40,
+      }),
+    );
     expect(start.contentEditable).toBe("true");
 
     // ↓ 激活第 3 行第 1 列（"3"），并消费事件。
-    const downEvent = new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true });
+    const downEvent = new KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      bubbles: true,
+      cancelable: true,
+    });
     start.dispatchEvent(downEvent);
     expect(downEvent.defaultPrevented).toBe(true);
     const bottom = cellOf(2, 0);
     expect(bottom.contentEditable).toBe("true");
 
     // ↓ 在最后一行到达边界，不消费（交回默认）。
-    const downAtBottom = new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true });
+    const downAtBottom = new KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      bubbles: true,
+      cancelable: true,
+    });
     bottom.dispatchEvent(downAtBottom);
     expect(downAtBottom.defaultPrevented).toBe(false);
 
     // ↑ 从底行回到第 2 行第 1 列（"1"）。
-    const upEvent = new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true });
+    const upEvent = new KeyboardEvent("keydown", {
+      key: "ArrowUp",
+      bubbles: true,
+      cancelable: true,
+    });
     bottom.dispatchEvent(upEvent);
     expect(upEvent.defaultPrevented).toBe(true);
     expect(start.contentEditable).toBe("true");
@@ -1258,10 +1499,12 @@ describe("live preview", () => {
       container,
       initialValue: "| A | B |\n| --- | --- |\n| 1 | **加粗** |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    const cell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
     const textNode = cell?.querySelector("strong")?.firstChild;
     expect(cell).not.toBeUndefined();
     expect(textNode?.textContent).toBe("加粗");
@@ -1275,19 +1518,23 @@ describe("live preview", () => {
       value: () => range,
     });
 
-    cell?.dispatchEvent(new MouseEvent("mousedown", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 80,
-      clientY: 40
-    }));
-    document.dispatchEvent(new MouseEvent("mouseup", {
-      bubbles: true,
-      button: 0,
-      clientX: 80,
-      clientY: 40
-    }));
+    cell?.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 80,
+        clientY: 40,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+        clientX: 80,
+        clientY: 40,
+      }),
+    );
 
     await new Promise((resolve) => window.setTimeout(resolve, 0));
 
@@ -1310,10 +1557,12 @@ describe("live preview", () => {
       container,
       initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
-    const cells = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell");
+    const cells = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell");
     const firstCell = cells?.[0];
     const secondCell = cells?.[1];
     expect(firstCell).not.toBeUndefined();
@@ -1328,7 +1577,7 @@ describe("live preview", () => {
       bottom: 30,
       width: 50,
       height: 30,
-      toJSON: () => ({})
+      toJSON: () => ({}),
     });
     secondCell!.getBoundingClientRect = () => ({
       x: 50,
@@ -1339,28 +1588,34 @@ describe("live preview", () => {
       bottom: 30,
       width: 50,
       height: 30,
-      toJSON: () => ({})
+      toJSON: () => ({}),
     });
 
-    firstCell?.dispatchEvent(new MouseEvent("mousedown", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 25,
-      clientY: 15
-    }));
-    document.dispatchEvent(new MouseEvent("mousemove", {
-      bubbles: true,
-      button: 0,
-      clientX: 75,
-      clientY: 15
-    }));
-    document.dispatchEvent(new MouseEvent("mouseup", {
-      bubbles: true,
-      button: 0,
-      clientX: 75,
-      clientY: 15
-    }));
+    firstCell?.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 25,
+        clientY: 15,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mousemove", {
+        bubbles: true,
+        button: 0,
+        clientX: 75,
+        clientY: 15,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+        clientX: 75,
+        clientY: 15,
+      }),
+    );
 
     expect(firstCell?.contentEditable).not.toBe("true");
     expect(firstCell?.style.background).toContain("124, 108, 250");
@@ -1376,7 +1631,9 @@ describe("live preview", () => {
         },
       },
     });
-    container.querySelector<HTMLElement>(".nexus-table-wrapper")?.dispatchEvent(copyEvent);
+    container
+      .querySelector<HTMLElement>(".nexus-table-wrapper")
+      ?.dispatchEvent(copyEvent);
 
     expect(copyEvent.defaultPrevented).toBe(true);
     expect(copied["text/plain"]).toBe("1\t2");
@@ -1393,8 +1650,11 @@ describe("live preview", () => {
       livePreview: true,
       plugins: [createGfmPreset()],
     });
-    const wrapper = container.querySelector<HTMLElement>(".nexus-table-wrapper");
-    const cells = container.querySelectorAll<HTMLElement>("tr")[2]
+    const wrapper = container.querySelector<HTMLElement>(
+      ".nexus-table-wrapper",
+    );
+    const cells = container
+      .querySelectorAll<HTMLElement>("tr")[2]
       ?.querySelectorAll<HTMLElement>(".nexus-cell");
     const firstCell = cells?.[0];
     const secondCell = cells?.[1];
@@ -1404,25 +1664,31 @@ describe("live preview", () => {
     firstCell!.getBoundingClientRect = () => new DOMRect(0, 0, 50, 30);
     secondCell!.getBoundingClientRect = () => new DOMRect(50, 0, 50, 30);
 
-    firstCell!.dispatchEvent(new MouseEvent("mousedown", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 25,
-      clientY: 15,
-    }));
-    document.dispatchEvent(new MouseEvent("mousemove", {
-      bubbles: true,
-      button: 0,
-      clientX: 75,
-      clientY: 15,
-    }));
-    document.dispatchEvent(new MouseEvent("mouseup", {
-      bubbles: true,
-      button: 0,
-      clientX: 75,
-      clientY: 15,
-    }));
+    firstCell!.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 25,
+        clientY: 15,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mousemove", {
+        bubbles: true,
+        button: 0,
+        clientX: 75,
+        clientY: 15,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+        clientX: 75,
+        clientY: 15,
+      }),
+    );
 
     let installed = 0;
     const registration = editor.getContributionSink().registerExtension(
@@ -1459,8 +1725,11 @@ describe("live preview", () => {
       livePreview: true,
       plugins: [createGfmPreset()],
     });
-    const wrapper = container.querySelector<HTMLElement>(".nexus-table-wrapper");
-    const headers = container.querySelectorAll<HTMLElement>("tr")[1]
+    const wrapper = container.querySelector<HTMLElement>(
+      ".nexus-table-wrapper",
+    );
+    const headers = container
+      .querySelectorAll<HTMLElement>("tr")[1]
       ?.querySelectorAll<HTMLElement>(".nexus-cell");
     const grip = container.querySelectorAll<HTMLElement>(".nexus-col-grip")[0];
     expect(wrapper).not.toBeNull();
@@ -1468,13 +1737,15 @@ describe("live preview", () => {
     headers![0].getBoundingClientRect = () => new DOMRect(0, 0, 50, 30);
     headers![1].getBoundingClientRect = () => new DOMRect(50, 0, 50, 30);
 
-    grip.dispatchEvent(new MouseEvent("mousedown", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 25,
-      clientY: 5,
-    }));
+    grip.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 25,
+        clientY: 5,
+      }),
+    );
     let installed = 0;
     const registration = editor.getContributionSink().registerExtension(
       "table-grip-barrier",
@@ -1488,12 +1759,14 @@ describe("live preview", () => {
     expect(installed).toBe(0);
     expect(container.querySelector(".nexus-table-wrapper")).toBe(wrapper);
 
-    document.dispatchEvent(new MouseEvent("mouseup", {
-      bubbles: true,
-      button: 0,
-      clientX: 25,
-      clientY: 5,
-    }));
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+        clientX: 25,
+        clientY: 5,
+      }),
+    );
     await registration.ready;
     expect(editor.getContributionSink().isInteractionActive()).toBe(false);
     expect(installed).toBe(1);
@@ -1514,15 +1787,20 @@ describe("live preview", () => {
       livePreview: true,
       plugins: [createGfmPreset()],
     });
-    const wrapper = container.querySelector<HTMLElement>(".nexus-table-wrapper")!;
-    const firstColGrip = container.querySelectorAll<HTMLElement>(".nexus-col-grip")[0];
+    const wrapper = container.querySelector<HTMLElement>(
+      ".nexus-table-wrapper",
+    )!;
+    const firstColGrip =
+      container.querySelectorAll<HTMLElement>(".nexus-col-grip")[0];
     firstColGrip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     outside.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-    wrapper.dispatchEvent(new KeyboardEvent("keydown", {
-      key: "Delete",
-      bubbles: true,
-      cancelable: true,
-    }));
+    wrapper.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Delete",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
     expect(editor.getDocument()).toContain("| A | B |");
 
     firstColGrip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -1536,9 +1814,12 @@ describe("live preview", () => {
     expect(editor.getDocument()).not.toContain(" A ");
     expect(editor.getDocument()).toContain(" B ");
 
-    const nextWrapper = container.querySelector<HTMLElement>(".nexus-table-wrapper")!;
-    const firstBodyRow = Array.from(container.querySelectorAll<HTMLElement>("tr"))
-      .find((row) => row.textContent?.includes("2"));
+    const nextWrapper = container.querySelector<HTMLElement>(
+      ".nexus-table-wrapper",
+    )!;
+    const firstBodyRow = Array.from(
+      container.querySelectorAll<HTMLElement>("tr"),
+    ).find((row) => row.textContent?.includes("2"));
     const rowGrip = firstBodyRow?.querySelector<HTMLElement>(".nexus-row-grip");
     expect(rowGrip).not.toBeNull();
     rowGrip!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -1564,10 +1845,12 @@ describe("live preview", () => {
       container,
       initialValue: "| A | B |\n| --- | --- |\n| Alpha Beta | 2 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
     expect(cell?.style.userSelect).toBe("text");
 
@@ -1580,23 +1863,27 @@ describe("live preview", () => {
       bottom: 30,
       width: 160,
       height: 30,
-      toJSON: () => ({})
+      toJSON: () => ({}),
     });
 
-    cell?.dispatchEvent(new MouseEvent("mousedown", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 12,
-      clientY: 15
-    }));
-    document.dispatchEvent(new MouseEvent("mousemove", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 72,
-      clientY: 15
-    }));
+    cell?.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 12,
+        clientY: 15,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mousemove", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 72,
+        clientY: 15,
+      }),
+    );
 
     const text = cell!.firstChild;
     expect(text?.textContent).toBe("Alpha Beta");
@@ -1606,12 +1893,14 @@ describe("live preview", () => {
     document.getSelection()?.removeAllRanges();
     document.getSelection()?.addRange(range);
 
-    document.dispatchEvent(new MouseEvent("mouseup", {
-      bubbles: true,
-      button: 0,
-      clientX: 72,
-      clientY: 15
-    }));
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+        clientX: 72,
+        clientY: 15,
+      }),
+    );
 
     expect(cell?.contentEditable).not.toBe("true");
     expect(document.getSelection()?.toString()).toBe("Alpha");
@@ -1625,12 +1914,15 @@ describe("live preview", () => {
     document.body.appendChild(container);
     const editor = createEditor({
       container,
-      initialValue: "| Creator | Segment |\n| --- | --- |\n| Kevin Stratvert | P1 |",
+      initialValue:
+        "| Creator | Segment |\n| --- | --- |\n| Kevin Stratvert | P1 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
     const text = cell!.firstChild;
     expect(text?.textContent).toBe("Kevin Stratvert");
@@ -1646,26 +1938,32 @@ describe("live preview", () => {
       },
     });
 
-    cell?.dispatchEvent(new MouseEvent("mousedown", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 12,
-      clientY: 15
-    }));
-    document.dispatchEvent(new MouseEvent("mousemove", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 72,
-      clientY: 15
-    }));
-    document.dispatchEvent(new MouseEvent("mouseup", {
-      bubbles: true,
-      button: 0,
-      clientX: 72,
-      clientY: 15
-    }));
+    cell?.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 12,
+        clientY: 15,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mousemove", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 72,
+        clientY: 15,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+        clientX: 72,
+        clientY: 15,
+      }),
+    );
 
     await new Promise((resolve) => window.setTimeout(resolve, 0));
     expect(document.getSelection()?.toString()).toBe("Kevin");
@@ -1695,12 +1993,15 @@ describe("live preview", () => {
     document.body.appendChild(container);
     const editor = createEditor({
       container,
-      initialValue: "| Creator | Segment |\n| --- | --- |\n| Kevin Stratvert | P1 |",
+      initialValue:
+        "| Creator | Segment |\n| --- | --- |\n| Kevin Stratvert | P1 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
     const text = cell!.firstChild;
     expect(text?.textContent).toBe("Kevin Stratvert");
@@ -1711,20 +2012,24 @@ describe("live preview", () => {
       value: () => null,
     });
 
-    cell?.dispatchEvent(new MouseEvent("mousedown", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 12,
-      clientY: 15
-    }));
-    document.dispatchEvent(new MouseEvent("mousemove", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 72,
-      clientY: 15
-    }));
+    cell?.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 12,
+        clientY: 15,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mousemove", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 72,
+        clientY: 15,
+      }),
+    );
 
     const partialRange = document.createRange();
     partialRange.setStart(text!, 0);
@@ -1733,12 +2038,14 @@ describe("live preview", () => {
     document.getSelection()?.addRange(partialRange);
 
     vi.useFakeTimers();
-    document.dispatchEvent(new MouseEvent("mouseup", {
-      bubbles: true,
-      button: 0,
-      clientX: 72,
-      clientY: 15
-    }));
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+        clientX: 72,
+        clientY: 15,
+      }),
+    );
     await vi.advanceTimersByTimeAsync(0);
 
     const outside = document.createElement("span");
@@ -1778,32 +2085,40 @@ describe("live preview", () => {
       container,
       initialValue: "| A | B |\n| --- | --- |\n| Floatboat | 2 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
-    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    const cell = container
+      .querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
     expect(cell).not.toBeUndefined();
 
-    cell?.dispatchEvent(new MouseEvent("mousedown", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 12,
-      clientY: 15
-    }));
-    document.dispatchEvent(new MouseEvent("mousemove", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 72,
-      clientY: 15
-    }));
-    document.dispatchEvent(new MouseEvent("mouseup", {
-      bubbles: true,
-      button: 0,
-      clientX: 72,
-      clientY: 15
-    }));
+    cell?.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 12,
+        clientY: 15,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mousemove", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 72,
+        clientY: 15,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+        clientX: 72,
+        clientY: 15,
+      }),
+    );
 
     expect(cell?.contentEditable).not.toBe("true");
     expect(cell?.style.background).not.toContain("124, 108, 250");
@@ -1822,9 +2137,12 @@ describe("live preview", () => {
       plugins: [createGfmPreset()],
     });
 
-    const links = container.querySelectorAll<HTMLAnchorElement>("table a[href]");
+    const links =
+      container.querySelectorAll<HTMLAnchorElement>("table a[href]");
     expect(links.length).toBe(2);
-    expect(links[0].getAttribute("href")).toBe("https://linkedin.com/in/sonali");
+    expect(links[0].getAttribute("href")).toBe(
+      "https://linkedin.com/in/sonali",
+    );
     expect(links[0].textContent).toBe("LinkedIn");
     expect(links[1].getAttribute("href")).toBe("https://twitter.com/RWong");
     expect(links[1].textContent).toBe("@RWong");
@@ -1841,23 +2159,31 @@ describe("live preview", () => {
       plugins: [createGfmPreset()],
     });
 
-    const imgs = Array.from(container.querySelectorAll<HTMLImageElement>("table img"));
+    const imgs = Array.from(
+      container.querySelectorAll<HTMLImageElement>("table img"),
+    );
     expect(imgs.length).toBe(3);
 
     // First row, first column: media-only standalone image — width:100%
     // so it grows with the column.
-    const mediaOnlyStandalone = imgs.find((i) => i.getAttribute("src") === "https://example.com/a.png");
+    const mediaOnlyStandalone = imgs.find(
+      (i) => i.getAttribute("src") === "https://example.com/a.png",
+    );
     expect(mediaOnlyStandalone?.style.width).toBe("100%");
     expect(mediaOnlyStandalone?.style.maxHeight).toBe("240px");
 
     // First row, second column: inline image alongside text — stays
     // small (capped at the existing 1.6em line-height + 160px width).
-    const inlineImg = imgs.find((i) => i.getAttribute("src") === "https://example.com/i.png");
+    const inlineImg = imgs.find(
+      (i) => i.getAttribute("src") === "https://example.com/i.png",
+    );
     expect(inlineImg?.style.maxHeight).toBe("1.6em");
     expect(inlineImg?.style.maxWidth).toBe("160px");
 
     // Second row, first column: image-in-link is also media-only.
-    const linkWrapped = imgs.find((i) => i.getAttribute("src") === "https://example.com/l.png");
+    const linkWrapped = imgs.find(
+      (i) => i.getAttribute("src") === "https://example.com/l.png",
+    );
     expect(linkWrapped?.style.width).toBe("100%");
     // Anchor parent should switch to block so the image fills the cell
     // without inline-baseline whitespace eating space.
@@ -1936,19 +2262,29 @@ describe("live preview", () => {
       plugins: [createGfmPreset()],
     });
 
-    const handle = container.querySelector(".nexus-col-resize") as HTMLElement | null;
+    const handle = container.querySelector(
+      ".nexus-col-resize",
+    ) as HTMLElement | null;
     expect(handle).not.toBeNull();
 
     // Simulate a drag: mousedown on handle, mousemove on document,
     // mouseup to commit. The DOM should pick up a <colgroup> + the
     // table should switch to fixed layout afterwards.
     const startX = 200;
-    handle?.dispatchEvent(new MouseEvent("mousedown", {
-      bubbles: true, cancelable: true, button: 0, clientX: startX,
-    }));
-    document.dispatchEvent(new MouseEvent("mousemove", {
-      bubbles: true, clientX: startX + 60,
-    }));
+    handle?.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: startX,
+      }),
+    );
+    document.dispatchEvent(
+      new MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: startX + 60,
+      }),
+    );
     document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
 
     const table = container.querySelector("table") as HTMLTableElement | null;
@@ -1965,13 +2301,16 @@ describe("live preview", () => {
     const container = document.createElement("div");
     const editor = createEditor({
       container,
-      initialValue: "| A | B | C |\n|---|---|---|\n| 1 | 2 |\n| 3 | 4 | 5 | 6 |",
+      initialValue:
+        "| A | B | C |\n|---|---|---|\n| 1 | 2 |\n| 3 | 4 | 5 | 6 |",
       livePreview: true,
       plugins: [createGfmPreset()],
     });
 
     const rows = Array.from(container.querySelectorAll("tr")).map((row) =>
-      Array.from(row.querySelectorAll(".nexus-cell")).map((cell) => cell.textContent)
+      Array.from(row.querySelectorAll(".nexus-cell")).map(
+        (cell) => cell.textContent,
+      ),
     );
     // Every body row should have the same cell count as the widest row (4).
     // Header padded with one empty extra column; the short row padded too.
@@ -1987,11 +2326,13 @@ describe("live preview", () => {
       container,
       initialValue: "| A |  | C |\n| --- | --- | --- |\n| 1 |  | 3 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     const rows = Array.from(container.querySelectorAll("tr")).map((row) =>
-      Array.from(row.querySelectorAll(".nexus-cell")).map((cell) => cell.textContent)
+      Array.from(row.querySelectorAll(".nexus-cell")).map(
+        (cell) => cell.textContent,
+      ),
     );
     expect(rows[1]).toEqual(["A", "", "C"]);
     expect(rows[2]).toEqual(["1", "", "3"]);
@@ -2004,17 +2345,19 @@ describe("live preview", () => {
       container,
       initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     const addColumn = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.title === "Add column"
+      (button) => button.title === "Add column",
     );
     expect(addColumn).not.toBeUndefined();
     addColumn?.click();
 
     const rows = Array.from(container.querySelectorAll("tr")).map((row) =>
-      Array.from(row.querySelectorAll(".nexus-cell")).map((cell) => cell.textContent)
+      Array.from(row.querySelectorAll(".nexus-cell")).map(
+        (cell) => cell.textContent,
+      ),
     );
     expect(rows[1]).toEqual(["A", "B", ""]);
     expect(rows[2]).toEqual(["1", "2", ""]);
@@ -2032,18 +2375,20 @@ describe("live preview", () => {
         deleteRow: "删除行",
         deleteColumn: "删除列",
         insertRowBelow: "在下方插入行",
-        insertColumnAfter: "在右侧插入列"
+        insertColumnAfter: "在右侧插入列",
       },
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
-    const dataCell = container.querySelectorAll("tr")[2]?.querySelector(".nexus-cell");
+    const dataCell = container
+      .querySelectorAll("tr")[2]
+      ?.querySelector(".nexus-cell");
     expect(dataCell).not.toBeNull();
     const event = new MouseEvent("contextmenu", {
       bubbles: true,
       cancelable: true,
       clientX: 32,
-      clientY: 40
+      clientY: 40,
     });
     dataCell?.dispatchEvent(event);
 
@@ -2075,12 +2420,14 @@ describe("live preview", () => {
             element.setAttribute("data-heading", "custom");
             element.textContent = text.toUpperCase();
             return element;
-          }
-        }
-      }
+          },
+        },
+      },
     });
 
-    expect(container.querySelector("[data-heading='custom']")?.textContent).toBe("HEADING");
+    expect(
+      container.querySelector("[data-heading='custom']")?.textContent,
+    ).toBe("HEADING");
     editor.destroy();
   });
 
@@ -2095,15 +2442,17 @@ describe("live preview", () => {
             const element = document.createElement("span");
             element.setAttribute("data-source", source);
             return element;
-          }
-        }
-      }
+          },
+        },
+      },
     });
 
     // Cursor on first line, away from the bold
     editor.setSelection(0);
 
-    expect(container.querySelector("[data-source]")?.getAttribute("data-source")).toBe("**bold**");
+    expect(
+      container.querySelector("[data-source]")?.getAttribute("data-source"),
+    ).toBe("**bold**");
     editor.destroy();
   });
 
@@ -2111,7 +2460,8 @@ describe("live preview", () => {
 
   it("renders embedded HTML blocks via innerHTML when cursor is outside", () => {
     const container = document.createElement("div");
-    const html = '<div class="demo"><strong>Bold</strong> and <em>italic</em></div>';
+    const html =
+      '<div class="demo"><strong>Bold</strong> and <em>italic</em></div>';
     const editor = createEditor({
       container,
       initialValue: `Intro\n\n${html}\n\nend`,
@@ -2200,7 +2550,9 @@ describe("live preview", () => {
     // enter edit mode. mousedown is the trigger (fires before any inner
     // click handler).
     const inner = wrapper?.querySelector("strong") ?? wrapper!;
-    inner.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    inner.dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+    );
 
     expect(container.querySelector(".demo")).toBeNull();
     expect(container.textContent).toContain("<div class=");
@@ -2273,7 +2625,9 @@ describe("live preview", () => {
     });
 
     editor.setSelection(editor.getDocument().length);
-    const badge = container.querySelector(".nexus-alert-label") as HTMLElement | null;
+    const badge = container.querySelector(
+      ".nexus-alert-label",
+    ) as HTMLElement | null;
     expect(badge).not.toBeNull();
     expect(badge?.textContent ?? "").toContain("Note");
     // The literal `[!NOTE]` link decoration should be suppressed — we
@@ -2315,10 +2669,14 @@ describe("live preview", () => {
     });
 
     editor.setSelection(0);
-    const callout = container.querySelector(".nexus-callout") as HTMLElement | null;
+    const callout = container.querySelector(
+      ".nexus-callout",
+    ) as HTMLElement | null;
     expect(callout).not.toBeNull();
     expect(callout?.getAttribute("data-callout-type")).toBe("info");
-    expect(callout?.querySelector(".nexus-callout-body")?.textContent).toContain("body text");
+    expect(
+      callout?.querySelector(".nexus-callout-body")?.textContent,
+    ).toContain("body text");
     editor.destroy();
   });
 
@@ -2339,7 +2697,7 @@ describe("live preview", () => {
   it("clicking <summary> or <a href> inside an HTML block preserves native behaviour (no edit-mode trigger)", () => {
     const container = document.createElement("div");
     const html =
-      '<details><summary>Toggle</summary><p>Hidden text</p></details>' +
+      "<details><summary>Toggle</summary><p>Hidden text</p></details>" +
       '<p><a href="https://example.com" data-test="link">Link</a></p>';
     const editor = createEditor({
       container,
@@ -2352,20 +2710,28 @@ describe("live preview", () => {
     expect(summary).not.toBeNull();
 
     // Clicking summary must NOT enter edit mode — the widget stays mounted.
-    summary?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    summary?.dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+    );
     expect(container.querySelector(".nexus-html-block")).not.toBeNull();
     expect(container.querySelector("summary")).not.toBeNull();
 
     // Clicking a link inside the block also preserves native behaviour.
-    const link = container.querySelector('a[data-test="link"]') as HTMLElement | null;
+    const link = container.querySelector(
+      'a[data-test="link"]',
+    ) as HTMLElement | null;
     expect(link).not.toBeNull();
-    link?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    link?.dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+    );
     expect(container.querySelector(".nexus-html-block")).not.toBeNull();
 
     // Clicking the surrounding wrapper (not on an interactive element)
     // DOES enter edit mode.
     const wrapper = container.querySelector<HTMLElement>(".nexus-html-block");
-    wrapper?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    wrapper?.dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+    );
     expect(container.querySelector(".nexus-html-block")).toBeNull();
     editor.destroy();
   });
@@ -2374,7 +2740,7 @@ describe("live preview", () => {
     const container = document.createElement("div");
     const html =
       '<div class="hostile" onclick="alert(1)">' +
-      '<script>window.evil=true;</script>safe content</div>';
+      "<script>window.evil=true;</script>safe content</div>";
     const editor = createEditor({
       container,
       initialValue: `Intro\n\n${html}\n\nend`,
@@ -2399,9 +2765,10 @@ describe("live preview", () => {
     const container = document.createElement("div");
     const editor = createEditor({
       container,
-      initialValue: "Intro\n\n1. first\n   - nested a\n   - nested b\n2. second\n3. third\n\nend",
+      initialValue:
+        "Intro\n\n1. first\n   - nested a\n   - nested b\n2. second\n3. third\n\nend",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     editor.setSelection(editor.getDocument().length);
@@ -2423,11 +2790,13 @@ describe("live preview", () => {
       container,
       initialValue: "Intro\n\n- [x] done item\n- [ ] open item\n\nend",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     editor.setSelection(editor.getDocument().length);
-    const inputs = container.querySelectorAll<HTMLInputElement>("input[type=checkbox]");
+    const inputs = container.querySelectorAll<HTMLInputElement>(
+      "input[type=checkbox]",
+    );
     expect(inputs.length).toBe(2);
     expect(inputs[0].checked).toBe(true);
     expect(inputs[1].checked).toBe(false);
@@ -2440,17 +2809,43 @@ describe("live preview", () => {
       container,
       initialValue: "intro\n\n- [ ] open item\n- [x] done item\n\nend",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     // 光标放在文末 end 行（不在任一任务行）→ 两个复选框都渲染。
     editor.setSelection(editor.getDocument().length);
-    const inputs = container.querySelectorAll<HTMLInputElement>("input[type=checkbox]");
+    const inputs = container.querySelectorAll<HTMLInputElement>(
+      "input[type=checkbox]",
+    );
     expect(inputs.length).toBe(2);
 
     // 点击第一个未勾选的复选框 → 源码 `[ ]` 应被切换为 `[x]`。
     inputs[0].click();
-    expect(editor.getDocument()).toBe("intro\n\n- [x] open item\n- [x] done item\n\nend");
+    expect(editor.getDocument()).toBe(
+      "intro\n\n- [x] open item\n- [x] done item\n\nend",
+    );
+    editor.destroy();
+  });
+
+  it("disables task checkboxes and ignores clicks when editor is readOnly", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "intro\n\n- [ ] readOnly item\n\nend",
+      livePreview: true,
+      readOnly: true,
+      plugins: [createGfmPreset()],
+    });
+
+    editor.setSelection(editor.getDocument().length);
+    const input = container.querySelector<HTMLInputElement>(
+      "input[type=checkbox]",
+    );
+    expect(input).not.toBeNull();
+    expect(input?.disabled).toBe(true);
+
+    input?.click();
+    expect(editor.getDocument()).toBe("intro\n\n- [ ] readOnly item\n\nend");
     editor.destroy();
   });
 
@@ -2460,13 +2855,15 @@ describe("live preview", () => {
       container,
       initialValue: "- [ ] alpha\n- [ ] beta",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     // 光标落在第一行（alpha 项）→ 该行露出 `- [ ] ` 原文，复选框消失；
     // 第二行（beta 项）仍渲染复选框。
     editor.setSelection(3);
-    const inputs = container.querySelectorAll<HTMLInputElement>("input[type=checkbox]");
+    const inputs = container.querySelectorAll<HTMLInputElement>(
+      "input[type=checkbox]",
+    );
     expect(inputs.length).toBe(1);
     const text = container.textContent ?? "";
     expect(text).toContain("- [ ] alpha");
@@ -2479,7 +2876,7 @@ describe("live preview", () => {
       container,
       initialValue: "1. one\n2. two\n3. three",
       livePreview: true,
-      plugins: [createGfmPreset()]
+      plugins: [createGfmPreset()],
     });
 
     // 光标落在第二项 → 该行露出 `2. ` 原文，但第三项仍须渲染为 `3. `
@@ -2499,7 +2896,7 @@ describe("live preview", () => {
     const editor = createEditor({
       container,
       initialValue: "Text **bold** here\n\nend",
-      livePreview: true
+      livePreview: true,
     });
 
     // Cursor on the line with bold — markers should remain visible but
@@ -2507,8 +2904,12 @@ describe("live preview", () => {
     editor.setSelection(8);
     const text = container.textContent ?? "";
     expect(text).toContain("**bold**");
-    const boldSpan = Array.from(container.querySelectorAll<HTMLElement>("span")).find(
-      (el) => el.textContent === "bold" && /font-weight\s*:\s*bold/i.test(el.getAttribute("style") ?? "")
+    const boldSpan = Array.from(
+      container.querySelectorAll<HTMLElement>("span"),
+    ).find(
+      (el) =>
+        el.textContent === "bold" &&
+        /font-weight\s*:\s*bold/i.test(el.getAttribute("style") ?? ""),
     );
     expect(boldSpan).not.toBeUndefined();
     editor.destroy();
@@ -2525,9 +2926,9 @@ describe("live preview", () => {
             const element = document.createElement("span");
             element.textContent = text.toUpperCase();
             return element;
-          }
-        }
-      }
+          },
+        },
+      },
     });
 
     editor.setSelection(0);
