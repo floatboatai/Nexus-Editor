@@ -91,6 +91,19 @@ function readSlice(source: Source, from: number, to: number): string {
  * emits for `## title`.
  */
 function headingTextRange(source: Source, node: SyntaxNode): { from: number; to: number } {
+  // Setext headings (`Title\n=====`) are the inverse of ATX: the only
+  // HeaderMark is the trailing underline, and the title spans everything
+  // before it (possibly as inline nodes + bare text, e.g. `**Bold** Title`).
+  if (node.name.startsWith("SetextHeading")) {
+    let start = node.from;
+    let end = node.to;
+    let mark = node.firstChild;
+    while (mark && mark.name !== "HeaderMark") mark = mark.nextSibling;
+    if (mark) end = mark.from;
+    while (start < end && /\s/.test(source.slice(start, start + 1))) start++;
+    while (end > start && /\s/.test(source.slice(end - 1, end))) end--;
+    return { from: start, to: end };
+  }
   // Skip past the opening HeaderMark child(ren) (the `##`).
   let cursor = node.from;
   let openingEnd = node.from;
@@ -519,7 +532,10 @@ function adaptHeading(source: Source, node: SyntaxNode): Heading {
   const depth = headingDepth(node.name);
   const text = headingTextRange(source, node);
   // Build inline children inside the text range. Re-iterate Lezer's children
-  // that fall within this span.
+  // that fall within this span. This covers both syntaxes: for ATX headings
+  // the marks are skipped and the inner inline nodes are collected; for
+  // setext headings (`Title\n=====`) the trailing HeaderMark lands outside
+  // `text` and the title is emitted as inline nodes + a closing text gap.
   const children: PhrasingContent[] = [];
   let cursor = text.from;
   for (let c = node.firstChild; c; c = c.nextSibling) {
