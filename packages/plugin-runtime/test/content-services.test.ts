@@ -89,6 +89,33 @@ describe("MemoryVaultRuntime", () => {
     });
   });
 
+  it("returns service failures when a destination parent is a file", async () => {
+    const { services } = harness({
+      parent: "not a folder",
+      "move.md": "move me",
+    });
+    const moved = requireFile(services.vault.getFileByPath("move.md" as never));
+
+    await expect(
+      services.vault.create("parent/note.md" as never, "note"),
+    ).resolves.toMatchObject({
+      ok: false,
+      diagnostic: { code: "unsupported-operation" },
+    });
+    await expect(
+      services.vault.createFolder("parent/folder" as never),
+    ).resolves.toMatchObject({
+      ok: false,
+      diagnostic: { code: "unsupported-operation" },
+    });
+    await expect(
+      services.vault.rename(moved, "parent/moved.md" as never),
+    ).resolves.toMatchObject({
+      ok: false,
+      diagnostic: { code: "unsupported-operation" },
+    });
+  });
+
   it("requires explicit host permission for permanent deletion", async () => {
     const { services } = harness({ "keep.md": "keep" });
     const file = requireFile(services.vault.getFileByPath("keep.md" as never));

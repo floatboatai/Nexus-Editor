@@ -604,7 +604,8 @@ export class MemoryVaultRuntime implements ManagedResource {
           "Expected version cannot match a missing file",
         );
       }
-      this.ensureParentFolders(normalized, origin);
+      const parentFailure = this.ensureParentFoldersResult(normalized, origin);
+      if (parentFailure) return parentFailure;
       const bytes = typeof data === "string" ? textEncoder.encode(data) : cloneBytes(data);
       const version = this.nextVersion();
       const node = new MemoryNexusFileNode(
@@ -657,7 +658,8 @@ export class MemoryVaultRuntime implements ManagedResource {
           ),
         };
       }
-      this.ensureParentFolders(normalized, origin);
+      const parentFailure = this.ensureParentFoldersResult(normalized, origin);
+      if (parentFailure) return parentFailure;
       const folder = this.createFolderNode(normalized);
       this.emitCommit({ type: "create", file: folder, origin });
       return { ok: true, value: folder };
@@ -853,7 +855,8 @@ export class MemoryVaultRuntime implements ManagedResource {
           ),
         };
       }
-      this.ensureParentFolders(normalized, origin);
+      const parentFailure = this.ensureParentFoldersResult(normalized, origin);
+      if (parentFailure) return parentFailure;
       const oldPath = node.path;
       const moved = [node, ...this.descendantsOf(node.path)];
       const oldPaths = moved.map((item) => item.path);
@@ -972,6 +975,18 @@ export class MemoryVaultRuntime implements ManagedResource {
         this.rememberOperation(origin.operationId);
         this.eventRegistry.emit("create", { file: folder, origin });
       }
+    }
+  }
+
+  private ensureParentFoldersResult(
+    path: VaultPath,
+    origin: FileOperationOrigin,
+  ): ContentWriteFailure | null {
+    try {
+      this.ensureParentFolders(path, origin);
+      return null;
+    } catch (error) {
+      return this.failureFrom(error);
     }
   }
 
