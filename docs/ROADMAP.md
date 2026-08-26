@@ -53,7 +53,7 @@ Plugin-platform documentation (Chinese): [native API](./plugins/native-plugin-ap
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
 | 13 | Markdown live preview sync scroll | `core` | P2 | planned | No | Only relevant in split-preview mode |
-| 14 | Custom keymap UI | `react` / `vue` + `core` | P2 | planned | Yes | Need to expose keymap register / query API first |
+| 14 | Custom keymap UI | `react` / `vue` + `core` | P2 | in-progress | Yes | Register / query API landed via `add-keymap-registry-api`; UI layer remains |
 
 ## 6. React / Vue SDK
 

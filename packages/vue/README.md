@@ -36,6 +36,7 @@ function handleReady(editor: EditorAPI) {
 
 - **`onReady`** — called once after the editor is created on first mount (prop: `on-ready` / `:onReady`).
 - **Container attrs** — `class`, `style`, `id`, `role`, `data-*`, `aria-*`, and other non-prop attributes on `<Editor>`.
+- **Keybindings** — every core `EditorConfig` option passes through as a prop, including `keybindings` for declarative shortcuts; runtime registration and the `getKeybindings()` snapshot are available on the `EditorAPI` from `onReady`. See the core README "Keybindings API" section.
 
 ## Controlled usage (`v-model`)
 
