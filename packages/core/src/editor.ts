@@ -26,7 +26,7 @@ import { createLivePreviewExtension } from "./live-preview";
 import { flushPendingTableEdits } from "./live-preview-table";
 import { createMarkdownLanguageSupport } from "./lezer-markdown";
 import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
-import { markdownFoldService } from "./markdown-fold";
+import { createMarkdownFoldCommands, markdownFold } from "./markdown-fold";
 import { resolveLocale } from "./locale";
 import { markdownAutoPair } from "./markdown-autopair";
 import { markdownKeymap } from "./markdown-keymap";
@@ -712,7 +712,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
         indentGuidesExt,
         markdownKeymap(),
         multiCursorExt,
-        markdownFoldService(),
+        markdownFold({ gutter: config.foldGutter !== false, locale }),
         keymap.of([indentWithTab]),
         closeBrackets(),
         markdownAutoPair(),
@@ -775,6 +775,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // / silent setDocument can read the live incremental Lezer tree.
   viewRef.current = view;
   lastMarkdownTransformRevision = getMarkdownTransformRevision(view.state);
+
+  for (const command of createMarkdownFoldCommands(view, locale)) {
+    if (!commandById.has(command.id)) {
+      commandById.set(command.id, command);
+      commands.push(command);
+    }
+  }
 
   api = {
     getDocument() {

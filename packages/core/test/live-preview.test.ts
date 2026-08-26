@@ -2533,7 +2533,7 @@ describe("live preview", () => {
     editor.setSelection(0);
 
     // Custom renderer for strong
-    expect(container.querySelector("span")?.textContent).toBe("BOLD");
+    expect(container.querySelector(".cm-content span")?.textContent).toBe("BOLD");
     // Default mark decoration for italic — markers replaced
     const text = container.textContent ?? "";
     expect(text).toContain("italic");

@@ -47,6 +47,7 @@ describe("internationalization", () => {
       "insertRowAbove", "insertRowBelow",
       "alignLeft", "alignCenter", "alignRight",
       "foldCode", "unfoldCode", "foldHeading", "unfoldHeading",
+      "foldAll", "unfoldAll",
       "openLink", "codeBlockLabel"
     ];
     for (const key of keys) {

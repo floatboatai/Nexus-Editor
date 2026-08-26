@@ -18,6 +18,8 @@ export interface NexusLocale {
   unfoldCode: string;
   foldHeading: string;
   unfoldHeading: string;
+  foldAll: string;
+  unfoldAll: string;
 
   // Link
   openLink: string;
@@ -42,6 +44,8 @@ export const enLocale: NexusLocale = {
   unfoldCode: "Unfold code block",
   foldHeading: "Fold section",
   unfoldHeading: "Unfold section",
+  foldAll: "Fold all",
+  unfoldAll: "Unfold all",
   openLink: "Open link",
   codeBlockLabel: "Code",
 };
@@ -62,6 +66,8 @@ export const zhLocale: NexusLocale = {
   unfoldCode: "展开代码块",
   foldHeading: "折叠章节",
   unfoldHeading: "展开章节",
+  foldAll: "折叠全部",
+  unfoldAll: "展开全部",
   openLink: "打开链接",
   codeBlockLabel: "代码",
 };

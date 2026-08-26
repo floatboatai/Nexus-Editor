@@ -23,7 +23,12 @@ export {
   widgetDefinitionSnapshotExtension,
 } from "./markdown-contributions";
 export { markdownAutoPair } from "./markdown-autopair";
-export { markdownFold, markdownFoldService } from "./markdown-fold";
+export {
+  createMarkdownFoldCommands,
+  markdownFold,
+  markdownFoldService,
+  type MarkdownFoldOptions,
+} from "./markdown-fold";
 export { markdownKeymap, handleMarkdownEnter } from "./markdown-keymap";
 export {
   addCursorAbove,

@@ -140,6 +140,8 @@ function themeToEditorTheme(theme: NexusTheme): Extension {
     },
     ".cm-foldGutter .cm-gutterElement": {
       color: "var(--nexus-text-faint)",
+      cursor: "pointer",
+      padding: "0 4px",
     },
     "& .cm-content code, & .cm-content pre": {
       fontFamily: fontFamilyMono,
