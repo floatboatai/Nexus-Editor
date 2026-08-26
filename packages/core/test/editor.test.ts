@@ -516,6 +516,53 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("extracts table of contents from setext headings", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "**Bold** Title\n=====\n\nPlain Sub\n----\n\n## Atx After\n"
+    });
+
+    const toc = editor.getTableOfContents();
+    expect(toc).toHaveLength(3);
+    // Setext title text is synthesized from the line above the underline.
+    expect(toc[0]).toMatchObject({ level: 1, text: "Bold Title" });
+    expect(toc[1]).toMatchObject({ level: 2, text: "Plain Sub" });
+    // Mixed documents keep ATX headings working.
+    expect(toc[2]).toMatchObject({ level: 2, text: "Atx After" });
+    // Positions never leak the trailing underline or newline.
+    expect(toc[0].from).toBe(0);
+    expect(toc[0].to).toBe(20);
+    expect(toc[1].to).toBe(36);
+    editor.destroy();
+  });
+
+  it("emits setext heading children with inline formatting", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "**Bold**& `code` bits\n=====\n\nTitle\n-----\n"
+    });
+
+    const headings = editor
+      .getAst()
+      .children.filter((node) => node.type === "heading")
+      .map((node) => node.children);
+
+    expect(headings).toHaveLength(2);
+    // `**Bold**` becomes a strong node, `` `code` `` a code node, and the
+    // surrounding title text is kept as plain text — not raw markdown.
+    expect(headings[0]).toMatchObject([
+      { type: "strong", children: [{ type: "text", value: "Bold" }], position: expect.any(Object) },
+      { type: "text", value: "& ", position: expect.any(Object) },
+      { type: "inlineCode", value: "code", position: expect.any(Object) },
+      { type: "text", value: " bits", position: expect.any(Object) },
+    ]);
+    // Plain setext titles degrade to a single text node (never empty).
+    expect(headings[1]).toMatchObject([{ type: "text", value: "Title" }]);
+    editor.destroy();
+  });
+
   // ── getSelectedText ──
 
   it("returns empty string when selection is collapsed", () => {
