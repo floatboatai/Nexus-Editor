@@ -71,6 +71,33 @@ editor.on("selectionChange", ({ anchor, head, ranges, mainIndex }) => {
 
 Multiple ranges in `setSelections` require `multiCursor: true` — without the flag CodeMirror collapses the selection to its main range.
 
+### Keybindings API
+
+Declare bindings up front, or register them at runtime through the contribution sink:
+
+```ts
+const editor = createEditor({
+  container,
+  keybindings: [{ key: "Mod-e", run: () => true }], // owner: "editor-config"
+});
+
+const registration = editor.getContributionSink().registerKeybinding(
+  "my-host",
+  { key: "Mod-k", run: (api) => true },
+  { priority: 5 },
+);
+await registration.ready;
+await registration.dispose(); // idempotent
+
+editor.getKeybindings(); // every effective binding, ordered by resolution precedence
+```
+
+Semantics:
+
+- **Precedence** — positive-priority host bindings install above plugin shortcut / command-hotkey keymaps but below built-in Markdown handling; zero or negative priority lands below every static keymap. Ties resolve by registration order.
+- **Duplicates allowed** — two owners may bind the same key; the higher-precedence handler runs first, and a falsy return falls through to the next one.
+- **Snapshot** — `getKeybindings()` returns plain-data entries (`key`, `source`, `ownerId`) ordered builtin → host(positive) → plugin-shortcut → plugin-command → host(non-positive), i.e. the array index *is* the resolution order. Use it to build conflict-detection UI for custom-shortcut settings.
+
 ## Other config highlights
 
-See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.
+See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `keybindings`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.

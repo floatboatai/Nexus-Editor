@@ -1,5 +1,5 @@
-import { Compartment, StateEffect, type Extension } from "@codemirror/state";
-import type { EditorView } from "@codemirror/view";
+import { Compartment, Prec, StateEffect, type Extension } from "@codemirror/state";
+import { keymap, type EditorView } from "@codemirror/view";
 
 import { isTableEditing } from "./live-preview-table";
 import { findProvidedInputTarget } from "./input-target-provider";
@@ -14,6 +14,9 @@ import type {
   EditorDomEventType,
   EditorInputSurface,
   EditorInputTarget,
+  EditorKeybindingRegistrationOptions,
+  KeybindingInfo,
+  KeybindingSpec,
 } from "./types";
 
 export const EDITOR_PLUGIN_PRIORITY_MIN = -10_000;
@@ -67,6 +70,15 @@ interface InputTargetEntry {
   root: HTMLElement;
   target: Omit<EditorInputTarget, "element">;
   disposed: boolean;
+}
+
+interface KeybindingEntry {
+  id: string;
+  ownerId: string;
+  key: string;
+  run: KeybindingSpec["run"];
+  priority: number;
+  sequence: number;
 }
 
 export interface DynamicContributionHost {
@@ -127,6 +139,12 @@ export class DynamicEditorContributionSink implements EditorExtensionContributio
   private readonly ownerExtensions = new Map<string, OwnerExtensionState>();
   private readonly domHooks = new Map<string, DomHookEntry>();
   private readonly inputTargets = new Map<string, InputTargetEntry>();
+  private readonly keybindings = new Map<string, KeybindingEntry>();
+  private readonly keybindingsCompartment = new Compartment();
+  private keybindingsVersion = 0;
+  private keybindingsAppliedVersion = 0;
+  private keybindingsInstalled = false;
+  private keybindingsWaiters: Array<{ version: number; deferred: Deferred }> = [];
   private readonly listeners: Array<{
     target: EventTarget;
     type: string;
@@ -248,6 +266,52 @@ export class DynamicEditorContributionSink implements EditorExtensionContributio
     });
   }
 
+  registerKeybinding(
+    ownerId: string,
+    binding: KeybindingSpec,
+    options: EditorKeybindingRegistrationOptions = {}
+  ): EditorContributionRegistration {
+    validateOwnerId(ownerId);
+    this.assertAlive();
+    if (typeof binding?.key !== "string" || binding.key.length === 0) {
+      throw new TypeError("Editor keybinding key must be a non-empty string");
+    }
+    if (typeof binding?.run !== "function") {
+      throw new TypeError("Editor keybinding run must be a function");
+    }
+    const priority = normalizePriority(options.priority);
+    const id = this.nextId("keybinding");
+    const entry: KeybindingEntry = {
+      id,
+      ownerId,
+      key: binding.key,
+      run: binding.run,
+      priority,
+      sequence: this.registrationSequence++,
+    };
+    this.keybindings.set(id, entry);
+    let disposed = false;
+    let disposePromise: Promise<void> | null = null;
+    return {
+      id,
+      ownerId,
+      get disposed() {
+        return disposed;
+      },
+      ready: this.bumpKeybindingsVersion(),
+      dispose: () => {
+        if (disposePromise) return disposePromise;
+        disposed = true;
+        if (!this.keybindings.delete(id) || this.destroyed) {
+          disposePromise = Promise.resolve();
+          return disposePromise;
+        }
+        disposePromise = this.bumpKeybindingsVersion();
+        return disposePromise;
+      },
+    };
+  }
+
   isInteractionActive(): boolean {
     if (this.destroyed || this.host.isDestroyed()) return false;
     const view = this.host.view;
@@ -294,12 +358,35 @@ export class DynamicEditorContributionSink implements EditorExtensionContributio
     this.listeners.length = 0;
     this.domHooks.clear();
     this.inputTargets.clear();
+    this.keybindings.clear();
+    for (const waiter of this.keybindingsWaiters) waiter.deferred.resolve();
+    this.keybindingsWaiters.length = 0;
     for (const state of this.ownerExtensions.values()) {
       for (const waiter of state.waiters) waiter.deferred.resolve();
       state.waiters.length = 0;
       state.extensions.clear();
     }
     this.ownerExtensions.clear();
+  }
+
+  /** Host keybindings installed above static plugin keymaps (priority > 0). */
+  getHighPriorityKeybindings(): KeybindingInfo[] {
+    return this.sortedKeybindings()
+      .filter((entry) => entry.priority > 0)
+      .map((entry) => ({ id: entry.id, key: entry.key, ownerId: entry.ownerId, source: "host" }));
+  }
+
+  /** Host keybindings installed below every static keymap (priority <= 0). */
+  getDefaultKeybindings(): KeybindingInfo[] {
+    return this.sortedKeybindings()
+      .filter((entry) => entry.priority <= 0)
+      .map((entry) => ({ id: entry.id, key: entry.key, ownerId: entry.ownerId, source: "host" }));
+  }
+
+  private sortedKeybindings(): KeybindingEntry[] {
+    return Array.from(this.keybindings.values()).sort(
+      (a, b) => b.priority - a.priority || a.sequence - b.sequence
+    );
   }
 
   private nextId(prefix: string): string {
@@ -343,6 +430,14 @@ export class DynamicEditorContributionSink implements EditorExtensionContributio
     return deferred.promise;
   }
 
+  private bumpKeybindingsVersion(): Promise<void> {
+    this.keybindingsVersion += 1;
+    const deferred = createDeferred();
+    this.keybindingsWaiters.push({ version: this.keybindingsVersion, deferred });
+    this.scheduleFlush();
+    return deferred.promise;
+  }
+
   private scheduleFlush(): void {
     if (this.flushScheduled || this.destroyed) return;
     this.flushScheduled = true;
@@ -380,6 +475,48 @@ export class DynamicEditorContributionSink implements EditorExtensionContributio
       } catch (error) {
         this.settleOwnerWaiters(state, targetVersion, error);
       }
+    }
+    this.flushKeybindings();
+  }
+
+  private flushKeybindings(): void {
+    if (this.keybindingsAppliedVersion >= this.keybindingsVersion) return;
+    const targetVersion = this.keybindingsVersion;
+    const entries = this.sortedKeybindings();
+    const toBinding = (entry: KeybindingEntry) => ({
+      key: entry.key,
+      // Documented contract: a falsy handler result falls through to the
+      // next binding / default behaviour instead of consuming the keystroke.
+      run: () => Boolean(entry.run(this.host.editor)),
+    });
+    const highTier = entries.filter((entry) => entry.priority > 0).map(toBinding);
+    const defaultTier = entries.filter((entry) => entry.priority <= 0).map(toBinding);
+    const extensionTree: Extension[] = [];
+    if (highTier.length > 0) extensionTree.push(Prec.high(keymap.of(highTier)));
+    if (defaultTier.length > 0) extensionTree.push(keymap.of(defaultTier));
+    try {
+      if (!this.keybindingsInstalled) {
+        this.host.view.dispatch({
+          effects: StateEffect.appendConfig.of(this.keybindingsCompartment.of(extensionTree)),
+        });
+        this.keybindingsInstalled = true;
+      } else {
+        this.host.view.dispatch({ effects: this.keybindingsCompartment.reconfigure(extensionTree) });
+      }
+      this.keybindingsAppliedVersion = targetVersion;
+      for (const waiter of this.keybindingsWaiters) {
+        if (waiter.version <= targetVersion) waiter.deferred.resolve();
+      }
+      this.keybindingsWaiters = this.keybindingsWaiters.filter(
+        (waiter) => waiter.version > targetVersion
+      );
+    } catch (error) {
+      for (const waiter of this.keybindingsWaiters) {
+        if (waiter.version <= targetVersion) waiter.deferred.reject(error);
+      }
+      this.keybindingsWaiters = this.keybindingsWaiters.filter(
+        (waiter) => waiter.version > targetVersion
+      );
     }
   }
 

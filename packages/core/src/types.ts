@@ -110,6 +110,13 @@ export interface EditorConfig {
    * but emits an empty command list (useful for "no results" UIs).
    */
   slashMenuLimit?: number;
+  /**
+   * Declarative keybindings installed through the host registry at creation
+   * time (owner `editor-config`, default precedence tier). Equivalent to
+   * calling `registerKeybinding` immediately after `createEditor`; use the
+   * imperative sink API when you need positive-priority placement.
+   */
+  keybindings?: readonly KeybindingSpec[];
   onChange?: (doc: string, ast: Root) => void;
   onFocus?: () => void;
   onBlur?: () => void;
@@ -236,6 +243,36 @@ export interface EditorContributionRegistration {
   dispose(): Promise<void>;
 }
 
+/** A host-supplied key binding in CodeMirror key syntax (`"Mod-k"`, `"Shift-Alt-f"`). */
+export interface KeybindingSpec {
+  key: string;
+  /**
+   * Invoked when the keystroke matches. Return `true` to consume the event;
+   * a falsy return falls through to lower-precedence handlers.
+   */
+  run: (editor: EditorAPI) => boolean | void;
+}
+
+/** Options accepted by {@link EditorExtensionContributionSink.registerKeybinding}. */
+export interface EditorKeybindingRegistrationOptions {
+  /**
+   * Bounded integer using the same range as DOM-event priorities. Positive
+   * priorities install above plugin shortcut / command-hotkey keymaps (still
+   * below built-in Markdown handling); zero and negative values land below
+   * every static keymap. Ties resolve by registration order.
+   */
+  priority?: number;
+}
+
+/** One plain-data entry of the effective keybinding snapshot. */
+export interface KeybindingInfo {
+  key: string;
+  source: "builtin" | "host" | "plugin-shortcut" | "plugin-command";
+  ownerId: string;
+  /** Registration id; present for host-source entries only. */
+  id?: string;
+}
+
 export interface EditorExtensionContributionSink {
   registerExtension(ownerId: string, extension: Extension): EditorContributionRegistration;
   registerDomEvent<K extends EditorDomEventType>(
@@ -248,6 +285,16 @@ export interface EditorExtensionContributionSink {
     ownerId: string,
     root: HTMLElement,
     target: Omit<EditorInputTarget, "element">
+  ): EditorContributionRegistration;
+  /**
+   * Register a runtime keybinding owned by `ownerId`. Duplicate keys are
+   * allowed and resolve deterministically (priority desc, then registration
+   * order) — see `getKeybindings` for the effective snapshot.
+   */
+  registerKeybinding(
+    ownerId: string,
+    binding: KeybindingSpec,
+    options?: EditorKeybindingRegistrationOptions
   ): EditorContributionRegistration;
   /** True while IME, a mouse gesture, or an interactive table session blocks reconfiguration. */
   isInteractionActive(): boolean;
@@ -442,6 +489,13 @@ export interface EditorAPI {
   getCommands(): EditorCommand[];
   /** 按 id 执行命令；找到并执行返回 true，否则 false。 */
   runCommand(id: string): boolean;
+  /**
+   * Snapshot of every effective keybinding — builtin, host-registered,
+   * plugin shortcut, and command hotkey — ordered by actual resolution
+   * precedence (index 0 runs first). Re-read after registration `ready`
+   * promises settle; entries are plain data with no live handles.
+   */
+  getKeybindings(): KeybindingInfo[];
   /**
    * 是否处于输入法组合输入（IME composition）中。宿主在回灌文档前应先查询，
    * 避免在合成过程中调用 setDocument 打断输入。

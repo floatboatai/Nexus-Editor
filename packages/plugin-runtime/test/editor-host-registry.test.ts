@@ -75,6 +75,14 @@ class FakeContributionSink implements EditorContributionSink {
     return this.add(ownerId, "target", { root, target });
   }
 
+  registerKeybinding(
+    ownerId: string,
+    binding: { key: string },
+    options?: unknown,
+  ): EditorContributionRegistration {
+    return this.add(ownerId, "keybinding", { binding, options });
+  }
+
   registerTransactionFilter(
     ownerId: string,
     filter: CoreEditorTransactionFilter,

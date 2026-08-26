@@ -44,6 +44,7 @@ import type {
   EditorEventHandler,
   EditorEventMap,
   EditorSelectionRange,
+  KeybindingInfo,
   NexusPlugin,
   ParserLike,
   SetDocumentOptions,
@@ -259,6 +260,16 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // parsers stay green.
   const customParser = config.parser;
   const shortcuts = plugins.flatMap((plugin) => plugin.shortcuts ?? []);
+  // 快照归属用：getKeybindings() 需要标注每个静态绑定来自哪个插件。
+  const shortcutBindings = plugins.flatMap((plugin) =>
+    (plugin.shortcuts ?? []).map((shortcut) => ({ key: shortcut.key, ownerId: plugin.name }))
+  );
+  const commandHotkeyBindings = plugins.flatMap((plugin) =>
+    (plugin.commands ?? [])
+      .filter((command): command is EditorCommand & { hotkey: string } =>
+        typeof command.hotkey === "string" && command.hotkey.length > 0)
+      .map((command) => ({ key: command.hotkey, ownerId: plugin.name }))
+  );
   const slashCommands = plugins.flatMap((plugin) => plugin.slashCommands ?? []);
   const cmExtensions = plugins.flatMap((plugin) => plugin.cmExtensions ?? []);
   const widgetDefs = plugins.flatMap((plugin) => plugin.widgets ?? []);
@@ -943,6 +954,25 @@ export function createEditor(config: EditorConfig): EditorAPI {
       if (!command) return false;
       return command.run(api) !== false;
     },
+    getKeybindings(): KeybindingInfo[] {
+      const snapshot: KeybindingInfo[] = [
+        // 内置 Markdown Enter 处理（Prec.high，静态数组首位）。
+        { key: "Enter", source: "builtin", ownerId: "nexus-core" },
+      ];
+      for (const entry of dynamicContributionSink.getHighPriorityKeybindings()) {
+        snapshot.push(entry);
+      }
+      for (const binding of shortcutBindings) {
+        snapshot.push({ key: binding.key, source: "plugin-shortcut", ownerId: binding.ownerId });
+      }
+      for (const binding of commandHotkeyBindings) {
+        snapshot.push({ key: binding.key, source: "plugin-command", ownerId: binding.ownerId });
+      }
+      for (const entry of dynamicContributionSink.getDefaultKeybindings()) {
+        snapshot.push(entry);
+      }
+      return snapshot;
+    },
     isComposing() {
       if (destroyed) return false;
       return composing || view.composing || view.compositionStarted;
@@ -1073,11 +1103,17 @@ export function createEditor(config: EditorConfig): EditorAPI {
     registerExtension: dynamicContributionSink.registerExtension.bind(dynamicContributionSink),
     registerDomEvent: dynamicContributionSink.registerDomEvent.bind(dynamicContributionSink),
     registerInputTarget: dynamicContributionSink.registerInputTarget.bind(dynamicContributionSink),
+    registerKeybinding: dynamicContributionSink.registerKeybinding.bind(dynamicContributionSink),
     isInteractionActive: dynamicContributionSink.isInteractionActive.bind(dynamicContributionSink),
     refresh: dynamicContributionSink.refresh.bind(dynamicContributionSink),
     registerTransactionFilter: transactionPipeline.registerTransactionFilter.bind(transactionPipeline),
     registerUpdateListener: transactionPipeline.registerUpdateListener.bind(transactionPipeline),
   };
+
+  // 声明式初始绑定与运行时注册走同一条管线，快照里统一呈现为 owner "editor-config"。
+  for (const spec of config.keybindings ?? []) {
+    dynamicContributionSink.registerKeybinding("editor-config", spec);
+  }
 
   return api;
 }
