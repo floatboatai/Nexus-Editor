@@ -209,6 +209,8 @@ Plugin platform documentation (Chinese): [native plugin API](./docs/plugins/nati
 ```ts
 editor.getDocument()          // current Markdown string
 editor.getAst()               // current mdast Root
+editor.getSelectedText()      // text of the main selection ("" when collapsed)
+editor.getSelectedTexts()     // text of every selection range, as string[]
 editor.setDocument(md)        // replace entire document
 editor.setDocument(md, { silent: true, preserveSelection: true })
 editor.setDocument(md, { selection: { anchor: 0 } })

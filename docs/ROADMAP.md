@@ -34,6 +34,7 @@ This document maps every planned feature to **package ownership / priority / sta
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
 | 5 | `getSelectedText()` API | `core` | P0 | done | No | Plus atomic `replaceRange()` (single undo entry) — see `openspec/changes/add-selection-api` |
+| 30 | `getSelectedTexts()` API | `core` | P0 | done | No | Multi-cursor sibling of `getSelectedText()` — returns every selection's text in document order |
 | 6 | Multi-cursor / multi-selection | `core` | P1 | done | Yes | `openspec/changes/add-core-multi-cursor` — opt-in `multiCursor` config; live-preview reveal + table checks verified by regression tests |
 | 7 | AST enhancement / Markdown extensions | `core` + `preset-gfm` | P2 | planned | Yes | Affects serialization and every AST-dependent plugin |
 | 8 | Undo / redo grouping | `plugin-history` | P1 | planned | No | Coordinate with table's `tableEditingCount`; consolidate competing impls before merge |

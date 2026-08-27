@@ -60,6 +60,9 @@ import {
 editor.getSelection();   // main range: { anchor, head }
 editor.getSelections();  // all ranges: { ranges: [{ anchor, head }, ...], mainIndex }
 
+editor.getSelectedText();   // main selection text ("" when collapsed)
+editor.getSelectedTexts();  // every selection's text, in document order: string[]
+
 editor.setSelection(5);                                  // single cursor
 editor.setSelections([{ anchor: 2 }, { anchor: 9, head: 14 }]);  // multiple ranges
 editor.setSelections([{ anchor: 2 }, { anchor: 9 }], 0);         // explicit main range

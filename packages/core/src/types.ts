@@ -377,6 +377,14 @@ export interface EditorAPI {
   getSelections(): SelectionState;
   /** Returns the text currently selected in the editor. Returns an empty string when the selection is collapsed. */
   getSelectedText(): string;
+  /**
+   * Returns the text of every selection range as an array of strings, in
+   * document order. A single-range editor returns a one-element array (an
+   * empty string when the selection is collapsed). More than one range
+   * requires `multiCursor: true` — without it CodeMirror collapses the
+   * selection to the main range.
+   */
+  getSelectedTexts(): string[];
   getSlashCommands(): SlashCommandDef[];
   uploadAsset(file: File): Promise<string | null>;
   setSelection(anchor: number, head?: number): void;

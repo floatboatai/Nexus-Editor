@@ -34,6 +34,7 @@
 | # | 功能 | 归属包 | 优先级 | 状态 | 需要 OpenSpec | 备注 |
 |---|---|---|---|---|---|---|
 | 5 | `getSelectedText()` API | `core` | P0 | done | 否 | 另含原子 `replaceRange()`（单条 undo）—— 见 `openspec/changes/add-selection-api` |
+| 30 | `getSelectedTexts()` API | `core` | P0 | done | 否 | `getSelectedText()` 的多光标姊妹 API——按文档顺序返回每个选区的文本 |
 | 6 | 多光标 / 多选支持 | `core` | P1 | done | 是 | `openspec/changes/add-core-multi-cursor` — opt-in `multiCursor` 配置；live-preview 揭示与表格检查已有回归测试覆盖 |
 | 7 | AST 增强 / Markdown 扩展 | `core` + `preset-gfm` | P2 | planned | 是 | 影响序列化与所有依赖 AST 的插件 |
 | 8 | undo / redo 分组 | `plugin-history` | P1 | planned | 否 | 注意与表格交互的 `tableEditingCount` 协同；合并前需收敛多个竞品实现 |

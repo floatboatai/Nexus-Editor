@@ -814,6 +814,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
       const to = Math.max(sel.anchor, sel.head);
       return view.state.doc.sliceString(from, to);
     },
+    getSelectedTexts() {
+      return view.state.selection.ranges.map((range) => {
+        const from = Math.min(range.anchor, range.head);
+        const to = Math.max(range.anchor, range.head);
+        return view.state.doc.sliceString(from, to);
+      });
+    },
     getSlashCommands() {
       return slashCommands;
     },
