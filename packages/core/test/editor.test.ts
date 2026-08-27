@@ -554,6 +554,62 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  // ── getSelectedTexts ──
+
+  it("returns a single-element array for a single selection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.setSelection(6, 11);
+    expect(editor.getSelectedTexts()).toEqual(["world"]);
+    editor.destroy();
+  });
+
+  it("returns a one-element array with an empty string when collapsed", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+
+    editor.setSelection(5);
+    expect(editor.getSelectedTexts()).toEqual([""]);
+    editor.destroy();
+  });
+
+  it("returns the text of every selection range with multiCursor enabled", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "Hello world", multiCursor: true });
+
+    editor.setSelections([
+      { anchor: 0, head: 5 },
+      { anchor: 6, head: 11 },
+    ]);
+    expect(editor.getSelectedTexts()).toEqual(["Hello", "world"]);
+    editor.destroy();
+  });
+
+  it("normalizes reversed ranges (head < anchor)", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "alpha beta", multiCursor: true });
+
+    editor.setSelections([
+      { anchor: 5, head: 0 },
+      { anchor: 10, head: 6 },
+    ]);
+    expect(editor.getSelectedTexts()).toEqual(["alpha", "beta"]);
+    editor.destroy();
+  });
+
+  it("collapses to one range when multiCursor is off", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "Hello world" });
+
+    editor.setSelections([
+      { anchor: 0, head: 5 },
+      { anchor: 6, head: 11 },
+    ]);
+    expect(editor.getSelectedTexts()).toEqual(["world"]);
+    editor.destroy();
+  });
+
   // ── replaceRange ──
 
   it("replaceRange: replaces document content in the given range", () => {
