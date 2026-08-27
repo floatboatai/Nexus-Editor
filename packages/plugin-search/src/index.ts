@@ -25,16 +25,29 @@ import {
 
 import type { NexusPlugin } from "@floatboat/nexus-core";
 
+import { findFuzzyMatches } from "./fuzzy-matcher";
+
 export interface SearchMatch {
   from: number;
   to: number;
   text: string;
+  /**
+   * Fuzzy matches only: the exact ranges of the matched characters
+   * (`to` exclusive), for precise highlighting of a span that may include
+   * skipped characters.
+   */
+  segments?: ReadonlyArray<{ from: number; to: number }>;
 }
 
 export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  /**
+   * Match the query as a fuzzy subsequence with fzf-style scoring.
+   * Takes precedence over `regexp` and `wholeWord`; `caseSensitive` applies.
+   */
+  fuzzy?: boolean;
 }
 
 export interface SearchHistoryStorage {
@@ -650,6 +663,17 @@ export function findSearchMatches(
     return [];
   }
 
+  if (options.fuzzy) {
+    // Fuzzy results are ranked by score (descending, document order on
+    // ties); the score itself is an implementation detail and not exposed.
+    return findFuzzyMatches(doc, query, Boolean(options.caseSensitive)).map((match) => ({
+      from: match.from,
+      to: match.to,
+      text: match.text,
+      segments: match.segments
+    }));
+  }
+
   const pattern = buildSearchPattern(query, options);
   if (!pattern) {
     return [];
@@ -678,6 +702,33 @@ export function replaceAllMatches(
 ): string {
   if (!query) {
     return doc;
+  }
+
+  if (options.fuzzy) {
+    const matches = findFuzzyMatches(doc, query, Boolean(options.caseSensitive));
+    if (matches.length === 0) {
+      return doc;
+    }
+    // Fuzzy matches may overlap (different start positions sharing
+    // characters). Resolve them in document order: the earliest match
+    // wins and any match starting inside an accepted span is skipped, so
+    // no character is replaced more than once. The replacement string is
+    // always literal — fuzzy matches have no capture groups.
+    const accepted: { from: number; to: number }[] = [];
+    let lastEnd = 0;
+    for (const match of matches.sort((a, b) => a.from - b.from)) {
+      if (match.from >= lastEnd) {
+        accepted.push(match);
+        lastEnd = match.to;
+      }
+    }
+    let result = "";
+    let cursor = 0;
+    for (const match of accepted) {
+      result += doc.slice(cursor, match.from) + replacement;
+      cursor = match.to;
+    }
+    return result + doc.slice(cursor);
   }
 
   const pattern = buildSearchPattern(query, options);

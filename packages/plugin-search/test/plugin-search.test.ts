@@ -303,6 +303,101 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  describe("fuzzy search", () => {
+    it("matches the query as a subsequence and reports matched segments", () => {
+      expect(findSearchMatches("fuzzy search", "fzs", { fuzzy: true })).toEqual([
+        {
+          from: 0,
+          to: 7,
+          text: "fuzzy s",
+          segments: [
+            { from: 0, to: 1 },
+            { from: 3, to: 4 },
+            { from: 6, to: 7 }
+          ]
+        }
+      ]);
+    });
+
+    it("ranks higher-scoring matches first regardless of document position", () => {
+      const matches = findSearchMatches("xabc abc", "abc", { fuzzy: true });
+      expect(matches.map((match) => match.from)).toEqual([5, 1]);
+    });
+
+    it("orders equal scores by document position", () => {
+      expect(findSearchMatches("axb Ax", "ax", { fuzzy: true })).toEqual([
+        { from: 0, to: 2, text: "ax", segments: [{ from: 0, to: 2 }] },
+        { from: 4, to: 6, text: "Ax", segments: [{ from: 4, to: 6 }] }
+      ]);
+    });
+
+    it("respects case sensitivity", () => {
+      expect(findSearchMatches("Alpha and alpha", "Alp", { fuzzy: true, caseSensitive: true })).toEqual([
+        { from: 0, to: 3, text: "Alp", segments: [{ from: 0, to: 3 }] }
+      ]);
+      expect(
+        findSearchMatches("Alpha and alpha", "ALP", { fuzzy: true }).map((match) => match.from)
+      ).toEqual([0, 10]);
+    });
+
+    it("matches camelCase boundaries", () => {
+      expect(findSearchMatches("getUserID", "uid", { fuzzy: true })).toEqual([
+        {
+          from: 3,
+          to: 9,
+          text: "UserID",
+          segments: [
+            { from: 3, to: 4 },
+            { from: 7, to: 9 }
+          ]
+        }
+      ]);
+    });
+
+    it("treats regex metacharacters as literal when fuzzy takes precedence", () => {
+      expect(findSearchMatches("a.b", ".", { fuzzy: true, regexp: true })).toEqual([
+        { from: 1, to: 2, text: ".", segments: [{ from: 1, to: 2 }] }
+      ]);
+    });
+
+    it("ignores wholeWord under fuzzy matching", () => {
+      expect(findSearchMatches("xalfay", "alf", { fuzzy: true, wholeWord: true })).toEqual([
+        { from: 1, to: 4, text: "alf", segments: [{ from: 1, to: 4 }] }
+      ]);
+    });
+
+    it("returns no matches for an empty query or a query longer than the document", () => {
+      expect(findSearchMatches("fuzzy", "", { fuzzy: true })).toEqual([]);
+      expect(findSearchMatches("abc", "abcd", { fuzzy: true })).toEqual([]);
+      expect(findSearchMatches("hello world", "xyz", { fuzzy: true })).toEqual([]);
+    });
+
+    it("folds ASCII case without disturbing non-ASCII characters", () => {
+      // "İ" (U+0130) is not ASCII-folded, so it must not match "i" — the
+      // folding never changes string length, keeping positions aligned.
+      expect(findSearchMatches("İstanbul istanbul", "istanbul", { fuzzy: true }).map((match) => match.from)).toEqual([
+        9
+      ]);
+    });
+
+    it("replaces the span from the first to the last matched character", () => {
+      expect(replaceAllMatches("fuzzy", "fzy", "x", { fuzzy: true })).toBe("x");
+    });
+
+    it("treats the replacement string as literal text", () => {
+      expect(replaceAllMatches("fuzzy", "fzy", "$&", { fuzzy: true })).toBe("$&");
+    });
+
+    it("returns the document unchanged when no fuzzy match exists", () => {
+      expect(replaceAllMatches("hello", "xyz", "q", { fuzzy: true })).toBe("hello");
+    });
+
+    it("skips overlapping matches in document order so no character is replaced twice", () => {
+      expect(findSearchMatches("xaaaaa", "aa", { fuzzy: true }).map((match) => match.from)).toEqual([1, 2, 3, 4]);
+      expect(replaceAllMatches("xaaaaa", "aa", "y", { fuzzy: true })).toBe("xyya");
+    });
+  });
+
   it("creates a search plugin descriptor", () => {
     const plugin = createSearchPlugin();
 
