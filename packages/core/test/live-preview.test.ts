@@ -1384,6 +1384,62 @@ describe("live preview", () => {
     container.remove();
   });
 
+  it("clears a table range in both markdown and cell DOM on Delete", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |",
+      livePreview: true,
+      plugins: [createGfmPreset()],
+    });
+
+    const wrapper = container.querySelector<HTMLElement>(".nexus-table-wrapper")!;
+    const cells = container.querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell");
+    const firstCell = cells?.[0];
+    const secondCell = cells?.[1];
+    expect(firstCell).not.toBeUndefined();
+    expect(secondCell).not.toBeUndefined();
+    firstCell!.getBoundingClientRect = () => new DOMRect(0, 0, 50, 30);
+    secondCell!.getBoundingClientRect = () => new DOMRect(50, 0, 50, 30);
+
+    firstCell!.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 25,
+      clientY: 15,
+    }));
+    document.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true,
+      button: 0,
+      clientX: 75,
+      clientY: 15,
+    }));
+    document.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 0,
+      clientX: 75,
+      clientY: 15,
+    }));
+
+    wrapper.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Delete",
+      bubbles: true,
+      cancelable: true,
+    }));
+
+    expect(editor.getDocument()).toMatch(/\|\s+\|\s+\|/);
+    const afterCells = container.querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell");
+    expect(afterCells?.[0]?.textContent?.trim()).toBe("");
+    expect(afterCells?.[1]?.textContent?.trim()).toBe("");
+
+    editor.destroy();
+    container.remove();
+  });
+
   it("defers dynamic reconfiguration while a table range remains active", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);

@@ -51,6 +51,14 @@ export {
   type WikilinksOptions,
   type WikiLinkNavigateOptions,
 } from "./wikilinks";
+export {
+  beginWidgetInteraction,
+  clearWidgetInteraction,
+  endWidgetInteraction,
+  isWidgetInteracting,
+  shouldReuseWidgetDom,
+  widgetInteractionRefreshEffect,
+} from "./widget-interaction";
 export type {
   CodeHighlightToken,
   CoreEditorChange,

@@ -399,6 +399,10 @@ describe("dynamic editor contributions", () => {
     expect(seen).toEqual([{ surface: "table", selected: "1\t2", replaced: true }]);
     expect(editor.getDocument()).toContain("| x | y |");
     expect(editor.getDocument().startsWith("x")).toBe(false);
+    const afterCells = container.querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell");
+    expect(afterCells?.[0]?.textContent?.trim()).toBe("x");
+    expect(afterCells?.[1]?.textContent?.trim()).toBe("y");
     editor.destroy();
     container.remove();
   });

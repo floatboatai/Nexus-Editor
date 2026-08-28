@@ -157,7 +157,18 @@ Nexus 不把活动编辑器建模成全局单例。一个插件实例可以服�
 
 需要特定窗口、Workspace 或 editor capability 时，传入对应的 `CapabilityRequestContext`。不要缓存“当前编辑器”或从全局 DOM 推断活动 leaf。Workspace 的 focused leaf、active view/file 和 recent editor 是相互独立且都可能为空的查询。
 
-## 5. Manifest 字段速查
+## 5. Widget 生命周期
+
+编辑器内核的 `WidgetDefinition` 在 `render` 时会注入 `WidgetRenderContext`：
+
+- `beginInteraction` / `endInteraction`：跨帧手势必须成对调用。持锁期间 Live Preview 与插件 widget 的 StateField 只 `map` 装饰、不拆 DOM。
+- `isInteracting()`：当前编辑器是否有未释放的 widget 锁。
+- `contentKey`：`eq()` 指纹，缺省为源码切片。
+- 卸载或 widget `destroy` 时内核会释放该实例仍持有的锁。
+
+表格走同一把锁（`isTableEditing` 是 `isWidgetInteracting` 的别名）。详见 [`docs/widget-api-standardization.md`](../widget-api-standardization.md)。
+
+## 6. Manifest 字段速查
 
 | 字段 | 必填 | 约束 |
 |---|---:|---|

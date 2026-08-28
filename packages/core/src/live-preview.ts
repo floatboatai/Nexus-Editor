@@ -14,7 +14,12 @@ import {
 import { createLivePreviewDiagnostics } from "./live-preview-diag";
 import { collectLivePreviewRanges, selectionIntersects, selectionOnSameLine } from "./live-preview-ranges";
 import { renderLivePreviewNode } from "./live-preview-renderers";
-import { EditableTableWidget, isTableEditing } from "./live-preview-table";
+import { EditableTableWidget } from "./live-preview-table";
+import {
+  isWidgetInteracting,
+  shouldReuseWidgetDom,
+  widgetInteractionRefreshEffect,
+} from "./widget-interaction";
 import type {
   LivePreviewConfig,
   LivePreviewLabels,
@@ -105,6 +110,7 @@ function createWidget(
   swallowEvents = false,
   heightHint?: number,
   eqKey?: string,
+  viewRef?: { current: EditorView | null },
 ): WidgetType {
   // Eager path: caller already built the element. Lazy path: caller passes a
   // builder closure and we defer DOM construction to first toDOM(), so widgets
@@ -123,9 +129,9 @@ function createWidget(
       // Without a key we fall back to CM6's default (object identity → false),
       // forcing a rebuild every transaction. That's the old behavior and is
       // safe; only opt-in callers that pass a stable eqKey get DOM reuse.
-      if (this._eqKey === undefined) return false;
-      const otherKey = (other as { _eqKey?: string })._eqKey;
-      return otherKey === this._eqKey;
+      const identityEqual = this._eqKey !== undefined
+        && (other as { _eqKey?: string })._eqKey === this._eqKey;
+      return shouldReuseWidgetDom(viewRef?.current, identityEqual);
     }
     ignoreEvent() { return swallowEvents; }
     // For block widgets, giving CM6 a pre-measure height prevents the heightmap
@@ -136,8 +142,17 @@ function createWidget(
 }
 
 class CodeCopyWidget extends WidgetType {
-  constructor(private readonly code: string, private readonly lang: string) { super(); }
-  eq(other: CodeCopyWidget): boolean { return other.code === this.code && other.lang === this.lang; }
+  constructor(
+    private readonly code: string,
+    private readonly lang: string,
+    private readonly viewRef: { current: EditorView | null },
+  ) { super(); }
+  eq(other: CodeCopyWidget): boolean {
+    return shouldReuseWidgetDom(
+      this.viewRef.current,
+      other.code === this.code && other.lang === this.lang,
+    );
+  }
   ignoreEvent(): boolean { return true; }
   toDOM(): HTMLElement {
     // CM6 measures inline widget DOM elements via offsetHeight and uses that to
@@ -230,7 +245,10 @@ class MermaidWidget extends WidgetType {
   ) { super(); }
 
   eq(other: MermaidWidget): boolean {
-    return other.source === this.source;
+    return shouldReuseWidgetDom(
+      this.viewRef.current,
+      other.source === this.source && other.blockFrom === this.blockFrom,
+    );
   }
 
   ignoreEvent(): boolean { return true; }
@@ -238,6 +256,19 @@ class MermaidWidget extends WidgetType {
   get estimatedHeight(): number {
     const cached = MERMAID_CACHE.get(this.source);
     return cached ? cached.height : 80;
+  }
+
+  /** Drop the caret into the fence so live preview falls through to source. */
+  private enterSource(): void {
+    const v = this.viewRef.current;
+    if (!v) return;
+    const target = this.blockFrom + this.sourceOffsetInBlock;
+    const safeTarget = Math.min(target, v.state.doc.length);
+    // Do not take the interaction lock: this is a one-shot selection change.
+    // Holding the lock would map decorations instead of rebuilding, so the
+    // diagram would stay mounted even though the caret is already inside.
+    v.dispatch({ selection: { anchor: safeTarget } });
+    v.focus();
   }
 
   toDOM(): HTMLElement {
@@ -253,54 +284,68 @@ class MermaidWidget extends WidgetType {
       "border-radius:4px",
       "min-height:80px",
       "text-align:center",
-      "overflow:hidden",
+      "overflow:visible",
+      "cursor:text",
     ].join(";") + ";";
 
-    // Edit icon — always rendered, always on top. stopPropagation so the
-    // click doesn't get swallowed as a widget-surface click.
-    const editBtn = document.createElement("button");
-    editBtn.type = "button";
-    editBtn.title = "Edit mermaid source";
-    editBtn.setAttribute("aria-label", "Edit mermaid source");
-    editBtn.textContent = "✎";
-    editBtn.style.cssText = [
-      "position:absolute",
-      "top:4px",
-      "right:8px",
-      "padding:2px 8px",
-      "font-size:12px",
-      "font-family:system-ui,sans-serif",
-      "line-height:1.4",
-      "background:var(--nexus-bg)",
-      "border:1px solid var(--nexus-border-subtle)",
-      "border-radius:3px",
-      "color:var(--nexus-text-muted)",
-      "cursor:pointer",
-      "opacity:0.7",
-      "z-index:2",
-      "user-select:none",
-      "transition:opacity .15s",
-    ].join(";") + ";";
-    editBtn.addEventListener("mouseenter", () => { editBtn.style.opacity = "1"; });
-    editBtn.addEventListener("mouseleave", () => { editBtn.style.opacity = "0.7"; });
-    editBtn.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); });
-    editBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const v = this.viewRef.current;
-      if (!v) return;
-      const target = this.blockFrom + this.sourceOffsetInBlock;
-      const safeTarget = Math.min(target, v.state.doc.length);
-      v.dispatch({ selection: { anchor: safeTarget } });
-      v.focus();
+    // Click the diagram (or the edit chip) to reveal source — same pattern as
+    // HTML blocks. `ignoreEvent` still swallows CM6's own click-to-pos.
+    container.addEventListener("mousedown", (event) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("button, a[href]")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.enterSource();
     });
 
     const diagramHost = document.createElement("div");
     // max-width on host + responsive SVG (set after innerHTML) prevents the
     // diagram from overflowing and adding a third scrollbar.
     diagramHost.style.cssText = "display:block;min-height:64px;max-width:100%;overflow:hidden;";
-    container.appendChild(editBtn);
+
+    // Chrome overlay is appended AFTER the SVG so mermaid's painted nodes
+    // cannot cover the chip (z-index alone loses to later in-flow SVG).
+    const chrome = document.createElement("div");
+    chrome.className = "nexus-mermaid-chrome";
+    chrome.style.cssText = "position:absolute;inset:0;pointer-events:none;z-index:5;";
+
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.className = "nexus-mermaid-edit";
+    editBtn.title = "Edit mermaid source";
+    editBtn.setAttribute("aria-label", "Edit mermaid source");
+    editBtn.textContent = "✎ Edit";
+    editBtn.style.cssText = [
+      "position:absolute",
+      "top:8px",
+      "right:8px",
+      "padding:4px 10px",
+      "font-size:12px",
+      "font-family:system-ui,sans-serif",
+      "font-weight:600",
+      "line-height:1.2",
+      "letter-spacing:0.02em",
+      "background:var(--nexus-bg, #ffffff)",
+      "border:1px solid var(--nexus-border-subtle, #d0d7de)",
+      "border-radius:6px",
+      "color:var(--nexus-text, #24292e)",
+      "cursor:pointer",
+      "opacity:1",
+      "pointer-events:auto",
+      "user-select:none",
+      "box-shadow:0 1px 4px rgba(0,0,0,.14)",
+      "-webkit-appearance:none",
+      "appearance:none",
+    ].join(";") + ";";
+    editBtn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.enterSource();
+    });
+    chrome.appendChild(editBtn);
+
     container.appendChild(diagramHost);
+    container.appendChild(chrome);
 
     const normalizeSvg = (host: HTMLElement) => {
       const svg = host.querySelector("svg") as SVGSVGElement | null;
@@ -354,16 +399,10 @@ class MermaidWidget extends WidgetType {
       editLink.href = "#";
       editLink.textContent = "Edit source";
       editLink.style.cssText = "color:var(--nexus-accent);text-decoration:underline;cursor:pointer;";
-      editLink.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); });
-      editLink.addEventListener("click", (e) => {
+      editLink.addEventListener("mousedown", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        const v = this.viewRef.current;
-        if (!v) return;
-        const target = this.blockFrom + this.sourceOffsetInBlock;
-        const safeTarget = Math.min(target, v.state.doc.length);
-        v.dispatch({ selection: { anchor: safeTarget } });
-        v.focus();
+        this.enterSource();
       });
       hint.appendChild(document.createTextNode("→ "));
       hint.appendChild(editLink);
@@ -530,7 +569,7 @@ function buildListDecorations(
     }
     decos.push(
       Decoration.replace({
-        widget: createWidget(bullet, false, undefined, bulletKey),
+        widget: createWidget(bullet, false, undefined, bulletKey, viewRef),
       }).range(markerStart, markerEnd)
     );
 
@@ -566,7 +605,7 @@ function buildListDecorations(
         Decoration.replace({
           // swallowEvents=true → ignoreEvent() 返回 true，CM6 不再抢占点击，
           // 复选框自身的 click 处理器得以触发完成切换。
-          widget: createWidget(checkbox, true, undefined, taskKey),
+          widget: createWidget(checkbox, true, undefined, taskKey, viewRef),
         }).range(checkStart, checkEnd)
       );
 
@@ -708,7 +747,7 @@ function buildHtmlDecorations(
 
   decos.push(
     Decoration.replace({
-      widget: createWidget(wrapper, true, heightHint, htmlKey),
+      widget: createWidget(wrapper, true, heightHint, htmlKey, viewRef),
       block: true,
     }).range(range.from, range.to)
   );
@@ -775,7 +814,8 @@ function detectAlert(source: string): {
 function buildBlockquoteDecorations(
   range: { from: number; to: number; source: string },
   selection: readonly SelectionRange[],
-  decos: Range<Decoration>[]
+  decos: Range<Decoration>[],
+  viewRef: { current: EditorView | null },
 ): { alertHeadEnd: number } | null {
   const source = range.source;
   const lines = source.split("\n");
@@ -839,7 +879,7 @@ function buildBlockquoteDecorations(
           badge.appendChild(labelSpan);
           decos.push(
             Decoration.replace({
-              widget: createWidget(badge, false, undefined, `alert:${alert.type}:${tagStart}`),
+              widget: createWidget(badge, false, undefined, `alert:${alert.type}:${tagStart}`, viewRef),
             }).range(tagStart, tagEnd)
           );
           alertHeadEnd = lineEnd;
@@ -872,8 +912,8 @@ function buildCodeBlockDecorations(
   const isFenced = /^[ \t]*(`{3,}|~{3,})/.test(source);
 
   // Mermaid: render as block widget when cursor is NOT in the block. When the
-  // cursor enters (e.g. via edit-icon dispatch or click outside of swallowed
-  // widget), fall through to normal source rendering so the user can edit.
+  // cursor enters (diagram / ✎ click, or a caret parked inside the fence),
+  // fall through to normal source rendering so the user can edit.
   if (range.node.lang === "mermaid" && !cursorOnCode && firstNewline >= 0) {
     decos.push(
       Decoration.replace({
@@ -942,7 +982,7 @@ function buildCodeBlockDecorations(
     if (isFenced && isFirstLine && codeValue) {
       decos.push(
         Decoration.widget({
-          widget: new CodeCopyWidget(codeValue, lang ?? ""),
+          widget: new CodeCopyWidget(codeValue, lang ?? "", viewRef),
           side: 1
         }).range(lineEnd)
       );
@@ -1102,7 +1142,8 @@ function buildDecorations(
       const alertInfo = buildBlockquoteDecorations(
         range as { from: number; to: number; source: string },
         selection,
-        decos
+        decos,
+        viewRef,
       );
       if (alertInfo) {
         // GFM Alert: suppress the inline link decoration that lezer emits for
@@ -1133,14 +1174,14 @@ function buildDecorations(
       if (!cursorOnImage) {
         decos.push(
           Decoration.replace({
-            widget: createWidget(buildImg, true, undefined, imgKey)
+            widget: createWidget(buildImg, true, undefined, imgKey, viewRef)
           }).range(range.from, range.to)
         );
       } else {
         // Edit mode: keep source text visible; also render the image below.
         decos.push(
           Decoration.widget({
-            widget: createWidget(buildImg, true, undefined, imgKey),
+            widget: createWidget(buildImg, true, undefined, imgKey, viewRef),
             block: true,
             side: 1,
           }).range(range.to)
@@ -1168,7 +1209,7 @@ function buildDecorations(
         const linkKey = `link:${range.from}-${range.to}:${range.source}`;
         decos.push(
           Decoration.replace({
-            widget: createWidget(span, false, undefined, linkKey),
+            widget: createWidget(span, false, undefined, linkKey, viewRef),
           }).range(range.from, range.to)
         );
       }
@@ -1189,7 +1230,7 @@ function buildDecorations(
       const fnRefKey = `fnref:${range.from}-${range.to}:${ref.identifier}`;
       decos.push(
         Decoration.replace({
-          widget: createWidget(sup, false, undefined, fnRefKey),
+          widget: createWidget(sup, false, undefined, fnRefKey, viewRef),
         }).range(range.from, range.to)
       );
     } else if (range.node.type === "footnoteDefinition") {
@@ -1209,7 +1250,7 @@ function buildDecorations(
       const fnDefKey = `fndef:${range.from}-${range.to}:${def.identifier}:${range.source}`;
       decos.push(
         Decoration.replace({
-          widget: createWidget(el, false, undefined, fnDefKey),
+          widget: createWidget(el, false, undefined, fnDefKey, viewRef),
         }).range(range.from, range.to)
       );
     } else {
@@ -1264,6 +1305,7 @@ function buildDecorations(
               isBlock,
               heightHint,
               blockKey,
+              viewRef,
             ),
             block: isBlock
           }).range(range.from, range.to)
@@ -1354,8 +1396,11 @@ export function createLivePreviewExtension(
       return build(state, state.selection.ranges, false);
     },
     update(decos: DecorationSet, tr: Transaction) {
-      if (isTableEditing(viewRef.current)) {
+      if (isWidgetInteracting(viewRef.current)) {
         return tr.docChanged ? decos.map(tr.changes) : decos;
+      }
+      if (tr.effects.some((effect) => effect.is(widgetInteractionRefreshEffect))) {
+        return build(tr.state, tr.state.selection.ranges, false);
       }
       if (tr.effects.some((effect) => effect.is(rebuildForCompositionStart))) {
         compositionActive = true;

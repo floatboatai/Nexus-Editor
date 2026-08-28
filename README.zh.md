@@ -192,7 +192,7 @@ pnpm dev:electron-demo
 - **实时预览** —— 类 Obsidian 内联渲染，光标聚焦时展开原始语法。
 - **插件系统** —— 三层架构：快捷键与斜杠命令、remark 插件与 Widget、原生 CM6 扩展。
 - **事件系统** —— 订阅 `change`、`focus`、`blur`、`selectionChange`、`slashMenuChange`。
-- **Widget API** —— 为任意 AST 节点类型（代码块、表格、图表等）渲染自定义组件。
+- **Widget API** —— 为任意 AST 节点渲染自定义 DOM，并提供统一的交互锁与 `eq()` 身份，避免手势中途被拆掉重建。
 - **本地优先** —— 为 Electron / Tauri 设计，内置文件 IO 钩子与防抖解析。
 
 ---
