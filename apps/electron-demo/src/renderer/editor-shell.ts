@@ -139,7 +139,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       createGfmPreset(),
       createHistoryPlugin(),
       ...(!runtimeManaged && contributionFeatures.toolbar ? [createToolbarPlugin()] : []),
-      createSearchPlugin(),
+      createSearchPlugin({ highlightSelectionMatches: false }),
       wikilinksPlugin,
       ...(wordcount ? [wordcount] : []),
       ...editorContributions,

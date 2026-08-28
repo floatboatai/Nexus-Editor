@@ -458,6 +458,14 @@ export interface EditorAPI {
    */
   getPosAtDOM(node: HTMLElement): number | null;
   getDocumentStats(): { characters: number; words: number; lines: number };
+  /**
+   * Highlight arbitrary ranges in the editor with search-match decorations.
+   * The `activeIndex` range gets the "selected" style (darker / more prominent).
+   * Call `clearHighlight()` to remove all decorations.
+   */
+  highlightRanges(ranges: readonly { from: number; to: number }[], activeIndex?: number): void;
+  /** Remove all highlight decorations created by `highlightRanges`. */
+  clearHighlight(): void;
   /** Dynamic, owner-scoped extension and real DOM event registration. */
   getContributionSink(): EditorContributionSink;
   /** Dispatch one stable transaction through application filters and update listeners. */
