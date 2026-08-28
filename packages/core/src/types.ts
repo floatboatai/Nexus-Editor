@@ -148,6 +148,13 @@ export interface EditorEventMap {
   /** `anchor` / `head` describe the main range; `ranges` carries all of them. */
   selectionChange: (selection: { anchor: number; head: number } & SelectionState) => void;
   slashMenuChange: (state: SlashMenuState) => void;
+  /**
+   * 整文档被加载/替换（silent 模式）后触发，携带加载后的完整文档内容。
+   * 与 `change` 正交：`change` 绑定 onChange 管线（parse + 插件回调），
+   * silent 加载有意跳过该管线；`documentLoad` 通知宿主"文档已更换"，
+   * 使依赖文档内容的 UI（如 outline）能够刷新。
+   */
+  documentLoad: (doc: string) => void;
 }
 
 export interface TocEntry {

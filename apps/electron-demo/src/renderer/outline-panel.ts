@@ -114,15 +114,19 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
     renderItems(editor.getTableOfContents());
   }
 
-  // Initial render + listen for changes
+  // Initial render + listen for changes. `documentLoad` covers silent
+  // document replacements (e.g. opening a vault file), which deliberately do
+  // not emit `change`; without it the panel would keep showing stale entries.
   update();
   editor.on("change", update);
+  editor.on("documentLoad", update);
 
   return {
     element: panel,
     update,
     destroy() {
       editor.off("change", update);
+      editor.off("documentLoad", update);
       panel.remove();
     },
   };
