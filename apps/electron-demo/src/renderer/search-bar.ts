@@ -140,28 +140,32 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       for (let i = 0; i < matches.length; i++) {
         if (matches[i].from >= anchor) { currentIdx = i; break; }
       }
-      highlightCurrent();
+      // Highlight all matches; the active one gets the selected style.
+      // Do NOT focus the editor so the search input keeps focus.
+      editor.highlightRanges(matches, currentIdx);
+      countLabel.textContent = `${currentIdx + 1} / ${matches.length}`;
     }
   }
 
-  function highlightCurrent() {
+  function highlightCurrent(focusEditor = true) {
     if (currentIdx < 0 || currentIdx >= matches.length) return;
     const m = matches[currentIdx];
     editor.setSelection(m.from, m.to);
-    editor.focus();
+    editor.highlightRanges(matches, currentIdx);
+    if (focusEditor) editor.focus();
     countLabel.textContent = `${currentIdx + 1} / ${matches.length}`;
   }
 
-  function goNext() {
+  function goNext(focusEditor = true) {
     if (matches.length === 0) return;
     currentIdx = (currentIdx + 1) % matches.length;
-    highlightCurrent();
+    highlightCurrent(focusEditor);
   }
 
-  function goPrev() {
+  function goPrev(focusEditor = true) {
     if (matches.length === 0) return;
     currentIdx = (currentIdx - 1 + matches.length) % matches.length;
-    highlightCurrent();
+    highlightCurrent(focusEditor);
   }
 
   function doReplace() {
@@ -186,7 +190,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   // Event handlers
   findInput.addEventListener("input", updateMatches);
   findInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.shiftKey ? goPrev() : goNext(); e.preventDefault(); }
+    if (e.key === "Enter") { e.shiftKey ? goPrev(false) : goNext(false); e.preventDefault(); }
     if (e.key === "Escape") { close(); }
   });
   replaceInput.addEventListener("keydown", (e) => {
@@ -225,6 +229,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     matches = [];
     currentIdx = -1;
     countLabel.textContent = "";
+    editor.clearHighlight();
     editor.focus();
   }
 

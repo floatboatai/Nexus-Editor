@@ -1,10 +1,10 @@
-import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
+import { Annotation, EditorSelection, EditorState, StateEffect, StateField } from "@codemirror/state";
 
 // Annotation attached to dispatches that load content programmatically (e.g.
 // setDocument from file open) so updateListener can skip the user-edit path —
 // no onChange emission, no AST reparse for the onChange pipeline.
 const silentDocChange = Annotation.define<boolean>();
-import { EditorView, keymap, dropCursor, lineNumbers, type Direction } from "@codemirror/view";
+import { EditorView, keymap, dropCursor, lineNumbers, type Direction, Decoration, type DecorationSet } from "@codemirror/view";
 import { indentWithTab, undo as cmUndo, redo as cmRedo } from "@codemirror/commands";
 import { closeBrackets } from "@codemirror/autocomplete";
 import type { Root } from "mdast";
@@ -87,6 +87,58 @@ function createEmptyAst(): Root {
     children: []
   };
 }
+
+/* ------------------------------------------------------------------ */
+/*  Search-match decoration system (used by external search bars)      */
+/* ------------------------------------------------------------------ */
+
+const addSearchHighlights = StateEffect.define<{
+  ranges: readonly { from: number; to: number }[];
+  activeIndex: number;
+}>();
+
+const clearSearchHighlights = StateEffect.define<null>();
+
+const searchMatchMark = Decoration.mark({ class: "cm-searchMatch" });
+const searchMatchSelectedMark = Decoration.mark({
+  class: "cm-searchMatch cm-searchMatch-selected",
+});
+
+const searchHighlightTheme = EditorView.theme({
+  ".cm-searchMatch": {
+    backgroundColor: "#ffdf5d66",
+    borderRadius: "2px",
+  },
+  ".cm-searchMatch-selected": {
+    backgroundColor: "#ffd700b3",
+    borderRadius: "2px",
+  },
+});
+
+const searchHighlightField = StateField.define<DecorationSet>({
+  create() {
+    return Decoration.none;
+  },
+  update(decorations, tr) {
+    decorations = decorations.map(tr.changes);
+    for (const effect of tr.effects) {
+      if (effect.is(addSearchHighlights)) {
+        const { ranges, activeIndex } = effect.value;
+        let next = Decoration.none;
+        for (let i = 0; i < ranges.length; i++) {
+          const { from, to } = ranges[i];
+          const mark = i === activeIndex ? searchMatchSelectedMark : searchMatchMark;
+          next = next.update({ add: [{ from, to, value: mark }] });
+        }
+        decorations = next;
+      } else if (effect.is(clearSearchHighlights)) {
+        decorations = Decoration.none;
+      }
+    }
+    return decorations;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
 
 /**
  * 从剪贴板 / 拖拽数据里收集文件。优先用 `files`；当 `files` 为空时回退到 `items`，
@@ -615,6 +667,8 @@ export function createEditor(config: EditorConfig): EditorAPI {
             return false;
           }
         }),
+        searchHighlightField,
+        searchHighlightTheme,
         EditorView.updateListener.of((update) => {
           const markdownTransformRevision = getMarkdownTransformRevision(update.state);
           if (markdownTransformRevision !== lastMarkdownTransformRevision) {
@@ -975,6 +1029,18 @@ export function createEditor(config: EditorConfig): EditorAPI {
       const words = doc.trim() === "" ? 0 : doc.trim().split(/\s+/).length;
       const lines = view.state.doc.lines;
       return { characters, words, lines };
+    },
+    highlightRanges(ranges, activeIndex = 0) {
+      if (destroyed) return;
+      view.dispatch({
+        effects: addSearchHighlights.of({ ranges, activeIndex }),
+      });
+    },
+    clearHighlight() {
+      if (destroyed) return;
+      view.dispatch({
+        effects: clearSearchHighlights.of(null),
+      });
     },
     getContributionSink(): EditorContributionSink {
       return contributionSink;
