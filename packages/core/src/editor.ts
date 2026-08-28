@@ -471,6 +471,12 @@ export function createEditor(config: EditorConfig): EditorAPI {
       } else {
         currentAst = transformAst(lezerAstFromAnywhere(viewRef, next));
       }
+      // 通知宿主文档已更换。change 事件被 silent 有意跳过（by design，见
+      // "preserves selection for silent document loads without emitting change"），
+      // 但依赖文档内容的 UI（如 outline）仍需感知加载完成。
+      if (!destroyed) {
+        emitter.emit("documentLoad", next);
+      }
     }
   }
 

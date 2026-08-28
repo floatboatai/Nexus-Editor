@@ -173,6 +173,34 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("emits documentLoad on silent document loads without emitting change", () => {
+    const container = document.createElement("div");
+    const loaded: string[] = [];
+    const editor = createEditor({ container, initialValue: "# Old" });
+
+    editor.on("documentLoad", (doc) => {
+      loaded.push(doc);
+    });
+
+    editor.setDocument("# New", { silent: true });
+
+    expect(loaded).toEqual(["# New"]);
+    editor.destroy();
+  });
+
+  it("keeps getTableOfContents fresh after a silent document load", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "Just text." });
+
+    editor.setDocument("# Title\n\n## Section", { silent: true });
+
+    const toc = editor.getTableOfContents();
+    expect(toc).toHaveLength(2);
+    expect(toc[0]).toMatchObject({ level: 1, text: "Title" });
+    expect(toc[1]).toMatchObject({ level: 2, text: "Section" });
+    editor.destroy();
+  });
+
   it("keeps the editor usable when the parser throws", () => {
     const container = document.createElement("div");
     const docs: string[] = [];
