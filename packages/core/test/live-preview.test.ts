@@ -467,6 +467,19 @@ describe("live preview", () => {
     editor.destroy();
   });
 
+  it("keeps fenced metadata out of the language label", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "```ts title=demo.ts\nconst x: number = 1\n```",
+      livePreview: true
+    });
+
+    const codeLine = container.querySelector("[role='code']");
+    expect(codeLine?.getAttribute("aria-label")).toBe("Code block: ts");
+    editor.destroy();
+  });
+
   it("shows fence lines when cursor enters code block", () => {
     const container = document.createElement("div");
     const editor = createEditor({

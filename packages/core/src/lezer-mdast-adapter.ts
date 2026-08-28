@@ -495,10 +495,16 @@ function adaptTable(source: Source, node: SyntaxNode): Table {
 
 function adaptCode(source: Source, node: SyntaxNode, fenced: boolean): Code {
   let lang: string | null = null;
+  let meta: string | null = null;
   let value = "";
   if (fenced) {
     const info = findChildByName(node, "CodeInfo");
-    if (info) lang = readSlice(source, info.from, info.to).trim() || null;
+    if (info) {
+      const infoText = readSlice(source, info.from, info.to).trim();
+      const separator = infoText.search(/\s/);
+      lang = (separator < 0 ? infoText : infoText.slice(0, separator)) || null;
+      meta = separator < 0 ? null : infoText.slice(separator).trim() || null;
+    }
     const text = findChildByName(node, "CodeText");
     if (text) value = readSlice(source, text.from, text.to);
   } else {
@@ -509,7 +515,7 @@ function adaptCode(source: Source, node: SyntaxNode, fenced: boolean): Code {
   return {
     type: "code",
     lang,
-    meta: null,
+    meta,
     value,
     position: position(node.from, node.to),
   };

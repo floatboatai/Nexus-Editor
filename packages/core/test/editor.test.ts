@@ -91,6 +91,23 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("splits fenced code info into language and metadata", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "```ts title=demo.ts\nconst x: number = 1\n```"
+    });
+
+    expect(editor.getAst().children[0]).toMatchObject({
+      type: "code",
+      lang: "ts",
+      meta: "title=demo.ts",
+      value: "const x: number = 1"
+    });
+
+    editor.destroy();
+  });
+
   it("preserves selection when setDocument is called with preserveSelection", () => {
     const container = document.createElement("div");
     const editor = createEditor({ container, initialValue: "hello world" });
