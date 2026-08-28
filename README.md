@@ -192,7 +192,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 - **Live Preview** — inline rendering that reveals raw syntax on cursor focus (Obsidian-style).
 - **Plugin System** — three tiers: shortcuts & slash commands, remark plugins & widgets, raw CM6 extensions.
 - **Event System** — subscribe to `change`, `focus`, `blur`, `selectionChange`, `slashMenuChange`.
-- **Widget API** — render custom components for any AST node type (code blocks, tables, diagrams).
+- **Widget API** — render custom DOM for any AST node, with a shared interaction lock and `eq()` identity so widgets are not rebuilt mid-gesture.
 - **Local-First** — built for Electron/Tauri with file IO hooks and debounced parsing.
 
 ---

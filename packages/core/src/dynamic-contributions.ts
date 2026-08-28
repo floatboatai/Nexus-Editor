@@ -1,7 +1,7 @@
 import { Compartment, StateEffect, type Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 
-import { isTableEditing } from "./live-preview-table";
+import { isWidgetInteracting } from "./widget-interaction";
 import { findProvidedInputTarget } from "./input-target-provider";
 import type {
   EditorAPI,
@@ -256,7 +256,7 @@ export class DynamicEditorContributionSink implements EditorExtensionContributio
       this.host.isComposing() ||
       view.composing ||
       view.compositionStarted ||
-      isTableEditing(view)
+      isWidgetInteracting(view)
     );
   }
 

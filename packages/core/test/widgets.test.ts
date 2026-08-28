@@ -297,4 +297,125 @@ describe("widget extension", () => {
     expect(container.textContent).toContain("bold");
     editor.destroy();
   });
+
+  it("keeps widget DOM identity while an interaction lock is held", async () => {
+    const container = document.createElement("div");
+    let ctxRef: { beginInteraction(): void; endInteraction(): void; isInteracting(): boolean } | undefined;
+    const editor = createEditor({
+      container,
+      initialValue: "Text\n\n```js\nconsole.log(1)\n```",
+      plugins: [
+        {
+          name: "code-widget",
+          widgets: [
+            {
+              nodeType: "code",
+              ignoreEvents: true,
+              render(_node, _source, ctx) {
+                ctxRef = ctx;
+                const el = document.createElement("div");
+                el.setAttribute("data-widget", "lock");
+                return el;
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const first = container.querySelector("[data-widget='lock']");
+    expect(first).not.toBeNull();
+    expect(ctxRef?.isInteracting()).toBe(false);
+
+    ctxRef!.beginInteraction();
+    expect(ctxRef?.isInteracting()).toBe(true);
+    editor.setSelection(10);
+    const during = container.querySelector("[data-widget='lock']");
+    expect(during).toBe(first);
+
+    ctxRef!.endInteraction();
+    await Promise.resolve();
+
+    expect(container.querySelector("[data-widget='lock']")).toBeNull();
+    expect(container.textContent).toContain("```js");
+    editor.destroy();
+  });
+
+  it("releases a leaked interaction lock when the widget is destroyed", () => {
+    const container = document.createElement("div");
+    let ctxRef: { beginInteraction(): void } | undefined;
+    const editor = createEditor({
+      container,
+      initialValue: "Text\n\n```js\ncode\n```",
+      plugins: [
+        {
+          name: "code-widget",
+          widgets: [
+            {
+              nodeType: "code",
+              render(_node, _source, ctx) {
+                ctxRef = ctx;
+                const el = document.createElement("div");
+                el.setAttribute("data-widget", "leak");
+                return el;
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(container.querySelector("[data-widget='leak']")).not.toBeNull();
+    ctxRef!.beginInteraction();
+    expect(() => editor.destroy()).not.toThrow();
+  });
+
+  it("renders a demo fence widget through the public contract only", async () => {
+    const container = document.createElement("div");
+    const destroyFn = vi.fn();
+    const editor = createEditor({
+      container,
+      initialValue: "Text\n\n```nexus-widget-demo\npayload\n```",
+      plugins: [
+        {
+          name: "nexus-widget-demo",
+          widgets: [
+            {
+              nodeType: "code",
+              match: (node: { lang?: string }) => node.lang === "nexus-widget-demo",
+              ignoreEvents: true,
+              contentKey: (node: { value?: string }) => node.value ?? "",
+              render(_node, _source, ctx) {
+                const el = document.createElement("div");
+                el.setAttribute("data-widget", "nexus-widget-demo");
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.setAttribute("data-edit", "demo");
+                btn.addEventListener("click", (e) => {
+                  e.preventDefault();
+                  ctx?.beginInteraction();
+                  ctx?.setSelection(ctx.from);
+                  ctx?.endInteraction();
+                });
+                el.appendChild(btn);
+                return el;
+              },
+              destroy: destroyFn,
+            },
+          ],
+        },
+      ],
+    });
+
+    const widget = container.querySelector("[data-widget='nexus-widget-demo']");
+    expect(widget).not.toBeNull();
+    widget?.querySelector<HTMLElement>("[data-edit='demo']")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await Promise.resolve();
+
+    expect(container.querySelector("[data-widget='nexus-widget-demo']")).toBeNull();
+    expect(container.textContent).toContain("nexus-widget-demo");
+    expect(destroyFn).toHaveBeenCalled();
+    editor.destroy();
+  });
 });

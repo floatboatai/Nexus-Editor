@@ -51,10 +51,11 @@ function attachBlockEditButton(
   // Button events must escape the widget body's `ignoreEvents: true`
   // swallow. The button preventDefaults + stopPropagation so CM6 doesn't
   // see the click at all.
-  btn.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); });
-  btn.addEventListener("click", (e) => {
+  btn.addEventListener("mousedown", (e) => {
     e.preventDefault();
     e.stopPropagation();
+    // One-shot selection change — do not take the interaction lock, or the
+    // host will keep the rendered formula instead of revealing source.
     ctx.setSelection(ctx.from);
     ctx.focus();
   });
@@ -77,6 +78,7 @@ export function createMathPlugin(): NexusPlugin {
         // body don't move the cursor to unexpected places. The hover ✎
         // button is the only entry into edit mode.
         ignoreEvents: true,
+        contentKey: (node: any) => String(node.value ?? ""),
         render(node: any, source: string, ctx?: WidgetRenderContext) {
           const container = document.createElement("div");
           container.className = "nexus-math-display";
@@ -106,6 +108,7 @@ export function createMathPlugin(): NexusPlugin {
         // at the widget's `to` offset, which toggles the widget back to
         // raw source — natural text-cursor UX for inline formulas.
         ignoreEvents: false,
+        contentKey: (node: any) => String(node.value ?? ""),
         render(node: any, source: string) {
           // Render KaTeX directly into the host span without an extra
           // display:inline-block wrapper. KaTeX's own `.katex` span is

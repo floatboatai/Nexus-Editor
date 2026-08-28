@@ -508,6 +508,23 @@ export interface WidgetRenderContext {
   setSelection: (anchor: number, head?: number) => void;
   /** Focus the editor (call after `setSelection` so keyboard input lands there). */
   focus: () => void;
+  /**
+   * Hold the widget interaction lock for a multi-frame gesture. StateFields
+   * skip decoration rebuilds while any lock is held. Pair with
+   * {@link endInteraction}; nested begins require the same number of ends.
+   */
+  beginInteraction(): void;
+  /** Release one lock acquired by {@link beginInteraction}. */
+  endInteraction(): void;
+  /** True while this editor has any widget interaction lock. */
+  isInteracting(): boolean;
+  /**
+   * Register a widget-owned input surface so paste/copy/Delete target the
+   * widget instead of the document selection. Returns an unregister function.
+   * Safe to call during `render()` or afterwards (post-bind). A later call
+   * replaces the previous target; the old unregister is then a no-op.
+   */
+  registerInputTarget(target: Omit<EditorInputTarget, "element">): () => void;
 }
 
 export interface WidgetDefinition {
@@ -530,6 +547,17 @@ export interface WidgetDefinition {
    * `false` — events bubble through and CM6 places the cursor normally.
    */
   ignoreEvents?: boolean;
+  /**
+   * Content fingerprint used by `eq()`. Defaults to the raw source slice.
+   * Return a stable key (e.g. `node.value`) to avoid rebuilds when fence
+   * markers change but the payload does not.
+   */
+  contentKey?: (node: any, source: string) => string;
+  /**
+   * Estimated block height in pixels so CM6's height map does not assign 0
+   * and then jump on first measure (which drifts click coordinates below).
+   */
+  estimatedHeight?: number;
 }
 
 /**

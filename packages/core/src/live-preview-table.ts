@@ -3,21 +3,23 @@ import type { Table } from "mdast";
 
 import type { LivePreviewLabels } from "./types";
 import { setInputTargetProvider } from "./input-target-provider";
+import {
+  beginWidgetInteraction,
+  endWidgetInteraction,
+  isWidgetInteracting,
+} from "./widget-interaction";
 
-const tableEditingCounts = new WeakMap<EditorView, number>();
-
+/** @deprecated Use {@link isWidgetInteracting}. Alias kept for existing table callers. */
 export function isTableEditing(view: EditorView | null | undefined): boolean {
-  return !!view && (tableEditingCounts.get(view) ?? 0) > 0;
+  return isWidgetInteracting(view);
 }
 
 function incrementTableEditing(view: EditorView): void {
-  tableEditingCounts.set(view, (tableEditingCounts.get(view) ?? 0) + 1);
+  beginWidgetInteraction(view);
 }
 
 function decrementTableEditing(view: EditorView): void {
-  const next = Math.max(0, (tableEditingCounts.get(view) ?? 0) - 1);
-  if (next === 0) tableEditingCounts.delete(view);
-  else tableEditingCounts.set(view, next);
+  endWidgetInteraction(view, { refresh: false });
 }
 
 interface TableEditSession {
@@ -1391,8 +1393,10 @@ export class EditableTableWidget extends WidgetType {
         }
         lines[lineIndex] = `|${cells.join("|")}|`;
       }
-      self.dispatch(lines.join("\n"));
+      // Release the range lock before dispatch (same order as onDragEnd).
+      // Dispatch-while-locked maps decorations and leaves stale cell DOM.
       clearRangeSelection();
+      self.dispatch(lines.join("\n"));
       return true;
     }
 
@@ -2364,16 +2368,25 @@ export class EditableTableWidget extends WidgetType {
       }
     });
 
-    // Click outside table clears all selection
+    // Capture: mermaid / other table cells stopPropagation on mousedown, so a
+    // bubble listener on document never sees the event and the range lock stuck.
     const onDocMouseDown = (e: MouseEvent): void => {
-      if (!wrapper.isConnected) { document.removeEventListener("mousedown", onDocMouseDown); return; }
+      if (!wrapper.isConnected) {
+        document.removeEventListener("mousedown", onDocMouseDown, true);
+        return;
+      }
       if (!wrapper.contains(e.target as Node)) {
         clearPendingNativeTextSelection();
         clearSelection();
         clearRangeSelection();
       }
     };
-    document.addEventListener("mousedown", onDocMouseDown);
+    document.addEventListener("mousedown", onDocMouseDown, true);
+    const previousCleanup = this.cleanupEditingLocks;
+    this.cleanupEditingLocks = () => {
+      document.removeEventListener("mousedown", onDocMouseDown, true);
+      previousCleanup?.();
+    };
 
     wrapper.addEventListener("keydown", (e) => {
       if (e.key === "Delete" || e.key === "Backspace") {
@@ -2393,8 +2406,9 @@ export class EditableTableWidget extends WidgetType {
             }
             lines[lineIdx] = "|" + cells.join("|") + "|";
           }
-          self.dispatch(lines.join("\n"));
+          // Release the range lock before dispatch (same order as onDragEnd).
           clearRangeSelection();
+          self.dispatch(lines.join("\n"));
           return;
         }
         // Column/row grip selection: delete column/row

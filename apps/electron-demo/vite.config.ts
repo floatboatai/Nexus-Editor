@@ -60,6 +60,14 @@ export default defineConfig({
         __dirname,
         "../../packages/plugin-search/src/index.ts"
       ),
+      "@floatboat/nexus-plugin-math": path.resolve(
+        __dirname,
+        "../../packages/plugin-math/src/index.ts"
+      ),
+      "@floatboat/nexus-plugin-vim": path.resolve(
+        __dirname,
+        "../../packages/plugin-vim/src/index.ts"
+      ),
       "@floatboat/nexus-plugin-slash": path.resolve(
         __dirname,
         "../../packages/plugin-slash/src/index.ts"

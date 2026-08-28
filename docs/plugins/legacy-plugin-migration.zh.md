@@ -76,7 +76,7 @@ export { createReadingContribution } from "./legacy";
 | `handlers.paste/drop/keydown` | `EditorHostService.registerDomEvent` | 真实 DOM 事件、同步 consume；paste 不等于 Ctrl/Cmd+V |
 | `cmExtensions` | `registerEditorExtension` | owner 级 compartment 动态 reconfigure，不重建 EditorView |
 | `remarkPlugins` | Remark transform registry | transform 必须可验证、可撤销，不修改 undo 历史 |
-| `widgets` | Widget registry | definition 有稳定 contribution ID；卸载销毁现有 Widget |
+| `widgets` | Widget registry | 稳定 contribution ID；`beginInteraction`/`endInteraction` 持锁期间不拆 DOM；卸载时 `destroy` 并释放锁 |
 | `slashCommands` | command + slash menu UI slot | 命令作为唯一事实源，避免两套 ID/可用性集合 |
 
 ## 4. 弃用周期
