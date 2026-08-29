@@ -499,7 +499,7 @@ describe("reference plugin lifecycle", () => {
       });
       content(sameWindow).dispatchEvent(keydown);
       expect(keydown.defaultPrevented).toBe(true);
-      await vi.waitFor(() => expect(sameWindow.editor.getDocument()).toBe("****"));
+      await vi.waitFor(() => expect(sameWindow.editor.getDocument()).toBe(""));
 
       await future.attachment.detach();
       await vi.waitFor(() => {
