@@ -1,5 +1,7 @@
 import type { EditorAPI } from "@floatboat/nexus-core";
 
+const QUOTE_PREFIX = "> ";
+
 interface LineRange {
   lineStart: number;
   lineEnd: number;
@@ -59,22 +61,19 @@ function applyLines(editor: EditorAPI, lines: LineRange[], newLines: string[]): 
   return true;
 }
 
-/** Toggle a line prefix (e.g., "> " for blockquote). */
-function toggleLinePrefix(editor: EditorAPI, prefix: string): boolean {
-  const doc = editor.getDocument();
-  const { anchor } = editor.getSelection();
-  const lineStart = doc.lastIndexOf("\n", anchor - 1) + 1;
-  const lineEndIdx = doc.indexOf("\n", anchor);
-  const lineEnd = lineEndIdx === -1 ? doc.length : lineEndIdx;
-  const line = doc.slice(lineStart, lineEnd);
-
-  const newLine = line.startsWith(prefix) ? line.slice(prefix.length) : prefix + line;
-
-  return applyLines(editor, [{ lineStart, lineEnd, line }], [newLine]);
-}
-
 export function toggleBlockquote(editor: EditorAPI): boolean {
-  return toggleLinePrefix(editor, "> ");
+  const doc = editor.getDocument();
+  const { anchor, head } = editor.getSelection();
+  const from = Math.min(anchor, head);
+  const to = Math.max(anchor, head);
+  const lines = getLinesInRange(doc, from, to);
+
+  const allMarked = lines.every(({ line }) => line.startsWith(QUOTE_PREFIX));
+
+  const newLines = lines.map(({ line }) =>
+    allMarked ? line.slice(QUOTE_PREFIX.length) : QUOTE_PREFIX + line);
+
+  return applyLines(editor, lines, newLines);
 }
 
 export function toggleOrderedList(editor: EditorAPI): boolean {
@@ -199,8 +198,16 @@ export function insertHorizontalRule(editor: EditorAPI): boolean {
   const doc = editor.getDocument();
   const { anchor } = editor.getSelection();
 
-  const needsLeadingNewline = anchor > 0 && doc[anchor - 1] !== "\n";
-  const hr = (needsLeadingNewline ? "\n" : "") + "---\n";
+  // A thematic break directly under a text line parses as a setext heading
+  // instead, so the rule always needs a blank line above it.
+  const before = doc.slice(0, anchor);
+  const withoutTrailingNewlines = before.replace(/\n+$/, "");
+  const existingNewlines = before.length - withoutTrailingNewlines.length;
+  const missingNewlines = withoutTrailingNewlines === ""
+    ? 0
+    : 2 - Math.min(existingNewlines, 2);
+
+  const hr = "\n".repeat(missingNewlines) + "---\n";
 
   editor.replaceRange(anchor, anchor, hr, { anchor: anchor + hr.length });
   return true;
