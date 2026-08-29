@@ -93,13 +93,53 @@ interface Wrapped {
   contentOffset: number;
 }
 
+function longestBacktickRun(text: string): number {
+  return (text.match(/`+/g) ?? []).reduce((longest, run) => Math.max(longest, run.length), 0);
+}
+
+/**
+ * A code span needs a fence longer than any backtick run it contains, and one
+ * space of padding on both sides when the content would otherwise merge with
+ * the fence. CommonMark strips exactly one space from each end when both are
+ * present, so the padding round-trips.
+ */
+function wrapCode(content: string): Wrapped {
+  const fence = "`".repeat(longestBacktickRun(content) + 1);
+  const needsPadding =
+    content.startsWith("`") ||
+    content.endsWith("`") ||
+    (content.startsWith(" ") && content.endsWith(" "));
+  const padding = needsPadding ? " " : "";
+
+  return {
+    text: fence + padding + content + padding + fence,
+    contentOffset: fence.length + padding.length,
+  };
+}
+
 function wrapContent(kind: InlineKind, content: string): Wrapped {
+  if (kind === "inlineCode") return wrapCode(content);
   const marker = MARKER[kind];
   return { text: marker + content + marker, contentOffset: marker.length };
 }
 
+/** Wraps the segment's non-blank core, leaving its surrounding whitespace outside the markers. */
 function wrapSegment(kind: InlineKind, segment: string): string {
-  return segment === "" ? "" : wrapContent(kind, segment).text;
+  const leading = segment.length - segment.trimStart().length;
+  const trailing = segment.length - segment.trimEnd().length;
+  const core = segment.slice(leading, segment.length - trailing);
+  if (core === "") return segment;
+
+  return segment.slice(0, leading) + wrapContent(kind, core).text + segment.slice(segment.length - trailing);
+}
+
+/** Shrinks the range past whitespace at either end; markers never wrap a blank edge. */
+function trimRange(doc: string, from: number, to: number): Range | null {
+  let start = from;
+  let end = to;
+  while (start < end && /\s/.test(doc[start])) start += 1;
+  while (end > start && /\s/.test(doc[end - 1])) end -= 1;
+  return start < end ? [start, end] : null;
 }
 
 function unwrap(editor: EditorAPI, doc: string, target: Located, kind: InlineKind): boolean {
@@ -142,11 +182,11 @@ function splitOut(
 
 export function toggleInline(editor: EditorAPI, kind: InlineKind): boolean {
   const { anchor, head } = editor.getSelection();
-  const from = Math.min(anchor, head);
-  const to = Math.max(anchor, head);
-  if (from === to) return false;
-
   const doc = editor.getDocument();
+  const trimmed = trimRange(doc, Math.min(anchor, head), Math.max(anchor, head));
+  if (!trimmed) return false;
+
+  const [from, to] = trimmed;
   const target = findEnclosing(editor.getAst(), kind, from, to);
 
   if (target) {
