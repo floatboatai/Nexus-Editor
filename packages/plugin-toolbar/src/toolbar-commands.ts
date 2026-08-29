@@ -8,27 +8,11 @@ import {
   toggleOrderedList,
   toggleUnorderedList,
 } from "./formatting";
+import { KIND_BY_MARKER, toggleInline } from "./inline-format";
 
 export function toggleWrap(editor: EditorAPI, marker: string): boolean {
-  const doc = editor.getDocument();
-  const { anchor, head } = editor.getSelection();
-  const from = Math.min(anchor, head);
-  const to = Math.max(anchor, head);
-  const selected = doc.slice(from, to);
-  const before = doc.slice(Math.max(0, from - marker.length), from);
-  const after = doc.slice(to, to + marker.length);
-
-  if (before === marker && after === marker) {
-    editor.setDocument(
-      doc.slice(0, from - marker.length) + selected + doc.slice(to + marker.length),
-    );
-    editor.setSelection(from - marker.length, to - marker.length);
-    return true;
-  }
-
-  editor.setDocument(doc.slice(0, from) + marker + selected + marker + doc.slice(to));
-  editor.setSelection(from + marker.length, to + marker.length);
-  return true;
+  const kind = KIND_BY_MARKER[marker];
+  return kind ? toggleInline(editor, kind) : false;
 }
 
 export function toggleBold(editor: EditorAPI): boolean {
