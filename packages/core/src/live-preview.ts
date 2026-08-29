@@ -15,6 +15,11 @@ import { createLivePreviewDiagnostics } from "./live-preview-diag";
 import { collectLivePreviewRanges, selectionIntersects, selectionOnSameLine } from "./live-preview-ranges";
 import { renderLivePreviewNode } from "./live-preview-renderers";
 import { EditableTableWidget, isTableEditing } from "./live-preview-table";
+import {
+  addListGripDecorations,
+  isListEditing,
+  type ListItemSpan,
+} from "./live-preview-list";
 import type {
   LivePreviewConfig,
   LivePreviewLabels,
@@ -493,9 +498,16 @@ function buildListDecorations(
   const isOrdered = list.ordered === true;
   let orderNum = list.start ?? 1;
 
+  const itemSpans: ListItemSpan[] = [];
+  const visibleGripIndices: number[] = [];
+
   for (const item of list.children) {
     const itemFrom = item.position?.start.offset;
-    if (typeof itemFrom !== "number") continue;
+    const itemTo = item.position?.end.offset;
+    if (typeof itemFrom !== "number" || typeof itemTo !== "number") continue;
+
+    const itemIndex = itemSpans.length;
+    itemSpans.push({ from: itemFrom, to: itemTo });
 
     const newlineIdx = doc.indexOf("\n", itemFrom);
     const headLineEnd = newlineIdx === -1 ? doc.length : newlineIdx;
@@ -512,6 +524,8 @@ function buildListDecorations(
     // 源码以便直接编辑；其余项保持渲染后的圆点 / 复选框。inclusiveEnd
     // 让光标停在行尾（按 End 后）也算在行内。
     if (selectionIntersects(itemFrom, headLineEnd, selection, true)) continue;
+
+    visibleGripIndices.push(itemIndex);
 
     const indent = markerMatch[1];
     const markerStart = itemFrom + indent.length;
@@ -579,6 +593,17 @@ function buildListDecorations(
       }
     }
   }
+
+  addListGripDecorations(
+    decos,
+    range.from,
+    range.to,
+    itemSpans,
+    isOrdered,
+    list.start ?? 1,
+    viewRef,
+    visibleGripIndices
+  );
 }
 
 /**
@@ -1354,7 +1379,7 @@ export function createLivePreviewExtension(
       return build(state, state.selection.ranges, false);
     },
     update(decos: DecorationSet, tr: Transaction) {
-      if (isTableEditing(viewRef.current)) {
+      if (isTableEditing(viewRef.current) || isListEditing(viewRef.current)) {
         return tr.docChanged ? decos.map(tr.changes) : decos;
       }
       if (tr.effects.some((effect) => effect.is(rebuildForCompositionStart))) {
