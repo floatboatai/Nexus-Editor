@@ -3,6 +3,10 @@ import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 
 import { createGfmPreset } from "../../preset-gfm/src/index";
 import { createEditor, type EditorAPI } from "../src/index";
+import {
+  applyListItemReorder,
+  dropIndexAfterRemoval
+} from "../src/live-preview-list";
 
 beforeAll(() => {
   if (!("getClientRects" in Range.prototype)) {
@@ -2490,6 +2494,113 @@ describe("live preview", () => {
     expect(text).toContain("3. ");
     expect(text).not.toContain("4. ");
     editor.destroy();
+  });
+
+  it("reorders nested parent blocks using real mdast item spans", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "- a\n  - a1\n  - a2\n- b\n",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const ast = editor.getAst();
+    const list = ast.children.find((n) => n.type === "list");
+    expect(list?.type).toBe("list");
+    if (!list || list.type !== "list") return;
+
+    const items = list.children.map((item) => ({
+      from: item.position!.start.offset!,
+      to: item.position!.end.offset!
+    }));
+    expect(items.length).toBe(2);
+
+    const toIndex = dropIndexAfterRemoval(0, 1, true);
+    const next = applyListItemReorder(editor.getDocument(), items, 0, toIndex);
+    expect(next).toBe("- b\n- a\n  - a1\n  - a2\n");
+    editor.destroy();
+  });
+
+  it("renders list reorder grips for sibling items when live preview is on", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "- alpha\n- beta\n- gamma\n",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    editor.setSelection(editor.getDocument().length);
+    const grips = container.querySelectorAll(".nexus-list-grip");
+    expect(grips.length).toBe(3);
+    editor.destroy();
+  });
+
+  it("reorders list items via grip drag (mousedown/mouseup)", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "- alpha\n- beta\n- gamma\n",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    editor.setSelection(editor.getDocument().length);
+    const grips = container.querySelectorAll<HTMLElement>(".nexus-list-grip");
+    expect(grips.length).toBe(3);
+
+    // jsdom layout is zero-sized — stub rects so hit-testing can resolve a drop target.
+    grips.forEach((grip, i) => {
+      grip.getBoundingClientRect = () =>
+        ({
+          x: 0,
+          y: i * 20,
+          top: i * 20,
+          bottom: i * 20 + 20,
+          left: 0,
+          right: 16,
+          width: 16,
+          height: 20,
+          toJSON() {
+            return {};
+          }
+        }) as DOMRect;
+    });
+
+    const source = grips[0];
+    const target = grips[1];
+
+    source.dispatchEvent(
+      new MouseEvent("mousedown", {
+        button: 0,
+        clientX: 8,
+        clientY: 10,
+        bubbles: true,
+        cancelable: true
+      })
+    );
+    document.dispatchEvent(
+      new MouseEvent("mousemove", {
+        clientX: 8,
+        clientY: 35, // lower half of item 1 (y 20–40)
+        bubbles: true,
+        cancelable: true
+      })
+    );
+    document.dispatchEvent(
+      new MouseEvent("mouseup", {
+        clientX: 8,
+        clientY: 35,
+        bubbles: true,
+        cancelable: true
+      })
+    );
+
+    expect(editor.getDocument()).toBe("- beta\n- alpha\n- gamma\n");
+    editor.destroy();
+    container.remove();
   });
 
   // ── Inline style applied while cursor is on same line ──
