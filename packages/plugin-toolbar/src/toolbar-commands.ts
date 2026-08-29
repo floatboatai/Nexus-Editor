@@ -36,13 +36,11 @@ export function insertLink(editor: EditorAPI): boolean {
   const { anchor, head } = editor.getSelection();
   const from = Math.min(anchor, head);
   const to = Math.max(anchor, head);
-  const selected = doc.slice(from, to);
-  const linkText = selected || "link text";
+  const linkText = doc.slice(from, to) || "link text";
   const markdown = `[${linkText}](url)`;
-
-  editor.setDocument(doc.slice(0, from) + markdown + doc.slice(to));
   const urlStart = from + linkText.length + 3;
-  editor.setSelection(urlStart, urlStart + 3);
+
+  editor.replaceRange(from, to, markdown, { anchor: urlStart, head: urlStart + 3 });
   return true;
 }
 
@@ -59,8 +57,7 @@ export function toggleHeading(editor: EditorAPI, level: number): boolean {
     ? line.slice(prefix.length)
     : prefix + (headingMatch ? line.slice(headingMatch[0].length) : line);
 
-  editor.setDocument(doc.slice(0, lineStart) + newLine + doc.slice(end));
-  editor.setSelection(lineStart + newLine.length);
+  editor.replaceRange(lineStart, end, newLine, { anchor: lineStart + newLine.length });
   return true;
 }
 

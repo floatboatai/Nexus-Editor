@@ -303,8 +303,7 @@ function showHeadingDropdown(
         const m = line.match(/^#{1,6}\s/);
         if (m) {
           const newLine = line.slice(m[0].length);
-          editor.setDocument(doc.slice(0, lineStart) + newLine + doc.slice(lineEnd));
-          editor.setSelection(lineStart + newLine.length);
+          editor.replaceRange(lineStart, lineEnd, newLine, { anchor: lineStart + newLine.length });
         }
       }
       editor.focus();
