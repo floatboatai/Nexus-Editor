@@ -178,6 +178,15 @@ importers:
         specifier: ^6.0.0
         version: 6.0.0
 
+  packages/plugin-mermaid:
+    dependencies:
+      '@floatboat/nexus-core':
+        specifier: workspace:*
+        version: link:../core
+      mermaid:
+        specifier: ^11.0.0
+        version: 11.14.0
+
   packages/plugin-runtime:
     dependencies:
       '@floatboat/nexus-core':

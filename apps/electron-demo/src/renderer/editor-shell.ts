@@ -21,6 +21,7 @@ import {
 } from "@floatboat/nexus-plugin-wordcount";
 import type { AppState } from "./state";
 import { type EditorSettings, settingsToTheme } from "./settings";
+import { createMermaidPlugin } from "@floatboat/nexus-plugin-mermaid";
 
 // Parse Obsidian-style size specifier from the alt text: `alt|width` or
 // `alt|widthxheight`. Returns { alt, width, height } with the size stripped
@@ -141,6 +142,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       ...(!runtimeManaged && contributionFeatures.toolbar ? [createToolbarPlugin()] : []),
       createSearchPlugin(),
       wikilinksPlugin,
+      createMermaidPlugin(),
       ...(wordcount ? [wordcount] : []),
       ...editorContributions,
     ],
