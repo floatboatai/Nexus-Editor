@@ -1162,3 +1162,9 @@ export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlug
     cmExtensions
   };
 }
+
+export {
+  findFuzzyMatches,
+  type FuzzyMatch,
+  type FuzzySearchOptions
+} from "./fuzzy";
