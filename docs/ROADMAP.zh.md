@@ -17,6 +17,7 @@
 |---|---|---|---|---|---|---|
 | 1 | 多行列表切换（ordered / unordered） | `plugin-toolbar` + `core` 命令 | P1 | done | 否 | 随 `getSelectedText()` / `replaceRange()` 一并落地 —— 见 `openspec/changes/add-selection-api` |
 | 12 | 高级 toolbar（emoji picker / 表格工具 / 颜色选择） | `plugin-toolbar` | P2 | planned | 是 | 涉及新 widget，建议拆 3 个子提案 |
+| 3.5 | Mermaid diagram plugin (`@floatboat/nexus-plugin-mermaid`) | `plugin-mermaid` (new) | P2 | done | 是 | 见 `openspec/changes/add-missing-features` task 3.5 |
 
 ## 2. Search / 命令
 
