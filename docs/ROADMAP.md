@@ -75,7 +75,7 @@ Plugin-platform documentation (Chinese): [native API](./plugins/native-plugin-ap
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
 | 21 | Electron packaging optimization | `apps/electron-demo` | P1 | planned | No | Size, startup time, autoUpdater |
-| 22 | Web Component / iframe wrapper | new `wc` package | P2 | planned | Yes | Share core instance with React/Vue SDK |
+| 22 | Web Component / iframe wrapper | new `wc` package | P2 | in-progress | Yes | OpenSpec: `add-web-component-wrapper`; share core instance with React/Vue SDK |
 | 23 | Cloud storage interface | `core` storage adapter layer | P2 | planned | Yes | NoteVault interface with pluggable backends |
 
 ## 9. Developer Experience

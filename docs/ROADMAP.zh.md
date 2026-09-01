@@ -75,7 +75,7 @@
 | # | 功能 | 归属包 | 优先级 | 状态 | 需要 OpenSpec | 备注 |
 |---|---|---|---|---|---|---|
 | 21 | Electron 打包优化 | `apps/electron-demo` | P1 | planned | 否 | 关注体积、启动时长、autoUpdater |
-| 22 | Web Component / iframe 封装 | 新包 `wc` | P2 | planned | 是 | 与 React/Vue SDK 共享 core 实例 |
+| 22 | Web Component / iframe 封装 | 新包 `wc` | P2 | in-progress | 是 | OpenSpec：`add-web-component-wrapper`；与 React/Vue SDK 共享 core 实例 |
 | 23 | 云端存储接口 | `core`（storage 适配层） | P2 | planned | 是 | 抽象 NoteVault interface，多后端实现 |
 
 ## 9. 开发体验
