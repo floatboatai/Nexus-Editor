@@ -37,8 +37,10 @@ import {
   iconTextColor,
   iconHighlight,
   iconImage,
+  iconTable,
   iconFullscreen,
 } from "./icons";
+import { DEFAULT_TABLE_BODY_ROWS, DEFAULT_TABLE_COLUMNS, insertTable } from "./table";
 
 export interface ToolbarButton {
   id: string;
@@ -181,6 +183,7 @@ function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
     },
     {
       buttons: [
+        { id: "insert-table", title: "Insert table", icon: iconTable, action: () => {} },
         { id: "image", title: "Insert image", icon: iconImage, action: insertImage },
         { id: "fullscreen", title: "Fullscreen", icon: iconFullscreen, action: () => options?.onFullscreen?.() },
       ],
@@ -441,7 +444,131 @@ function showColorPicker(
 }
 
 /** IDs that trigger dropdown behavior instead of a direct action. */
-const DROPDOWN_IDS = new Set(["heading-menu", "text-color", "highlight"]);
+const DROPDOWN_IDS = new Set(["heading-menu", "text-color", "highlight", "insert-table"]);
+
+const TABLE_PICKER_COLUMNS = 6;
+const TABLE_PICKER_ROWS = 6;
+
+function showTableSizePicker(
+  editor: EditorAPI,
+  anchorBtn: HTMLElement,
+  onClose: () => void,
+): { destroy: () => void } {
+  const panel = document.createElement("div");
+  panel.className = "nexus-toolbar-dropdown";
+  panel.style.cssText = DROPDOWN_STYLES + "min-width:0;padding:8px;";
+
+  const rect = anchorBtn.getBoundingClientRect();
+  panel.style.top = rect.bottom + 4 + "px";
+  panel.style.left = rect.left + "px";
+
+  const label = document.createElement("div");
+  label.style.cssText = "font:12px/1.4 system-ui,-apple-system,sans-serif;color:var(--nexus-text-muted,#888);margin:0 0 6px;text-align:center;";
+
+  const grid = document.createElement("div");
+  grid.setAttribute("role", "grid");
+  grid.setAttribute("aria-label", "Table size");
+  grid.style.cssText = `display:grid;grid-template-columns:repeat(${TABLE_PICKER_COLUMNS},16px);gap:3px;`;
+
+  const cells: HTMLButtonElement[] = [];
+  let hoverCols = DEFAULT_TABLE_COLUMNS;
+  let hoverRows = DEFAULT_TABLE_BODY_ROWS;
+
+  const paint = (cols: number, rows: number) => {
+    hoverCols = cols;
+    hoverRows = rows;
+    label.textContent = `${cols} × ${rows}`;
+    for (const cell of cells) {
+      const c = Number(cell.dataset.col);
+      const r = Number(cell.dataset.row);
+      const active = c <= cols && r <= rows;
+      cell.style.background = active ? "var(--nexus-accent,#0969da)" : "var(--nexus-bg,#fff)";
+      cell.style.borderColor = active ? "var(--nexus-accent,#0969da)" : "var(--nexus-border-subtle,#ddd)";
+    }
+  };
+
+  const choose = (cols: number, rows: number) => {
+    insertTable(editor, { columns: cols, rows });
+    editor.focus();
+    onClose();
+  };
+
+  const itemCleanups: Array<() => void> = [];
+
+  for (let row = 1; row <= TABLE_PICKER_ROWS; row++) {
+    for (let col = 1; col <= TABLE_PICKER_COLUMNS; col++) {
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.dataset.col = String(col);
+      cell.dataset.row = String(row);
+      cell.setAttribute("aria-label", `${col} by ${row} table`);
+      cell.style.cssText = `
+        width: 16px; height: 16px; padding: 0;
+        border: 1px solid var(--nexus-border-subtle,#ddd);
+        border-radius: 2px; background: var(--nexus-bg,#fff); cursor: pointer;
+      `;
+      const handleEnter = () => paint(col, row);
+      const handleClick = (event: MouseEvent) => {
+        event.preventDefault();
+        event.stopPropagation();
+        choose(col, row);
+      };
+      cell.addEventListener("mouseenter", handleEnter);
+      cell.addEventListener("focus", handleEnter);
+      cell.addEventListener("click", handleClick);
+      itemCleanups.push(() => {
+        cell.removeEventListener("mouseenter", handleEnter);
+        cell.removeEventListener("focus", handleEnter);
+        cell.removeEventListener("click", handleClick);
+      });
+      cells.push(cell);
+      grid.appendChild(cell);
+    }
+  }
+
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      choose(hoverCols, hoverRows);
+      return;
+    }
+    const move: Record<string, [number, number]> = {
+      ArrowLeft: [-1, 0],
+      ArrowRight: [1, 0],
+      ArrowUp: [0, -1],
+      ArrowDown: [0, 1],
+    };
+    const delta = move[event.key];
+    if (!delta) return;
+    event.preventDefault();
+    paint(
+      Math.min(TABLE_PICKER_COLUMNS, Math.max(1, hoverCols + delta[0])),
+      Math.min(TABLE_PICKER_ROWS, Math.max(1, hoverRows + delta[1])),
+    );
+  };
+
+  panel.tabIndex = -1;
+  panel.addEventListener("keydown", handleKeyDown);
+  itemCleanups.push(() => panel.removeEventListener("keydown", handleKeyDown));
+
+  panel.append(label, grid);
+  pickOverlayMount(anchorBtn).appendChild(panel);
+  paint(DEFAULT_TABLE_COLUMNS, DEFAULT_TABLE_BODY_ROWS);
+  panel.focus();
+
+  return {
+    destroy() {
+      for (const fn of itemCleanups) fn();
+      itemCleanups.length = 0;
+      panel.remove();
+    },
+  };
+}
 
 export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): ToolbarUI {
   const groups = options?.groups ?? defaultGroups(options);
@@ -510,6 +637,8 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
             activeDropdown = showColorPicker(editor, button, COLOR_PALETTE, applyTextColor, closeDropdown);
           } else if (btn.id === "highlight") {
             activeDropdown = showColorPicker(editor, button, HIGHLIGHT_PALETTE, applyHighlight, closeDropdown);
+          } else if (btn.id === "insert-table") {
+            activeDropdown = showTableSizePicker(editor, button, closeDropdown);
           }
 
           outsideHandler = (ev: MouseEvent) => {

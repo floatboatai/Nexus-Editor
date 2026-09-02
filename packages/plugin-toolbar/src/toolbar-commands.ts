@@ -8,6 +8,7 @@ import {
   toggleOrderedList,
   toggleUnorderedList,
 } from "./formatting";
+import { insertTable } from "./table";
 
 export function toggleWrap(editor: EditorAPI, marker: string): boolean {
   const doc = editor.getDocument();
@@ -179,5 +180,12 @@ export const toolbarSlashCommands: SlashCommandDef[] = [
     description: "Insert a horizontal rule",
     keywords: ["hr", "rule", "divider", "separator", "---"],
     run: insertHorizontalRule,
+  },
+  {
+    id: "table",
+    title: "Table",
+    description: "Insert a GitHub Flavored Markdown table",
+    keywords: ["table", "grid", "spreadsheet", "gfm"],
+    run: insertTable,
   },
 ];
