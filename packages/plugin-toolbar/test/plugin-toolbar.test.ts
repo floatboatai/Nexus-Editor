@@ -10,6 +10,8 @@ import {
   toggleHeading,
   toggleOrderedList,
   toggleUnorderedList,
+  insertTable,
+  buildTableMarkdown,
   createToolbarPlugin,
   createToolbarUI,
 } from "../src/index";
@@ -445,7 +447,7 @@ describe("createToolbarPlugin", () => {
     // Spot-check the four user-facing categories; the full catalogue is
     // documented in src/index.ts and intentionally not pinned here so
     // adding more commands later isn't a test churn.
-    expect(ids).toEqual(expect.arrayContaining(["h1", "h2", "bold", "image", "hr"]));
+    expect(ids).toEqual(expect.arrayContaining(["h1", "h2", "bold", "image", "hr", "table"]));
     for (const cmd of plugin.slashCommands ?? []) {
       expect(typeof cmd.run).toBe("function");
     }
@@ -603,6 +605,128 @@ describe("toggleUnorderedList — atomic undo", () => {
 
     editor.undo();
     expect(editor.getDocument()).toBe(original);
+    editor.destroy();
+  });
+});
+
+describe("buildTableMarkdown", () => {
+  it("builds a 3x2 GFM table by default", () => {
+    expect(buildTableMarkdown()).toBe(
+      "| Header 1 | Header 2 | Header 3 |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |",
+    );
+  });
+
+  it("clamps invalid sizes and fills missing headers", () => {
+    expect(buildTableMarkdown({ columns: 0, rows: 0, headers: ["Name"] })).toBe(
+      "| Name |\n| --- |\n|  |",
+    );
+  });
+
+  it("escapes pipes inside header cells", () => {
+    expect(buildTableMarkdown({ columns: 1, rows: 1, headers: ["A|B"] })).toContain("| A\\|B |");
+  });
+});
+
+describe("insertTable", () => {
+  it("inserts a default table at a collapsed cursor", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello" });
+
+    editor.setSelection(5);
+    insertTable(editor);
+
+    expect(editor.getDocument()).toBe(
+      "hello\n| Header 1 | Header 2 | Header 3 |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |",
+    );
+    expect(editor.getSelectedText()).toBe("Header 1");
+    editor.destroy();
+  });
+
+  it("uses a single-line selection as the first header", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "Name" });
+
+    editor.setSelection(0, 4);
+    insertTable(editor, { columns: 2, rows: 1 });
+
+    expect(editor.getDocument()).toBe("| Name | Header 2 |\n| --- | --- |\n|  |  |");
+    expect(editor.getSelectedText()).toBe("Name");
+    editor.destroy();
+  });
+
+  it("respects custom column and row counts", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "" });
+
+    insertTable(editor, { columns: 2, rows: 3, headers: ["A", "B"] });
+
+    const lines = editor.getDocument().split("\n");
+    expect(lines).toHaveLength(5);
+    expect(lines[0]).toBe("| A | B |");
+    expect(lines[1]).toBe("| --- | --- |");
+    expect(lines.slice(2)).toEqual(["|  |  |", "|  |  |", "|  |  |"]);
+    editor.destroy();
+  });
+
+  it("inserts through the slash command catalogue", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "",
+      plugins: [createToolbarPlugin()],
+    });
+
+    const table = editor.getSlashCommands().find((c) => c.id === "table");
+    expect(table?.run?.(editor)).toBe(true);
+    expect(editor.getDocument()).toContain("| Header 1 | Header 2 | Header 3 |");
+    editor.destroy();
+  });
+
+  it("creates a single undo entry for the insert", () => {
+    const container = document.createElement("div");
+    const original = "hello";
+    const editor = createEditor({
+      container,
+      initialValue: original,
+      plugins: [createHistoryPlugin()],
+    });
+
+    editor.setSelection(5);
+    insertTable(editor, { columns: 2, rows: 1 });
+    expect(editor.getDocument()).toContain("| Header 1 |");
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe(original);
+    expect(editor.undo()).toBe(false);
+    editor.destroy();
+  });
+});
+
+describe("createToolbarUI — insert table", () => {
+  it("opens a size picker and inserts the hovered grid size", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "" });
+    const toolbar = createToolbarUI(editor);
+    document.body.appendChild(toolbar.element);
+
+    const button = toolbar.element.querySelector<HTMLButtonElement>('[data-toolbar-action="insert-table"]');
+    expect(button).not.toBeNull();
+    expect(button?.getAttribute("aria-label")).toBe("Insert table");
+
+    button?.click();
+    const picker = document.querySelector<HTMLElement>(".nexus-toolbar-dropdown");
+    expect(picker).not.toBeNull();
+    expect(picker?.textContent).toContain("3 × 2");
+
+    const cell = picker?.querySelector<HTMLButtonElement>('[data-col="2"][data-row="2"]');
+    cell?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    expect(picker?.textContent).toContain("2 × 2");
+    cell?.click();
+
+    expect(editor.getDocument()).toBe("| Header 1 | Header 2 |\n| --- | --- |\n|  |  |\n|  |  |");
+    expect(document.querySelector(".nexus-toolbar-dropdown")).toBeNull();
+
+    toolbar.destroy();
     editor.destroy();
   });
 });

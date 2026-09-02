@@ -174,3 +174,12 @@ export function iconHorizontalRule(): HTMLElement {
     `<line x1="2" y1="9" x2="16" y2="9"/>`
   );
 }
+
+export function iconTable(): HTMLElement {
+  return svgIcon(
+    `<rect x="2" y="3" width="14" height="12" rx="1.5"/>` +
+    `<line x1="2" y1="7" x2="16" y2="7"/>` +
+    `<line x1="7" y1="3" x2="7" y2="15"/>` +
+    `<line x1="11" y1="3" x2="11" y2="15"/>`
+  );
+}

@@ -23,6 +23,7 @@ import {
   toggleOrderedList,
   toggleUnorderedList,
 } from "./formatting";
+import { insertTable } from "./table";
 import {
   insertLink,
   toggleBold,
@@ -64,6 +65,7 @@ const ACTIONS: readonly ToolbarAction[] = Object.freeze([
   { id: "ulist", name: "Unordered list", run: (editor) => toggleUnorderedList(editor) },
   { id: "image", name: "Insert image", run: (editor) => insertImage(editor) },
   { id: "hr", name: "Divider", run: (editor) => insertHorizontalRule(editor) },
+  { id: "table", name: "Insert table", run: (editor) => insertTable(editor) },
 ]);
 
 export const toolbarLifecyclePluginManifest = Object.freeze({
