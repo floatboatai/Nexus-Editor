@@ -372,6 +372,11 @@ export interface EditorAPI {
   getTableOfContents(): TocEntry[];
   exportHTML(): string;
   setTheme(theme: import("./theme").NexusTheme): void;
+  /**
+   * Enable or disable Obsidian-style live preview at runtime.
+   * Pass `false` for raw Markdown source, or a LivePreviewConfig / `true`.
+   */
+  setLivePreview(config: boolean | LivePreviewConfig): void;
   getSelection(): { anchor: number; head: number };
   /** All selection ranges plus the main-range index. Single-range editors return one entry. */
   getSelections(): SelectionState;

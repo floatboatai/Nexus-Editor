@@ -357,6 +357,10 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     wordcount,
     applySettings(next: EditorSettings) {
       editor.setTheme(settingsToTheme(next));
+      // Runtime toggle — `true` uses default renderers; custom image chrome is
+      // only attached when Live Preview was on at shell creation. Prefer an
+      // instant source/preview switch over requiring a demo restart.
+      editor.setLivePreview(next.livePreview);
     },
     loadDocument(content: string) {
       // Load from disk is NOT a user edit — use silent mode to skip the

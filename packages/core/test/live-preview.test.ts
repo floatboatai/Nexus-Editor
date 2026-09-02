@@ -57,6 +57,26 @@ async function nextAnimationFrame(): Promise<void> {
 }
 
 describe("live preview", () => {
+  it("toggles decorations on and off via setLivePreview", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "# Heading\n\nend",
+      livePreview: true,
+    });
+    editor.setSelection(editor.getDocument().length);
+    expect(container.querySelector("[data-heading-level='1']")).not.toBeNull();
+
+    editor.setLivePreview(false);
+    expect(container.querySelector("[data-heading-level='1']")).toBeNull();
+    expect(container.textContent).toContain("# Heading");
+
+    editor.setLivePreview(true);
+    editor.setSelection(editor.getDocument().length);
+    expect(container.querySelector("[data-heading-level='1']")).not.toBeNull();
+    editor.destroy();
+  });
+
   // ── Inline formatting ──
   // Note: inline markers are hidden when cursor is on a DIFFERENT line (line-level detection).
   // Tests use multi-line content with cursor moved to a separate line.
