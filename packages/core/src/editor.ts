@@ -1,4 +1,4 @@
-import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
+import { Annotation, Compartment, EditorSelection, EditorState } from "@codemirror/state";
 
 // Annotation attached to dispatches that load content programmatically (e.g.
 // setDocument from file open) so updateListener can skip the user-edit path —
@@ -48,6 +48,7 @@ import type {
   ParserLike,
   SetDocumentOptions,
   TocEntry,
+  LivePreviewConfig,
 } from "./types";
 import { createWidgetExtension } from "./widget-extension";
 
@@ -527,6 +528,18 @@ export function createEditor(config: EditorConfig): EditorAPI {
   }
 
   const themeExt = createThemeExtension(config.theme ?? lightTheme);
+  const livePreviewLabels = {
+    addColumn: locale.addColumn,
+    addRow: locale.addRow,
+    deleteColumn: locale.deleteColumn,
+    deleteRow: locale.deleteRow,
+    insertColumnAfter: locale.insertColumnAfter,
+    insertRowBelow: locale.insertRowBelow,
+  };
+  const livePreviewCompartment = new Compartment();
+  const livePreviewExt = livePreviewCompartment.of(
+    createLivePreviewExtension(config.livePreview, livePreviewLabels),
+  );
   const tabSizeExt = config.tabSize && config.tabSize !== 4
     ? EditorState.tabSize.of(config.tabSize)
     : [];
@@ -754,14 +767,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
             return false;
           },
         }),
-        ...createLivePreviewExtension(config.livePreview, {
-          addColumn: locale.addColumn,
-          addRow: locale.addRow,
-          deleteColumn: locale.deleteColumn,
-          deleteRow: locale.deleteRow,
-          insertColumnAfter: locale.insertColumnAfter,
-          insertRowBelow: locale.insertRowBelow,
-        }),
+        livePreviewExt,
         dynamicWidgetDefinitionExtension,
         ...createWidgetExtension(widgetParser, widgetDefs),
         ...shortcutExtensions,
@@ -796,6 +802,14 @@ export function createEditor(config: EditorConfig): EditorAPI {
     setTheme(theme: NexusTheme) {
       if (destroyed) return;
       view.dispatch(themeExt.reconfigure(theme));
+    },
+    setLivePreview(next: boolean | LivePreviewConfig) {
+      if (destroyed) return;
+      view.dispatch({
+        effects: livePreviewCompartment.reconfigure(
+          createLivePreviewExtension(next, livePreviewLabels),
+        ),
+      });
     },
     getSelection() {
       const sel = view.state.selection.main;

@@ -17,6 +17,11 @@ import {
   createSettingsPanel,
   type EditorSettings,
 } from "./settings";
+import {
+  createActionCommandPalette,
+  type ActionCommand,
+  type ActionCommandPalette,
+} from "./action-command-palette";
 import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
 import { createSearchBar, type SearchBar } from "./search-bar";
 import { createVaultPanel, type VaultPanel } from "./vault-panel";
@@ -46,6 +51,7 @@ let outline: OutlinePanel;
 let searchBar: SearchBar;
 let vault: VaultPanel;
 let backlinks: BacklinksPanel;
+let actionPalette: ActionCommandPalette | null = null;
 let rootElement: HTMLElement;
 let statusText: HTMLElement;
 let pluginOwnsDocumentStats = false;
@@ -196,9 +202,15 @@ function createAppToolbar(): HTMLElement {
 
   const searchBtn = document.createElement("button");
   searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
-  searchBtn.title = "Search (Ctrl+F)";
+  searchBtn.title = "Search document (Ctrl+F)";
   searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
+
+  const commandBtn = document.createElement("button");
+  commandBtn.textContent = "\u26A1"; // ⚡
+  commandBtn.title = "Command palette (Ctrl+Shift+P)";
+  commandBtn.style.fontSize = "14px";
+  commandBtn.addEventListener("click", () => actionPalette?.open());
 
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "\u2699"; // ⚙
@@ -216,6 +228,7 @@ function createAppToolbar(): HTMLElement {
     outlineBtn,
     backlinksBtn,
     searchBtn,
+    commandBtn,
     settingsBtn
   );
   return toolbar;
@@ -360,6 +373,139 @@ function handleSettings(): void {
     shell.applySettings(settings);
   });
   settingsPanels.add(panel);
+}
+
+function patchSettings(partial: Partial<EditorSettings>, statusMessage?: string): void {
+  settings = { ...settings, ...partial };
+  saveSettings(settings);
+  shell.applySettings(settings);
+  if (statusMessage) {
+    state.error = null;
+    statusText.textContent = statusMessage;
+  } else {
+    renderStatus();
+  }
+}
+
+function buildActionCommands(): ActionCommand[] {
+  return [
+    {
+      id: "open-settings",
+      title: "Open Settings",
+      description: "Editor preferences panel",
+      category: "Settings",
+      keywords: ["preferences", "config", "gear"],
+      run: () => handleSettings(),
+    },
+    {
+      id: "toggle-theme",
+      title: settings.colorScheme === "dark" ? "Switch to Light Theme" : "Switch to Dark Theme",
+      description: "Toggle color scheme",
+      category: "Appearance",
+      keywords: ["theme", "dark", "light", "mode", "color"],
+      run: () => {
+        const next = settings.colorScheme === "dark" ? "light" : "dark";
+        patchSettings(
+          { colorScheme: next },
+          next === "dark" ? "Theme: dark" : "Theme: light",
+        );
+      },
+    },
+    {
+      id: "toggle-live-preview",
+      title: settings.livePreview ? "Disable Live Preview" : "Enable Live Preview",
+      description: "Toggle Obsidian-style inline rendering instantly",
+      category: "View",
+      keywords: ["preview", "source", "raw", "markdown", "render"],
+      run: () => {
+        const next = !settings.livePreview;
+        patchSettings(
+          { livePreview: next },
+          next ? "Live preview: on" : "Live preview: off (source mode)",
+        );
+      },
+    },
+    {
+      id: "toggle-outline",
+      title: "Toggle Outline Panel",
+      description: "Show or hide document outline",
+      category: "Panels",
+      keywords: ["toc", "headings", "sidebar"],
+      run: () => toggleOutline(),
+    },
+    {
+      id: "toggle-vault",
+      title: "Toggle Vault Panel",
+      description: "Show or hide vault file tree",
+      category: "Panels",
+      keywords: ["files", "folder", "sidebar"],
+      run: () => toggleVault(),
+    },
+    {
+      id: "toggle-backlinks",
+      title: "Toggle Backlinks Panel",
+      description: "Show or hide backlinks",
+      category: "Panels",
+      keywords: ["links", "references", "graph"],
+      run: () => toggleBacklinks(),
+    },
+    {
+      id: "find-in-document",
+      title: "Find in Document",
+      description: "Search text in the current note (Ctrl+F)",
+      category: "Edit",
+      keywords: ["search", "replace", "ctrl+f"],
+      run: () => searchBar.open(),
+    },
+    {
+      id: "open-vault",
+      title: "Open Vault…",
+      description: "Pick a folder as the vault root",
+      category: "File",
+      keywords: ["folder", "directory"],
+      run: () => {
+        void vault.promptPickVault();
+      },
+    },
+    {
+      id: "open-file",
+      title: "Open File…",
+      description: "Open a markdown file",
+      category: "File",
+      keywords: ["load"],
+      run: () => {
+        void handleOpen();
+      },
+    },
+    {
+      id: "save-file",
+      title: "Save",
+      description: "Save the current document",
+      category: "File",
+      keywords: ["write", "persist"],
+      run: () => {
+        void handleSave();
+      },
+    },
+    {
+      id: "save-file-as",
+      title: "Save As…",
+      description: "Save the document to a new path",
+      category: "File",
+      keywords: ["export", "write"],
+      run: () => {
+        void handleSaveAs();
+      },
+    },
+    {
+      id: "focus-editor",
+      title: "Focus Editor",
+      description: "Move keyboard focus back to the editor",
+      category: "View",
+      keywords: ["cursor", "typing"],
+      run: () => shell.editor.focus(),
+    },
+  ];
 }
 
 function togglePanel(panel: HTMLElement, onShow?: () => void): void {
@@ -707,6 +853,7 @@ async function destroyShellAndPanels(): Promise<void> {
     await attempt(() => outline.destroy());
   }
   await attempt(() => searchBar.destroy());
+  await attempt(() => actionPalette?.destroy());
   await attempt(() => vault.destroy());
   await attempt(() => shell.destroy());
   await attempt(() => rootElement.replaceChildren());
@@ -742,7 +889,14 @@ function shutdown(): Promise<void> {
 
 function handleGlobalKeydown(event: KeyboardEvent): void {
   if (!appDispatching) return;
-  if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "f") {
+  const key = event.key.toLocaleLowerCase();
+  const mod = event.ctrlKey || event.metaKey;
+  if (mod && event.shiftKey && key === "p") {
+    event.preventDefault();
+    actionPalette?.open();
+    return;
+  }
+  if (mod && !event.shiftKey && key === "f") {
     event.preventDefault();
     searchBar.open();
   }
@@ -780,6 +934,10 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
       if (outlineCreated) await attempt(() => outline.destroy());
     }
     if (searchBarCreated) await attempt(() => searchBar.destroy());
+    await attempt(() => {
+      actionPalette?.destroy();
+      actionPalette = null;
+    });
     if (vaultCreated) await attempt(() => vault.destroy());
     if (shellCreated) await attempt(() => shell.destroy());
     await attempt(() => root.replaceChildren());
@@ -949,6 +1107,10 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
 
   searchBar = createSearchBar(shell.editor);
   searchBarCreated = true;
+
+  actionPalette = createActionCommandPalette({
+    getCommands: () => buildActionCommands(),
+  });
 
   editorColumn.append(searchBar.element, editorContainer);
   mainArea.append(vault.element, editorColumn);

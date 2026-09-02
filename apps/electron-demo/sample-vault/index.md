@@ -31,6 +31,7 @@ show a long list.
 ## Editor shortcuts
 
 - [[slash-demo]] — type `/` anywhere to open the floating command menu
+- [[command-palette-demo]] — Ctrl+Shift+P searches UI actions (theme, preview, settings)
 
 ## Edge cases
 
