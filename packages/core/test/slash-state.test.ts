@@ -113,6 +113,64 @@ describe("filterSlashCommands ranking", () => {
     expect(filterSlashCommands(list, "head").map((c) => c.id)).toEqual(["h1"]);
   });
 
+  it("matches command ids without duplicated keywords", () => {
+    const list = cmds(
+      { id: "insert-table", title: "Grid" },
+      { id: "callout", title: "Callout" },
+    );
+
+    expect(filterSlashCommands(list, "insert").map((c) => c.id)).toEqual([
+      "insert-table",
+    ]);
+    expect(filterSlashCommands(list, "sert-tab").map((c) => c.id)).toEqual([
+      "insert-table",
+    ]);
+  });
+
+  it("matches command ids case-insensitively", () => {
+    const list = cmds({ id: "Heading-One", title: "Title level one" });
+    expect(filterSlashCommands(list, "heading-one").map((c) => c.id)).toEqual([
+      "Heading-One",
+    ]);
+  });
+
+  it("ranks an exact id above a title prefix", () => {
+    const list = cmds(
+      { id: "table-options", title: "Table Options" },
+      { id: "table", title: "Grid" },
+    );
+    expect(filterSlashCommands(list, "table").map((c) => c.id)).toEqual([
+      "table",
+      "table-options",
+    ]);
+  });
+
+  it("breaks identical id-prefix scores alphabetically by title", () => {
+    const list = cmds(
+      { id: "x-two", title: "Zeta" },
+      { id: "x-one", title: "Alpha" },
+    );
+    expect(filterSlashCommands(list, "x-").map((c) => c.id)).toEqual([
+      "x-one",
+      "x-two",
+    ]);
+  });
+
+  it("does not mutate the input array or command objects", () => {
+    const list = cmds(
+      { id: "insert-table", title: "Grid" },
+      { id: "table", title: "Table" },
+    );
+    const originalOrder = list.slice();
+
+    const result = filterSlashCommands(list, "table");
+
+    expect(list).toEqual(originalOrder);
+    expect(list[0]).toBe(originalOrder[0]);
+    expect(list[1]).toBe(originalOrder[1]);
+    expect(result.every((command) => list.includes(command))).toBe(true);
+  });
+
   it("returns deterministic order on identical scores", () => {
     const list = cmds(
       { id: "z", title: "Zeta" },

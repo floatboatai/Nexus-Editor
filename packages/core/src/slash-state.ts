@@ -27,13 +27,13 @@ const DEFAULT_LIMIT = 8;
 
 // Score tiers — higher tier wins regardless of secondary tiebreaker.
 // Keep the gaps wide enough that the tiebreaker can never bridge two
-// adjacent tiers (max tiebreaker offset is bounded by title length, in
+// adjacent tiers (max tiebreaker offset is bounded by a matched field length, in
 // practice < 100, so a gap of 1000 is safe).
 const SCORE_EMPTY_PRESERVE_ORDER = 0;
-const SCORE_TITLE_EXACT = 6000;
-const SCORE_TITLE_PREFIX = 5000;
+const SCORE_TITLE_OR_ID_EXACT = 6000;
+const SCORE_TITLE_OR_ID_PREFIX = 5000;
 const SCORE_KEYWORD_EXACT = 4000;
-const SCORE_TITLE_SUBSTRING = 3000;
+const SCORE_TITLE_OR_ID_SUBSTRING = 3000;
 const SCORE_KEYWORD_PREFIX = 2000;
 const SCORE_KEYWORD_SUBSTRING = 1000;
 
@@ -75,13 +75,24 @@ function scoreCommand(
   index: number
 ): ScoredCommand | null {
   const title = cmd.title.toLowerCase();
+  const id = cmd.id.toLowerCase();
 
-  if (title === query) {
-    return { cmd, score: SCORE_TITLE_EXACT, tiebreaker: 0, index };
+  if (title === query || id === query) {
+    return { cmd, score: SCORE_TITLE_OR_ID_EXACT, tiebreaker: 0, index };
   }
-  if (title.startsWith(query)) {
-    // Shorter titles win on prefix ties — "Heading" beats "Heading 2 inset".
-    return { cmd, score: SCORE_TITLE_PREFIX, tiebreaker: title.length, index };
+
+  const prefixLengths: number[] = [];
+  if (title.startsWith(query)) prefixLengths.push(title.length);
+  if (id.startsWith(query)) prefixLengths.push(id.length);
+  if (prefixLengths.length > 0) {
+    // Shorter matching fields win on prefix ties — "Heading" beats
+    // "Heading 2 inset", and "h1" beats "heading-one".
+    return {
+      cmd,
+      score: SCORE_TITLE_OR_ID_PREFIX,
+      tiebreaker: Math.min(...prefixLengths),
+      index,
+    };
   }
 
   const keywords = cmd.keywords ?? [];
@@ -91,10 +102,17 @@ function scoreCommand(
     }
   }
 
-  const titleIdx = title.indexOf(query);
-  if (titleIdx >= 0) {
+  const substringOffsets = [title.indexOf(query), id.indexOf(query)].filter(
+    (offset) => offset >= 0
+  );
+  if (substringOffsets.length > 0) {
     // Earlier substring offset wins.
-    return { cmd, score: SCORE_TITLE_SUBSTRING, tiebreaker: titleIdx, index };
+    return {
+      cmd,
+      score: SCORE_TITLE_OR_ID_SUBSTRING,
+      tiebreaker: Math.min(...substringOffsets),
+      index,
+    };
   }
 
   for (const kw of keywords) {
