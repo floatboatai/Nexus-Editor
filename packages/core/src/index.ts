@@ -25,6 +25,7 @@ export {
 export { markdownAutoPair } from "./markdown-autopair";
 export { markdownFold, markdownFoldService } from "./markdown-fold";
 export { markdownKeymap, handleMarkdownEnter } from "./markdown-keymap";
+export { backspaceListItem, indentListItem, outdentListItem } from "./markdown-list";
 export {
   addCursorAbove,
   addCursorBelow,

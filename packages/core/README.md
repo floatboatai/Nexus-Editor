@@ -71,6 +71,27 @@ editor.on("selectionChange", ({ anchor, head, ranges, mainIndex }) => {
 
 Multiple ranges in `setSelections` require `multiCursor: true` — without the flag CodeMirror collapses the selection to its main range.
 
+## List editing
+
+The bundled `markdownKeymap()` understands Markdown list structure (via the Lezer syntax tree), so the usual keys keep the source valid CommonMark:
+
+| Interaction | Effect |
+|---|---|
+| `Enter` | Continue the list / blockquote at every cursor (a list inside a quote continues as `> - `); an empty item exits the list |
+| `Tab` | Nest the item under its previous sibling, indented to that item's **content column** (`- ` → 2 spaces, `1. ` → 3, `10. ` → 4) |
+| `Shift-Tab` | Lift the item to its parent's level; siblings that followed it become its children |
+| `Backspace` at the start of an item's content | Nested item: same as `Shift-Tab`. Top-level item: drop the marker (and task box) and become plain text |
+
+Nested children and continuation lines move with the item, consecutive selected siblings move together, and blockquote `> ` prefixes are preserved. Ordered lists in the affected tree are renumbered in the same transaction, so inserting or removing an item never leaves `1. 2. 2. 3.` behind — one undo step restores everything. A list keeps its written start number unless the command re-parented its first item. When no cursor is on a list item's marker line, `Tab` falls through to regular indentation.
+
+List structure comes from the Lezer syntax tree, so a line that merely looks like `- item` inside a fenced code block is neither continued nor indented. Tab-indented lines are measured in columns using the editor's `tabSize` and rewritten with spaces when a command moves them. Pressing `Enter` with the cursor before an item's content pushes the whole item down a line instead of splitting its marker.
+
+The commands are exported for hosts that want their own bindings:
+
+```ts
+import { indentListItem, outdentListItem, backspaceListItem, handleMarkdownEnter } from "@floatboat/nexus-core";
+```
+
 ## Other config highlights
 
 See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.

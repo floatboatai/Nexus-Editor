@@ -17,6 +17,7 @@
 |---|---|---|---|---|---|---|
 | 1 | 多行列表切换（ordered / unordered） | `plugin-toolbar` + `core` 命令 | P1 | done | 否 | 随 `getSelectedText()` / `replaceRange()` 一并落地 —— 见 `openspec/changes/add-selection-api` |
 | 12 | 高级 toolbar（emoji picker / 表格工具 / 颜色选择） | `plugin-toolbar` | P2 | planned | 是 | 涉及新 widget，建议拆 3 个子提案 |
+| 30 | 列表缩进 / 反缩进 + 有序列表自动重编号 | `core` keymap | P1 | in-progress | 是 | `Tab` / `Shift-Tab` 按 CommonMark 内容列嵌套；Enter / Tab 在同一事务内重排 `1. 2. 3.` —— 见 `openspec/changes/add-list-indent-renumber` |
 
 ## 2. Search / 命令
 
