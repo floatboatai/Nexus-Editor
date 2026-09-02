@@ -7,8 +7,10 @@ import type {
 } from "@floatboat/nexus-plugin-api";
 import type {
   EditorAPI,
+  EditorAuthoritativeSourceRegistration,
   EditorContributionRegistration,
   EditorContributionSink,
+  EditorHistoryController,
   CoreEditorTransactionFilter,
   CoreEditorTransactionHookOptions,
   CoreEditorUpdateListener,
@@ -89,6 +91,21 @@ class FakeContributionSink implements EditorContributionSink {
     options?: CoreEditorTransactionHookOptions,
   ): EditorContributionRegistration {
     return this.add(ownerId, "update-listener", { listener, options });
+  }
+
+  registerAuthoritativeSource(
+    ownerId: string,
+    history: EditorHistoryController,
+  ): EditorAuthoritativeSourceRegistration {
+    const registration = this.add(ownerId, "authoritative-source", history);
+    return {
+      ...registration,
+      get disposed() {
+        return registration.disposed;
+      },
+      dispatch: () => ({ status: "rejected", ownerId, reason: "fake-source" }),
+      dispatchTransactions: () => ({ status: "rejected", ownerId, reason: "fake-source" }),
+    };
   }
 
   isInteractionActive(): boolean {

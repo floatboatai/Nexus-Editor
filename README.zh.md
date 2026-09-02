@@ -158,14 +158,14 @@ pnpm install
 pnpm dev:electron-demo
 ```
 
-一个完整的 Electron 应用，带文件 IO、实时预览、所有插件 —— 这是看清 Nexus 能做什么的最快路径。
+一个完整的 Electron 应用，带文件 IO、实时预览、所有插件。点击 **Collaborate** 可打开明确标注为 experimental、仅内存保存的双编辑器协作实验室。
 
 ---
 
 ## 📦 包列表
 
 <details>
-<summary><b>完整包列表（11 个包）</b> —— 点击展开</summary>
+<summary><b>完整包列表（12 个包）</b> —— 点击展开</summary>
 
 | 包名 | 说明 |
 |---|---|
@@ -180,6 +180,7 @@ pnpm dev:electron-demo
 | `@floatboat/nexus-plugin-math` | 行内 / 块级数学公式渲染（KaTeX） |
 | `@floatboat/nexus-plugin-vim` | Vim 键位（基于 `@replit/codemirror-vim`） |
 | `@floatboat/nexus-plugin-wordcount` | Markdown 感知的字数 / 字符数 / 中日韩字符 / 阅读时长统计 + ARIA 状态栏 |
+| `@floatboat/nexus-plugin-collab` | Experimental 的无头 Yjs Engine、编辑器绑定、独立历史、Presence 与可替换 Provider/Store 契约 |
 
 </details>
 

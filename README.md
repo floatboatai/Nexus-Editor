@@ -158,14 +158,14 @@ pnpm install
 pnpm dev:electron-demo
 ```
 
-A real Electron app with file IO, live preview, and every plugin enabled — the fastest way to see what's possible.
+A real Electron app with file IO, live preview, and every plugin enabled. Choose **Collaborate** to open the explicitly experimental, volatile two-Editor collaboration lab.
 
 ---
 
 ## 📦 Packages
 
 <details>
-<summary><b>Full package list (11 packages)</b> — click to expand</summary>
+<summary><b>Full package list (12 packages)</b> — click to expand</summary>
 
 | Package | Description |
 |---|---|
@@ -180,6 +180,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 | `@floatboat/nexus-plugin-math` | Inline / block math rendering (KaTeX) |
 | `@floatboat/nexus-plugin-vim` | Vim keybindings powered by `@replit/codemirror-vim` |
 | `@floatboat/nexus-plugin-wordcount` | Markdown-aware word / character / CJK / reading-time stats + ARIA-live status bar |
+| `@floatboat/nexus-plugin-collab` | Experimental headless Yjs Engine, editor binding, scoped history, Presence, and replaceable Provider/Store contracts |
 
 </details>
 

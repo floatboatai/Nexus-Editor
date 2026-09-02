@@ -36,6 +36,14 @@ export default defineConfig({
         __dirname,
         "../../packages/core/src/index.ts"
       ),
+      "@floatboat/nexus-plugin-collab/assessment": path.resolve(
+        __dirname,
+        "../../packages/plugin-collab/src/assessment.ts"
+      ),
+      "@floatboat/nexus-plugin-collab": path.resolve(
+        __dirname,
+        "../../packages/plugin-collab/src/index.ts"
+      ),
       "@floatboat/nexus-plugin-api": path.resolve(
         __dirname,
         "../../packages/plugin-api/src/index.ts"

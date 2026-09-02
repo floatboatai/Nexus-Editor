@@ -8,6 +8,8 @@
     "paths": {
       "@floatboat/nexus-core": ["packages/core/src/index.ts"],
       "@floatboat/nexus-plugin-api": ["packages/plugin-api/src/index.ts"],
+      "@floatboat/nexus-plugin-collab": ["packages/plugin-collab/src/index.ts"],
+      "@floatboat/nexus-plugin-collab/assessment": ["packages/plugin-collab/src/assessment.ts"],
       "@floatboat/nexus-plugin-runtime": ["packages/plugin-runtime/src/index.ts"],
       "@floatboat/nexus-react": ["packages/react/src/index.ts"],
       "@floatboat/nexus-vue": ["packages/vue/src/index.ts"],

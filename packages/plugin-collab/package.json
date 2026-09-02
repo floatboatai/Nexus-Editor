@@ -1,0 +1,54 @@
+{
+  "name": "@floatboat/nexus-plugin-collab",
+  "version": "0.0.14",
+  "description": "Experimental headless realtime collaboration for Nexus Editor.",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./assessment": {
+      "types": "./dist/assessment.d.ts",
+      "import": "./dist/assessment.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "BENCHMARK.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts src/assessment.ts --format esm --platform browser --dts --clean",
+    "check:api": "pnpm build && tsc --noEmit -p tsconfig.api.json && node scripts/check-api.mjs",
+    "check:api:update": "pnpm build && node scripts/check-api.mjs --write",
+    "bench": "vitest bench --run --config vitest.config.ts bench",
+    "test": "vitest run --config vitest.config.ts test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@floatboat/nexus-core": "workspace:*",
+    "y-protocols": "1.0.7"
+  },
+  "peerDependencies": {
+    "yjs": "13.6.32"
+  },
+  "devDependencies": {
+    "@floatboat/nexus-react": "workspace:*",
+    "@floatboat/nexus-preset-gfm": "workspace:*",
+    "@floatboat/nexus-vue": "workspace:*",
+    "@testing-library/react": "^16.3.0",
+    "@vue/test-utils": "^2.4.6",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "vue": "^3.5.22",
+    "yjs": "13.6.32"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

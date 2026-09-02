@@ -6,6 +6,8 @@ export default defineConfig({
     alias: {
       "@floatboat/nexus-core": path.resolve(__dirname, "packages/core/src/index.ts"),
       "@floatboat/nexus-plugin-api": path.resolve(__dirname, "packages/plugin-api/src/index.ts"),
+      "@floatboat/nexus-plugin-collab/assessment": path.resolve(__dirname, "packages/plugin-collab/src/assessment.ts"),
+      "@floatboat/nexus-plugin-collab": path.resolve(__dirname, "packages/plugin-collab/src/index.ts"),
       "@floatboat/nexus-plugin-runtime": path.resolve(__dirname, "packages/plugin-runtime/src/index.ts"),
       "@floatboat/nexus-react": path.resolve(__dirname, "packages/react/src/index.ts"),
       "@floatboat/nexus-vue": path.resolve(__dirname, "packages/vue/src/index.ts"),

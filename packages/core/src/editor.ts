@@ -1,4 +1,4 @@
-import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
+import { Annotation, EditorSelection, EditorState, Prec } from "@codemirror/state";
 
 // Annotation attached to dispatches that load content programmatically (e.g.
 // setDocument from file open) so updateListener can skip the user-edit path —
@@ -18,12 +18,16 @@ import { EventEmitter } from "./event-emitter";
 import { DynamicEditorContributionSink } from "./dynamic-contributions";
 import { CoreEditorTransactionPipeline } from "./transaction-pipeline";
 import {
+  externalDocumentModeExtension,
+  externalDocumentModeTransaction,
+} from "./authoritative-source";
+import {
   applyMarkdownTransformSnapshots,
   dynamicWidgetDefinitionExtension,
   getMarkdownTransformRevision,
 } from "./markdown-contributions";
 import { createLivePreviewExtension } from "./live-preview";
-import { flushPendingTableEdits } from "./live-preview-table";
+import { cancelActiveTableInteractions, flushPendingTableEdits } from "./live-preview-table";
 import { createMarkdownLanguageSupport } from "./lezer-markdown";
 import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
 import { markdownFoldService } from "./markdown-fold";
@@ -568,6 +572,19 @@ export function createEditor(config: EditorConfig): EditorAPI {
         ]
       : [];
 
+  const runHistoryKey = (action: "undo" | "redo"): boolean => {
+    if (destroyed) return false;
+    const routed = transactionPipeline?.runAuthoritativeHistory(action);
+    if (routed?.active) return true;
+    return action === "undo" ? cmUndo(view) : cmRedo(view);
+  };
+
+  const authoritativeHistoryKeymap = Prec.highest(keymap.of([
+    { key: "Mod-z", run: () => runHistoryKey("undo") },
+    { key: "Mod-Shift-z", run: () => runHistoryKey("redo") },
+    { key: "Mod-y", run: () => runHistoryKey("redo") },
+  ]));
+
   const view = new EditorView({
     parent: config.container,
     dispatchTransactions(transactions, view) {
@@ -613,6 +630,18 @@ export function createEditor(config: EditorConfig): EditorAPI {
             }
             flushCompositionChange(view, "compositionend");
             return false;
+          },
+          beforeinput(event) {
+            const action = event.inputType === "historyUndo"
+              ? "undo"
+              : event.inputType === "historyRedo"
+                ? "redo"
+                : null;
+            if (!action) return false;
+            const routed = transactionPipeline?.runAuthoritativeHistory(action);
+            if (!routed?.active) return false;
+            event.preventDefault();
+            return true;
           }
         }),
         EditorView.updateListener.of((update) => {
@@ -704,6 +733,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
         // steps will switch the decoration handlers over to read from this
         // tree and remove the mdast worker round-trip.
         createMarkdownLanguageSupport(),
+        externalDocumentModeExtension,
         lineNumbers(),
         themeExt.extension,
         tabSizeExt,
@@ -714,6 +744,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
         multiCursorExt,
         markdownFoldService(),
         keymap.of([indentWithTab]),
+        authoritativeHistoryKeymap,
         closeBrackets(),
         markdownAutoPair(),
         dropCursor(),
@@ -901,11 +932,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
     },
     undo() {
       if (destroyed) return false;
-      return cmUndo(view);
+      const routed = transactionPipeline.runAuthoritativeHistory("undo");
+      return routed.active ? routed.changed : cmUndo(view);
     },
     redo() {
       if (destroyed) return false;
-      return cmRedo(view);
+      const routed = transactionPipeline.runAuthoritativeHistory("redo");
+      return routed.active ? routed.changed : cmRedo(view);
     },
     focus() {
       if (destroyed) {
@@ -1068,6 +1101,15 @@ export function createEditor(config: EditorConfig): EditorAPI {
     view,
     editor: api,
     isDestroyed: () => destroyed || (destroying && !flushingTableEditsForDestroy),
+    setExternalDocumentMode: (active) => {
+      if (!viewRef.current) return;
+      if (active) flushPendingTableEdits(view, true);
+      view.update([externalDocumentModeTransaction(view.state, active)]);
+    },
+    prepareAuthoritativeUpdate: () => {
+      cancelActiveTableInteractions(view);
+      dynamicContributionSink.cancelMouseInteraction();
+    },
   });
   contributionSink = {
     registerExtension: dynamicContributionSink.registerExtension.bind(dynamicContributionSink),
@@ -1077,6 +1119,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
     refresh: dynamicContributionSink.refresh.bind(dynamicContributionSink),
     registerTransactionFilter: transactionPipeline.registerTransactionFilter.bind(transactionPipeline),
     registerUpdateListener: transactionPipeline.registerUpdateListener.bind(transactionPipeline),
+    registerAuthoritativeSource: transactionPipeline.registerAuthoritativeSource.bind(transactionPipeline),
   };
 
   return api;

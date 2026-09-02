@@ -36,6 +36,7 @@ import {
 import {
   ElectronRuntimeProductUiAdapter,
 } from "./runtime-product-ui-adapter";
+import type { CollaborationLab } from "./collaboration-lab";
 
 installLongTaskWatch(50);
 
@@ -59,6 +60,8 @@ let deferredRestoreTimeout: ReturnType<typeof setTimeout> | null = null;
 const deferredRestoreFrames = new Set<number>();
 const settingsPanels = new Set<{ destroy(): void }>();
 let removeRuntimeSettingsListeners: (() => void) | null = null;
+let collaborationLab: CollaborationLab | null = null;
+let collaborationLabOpening: Promise<void> | null = null;
 
 let linkIndex: LinkIndexReader | null = null;
 let legacyLinkIndex: LinkIndex | null = null;
@@ -206,6 +209,25 @@ function createAppToolbar(): HTMLElement {
   settingsBtn.style.fontSize = "16px";
   settingsBtn.addEventListener("click", handleSettings);
 
+  const collaborationBtn = document.createElement("button");
+  collaborationBtn.textContent = "Collaborate";
+  collaborationBtn.title = "Open the experimental realtime collaboration lab";
+  collaborationBtn.addEventListener("click", () => {
+    if (collaborationLab || collaborationLabOpening) return;
+    collaborationLabOpening = import("./collaboration-lab").then(({ createCollaborationLab }) =>
+      createCollaborationLab(document, () => {
+        collaborationLab = null;
+      })).then((lab) => {
+      collaborationLab = lab;
+      document.body.append(lab.element);
+    }).catch((error) => {
+      state.error = error instanceof Error ? error.message : String(error);
+      renderStatus();
+    }).finally(() => {
+      collaborationLabOpening = null;
+    });
+  });
+
   toolbar.append(
     vaultBtn,
     openBtn,
@@ -216,6 +238,7 @@ function createAppToolbar(): HTMLElement {
     outlineBtn,
     backlinksBtn,
     searchBtn,
+    collaborationBtn,
     settingsBtn
   );
   return toolbar;
@@ -695,6 +718,10 @@ async function destroyShellAndPanels(): Promise<void> {
   const attempt = async (operation: () => void | Promise<void>) => {
     try { await operation(); } catch (error) { errors.push(error); }
   };
+  await collaborationLabOpening;
+  collaborationLabOpening = null;
+  await attempt(() => collaborationLab?.destroy());
+  collaborationLab = null;
   removeRuntimeSettingsListeners?.();
   removeRuntimeSettingsListeners = null;
   for (const panel of settingsPanels) await attempt(() => panel.destroy());

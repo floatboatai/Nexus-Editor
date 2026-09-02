@@ -1,0 +1,42 @@
+{
+  "index": [
+    "COLLAB_SCHEMA_VERSION",
+    "CollabDocumentRef",
+    "CollaborationConsistency",
+    "CollaborationDiagnostic",
+    "CollaborationDocumentListener",
+    "CollaborationEngine",
+    "CollaborationEngineOptions",
+    "CollaborationError",
+    "CollaborationErrorCode",
+    "CollaborationLifecycle",
+    "CollaborationListener",
+    "CollaborationPersistence",
+    "CollaborationProviderFactory",
+    "CollaborationReplicaPort",
+    "CollaborationSync",
+    "CollaborationTransport",
+    "CollaborativeDocumentHandle",
+    "CollaborativeDocumentSnapshot",
+    "DocumentId",
+    "EditorBindingHandle",
+    "LocalPresence",
+    "PeerSnapshot",
+    "PresenceSelection",
+    "ProviderContext",
+    "ProviderLease",
+    "ProviderState",
+    "ReplicaStore",
+    "ReplicaStoreLease",
+    "ReplicaStoreLoadResult",
+    "Unsubscribe",
+    "asDocumentId",
+    "createCollaborationEngine"
+  ],
+  "assessment": [
+    "AssessmentMemoryStore",
+    "AssessmentProviderHub",
+    "createAssessmentMemoryStore",
+    "createAssessmentProviderHub"
+  ]
+}

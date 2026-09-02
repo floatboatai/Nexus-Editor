@@ -260,6 +260,13 @@ export class DynamicEditorContributionSink implements EditorExtensionContributio
     );
   }
 
+  /** Internal escape hatch used when an authoritative projection cancels a widget gesture. */
+  cancelMouseInteraction(): void {
+    if (this.destroyed) return;
+    this.mouseInteractionActive = false;
+    this.scheduleFlush();
+  }
+
   refresh(): Promise<void> {
     this.assertAlive();
     const deferred = createDeferred();

@@ -696,6 +696,92 @@ describe("live preview", () => {
     container.remove();
   });
 
+  it("routes table-cell activation to Markdown source while an authoritative source is active", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const source = "| A | B |\n| --- | --- |\n| 1 | 222 |";
+    const editor = createEditor({
+      container,
+      initialValue: source,
+      livePreview: true,
+      plugins: [createGfmPreset()],
+    });
+    const authority = editor.getContributionSink().registerAuthoritativeSource("collab", {
+      undo: () => false,
+      redo: () => false,
+    });
+    await authority.ready;
+    const cell = container.querySelectorAll<HTMLElement>("tr")[2]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    expect(cell).not.toBeUndefined();
+
+    const down = new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 80,
+      clientY: 40,
+    });
+    cell!.dispatchEvent(down);
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+
+    expect(down.defaultPrevented).toBe(true);
+    expect(cell!.contentEditable).not.toBe("true");
+    expect(editor.getSelection()).toEqual({
+      anchor: source.indexOf("222"),
+      head: source.indexOf("222"),
+    });
+    await authority.dispose();
+    editor.destroy();
+    container.remove();
+  });
+
+  it("cancels an active table grip before applying an authoritative update", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const initial = "| A | B |\n| --- | --- |\n| 1 | 2 |";
+    const editor = createEditor({
+      container,
+      initialValue: initial,
+      livePreview: true,
+      plugins: [createGfmPreset()],
+    });
+    const authority = editor.getContributionSink().registerAuthoritativeSource("collab", {
+      undo: () => false,
+      redo: () => false,
+    });
+    await authority.ready;
+    const headers = container.querySelectorAll<HTMLElement>("tr")[1]
+      ?.querySelectorAll<HTMLElement>(".nexus-cell");
+    const grip = container.querySelectorAll<HTMLElement>(".nexus-col-grip")[0];
+    expect(grip).not.toBeUndefined();
+    headers![0].getBoundingClientRect = () => new DOMRect(0, 0, 50, 30);
+    headers![1].getBoundingClientRect = () => new DOMRect(50, 0, 50, 30);
+    grip.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 25,
+      clientY: 5,
+    }));
+    expect(editor.getContributionSink().isInteractionActive()).toBe(true);
+
+    const remote = "| Remote | Value |\n| --- | --- |\n| x | y |";
+    const result = authority.dispatch({
+      changes: [{ from: 0, to: initial.length, insert: remote }],
+      origin: ["remote"],
+    });
+
+    expect(result.status).toBe("success");
+    expect(editor.getContributionSink().isInteractionActive()).toBe(false);
+    expect(editor.getDocument()).toBe(remote);
+    document.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 75, clientY: 5 }));
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: 75, clientY: 5 }));
+    expect(editor.getDocument()).toBe(remote);
+    editor.destroy();
+    container.remove();
+  });
+
   it("maps focused cells correctly without leading pipes and across escaped pipes", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
