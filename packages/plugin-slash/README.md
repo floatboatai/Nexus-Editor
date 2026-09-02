@@ -60,16 +60,18 @@ menu.destroy();
 
 `filterSlashCommands(commands, query)` ranks candidates deterministically:
 
-1. exact title match
-2. title prefix (shorter title wins)
+1. exact title or command id match
+2. title or command id prefix (shorter matching field wins)
 3. exact keyword match
-4. title substring (earlier offset wins)
+4. title or command id substring (earlier offset wins)
 5. keyword prefix
 6. keyword substring
 
 Ties break alphabetically by title. Empty queries preserve the original
 registration order so you can curate "most useful first" via plugin
-order.
+order. All fields are matched case-insensitively; matching ids makes stable
+identifiers such as `insert-table` discoverable without repeating them in
+`keywords`.
 
 ## Limit
 

@@ -35,6 +35,17 @@ describe("@floatboat/nexus-plugin-slash", () => {
     expect(filterSlashCommands(commands, "grid").map((command) => command.id)).toEqual(["table"]);
   });
 
+  it("filters slash commands by id through the core helper", () => {
+    const commands = [
+      { id: "insert-table", title: "Grid" },
+      { id: "blockquote", title: "Quote" }
+    ];
+
+    expect(filterSlashCommands(commands, "insert").map((command) => command.id)).toEqual([
+      "insert-table"
+    ]);
+  });
+
   it("creates a slash plugin that preserves command definitions", () => {
     const commands = [{ id: "heading", title: "Heading" }];
     const plugin = createSlashPlugin(commands);
