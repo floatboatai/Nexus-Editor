@@ -17,6 +17,7 @@ This document maps every planned feature to **package ownership / priority / sta
 |---|---|---|---|---|---|---|
 | 1 | Multi-line list toggle (ordered / unordered) | `plugin-toolbar` + `core` commands | P1 | done | No | Landed with `getSelectedText()` / `replaceRange()` — see `openspec/changes/add-selection-api` |
 | 12 | Advanced toolbar (emoji picker / table tools / color picker) | `plugin-toolbar` | P2 | planned | Yes | Introduces widgets — split into 3 sub-proposals |
+| 30 | List indent / outdent with ordered-list renumbering | `core` keymap | P1 | in-progress | Yes | `Tab` / `Shift-Tab` nest to the CommonMark content column; Enter / Tab renumber `1. 2. 3.` in one transaction — see `openspec/changes/add-list-indent-renumber` |
 
 ## 2. Search / Commands
 
