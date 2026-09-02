@@ -33,7 +33,7 @@ export const legacyReferenceFixtures: readonly LegacyReferenceFixture[] = Object
     id: "history",
     pluginId: "legacy-history",
     create: createHistoryPlugin,
-    expected: { commands: 0, shortcuts: 0, handlers: 0, cmExtensions: 2, remarkPlugins: 0, widgets: 0 },
+    expected: { commands: 2, shortcuts: 0, handlers: 0, cmExtensions: 4, remarkPlugins: 0, widgets: 0 },
   },
   {
     id: "search",
