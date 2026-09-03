@@ -1,6 +1,8 @@
 import type {
   AuthorPluginManifest,
   CapabilityRegistry,
+  EditorDestroyListener,
+  EditorLifecycleContributionSink,
   NexusApp,
   NexusPluginConstructor,
 } from "../dist/index";
@@ -21,3 +23,9 @@ const app = {
 } as NexusApp;
 
 void new Plugin(app, manifest as never);
+
+const destroyListener: EditorDestroyListener = () => undefined;
+const registerDestroyCleanup = (sink: EditorLifecycleContributionSink) =>
+  sink.registerDestroyListener("api-consumer", destroyListener);
+
+void registerDestroyCleanup;

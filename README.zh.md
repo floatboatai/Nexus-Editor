@@ -158,7 +158,11 @@ pnpm install
 pnpm dev:electron-demo
 ```
 
-一个完整的 Electron 应用，带文件 IO、实时预览、所有插件。点击 **Collaborate** 可打开明确标注为 experimental、仅内存保存的双编辑器协作实验室。
+`pnpm dev:electron-demo` 默认启动 runtime Host。只有在显式验证 legacy 兼容 Host 时，才设置 `NEXUS_PLUGIN_PLATFORM=0`。
+
+一个完整的 Electron 应用，带文件 IO、实时预览和所有插件。点击 **Collaborate** 可打开真实但仍标注为 experimental 的 Host workflow：它使用带认证的 Provider、按服务器隔离的 Electron SQLite utility broker、Markdown File Projection、pending-create/pending-join/持久化恢复与冲突 UI。中断的 join 会继续被显式 fence：面板可以重试安全恢复、重新粘贴同一 invitation，或仅在不存在 Projection metadata 时显式 abandon；这些恢复动作都不会静默改写或删除 Markdown 文件。通过 File → **New Collaboration Window**（`CmdOrCtrl+Shift+N`）可以从产品内打开第二个 runtime window。原来的双编辑器 assessment lab 仍可从协作面板进入，但只作为开发工具。
+
+可复用的 `@floatboat/nexus-plugin-collab` 默认入口保持 browser-safe；Browser Host 通过显式 subpath 选择 Hocuspocus 或 IndexedDB adapter。`apps/collab-server` 是用于本地资格验证的单节点 authenticated reference server；生产 Host 仍负责 TLS、外部身份、签名密钥轮换、数据库运维、备份、监控、扩展、保留和 SLO。
 
 ---
 
@@ -180,7 +184,7 @@ pnpm dev:electron-demo
 | `@floatboat/nexus-plugin-math` | 行内 / 块级数学公式渲染（KaTeX） |
 | `@floatboat/nexus-plugin-vim` | Vim 键位（基于 `@replit/codemirror-vim`） |
 | `@floatboat/nexus-plugin-wordcount` | Markdown 感知的字数 / 字符数 / 中日韩字符 / 阅读时长统计 + ARIA 状态栏 |
-| `@floatboat/nexus-plugin-collab` | Experimental 的无头 Yjs Engine、编辑器绑定、独立历史、Presence 与可替换 Provider/Store 契约 |
+| `@floatboat/nexus-plugin-collab` | Experimental 的无头 Yjs Engine、Host Workflow、三方 File Projection，以及显式 Hocuspocus/IndexedDB adapters |
 
 </details>
 
@@ -270,6 +274,12 @@ pnpm test           # 运行所有测试
 
 # Electron 演示应用
 pnpm dev:electron-demo
+
+# 构建后的安全来源 renderer + sandboxed-preload 启动回归
+pnpm --filter @floatboat/nexus-electron-demo smoke:startup
+
+# 构建并验收两个真实 Electron 客户端、恢复流程及本地可信 TLS
+pnpm qualify:collab-electron
 ```
 
 </details>

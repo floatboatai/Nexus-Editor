@@ -131,7 +131,8 @@ export function createRuntimeVaultPanelBackend(
       const result = await runtime.productContent.rename(source, destination);
       return { path: displayPath(root, result.path) };
     },
-    trash: async (path) => runtime.productContent.trash(relativePath(requireRoot(), path)),
+    trash: async (path, deletionOperationId) =>
+      runtime.productContent.trash(relativePath(requireRoot(), path), deletionOperationId),
     onChanged: (callback) => runtime.productContent.onChanged(callback),
   };
   return Object.freeze(backend);

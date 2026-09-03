@@ -12,6 +12,22 @@ export interface VaultPanelSnapshot {
   readonly nodes: VaultNode[];
 }
 
+/** Immutable Host context captured before an asynchronous file mutation starts. */
+export interface VaultFileMutationContext {
+  readonly kind: "rename" | "delete";
+  readonly vaultPath: string;
+  readonly targetPath: string;
+  readonly activeFile: string | null;
+  /** Exact durable deletion operation authorized to cross the Host fence. */
+  readonly deletionOperationId?: string;
+}
+
+export interface VaultFileMutationOutcome {
+  readonly filesystem: "failed" | "succeeded";
+  readonly coordination: "not-run" | "failed" | "succeeded";
+  readonly refresh: "not-run" | "failed" | "succeeded";
+}
+
 /** I/O ownership boundary. Runtime mode supplies a capability-backed backend. */
 export interface VaultPanelBackend {
   openVault(rootPath: string): Promise<VaultPanelSnapshot | null>;
@@ -22,16 +38,30 @@ export interface VaultPanelBackend {
   createFile(parentDir: string, name: string): Promise<{ path: string }>;
   createFolder(parentDir: string, name: string): Promise<{ path: string }>;
   rename(oldPath: string, newName: string): Promise<{ path: string }>;
-  trash(targetPath: string): Promise<{ ok: boolean }>;
+  trash(targetPath: string, deletionOperationId?: string): Promise<{ ok: boolean }>;
   onChanged(callback: () => void): () => void;
 }
 
 export interface VaultPanelCallbacks {
   onOpenFile(filePath: string): void;
+  /** Holds one shared Editor/Vault context reservation around the complete operation. */
+  withDocumentContextChange?<T>(operation: () => Promise<T>): Promise<T>;
   onBeforeVaultOpen?(vaultPath: string): boolean | Promise<boolean>;
+  onBeforeFileMutation?(
+    context: VaultFileMutationContext,
+  ): boolean | { readonly deletionOperationId?: string } | Promise<boolean | { readonly deletionOperationId?: string }>;
   onVaultOpen?(vaultPath: string): void | Promise<void>;
-  onFileRenamed?(oldPath: string, newPath: string): void | Promise<void>;
-  onFileDeleted?(path: string): void | Promise<void>;
+  onFileRenamed?(
+    oldPath: string,
+    newPath: string,
+    context: VaultFileMutationContext,
+  ): void | Promise<void>;
+  onFileDeleted?(path: string, context: VaultFileMutationContext): void | Promise<void>;
+  /** Always runs after an approved mutation, including filesystem, coordination, or refresh failure. */
+  onFileMutationSettled?(
+    context: VaultFileMutationContext,
+    outcome: VaultFileMutationOutcome,
+  ): void | Promise<void>;
   onContextMenu?(request: VaultContextMenuRequest): void | Promise<void>;
   onError(message: string): void;
   onStatus(message: string): void;
@@ -316,6 +346,8 @@ export function createVaultPanel(
   const collapsed = new Set<string>();
   let unsubscribeChanged: (() => void) | null = null;
   let closeContextMenu: (() => void) | null = null;
+  const withDocumentContextChange = <T>(operation: () => Promise<T>): Promise<T> =>
+    callbacks.withDocumentContextChange?.(operation) ?? operation();
 
   function renderEmpty(message: string): void {
     tree.innerHTML = "";
@@ -430,12 +462,62 @@ export function createVaultPanel(
         return;
       }
       try {
-        const result = await backend.rename(node.path, newName);
-        if (activeFile === node.path || activeFile?.startsWith(`${node.path.replace(/[\\/]+$/, "")}/`)) {
-          activeFile = `${result.path}${activeFile.slice(node.path.length)}`;
-        }
-        await callbacks.onFileRenamed?.(node.path, result.path);
-        await refresh();
+        const context: VaultFileMutationContext = {
+          kind: "rename",
+          vaultPath: vaultPath!,
+          targetPath: node.path,
+          activeFile,
+        };
+        await withDocumentContextChange(async () => {
+          if (vaultPath !== context.vaultPath || activeFile !== context.activeFile) {
+            throw new Error("The Vault file context changed before rename could start");
+          }
+          if (await callbacks.onBeforeFileMutation?.(context) === false) {
+            input.replaceWith(label);
+            return;
+          }
+          const previousActiveFile = activeFile;
+          const result = await backend.rename(node.path, newName);
+          if (activeFile === node.path || activeFile?.startsWith(`${node.path.replace(/[\\/]+$/, "")}/`)) {
+            activeFile = `${result.path}${activeFile.slice(node.path.length)}`;
+          }
+          const renamedActiveFile = activeFile;
+          try {
+            await callbacks.onFileRenamed?.(node.path, result.path, context);
+          } catch (coordinationFailure) {
+            let rollbackPath: string | null = null;
+            let rollbackFailure: unknown;
+            try {
+              rollbackPath = (await backend.rename(result.path, node.name)).path;
+              activeFile = previousActiveFile;
+            } catch (cause) {
+              rollbackFailure = cause;
+            }
+            let rollbackCoordinationFailure: unknown;
+            if (rollbackPath) {
+              try {
+                await callbacks.onFileRenamed?.(result.path, rollbackPath, {
+                  kind: "rename",
+                  vaultPath: context.vaultPath,
+                  targetPath: result.path,
+                  activeFile: renamedActiveFile,
+                });
+              } catch (cause) {
+                rollbackCoordinationFailure = cause;
+              }
+            }
+            const rollbackFailures = [rollbackFailure, rollbackCoordinationFailure]
+              .filter((cause): cause is unknown => cause !== undefined);
+            if (rollbackFailures.length > 0) {
+              throw new AggregateError(
+                [coordinationFailure, ...rollbackFailures],
+                "File rename coordination failed and rollback was incomplete",
+              );
+            }
+            throw coordinationFailure;
+          }
+          await refresh();
+        });
       } catch (err) {
         callbacks.onError(err instanceof Error ? err.message : String(err));
         input.replaceWith(label);
@@ -602,13 +684,73 @@ export function createVaultPanel(
     // In Electron window.confirm may be a no-op; the context menu entry is
     // destructive-styled and requires an explicit click, so we proceed directly.
     try {
-      await backend.trash(node.path);
-      callbacks.onStatus(`Moved ${node.name} to Trash`);
-      if (node.kind === "file" && activeFile === node.path) {
-        activeFile = null;
-      }
-      await callbacks.onFileDeleted?.(node.path);
-      await refresh();
+      const context: VaultFileMutationContext = {
+        kind: "delete",
+        vaultPath: vaultPath!,
+        targetPath: node.path,
+        activeFile,
+      };
+      await withDocumentContextChange(async () => {
+        if (vaultPath !== context.vaultPath || activeFile !== context.activeFile) {
+          throw new Error("The Vault file context changed before delete could start");
+        }
+        const approval = await callbacks.onBeforeFileMutation?.(context);
+        if (approval === false) return;
+        const authorizedContext: VaultFileMutationContext = approval && typeof approval === "object" &&
+          approval.deletionOperationId
+          ? { ...context, deletionOperationId: approval.deletionOperationId }
+          : context;
+        let operationFailure: unknown;
+        let filesystem: VaultFileMutationOutcome["filesystem"] = "failed";
+        let coordination: VaultFileMutationOutcome["coordination"] = "not-run";
+        let refreshState: VaultFileMutationOutcome["refresh"] = "not-run";
+        try {
+          await backend.trash(node.path, authorizedContext.deletionOperationId);
+          filesystem = "succeeded";
+        } catch (cause) {
+          operationFailure = cause;
+        }
+        if (filesystem === "succeeded") {
+          try {
+            callbacks.onStatus(`Moved ${node.name} to Trash`);
+            if (node.kind === "file" && activeFile === node.path) {
+              activeFile = null;
+            }
+            await callbacks.onFileDeleted?.(node.path, authorizedContext);
+            coordination = "succeeded";
+          } catch (cause) {
+            coordination = "failed";
+            operationFailure = cause;
+          }
+        }
+        if (coordination === "succeeded") {
+          try {
+            await refresh();
+            refreshState = "succeeded";
+          } catch (cause) {
+            refreshState = "failed";
+            operationFailure = cause;
+          }
+        }
+        let settlementFailure: unknown;
+        try {
+          await callbacks.onFileMutationSettled?.(authorizedContext, {
+            filesystem,
+            coordination,
+            refresh: refreshState,
+          });
+        } catch (cause) {
+          settlementFailure = cause;
+        }
+        if (operationFailure !== undefined && settlementFailure !== undefined) {
+          throw new AggregateError(
+            [operationFailure, settlementFailure],
+            "File delete and reservation release both failed",
+          );
+        }
+        if (operationFailure !== undefined) throw operationFailure;
+        if (settlementFailure !== undefined) throw settlementFailure;
+      });
     } catch (err) {
       callbacks.onError(err instanceof Error ? err.message : String(err));
     }
@@ -625,10 +767,12 @@ export function createVaultPanel(
   }
 
   async function openVault(nextPath: string): Promise<void> {
-    if (await callbacks.onBeforeVaultOpen?.(nextPath) === false) return;
-    const next = await backend.openVault(nextPath);
-    if (!next) return;
-    await commitSnapshot(next);
+    await withDocumentContextChange(async () => {
+      if (await callbacks.onBeforeVaultOpen?.(nextPath) === false) return;
+      const next = await backend.openVault(nextPath);
+      if (!next) return;
+      await commitSnapshot(next);
+    });
   }
 
   async function commitSnapshot(next: VaultPanelSnapshot): Promise<void> {
@@ -647,9 +791,11 @@ export function createVaultPanel(
 
   async function promptPickVault(): Promise<void> {
     try {
-      if (await callbacks.onBeforeVaultOpen?.("") === false) return;
-      const picked = await backend.pickVault();
-      if (picked) await commitSnapshot(picked);
+      await withDocumentContextChange(async () => {
+        if (await callbacks.onBeforeVaultOpen?.("") === false) return;
+        const picked = await backend.pickVault();
+        if (picked) await commitSnapshot(picked);
+      });
     } catch (err) {
       callbacks.onError(err instanceof Error ? err.message : String(err));
     }

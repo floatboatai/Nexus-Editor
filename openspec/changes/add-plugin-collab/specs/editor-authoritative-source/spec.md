@@ -123,7 +123,7 @@ While an authoritative source is active, no editable Widget MAY retain document 
 
 ### Requirement: Authoritative lifecycle failures are explicit and bounded
 
-Core MUST preserve its recursion bound and listener error isolation for Authoritative Updates. Destroying an Editor MUST release the active source and history controller exactly once. A failed authoritative apply MUST return a structured result so the caller can quarantine or recover; Core MUST NOT continue under a false success state.
+Core MUST preserve its recursion bound and listener error isolation for Authoritative Updates. The contribution sink MUST provide owner-scoped, idempotently disposable Editor-destroy listeners. Destroying an Editor MUST invoke each active listener exactly once before transaction/view teardown, isolate listener failures, observe rejected listener promises without an unhandled rejection, and reject later destroy-listener registration explicitly. Destroying an Editor MUST release the active source and history controller exactly once. A failed authoritative apply MUST return a structured result so the caller can quarantine or recover; Core MUST NOT continue under a false success state.
 
 #### Scenario: Recursion is bounded
 
@@ -142,3 +142,10 @@ Core MUST preserve its recursion bound and listener error isolation for Authorit
 - **WHEN** an Editor with an active source is destroyed
 - **THEN** source and history resources MUST be released exactly once
 - **AND** later source dispatch MUST return an Editor-destroyed or disposed-source failure without side effects
+
+#### Scenario: Editor destruction notifies independent owners safely
+
+- **WHEN** an Editor with multiple owner-scoped destroy listeners is destroyed more than once
+- **THEN** each active listener MUST be invoked exactly once before the Editor view is torn down
+- **AND** one synchronous throw or rejected listener promise MUST NOT skip another owner or create an unhandled rejection
+- **AND** a disposed listener MUST NOT be invoked and a listener registered after destruction MUST fail explicitly

@@ -349,6 +349,16 @@ export interface EditorTransactionContributionSink {
   ): EditorAuthoritativeSourceRegistration;
 }
 
+/** Invoked once when the owning Editor begins destruction. */
+export type EditorDestroyListener = () => void | Promise<void>;
+
+export interface EditorLifecycleContributionSink {
+  registerDestroyListener(
+    ownerId: string,
+    listener: EditorDestroyListener
+  ): EditorContributionRegistration;
+}
+
 export interface EditorAuthoritativeSourceRegistration
   extends EditorContributionRegistration {
   dispatch(transaction: CoreEditorTransaction): CoreEditorTransactionDispatchResult;
@@ -359,7 +369,8 @@ export interface EditorAuthoritativeSourceRegistration
 
 export interface EditorContributionSink
   extends EditorExtensionContributionSink,
-    EditorTransactionContributionSink {}
+    EditorTransactionContributionSink,
+    EditorLifecycleContributionSink {}
 
 export type CoreEditorTransactionDispatchResult =
   | { readonly status: "success"; readonly update: CoreEditorUpdateContext }

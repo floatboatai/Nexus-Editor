@@ -1,9 +1,13 @@
 export { createCollaborationEngine } from "./engine";
 export { COLLAB_SCHEMA_VERSION } from "./schema";
+export * from "./collaboration-workflow";
+export * from "./file-projection";
 export {
   CollaborationError,
   asDocumentId,
   type CollabDocumentRef,
+  type CollaborationAccess,
+  type CollaborationAuthentication,
   type CollaborationConsistency,
   type CollaborationDiagnostic,
   type CollaborationDocumentListener,
@@ -12,6 +16,7 @@ export {
   type CollaborationErrorCode,
   type CollaborationLifecycle,
   type CollaborationListener,
+  type CollaborationOpenOptions,
   type CollaborationPersistence,
   type CollaborationProviderFactory,
   type CollaborationReplicaPort,
@@ -20,6 +25,7 @@ export {
   type CollaborativeDocumentHandle,
   type CollaborativeDocumentSnapshot,
   type DocumentId,
+  type EditorBindingAccess,
   type EditorBindingHandle,
   type LocalPresence,
   type PeerSnapshot,
@@ -28,6 +34,7 @@ export {
   type ProviderLease,
   type ProviderState,
   type ReplicaStore,
+  type ReplicaStoreCheckpoint,
   type ReplicaStoreLease,
   type ReplicaStoreLoadResult,
   type Unsubscribe,

@@ -1,0 +1,88 @@
+{
+  "ok": true,
+  "smoke": "electron-collaboration",
+  "suite": "all",
+  "reports": [
+    {
+      "ok": true,
+      "mode": "legacy",
+      "network": {
+        "url": "nexus-app://editor/index.html",
+        "hostMode": "legacy",
+        "outcome": "open",
+        "violations": []
+      },
+      "untrusted": {
+        "url": "nexus-app://editor/index.html",
+        "hostMode": "legacy",
+        "outcome": "error",
+        "violations": [
+          {
+            "effectiveDirective": "connect-src",
+            "disposition": "enforce",
+            "blockedURI": "wss://nexus-untrusted.invalid/"
+          }
+        ]
+      }
+    },
+    {
+      "ok": true,
+      "mode": "runtime",
+      "network": {
+        "url": "nexus-app://editor/index.html",
+        "hostMode": "runtime",
+        "outcome": "open",
+        "violations": []
+      },
+      "untrusted": {
+        "url": "nexus-app://editor/index.html",
+        "hostMode": "runtime",
+        "outcome": "error",
+        "violations": [
+          {
+            "effectiveDirective": "connect-src",
+            "disposition": "enforce",
+            "blockedURI": "wss://nexus-untrusted.invalid/"
+          }
+        ]
+      }
+    }
+  ],
+  "product": {
+    "checks": [
+      "create-invite-join-real-network",
+      "two-renderer-convergence-independent-undo",
+      "bidirectional-presence",
+      "offline-edit-process-close-reopen-durable-recovery-server-restart",
+      "actual-renderer-crash-durable-reopen-resynchronization",
+      "reader-invitation-read-only-keyboard-denial",
+      "external-file-conflict-explicit-recovery",
+      "token-revocation-expiry-reauthentication-resynchronization"
+    ],
+    "clients": 2,
+    "independentRendererProcesses": true,
+    "independentReplicaStores": true
+  },
+  "tls": {
+    "checks": [
+      "create-invite-join-real-network",
+      "two-renderer-convergence-independent-undo",
+      "bidirectional-presence"
+    ],
+    "clients": 2,
+    "independentRendererProcesses": true,
+    "independentReplicaStores": true,
+    "scope": "local-loopback-TLS-proxy-not-cross-machine-public-deployment",
+    "nodeUntrustedCaRejected": true,
+    "chromiumCertificateRejection": {
+      "ok": true,
+      "mode": "runtime",
+      "network": {
+        "url": "nexus-app://editor/index.html",
+        "hostMode": "runtime",
+        "outcome": "error",
+        "violations": []
+      }
+    }
+  }
+}

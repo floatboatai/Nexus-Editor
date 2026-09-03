@@ -1,7 +1,7 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-const entries = ["index", "assessment"];
+const entries = ["index", "assessment", "hocuspocus-provider", "indexeddb-store"];
 const packagePath = new URL("../package.json", import.meta.url);
 const snapshotPath = new URL("../api/public-exports.json", import.meta.url);
 

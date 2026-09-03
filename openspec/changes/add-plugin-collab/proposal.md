@@ -2,9 +2,9 @@
 
 ## Why
 
-Roadmap #18 requires more than connecting two CodeMirror views: Nexus needs a framework-neutral collaboration module whose local edits remain subject to editor policy, whose committed CRDT updates cannot be rewritten by local filters, and whose lifecycle is safe across multiple Editors. The take-home submission permits one complete final PR and no intermediate approval round, so this change describes the whole reviewable assessment delivery instead of creating a temporary interface or a chain of implementation PRs.
+Roadmap #18 requires more than connecting two CodeMirror views. The first implementation proved the framework-neutral Engine and Core authority seam, but the visible Host path still used an in-memory assessment Provider and volatile Store. It therefore could not satisfy the product meaning of collaboration: two independently authenticated processes or devices editing a real Markdown Document, surviving disconnect and restart, and coordinating external file changes without silent overwrite.
 
-The submitted capability is intentionally labelled `experimental`. It proves the final Engine seam, Yjs convergence, history ownership, Presence, integration paths, and cleanup without claiming that a test Provider or volatile Store is a production collaboration backend.
+This expanded change completes that product slice while preserving the existing deep `CollaborationEngine` interface. Real network, persistence, file, and Host workflow behavior enter through explicit adapters at the already-defined seams. Assessment adapters remain deterministic test tools and are no longer the primary acceptance path.
 
 ## What Changes
 
@@ -22,21 +22,28 @@ The submitted capability is intentionally labelled `experimental`. It proves the
 - Document one Engine path for direct Core, React, Vue, and an optional thin native lifecycle adapter; no framework-specific collaboration state machine is introduced.
 - Add an Electron demo integration for two Editors/windows using the assessment adapter, clearly labelled non-production.
 - Add contract, convergence, IME, table, lifecycle, framework, demo, resource-cleanup, and benchmark-baseline coverage.
+- Add a real authenticated WebSocket Provider adapter and runnable reference collaboration server with read/write authorization, durable state, health reporting, bounded inputs, and restart recovery.
+- Add a browser IndexedDB Replica Store and an Electron single-writer SQLite broker using the supported runtime's built-in `node:sqlite` capability.
+- Add File Projection with durable File Identity enrollment, atomic writes, Projection Base tracking, watcher-echo suppression, deterministic three-way reconciliation, and explicit conflict resolution.
+- Add a Host-owned Collaboration Workspace and Electron workflow for create, join, leave, reconnect, read-only, peer/status display, and conflict recovery without introducing a second collaboration state machine.
+- Qualify the complete vertical slice across independent clients, disconnect/reconnect, process restart, authorization failure/revocation, external file modification, cleanup, security bounds, and sustained-update tests.
 
 ## Non-Goals
 
-- A hosted collaboration SaaS, account system, invitation UI, billing, or production deployment.
-- A production-qualified Hocuspocus/Y-Sweet adapter or a bundled vendor SDK.
-- SQLite/IndexedDB durability, server acknowledgement, backup, multi-device production qualification, or an offline-retention promise.
-- Bidirectional Markdown file projection, Projection Base reconciliation, or conflict-resolution UI.
-- End-to-end encryption, shared comments, or `@mention` schema.
-- A `production-supported` claim. Those capabilities remain in the product design and qualification matrix and require separate evidence after the assessment.
+- A managed multi-tenant SaaS, billing, organization administration, or multi-region autoscaling control plane.
+- End-to-end encryption, shared comments, `@mention`, or version-history product features.
+- Automatic semantic conflict resolution when a three-way Markdown merge cannot prove a safe result.
+- A claim that the reference deployment has an external production SLO, independent security audit, or multi-region disaster recovery. The implemented adapters can be real and durable without inventing operational evidence that this repository cannot provide.
 
 ## Impact
 
 - Affected specs:
   - `editor-authoritative-source` (new capability)
   - `collaboration-engine` (new capability)
+  - `collaboration-provider` (new capability)
+  - `collaboration-persistence` (new capability)
+  - `collaboration-file-projection` (new capability)
+  - `collaboration-workspace` (new capability)
   - `plugin-editor-extensions` (authority semantics added to the existing transaction contract)
 - Affected packages and applications:
   - `packages/core`
@@ -44,14 +51,18 @@ The submitted capability is intentionally labelled `experimental`. It proves the
   - `packages/react` and `packages/vue` documentation/contract fixtures only unless an existing readiness seam is insufficient
   - optional thin native adapter using public `plugin-api` lifecycle interfaces
   - `apps/electron-demo`
+  - new runnable `apps/collab-server` reference deployment
 - Dependencies:
   - `yjs@13.6.32` — MIT — peer plus development dependency for CRDT document semantics
   - `y-protocols@1.0.7` — MIT — direct dependency for Awareness and protocol types
-  - no Hocuspocus, Y-Sweet, SQLite driver, or production server dependency
+  - Hocuspocus client/server packages are isolated to explicit Provider/server entries and do not enter Core or the ordinary collaboration bundle
+  - native IndexedDB and built-in `node:sqlite` avoid a native SQLite addon; test-only IndexedDB emulation remains a development dependency
 - Compatibility:
   - Existing Editors have no authoritative source by default and retain current proposal, history, and table behavior.
   - Collaboration is opt-in and its default package entry remains browser-safe.
-  - The PR may be merged only as `experimental`; the broader product design defines the later evidence required for stronger support claims.
+  - Existing assessment imports continue to work.
+  - The default collaboration entry stays browser-safe; Node/Electron/server dependencies are reachable only through explicit exports or application packages.
+  - Support claims remain evidence-scoped: implemented product behavior is distinguished from hosted-service operational qualification.
 
 ## Submission Constraint
 

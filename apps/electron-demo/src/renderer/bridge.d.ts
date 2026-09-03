@@ -1,5 +1,7 @@
 import type { PluginHostBridge } from "../shared/plugin-ipc";
 import type { NexusHostMode } from "../shared/host-mode";
+import type { ElectronCollabStoreBridge } from "../shared/collab-store-ipc";
+import type { ElectronCollabNetworkBridge } from "../shared/collab-network-policy";
 
 declare global {
   interface DemoFileHandle {
@@ -53,6 +55,8 @@ declare global {
     nexusHost: NexusHostLifecycleBridge;
     nexusDemo?: DemoBridge;
     nexusPlugins?: PluginHostBridge;
+    nexusCollabStore?: ElectronCollabStoreBridge;
+    nexusCollabNetwork?: ElectronCollabNetworkBridge;
   }
 }
 

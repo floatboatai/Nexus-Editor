@@ -66,8 +66,8 @@ function bridgeHarness() {
   const order: string[] = [];
   const bridge: PluginHostBridge = {
     vault: {
-      pick: vi.fn(async () => ({ sessionId, name: "Fixture" })),
-      restore: vi.fn(async () => ({ sessionId, name: "Fixture" })),
+      pick: vi.fn(async () => ({ sessionId, vaultId: "vault-stable-a" as never, name: "Fixture" })),
+      restore: vi.fn(async () => ({ sessionId, vaultId: "vault-stable-a" as never, name: "Fixture" })),
       close: vi.fn(async () => { order.push("close-session"); return { ok: true as const }; }),
       commit: vi.fn(async () => ({ ok: true as const })),
       list: vi.fn(async () => []),
@@ -118,6 +118,31 @@ function bridgeHarness() {
         files.delete(path);
         return { path, operationId: operationId ?? "trash", recoverable: true as const };
       }),
+      acquireProjectionWrite: vi.fn(async (_session, path) => ({ path, permitId: "projection-permit" })),
+      releaseProjectionWrite: vi.fn(async () => ({ ok: true as const })),
+      reserveProjectionOpening: vi.fn(async (openingSession, path, documentId, operationId) => ({
+        active: true,
+        documentId,
+        operationId,
+        owner: { senderId: 7, sessionId: openingSession },
+        path,
+        state: "precommit" as const,
+        vaultId: "vault-stable-a" as never,
+      })),
+      commitProjectionOpening: vi.fn(async (openingSession, path, documentId, operationId) => ({
+        active: true,
+        documentId,
+        operationId,
+        owner: { senderId: 7, sessionId: openingSession },
+        path,
+        state: "committed" as const,
+        vaultId: "vault-stable-a" as never,
+      })),
+      listProjectionOpenings: vi.fn(async () => []),
+      releaseProjectionOpening: vi.fn(async () => ({ released: true })),
+      reserveDeletion: vi.fn(async (_session, path, operationId) => ({ path, operationId })),
+      listDeletionFences: vi.fn(async () => []),
+      releaseDeletion: vi.fn(async () => ({ released: true })),
       createResourceUrl: vi.fn(async () => ({
         url: "nexus-vault://resource/token",
         registrationId: "token",
@@ -249,7 +274,7 @@ describe("createPluginRuntimeHost", () => {
     await expect(writing).resolves.toMatchObject({ ok: true });
     await vi.waitFor(() => expect(harness.bridge.vault.pick).toHaveBeenCalledOnce());
     expect(await previousVault.read(previousVault.getFileByPath("note.md")!)).toBe("beta");
-    picked.resolve({ sessionId: nextSessionId, name: "Next" });
+    picked.resolve({ sessionId: nextSessionId, vaultId: "vault-stable-b" as never, name: "Next" });
     await expect(switching).resolves.toMatchObject({ sessionId: nextSessionId });
     expect(host.vault).not.toBe(previousVault);
     expect(await host.vault.read(host.vault.getFileByPath("note.md")!)).toBe("alpha");
@@ -855,6 +880,7 @@ describe("createPluginRuntimeHost", () => {
     );
     vi.mocked(harness.bridge.vault.pick).mockResolvedValueOnce({
       sessionId: nextSessionId,
+      vaultId: "vault-stable-b" as never,
       name: "Next",
     });
 
@@ -1169,7 +1195,7 @@ describe("createPluginRuntimeHost", () => {
     await vi.waitFor(() => expect(harness.bridge.vault.pick).toHaveBeenCalledTimes(1));
     const shuttingDown = host.shutdown();
     expect(harness.bridge.host.shutdownComplete).not.toHaveBeenCalled();
-    picked.resolve({ sessionId: nextSessionId, name: "Next" });
+    picked.resolve({ sessionId: nextSessionId, vaultId: "vault-stable-b" as never, name: "Next" });
 
     await expect(picking).rejects.toThrow("shutting down");
     await shuttingDown;
@@ -1190,7 +1216,7 @@ describe("createPluginRuntimeHost", () => {
     const restoring = host.restoreSession();
     await vi.waitFor(() => expect(harness.bridge.vault.restore).toHaveBeenCalledTimes(1));
     const shuttingDown = host.shutdown();
-    restored.resolve({ sessionId, name: "Fixture" });
+    restored.resolve({ sessionId, vaultId: "vault-stable-a" as never, name: "Fixture" });
 
     await expect(restoring).rejects.toThrow("shutting down");
     await shuttingDown;
@@ -1242,6 +1268,7 @@ describe("createPluginRuntimeHost", () => {
     const previousMetadata = host.metadata;
     vi.mocked(harness.bridge.vault.pick).mockResolvedValueOnce({
       sessionId: nextSessionId,
+      vaultId: "vault-stable-b" as never,
       name: "Next",
     });
     vi.mocked(harness.bridge.vault.readAll).mockRejectedValueOnce(new Error("read failed"));
@@ -1275,6 +1302,7 @@ describe("createPluginRuntimeHost", () => {
     const previousMetadata = host.metadata;
     vi.mocked(harness.bridge.vault.pick).mockResolvedValueOnce({
       sessionId: nextSessionId,
+      vaultId: "vault-stable-b" as never,
       name: "Next",
     });
     vi.mocked(harness.bridge.vault.readAll).mockResolvedValueOnce([{
@@ -1311,6 +1339,7 @@ describe("createPluginRuntimeHost", () => {
     const previousMetadata = host.metadata;
     vi.mocked(harness.bridge.vault.pick).mockResolvedValueOnce({
       sessionId: nextSessionId,
+      vaultId: "vault-stable-b" as never,
       name: "Next",
     });
     vi.mocked(harness.bridge.vault.readAll).mockResolvedValueOnce([{

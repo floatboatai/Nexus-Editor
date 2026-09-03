@@ -16,6 +16,7 @@ import { unified } from "unified";
 
 import { EventEmitter } from "./event-emitter";
 import { DynamicEditorContributionSink } from "./dynamic-contributions";
+import { EditorLifecycleContributionRegistry } from "./editor-lifecycle";
 import { CoreEditorTransactionPipeline } from "./transaction-pipeline";
 import {
   externalDocumentModeExtension,
@@ -329,6 +330,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
   let api!: EditorAPI;
   let dynamicContributionSink!: DynamicEditorContributionSink;
   let transactionPipeline!: CoreEditorTransactionPipeline;
+  const lifecycleContributionRegistry = new EditorLifecycleContributionRegistry();
   let contributionSink!: EditorContributionSink;
   let lastMarkdownTransformRevision = "";
 
@@ -1071,6 +1073,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
       pendingCompositionMarkdown = null;
       pendingDocumentLoad = null;
       composing = false;
+      lifecycleContributionRegistry.destroy();
       emitter.clear();
       transactionPipeline.destroy();
       dynamicContributionSink.destroy();
@@ -1120,6 +1123,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
     registerTransactionFilter: transactionPipeline.registerTransactionFilter.bind(transactionPipeline),
     registerUpdateListener: transactionPipeline.registerUpdateListener.bind(transactionPipeline),
     registerAuthoritativeSource: transactionPipeline.registerAuthoritativeSource.bind(transactionPipeline),
+    registerDestroyListener: lifecycleContributionRegistry.registerDestroyListener.bind(lifecycleContributionRegistry),
   };
 
   return api;

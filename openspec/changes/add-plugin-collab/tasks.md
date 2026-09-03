@@ -72,5 +72,77 @@
 - [x] 7.6 Run Electron multi-window smoke; attempt the table walkthrough with and without an authoritative source, retaining the automated interaction suite and recording the manual Linux computer-use limitation as `SKIP` rather than `PASS`.
 - [x] 7.7 Run fixed-version `openspec validate add-plugin-collab --strict --no-interactive` and full `validate --all`.
 - [x] 7.8 Inspect the final diff for generated files, unrelated changes, misleading production claims, secrets, and undisclosed AI assistance.
-- [x] 7.9 Submit one final PR titled `feat(collab): add realtime collaborative editing`, with per-package changes, commands, scenarios, limitations, OpenSpec id, Roadmap #18, dependency review, and honest AI disclosure.
+- [ ] 7.9 Submit the user-authorized final PR from `feat/collab-product-completion` with per-package changes, commands, scenarios, limitations, OpenSpec id, Roadmap #18, dependency review, and honest AI disclosure. This pre-publication checkbox is fulfilled by opening the final PR; the previous closed PR is not the final submission.
 - [x] 7.10 Leave `add-plugin-collab` active; maintainers decide approval, merge, and later archive.
+
+## 8. Real authenticated Provider and reference server
+
+- [x] 8.1 Add red contract and loopback integration tests for independent WebSocket clients, initial sync, concurrent edits, Awareness, duplicate delivery, reconnect, and resource cleanup.
+- [x] 8.2 Add red authorization tests for signed expiring credentials, DocumentId scope, read-only participants, invalid signature, expiry, revocation, bounded credentials, and secret-free diagnostics.
+- [x] 8.3 Implement a real Provider adapter behind `CollaborationProviderFactory` without exposing vendor/Yjs objects from the ordinary Engine interface.
+- [x] 8.4 Extend Provider and document state so authenticating, read-only, read-write, denied, and expired are distinct from transport and sync.
+- [x] 8.5 Reject a non-writable Binding's Local Proposals before Yjs while continuing to accept authorized remote updates.
+- [x] 8.6 Add a runnable reference collaboration server with health/readiness, bounded messages, deterministic shutdown, and per-document isolation.
+- [x] 8.7 Implement atomic server-side Yjs state persistence and verify acknowledged state survives restart while corrupt state fails closed.
+- [x] 8.8 Document server configuration, token issuance, TLS termination assumptions, storage location, backup boundary, and operational limitations.
+- [x] 8.9 Bound authenticated and pre-authentication pending message count/bytes at ingress, cap exact whole-document validation work, and qualify burst isolation from unrelated rooms and health probes.
+- [x] 8.10 Linearize runtime credential revocation with all authenticated messages, and prove revoke-first writer rejection, update-first completion, read-only SyncStep1 non-disclosure, failure-release, same-room recovery, Presence cleanup, and unrelated-room cases without timing-dependent tests.
+
+## 9. Durable local Replica Stores and Electron broker
+
+- [x] 9.1 Add browser IndexedDB contract tests for document isolation, ordered append, reload recovery, flush, compaction, corruption, blocked/unavailable storage, and idempotent close.
+- [x] 9.2 Implement the IndexedDB Replica Store using native browser APIs and export it through a browser-safe explicit entry.
+- [x] 9.3 Prove offline browser edits survive Engine destruction/recreation and converge once the real Provider reconnects.
+- [x] 9.4 Add SQLite journal tests for transactional append, replay order, operation idempotency, snapshot compaction, corruption, concurrent callers, and crash-boundary recovery.
+- [x] 9.5 Implement the Electron collaboration persistence worker using built-in `node:sqlite`, with a Node >=22.5 capability gate and no native addon.
+- [x] 9.6 Implement one main-process broker and renderer message-port Store adapter; no renderer may receive database paths or execute SQL.
+- [x] 9.7 Handle worker exit, request timeout, reconnect/replay, graceful flush, and application shutdown without reporting false durability.
+- [ ] 9.8 Add packaged-app capability and two-renderer single-writer smoke coverage on supported Electron targets.
+- [x] 9.9 Drain preload per-lease tails and renderer-to-worker MessagePort transit before broker shutdown, and reject zero-code worker exit without an explicit durable-cleanup acknowledgement.
+
+## 10. Markdown File Projection and reconciliation
+
+- [x] 10.1 Add red tests for durable File Identity ↔ DocumentId enrollment and rename/move without room identity change.
+- [x] 10.2 Define small Host-supplied file and collaborative Markdown ports; keep filesystem paths and Node types out of the default Engine interface.
+- [x] 10.3 Implement atomic CRDT-to-file projection with optimistic version checks and durable Projection Base metadata.
+- [x] 10.4 Add operation identity and content/version checks that suppress only confirmed self-write watcher echoes.
+- [x] 10.5 Implement deterministic three-way reconciliation for one-sided and non-overlapping changes, including Unicode and line-ending normalization.
+- [x] 10.6 Enter explicit File Conflict for overlapping, base-less, stale-version, and ambiguous changes without overwriting either side.
+- [x] 10.7 Implement generation-checked keep-live, accept-disk, and manual-merge resolution followed by a new atomic Projection Base.
+- [x] 10.8 Cover file rename, delete, permission failure, external editor writes, watcher reordering, restart recovery, and projection cleanup.
+
+## 11. Host Collaboration Workspace and product workflow
+
+- [x] 11.1 Add red state-machine tests for create, join, attach, leave, retry, read-only, offline, persistence warning, conflict, and close.
+- [x] 11.2 Implement one Host-owned Collaboration Workspace that orchestrates Engine, identity enrollment, Store, Provider, and File Projection without duplicating their state machines.
+- [x] 11.3 Add Electron create/join/leave UI with server configuration, invitation input, participant/access state, reconnect action, and explicit content-mismatch choice.
+- [x] 11.4 Keep credentials in the privileged Host or an in-memory capability; never persist them in Markdown, URLs, logs, renderer storage, or plugin-visible context.
+- [x] 11.5 Replace the assessment lab as the primary product entry with distinct renderer processes using the real Provider and Electron Store; make the runtime Host the default, retain `NEXUS_PLUGIN_PLATFORM=0` only as an explicit legacy compatibility path, and keep the lab only as a developer tool.
+- [x] 11.6 Add actionable UI for authentication, network, local persistence, server persistence, Quarantine, and File Conflict failures.
+- [x] 11.7 Verify leave preserves the local Markdown file, removes Presence, closes leases, and does not implicitly delete the remote document.
+- [x] 11.8 Fence cross-window rename/forget/abandon with exact-record tombstones and fence file/directory delete with durable path reservations plus explicit crash recovery.
+- [x] 11.9 Pair durable delete reservations with a same-Vault Host mutation barrier, exact-operation trash permits, bounded projection-write permits, startup fence rehydration, and durable stale-projection identity checks.
+- [x] 11.10 Fence concurrent invitation joins for one local path across renderer sessions until exact Enrollment commit, including crash cleanup and retryable Host release.
+- [x] 11.11 Persist version-4 exact pending joins before Projection, retain inactive Host fences across renderer loss, rebuild them after Host restart, and recover every write/Base/Enrollment/release boundary without inferring that missing evidence means no file write.
+- [x] 11.12 Expose pending-join status, safe recovery, same-invitation retry, and evidence-constrained abandon in the Collaboration panel; block overlapping rename/delete and prohibit abandon whenever Projection metadata exists.
+
+## 12. Product qualification and local handoff
+
+- [x] 12.1 Pass end-to-end tests with two independent clients and two Electron renderer processes through the real server (Linux built application; packaged cross-platform qualification remains separate).
+- [x] 12.2 Pass offline edit → client restart → reconnect, server restart, authorization expiry/revocation, renderer crash, and external-file conflict scenarios (actual Linux renderer termination after confirmed local durability, not utility/transaction-fault-point crash qualification).
+- [x] 12.3 Add protocol fuzz/bounds checks, credential redaction checks, database corruption recovery, and cross-document isolation tests.
+- [ ] 12.4 Record browser trace, idle/update memory baseline, large document/update latency, backpressure behavior, and an eight-hour soak or an explicit bounded substitute.
+- [x] 12.5 Update API snapshots, dependency/license/replacement-cost review, README, server operations guide, product design, qualification matrix, and Roadmap status to match evidence.
+- [x] 12.6 Run package and integration suites, full typecheck/API/test/build, Electron build/multi-window smoke, sandboxed-preload startup smoke against the built secure-origin renderer in default-runtime and explicit-legacy modes, server restart test, audit, and fixed-version OpenSpec strict validation; do not treat the startup smoke as packaged multi-renderer or crash qualification.
+- [x] 12.7 Inspect the complete local diff for generated artifacts, unrelated changes, secrets, unsafe defaults, misleading claims, and lifecycle leaks.
+- [x] 12.8 Keep the acceptance-stage work local until separately authorized. After acceptance, the user renamed the branch to `feat/collab-product-completion` and authorized the single final PR. The previous PR remains closed and the OpenSpec change remains active; no release or automatic merge is authorized.
+
+## 13. Trusted desktop networking and final local acceptance
+
+- [x] 13.1 Capture a failing real Electron network regression and fix CSP using one bounded trusted-server configuration in development and built applications.
+- [x] 13.2 Implement a sender-validated main-process invitation command with exact endpoint trust, bounds, timeout, cancellation, redirect rejection, and secret-free errors.
+- [x] 13.3 Gate renderer create/join/resume on the same trusted server list and default the panel to its first configured server; reject an untrusted create before writing a pending Enrollment.
+- [x] 13.4 Run two real windows through create/invite/join/edit/history/read-only/offline/restart and conflict recovery, retaining repeatable scripts; reauthenticate using retained membership rather than transient revoked access.
+- [x] 13.5 Verify WSS and HTTPS invitation issuance with trusted test certificates; explicitly preserve the public-network/platform qualification boundary.
+- [x] 13.6 Supply a single-node self-hosted deployment guide and templates, update Core public-interface docs and synchronize obsolete submission claims.
+- [x] 13.7 Run final API/type/test/build/Electron/OpenSpec checks and clean-checkout verification; inspect all candidate tracked and untracked files without committing or submitting. Node 22 clean-candidate validation passes; interrupted smoke runs fail explicitly and reclaim their own processes and temporary directory.

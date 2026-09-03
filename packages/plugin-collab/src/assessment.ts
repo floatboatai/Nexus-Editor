@@ -6,6 +6,7 @@ import type {
   ProviderLease,
   ProviderState,
   ReplicaStore,
+  ReplicaStoreCheckpoint,
   ReplicaStoreLease,
   Unsubscribe,
 } from "./types";
@@ -76,12 +77,19 @@ export function createAssessmentProviderHub(
         publish(sender, {
           transport: "failed",
           sync: "failed",
+          authentication: "not-required",
+          access: "read-write",
           diagnostic: { code: "assessment-queue-overflow", message: "Assessment update queue is full" },
         });
         return;
       }
       sender.pending.push(bytes(update));
-      publish(sender, { transport: "offline", sync: "stale" });
+      publish(sender, {
+        transport: "offline",
+        sync: "stale",
+        authentication: "not-required",
+        access: "read-write",
+      });
       return;
     }
     for (const peer of roomFor(sender.documentId)) {
@@ -112,7 +120,12 @@ export function createAssessmentProviderHub(
     }
     for (const participant of active) {
       participant.pending.length = 0;
-      publish(participant, { transport: "online", sync: "synced" });
+      publish(participant, {
+        transport: "online",
+        sync: "synced",
+        authentication: "not-required",
+        access: "read-write",
+      });
       markInitiallyReady(participant);
     }
   };
@@ -144,7 +157,12 @@ export function createAssessmentProviderHub(
         port: context.replica,
         listeners: new Set(),
         pending: [],
-        state: { transport: "idle", sync: "syncing" },
+        state: {
+          transport: "idle",
+          sync: "syncing",
+          authentication: "not-required",
+          access: "read-write",
+        },
         started: false,
         released: false,
         initialReady,
@@ -169,11 +187,21 @@ export function createAssessmentProviderHub(
             if (origin !== HUB_ORIGIN) forwardAwareness(participant, update);
           });
           if (!online) {
-            publish(participant, { transport: "offline", sync: "stale" });
+            publish(participant, {
+              transport: "offline",
+              sync: "stale",
+              authentication: "not-required",
+              access: "read-write",
+            });
             await participant.initialReady;
             return;
           }
-          publish(participant, { transport: "connecting", sync: "syncing" });
+          publish(participant, {
+            transport: "connecting",
+            sync: "syncing",
+            authentication: "not-required",
+            access: "read-write",
+          });
           syncRoom(room);
           await participant.initialReady;
         },
@@ -195,7 +223,12 @@ export function createAssessmentProviderHub(
       if (!online) {
         for (const participant of participants) {
           if (participant.started && !participant.released) {
-            publish(participant, { transport: "offline", sync: "stale" });
+            publish(participant, {
+              transport: "offline",
+              sync: "stale",
+              authentication: "not-required",
+              access: "read-write",
+            });
           }
         }
         return;
@@ -226,10 +259,31 @@ export interface AssessmentMemoryStore extends ReplicaStore {
   close(): Promise<void>;
 }
 
+interface AssessmentStoredUpdate {
+  readonly sequence: number;
+  readonly update: Uint8Array;
+}
+
+interface AssessmentStoredDocument {
+  readonly generation: string;
+  nextSequence: number;
+  snapshot: AssessmentStoredUpdate | null;
+  readonly journal: AssessmentStoredUpdate[];
+}
+
+let assessmentStoreSequence = 0;
+
+function assessmentCheckpoint(document: AssessmentStoredDocument): ReplicaStoreCheckpoint {
+  return Object.freeze({
+    generation: document.generation,
+    sequence: document.nextSequence - 1,
+  });
+}
+
 export function createAssessmentMemoryStore(
   options: { readonly maxUpdatesPerDocument?: number } = {},
 ): AssessmentMemoryStore {
-  const updates = new Map<DocumentId, Uint8Array[]>();
+  const documents = new Map<DocumentId, AssessmentStoredDocument>();
   const maxUpdates = options.maxUpdatesPerDocument ?? 10_000;
   let closed = false;
 
@@ -237,24 +291,51 @@ export function createAssessmentMemoryStore(
     async open(documentId): Promise<ReplicaStoreLease> {
       if (closed) throw new Error("Assessment Memory Store is closed");
       let leaseClosed = false;
-      const list = updates.get(documentId) ?? [];
-      updates.set(documentId, list);
+      const document = documents.get(documentId) ?? {
+        generation: `assessment-${++assessmentStoreSequence}`,
+        nextSequence: 1,
+        snapshot: null,
+        journal: [],
+      };
+      documents.set(documentId, document);
       return {
         async load() {
           if (leaseClosed) throw new Error("Assessment Store lease is closed");
-          return { updates: list.map(bytes) };
+          return {
+            updates: [
+              ...(document.snapshot ? [bytes(document.snapshot.update)] : []),
+              ...document.journal.map((entry) => bytes(entry.update)),
+            ],
+            checkpoint: assessmentCheckpoint(document),
+          };
         },
         async append(update) {
           if (leaseClosed) throw new Error("Assessment Store lease is closed");
-          if (list.length >= maxUpdates) throw new Error("Assessment Store update limit exceeded");
-          list.push(bytes(update));
+          if (document.journal.length >= maxUpdates) {
+            throw new Error("Assessment Store update limit exceeded");
+          }
+          const sequence = document.nextSequence++;
+          document.journal.push({ sequence, update: bytes(update) });
+          return Object.freeze({ generation: document.generation, sequence });
         },
         async flush() {
           if (leaseClosed) throw new Error("Assessment Store lease is closed");
         },
-        async replaceWithSnapshot(update) {
+        async replaceWithSnapshot(update, { through }) {
           if (leaseClosed) throw new Error("Assessment Store lease is closed");
-          list.splice(0, list.length, bytes(update));
+          const snapshotSequence = document.snapshot?.sequence ?? 0;
+          if (
+            through.generation !== document.generation ||
+            !Number.isSafeInteger(through.sequence) ||
+            through.sequence < snapshotSequence ||
+            through.sequence >= document.nextSequence
+          ) {
+            throw new Error("Assessment Store checkpoint is invalid");
+          }
+          document.snapshot = { sequence: through.sequence, update: bytes(update) };
+          const retained = document.journal.filter((entry) => entry.sequence > through.sequence);
+          document.journal.splice(0, document.journal.length, ...retained);
+          return assessmentCheckpoint(document);
         },
         async close() {
           leaseClosed = true;
@@ -262,12 +343,15 @@ export function createAssessmentMemoryStore(
       };
     },
     inspect: () => ({
-      documents: updates.size,
-      updates: [...updates.values()].reduce((total, list) => total + list.length, 0),
+      documents: documents.size,
+      updates: [...documents.values()].reduce(
+        (total, document) => total + document.journal.length + (document.snapshot ? 1 : 0),
+        0,
+      ),
     }),
     async close() {
       closed = true;
-      updates.clear();
+      documents.clear();
     },
   };
 }

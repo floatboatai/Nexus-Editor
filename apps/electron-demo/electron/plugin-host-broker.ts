@@ -24,8 +24,11 @@ import {
   type PluginVaultFile,
   type PluginVaultMutation,
   type PluginVaultNode,
+  type PluginVaultProjectionOpeningFence,
+  type PluginVaultProjectionOpeningOwner,
   type PluginVaultSession,
   type VaultSessionId,
+  type VaultId,
 } from "../src/shared/plugin-ipc";
 
 const SUPPORTED_TEXT_EXTENSIONS = new Set([".md", ".markdown", ".txt"]);
@@ -43,7 +46,12 @@ export type PluginHostBrokerErrorCode =
   | "vault-path-invalid"
   | "vault-path-escape"
   | "vault-version-conflict"
+  | "vault-delete-reserved"
+  | "vault-write-permit-invalid"
+  | "vault-projection-opening-conflict"
   | "plugin-id-invalid"
+  | "plugin-storage-corrupt"
+  | "plugin-storage-read-failed"
   | "plugin-storage-invalid";
 
 export class PluginHostBrokerError extends Error {
@@ -248,6 +256,10 @@ export interface VaultBrokerOptions {
   readonly lstatPath?: typeof lstat;
   readonly realpathPath?: typeof realpath;
   readonly openPath?: typeof open;
+  readonly projectionWritePermitTtlMs?: number;
+  readonly projectionOpeningTtlMs?: number;
+  readonly setTimeoutFn?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
+  readonly clearTimeoutFn?: (handle: ReturnType<typeof setTimeout>) => void;
 }
 
 interface FileIdentity {
@@ -276,6 +288,7 @@ interface PendingEcho {
 
 interface VaultSessionRecord {
   readonly id: VaultSessionId;
+  readonly vaultId: VaultId;
   readonly senderId: number;
   readonly root: string;
   readonly canonicalRoot: string;
@@ -304,8 +317,45 @@ interface ResourceRecord {
   readonly vaultPath: string;
 }
 
+interface VaultDeletionFenceRecord {
+  readonly operationId: string;
+  readonly path: string;
+  readonly state: "precommit" | "committed";
+}
+
+interface ProjectionWritePermitRecord {
+  readonly permitId: string;
+  readonly vaultId: VaultId;
+  readonly senderId: number;
+  readonly sessionId: VaultSessionId;
+  readonly path: string;
+  readonly finishLane: () => void;
+  expiryTimer?: ReturnType<typeof setTimeout>;
+  activeCalls: number;
+  releaseRequested: boolean;
+  used: boolean;
+}
+
+interface ProjectionOpeningFenceRecord {
+  readonly operationId: string;
+  readonly vaultId: VaultId;
+  readonly ownerSenderId: number;
+  readonly ownerSessionId: VaultSessionId;
+  senderId: number;
+  sessionId: VaultSessionId;
+  readonly path: string;
+  readonly documentId: string;
+  state: "precommit" | "committed";
+  expiryTimer?: ReturnType<typeof setTimeout>;
+  expired: boolean;
+}
+
 function asSessionId(value: string): VaultSessionId {
   return value as VaultSessionId;
+}
+
+function asVaultId(value: string): VaultId {
+  return value as VaultId;
 }
 
 function asVersion(value: string): IpcContentVersion {
@@ -317,8 +367,23 @@ function isInside(root: string, target: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
+function pathsOverlap(left: string, right: string): boolean {
+  return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
+}
+
 function fileIdentity(info: { readonly dev: bigint | number; readonly ino: bigint | number }): FileIdentity {
   return Object.freeze({ dev: String(info.dev), ino: String(info.ino) });
+}
+
+function stableVaultId(canonicalRoot: string, identity: FileIdentity): VaultId {
+  return asVaultId(createHash("sha256")
+    .update("nexus-vault-identity-v2\0", "utf8")
+    .update(canonicalRoot, "utf8")
+    .update("\0", "utf8")
+    .update(identity.dev, "utf8")
+    .update("\0", "utf8")
+    .update(identity.ino, "utf8")
+    .digest("hex"));
 }
 
 function sameFileIdentity(left: FileIdentity, right: FileIdentity): boolean {
@@ -369,6 +434,23 @@ function operationId(factory: () => string, requested?: string): string {
   return factory();
 }
 
+function projectionDocumentId(value: string): string {
+  if (typeof value !== "string") {
+    throw new PluginHostBrokerError(
+      "vault-projection-opening-conflict",
+      "The collaboration DocumentId must be a string.",
+    );
+  }
+  const normalized = value.trim().normalize("NFC");
+  if (normalized.length === 0 || normalized.length > 256 || normalized.includes("\0")) {
+    throw new PluginHostBrokerError(
+      "vault-projection-opening-conflict",
+      "The collaboration DocumentId is invalid.",
+    );
+  }
+  return normalized;
+}
+
 function atomicTemporaryPath(target: string): string {
   return path.join(path.dirname(target), `.${path.basename(target)}.${randomUUID()}.tmp`);
 }
@@ -415,8 +497,16 @@ export class ElectronVaultBroker {
   private readonly lstatPath: typeof lstat;
   private readonly realpathPath: typeof realpath;
   private readonly openPath: typeof open;
+  private readonly projectionWritePermitTtlMs: number;
+  private readonly projectionOpeningTtlMs: number;
+  private readonly setTimeoutFn: NonNullable<VaultBrokerOptions["setTimeoutFn"]>;
+  private readonly clearTimeoutFn: NonNullable<VaultBrokerOptions["clearTimeoutFn"]>;
   private readonly senderGenerations = new Map<number, number>();
   private readonly closedSenders = new Set<number>();
+  private readonly mutationTails = new Map<VaultId, Promise<void>>();
+  private readonly deletionFences = new Map<VaultId, Map<string, VaultDeletionFenceRecord>>();
+  private readonly projectionWritePermits = new Map<string, ProjectionWritePermitRecord>();
+  private readonly projectionOpeningFences = new Map<VaultId, Map<string, ProjectionOpeningFenceRecord>>();
   private allGeneration = 0;
   private closedAll = false;
 
@@ -432,6 +522,10 @@ export class ElectronVaultBroker {
     this.lstatPath = options.lstatPath ?? lstat;
     this.realpathPath = options.realpathPath ?? realpath;
     this.openPath = options.openPath ?? open;
+    this.projectionWritePermitTtlMs = options.projectionWritePermitTtlMs ?? 30_000;
+    this.projectionOpeningTtlMs = options.projectionOpeningTtlMs ?? 60_000;
+    this.setTimeoutFn = options.setTimeoutFn ?? setTimeout;
+    this.clearTimeoutFn = options.clearTimeoutFn ?? clearTimeout;
   }
 
   async openSession(sender: SenderIdentity, root: string): Promise<PluginVaultSession> {
@@ -456,6 +550,7 @@ export class ElectronVaultBroker {
     const id = asSessionId(rawId);
     const record: VaultSessionRecord = {
       id,
+      vaultId: stableVaultId(canonicalRoot, fileIdentity(canonicalRootInfo)),
       senderId: sender.id,
       root: absoluteRoot,
       canonicalRoot,
@@ -483,7 +578,310 @@ export class ElectronVaultBroker {
     const senderSessions = this.sessionsBySender.get(sender.id) ?? new Set<VaultSessionId>();
     senderSessions.add(id);
     this.sessionsBySender.set(sender.id, senderSessions);
-    return Object.freeze({ sessionId: id, name: record.name });
+    return Object.freeze({
+      sessionId: id,
+      vaultId: record.vaultId,
+      name: record.name,
+    });
+  }
+
+  async acquireProjectionWrite(
+    sender: SenderIdentity,
+    sessionId: VaultSessionId,
+    vaultPath: string,
+    projectionOpeningOperationId?: string,
+  ): Promise<{ readonly permitId: string; readonly path: string }> {
+    const session = this.requireSession(sender, sessionId);
+    const normalized = normalizeVaultRelativePath(vaultPath);
+    const previous = this.mutationTails.get(session.vaultId) ?? Promise.resolve();
+    let finishLane!: () => void;
+    const laneHeld = new Promise<void>((resolve) => { finishLane = resolve; });
+    const acquired = previous.then(() => {
+      this.assertSessionRecordCurrent(session);
+      this.assertPathsNotDeletionFenced(session.vaultId, [normalized]);
+      this.assertPathsNotProjectionOpeningFenced(
+        session,
+        [normalized],
+        projectionOpeningOperationId,
+      );
+      let permitId: string;
+      do permitId = operationId(this.createOperationId);
+      while (this.projectionWritePermits.has(permitId));
+      const record: ProjectionWritePermitRecord = {
+        permitId,
+        vaultId: session.vaultId,
+        senderId: sender.id,
+        sessionId,
+        path: normalized,
+        finishLane,
+        activeCalls: 0,
+        releaseRequested: false,
+        used: false,
+      };
+      this.projectionWritePermits.set(permitId, record);
+      record.expiryTimer = this.setTimeoutFn(() => {
+        record.releaseRequested = true;
+        this.finishProjectionWritePermit(record);
+      }, this.projectionWritePermitTtlMs);
+      record.expiryTimer.unref?.();
+      return Object.freeze({ permitId, path: normalized });
+    });
+    this.publishMutationTail(session.vaultId, acquired.then(() => laneHeld, () => undefined));
+    return acquired;
+  }
+
+  reserveProjectionOpening(
+    sender: SenderIdentity,
+    sessionId: VaultSessionId,
+    vaultPath: string,
+    rawDocumentId: string,
+    requestedOperationId: string,
+    recoveryOwner?: PluginVaultProjectionOpeningOwner,
+  ): Promise<PluginVaultProjectionOpeningFence> {
+    const session = this.requireSession(sender, sessionId);
+    const normalized = normalizeVaultRelativePath(vaultPath);
+    const documentId = projectionDocumentId(rawDocumentId);
+    const openingOperationId = operationId(() => "", requestedOperationId);
+    if (recoveryOwner !== undefined && (
+      !Number.isSafeInteger(recoveryOwner.senderId) ||
+      recoveryOwner.senderId <= 0 ||
+      typeof recoveryOwner.sessionId !== "string" ||
+      recoveryOwner.sessionId.length === 0
+    )) {
+      throw new PluginHostBrokerError(
+        "vault-projection-opening-conflict",
+        "The original projection opening owner is invalid.",
+      );
+    }
+    return this.enqueueMutation(session, () => {
+      this.assertPathsNotDeletionFenced(session.vaultId, [normalized]);
+      const fences = this.projectionOpeningFences.get(session.vaultId) ??
+        new Map<string, ProjectionOpeningFenceRecord>();
+      const sameOperation = fences.get(openingOperationId);
+      if (sameOperation) {
+        if (
+          sameOperation.path !== normalized ||
+          sameOperation.documentId !== documentId ||
+          sameOperation.ownerSenderId !== (recoveryOwner?.senderId ?? sender.id) ||
+          sameOperation.ownerSessionId !== (recoveryOwner?.sessionId ?? session.id)
+        ) {
+          throw new PluginHostBrokerError(
+            "vault-projection-opening-conflict",
+            "The projection opening operation is no longer valid for this Vault path.",
+          );
+        }
+        const heldByAnotherSession = sameOperation.senderId !== sender.id ||
+          sameOperation.sessionId !== session.id;
+        if (heldByAnotherSession && !sameOperation.expired) {
+          throw new PluginHostBrokerError(
+            "vault-projection-opening-conflict",
+            "A live renderer still owns this projection opening.",
+          );
+        }
+        if (heldByAnotherSession || sameOperation.expired) {
+          if (recoveryOwner === undefined) {
+            throw new PluginHostBrokerError(
+              "vault-projection-opening-conflict",
+              "Rebinding a projection opening requires its exact immutable owner.",
+            );
+          }
+          sameOperation.senderId = sender.id;
+          sameOperation.sessionId = session.id;
+          sameOperation.expired = false;
+          this.armProjectionOpeningFence(sameOperation);
+        }
+        return this.projectionOpeningStatus(sameOperation);
+      }
+      if ([...fences.values()].some((fence) => pathsOverlap(fence.path, normalized))) {
+        throw new PluginHostBrokerError(
+          "vault-projection-opening-conflict",
+          "An overlapping collaboration join is already opening this Vault path.",
+        );
+      }
+      const record: ProjectionOpeningFenceRecord = {
+        operationId: openingOperationId,
+        vaultId: session.vaultId,
+        ownerSenderId: recoveryOwner?.senderId ?? sender.id,
+        ownerSessionId: recoveryOwner?.sessionId ?? session.id,
+        senderId: sender.id,
+        sessionId: session.id,
+        path: normalized,
+        documentId,
+        state: "precommit",
+        expired: false,
+      };
+      fences.set(openingOperationId, record);
+      this.projectionOpeningFences.set(session.vaultId, fences);
+      this.armProjectionOpeningFence(record);
+      return this.projectionOpeningStatus(record);
+    });
+  }
+
+  commitProjectionOpening(
+    sender: SenderIdentity,
+    sessionId: VaultSessionId,
+    vaultPath: string,
+    rawDocumentId: string,
+    requestedOperationId: string,
+  ): Promise<PluginVaultProjectionOpeningFence> {
+    const session = this.requireSession(sender, sessionId);
+    const normalized = normalizeVaultRelativePath(vaultPath);
+    const documentId = projectionDocumentId(rawDocumentId);
+    const openingOperationId = operationId(() => "", requestedOperationId);
+    return this.enqueueMutation(session, () => {
+      const fence = this.projectionOpeningFences.get(session.vaultId)?.get(openingOperationId);
+      if (
+        !fence ||
+        fence.path !== normalized ||
+        fence.documentId !== documentId ||
+        fence.senderId !== sender.id ||
+        fence.sessionId !== session.id ||
+        fence.expired
+      ) {
+        throw new PluginHostBrokerError(
+          "vault-projection-opening-conflict",
+          "The projection opening cannot be committed without its exact active precommit fence.",
+        );
+      }
+      fence.state = "committed";
+      return this.projectionOpeningStatus(fence);
+    });
+  }
+
+  async listProjectionOpenings(
+    sender: SenderIdentity,
+    sessionId: VaultSessionId,
+  ): Promise<readonly PluginVaultProjectionOpeningFence[]> {
+    const session = this.requireSession(sender, sessionId);
+    return Object.freeze([...(this.projectionOpeningFences.get(session.vaultId)?.values() ?? [])]
+      .map((fence) => this.projectionOpeningStatus(fence)));
+  }
+
+  releaseProjectionOpening(
+    sender: SenderIdentity,
+    sessionId: VaultSessionId,
+    vaultPath: string,
+    rawDocumentId: string,
+    requestedOperationId: string,
+  ): Promise<boolean> {
+    const session = this.requireSession(sender, sessionId);
+    const normalized = normalizeVaultRelativePath(vaultPath);
+    const documentId = projectionDocumentId(rawDocumentId);
+    const openingOperationId = operationId(() => "", requestedOperationId);
+    return this.enqueueMutation(session, () => {
+      const fences = this.projectionOpeningFences.get(session.vaultId);
+      const fence = fences?.get(openingOperationId);
+      if (!fence) return false;
+      if (
+        fence.path !== normalized ||
+        fence.documentId !== documentId ||
+        fence.senderId !== sender.id ||
+        fence.sessionId !== session.id
+      ) {
+        throw new PluginHostBrokerError(
+          "vault-projection-opening-conflict",
+          "The projection opening operation does not match this Vault path and owner.",
+        );
+      }
+      this.removeProjectionOpeningFence(fence);
+      return true;
+    });
+  }
+
+  releaseProjectionWrite(
+    sender: SenderIdentity,
+    sessionId: VaultSessionId,
+    permitId: string,
+  ): void {
+    const session = this.requireSession(sender, sessionId);
+    if (!this.projectionWritePermits.has(permitId)) return;
+    const permit = this.requireProjectionWritePermit(sender, session, permitId);
+    permit.releaseRequested = true;
+    this.finishProjectionWritePermit(permit);
+  }
+
+  reserveDeletion(
+    sender: SenderIdentity,
+    sessionId: VaultSessionId,
+    vaultPath: string,
+    requestedOperationId: string,
+    state: "precommit" | "committed" = "committed",
+  ): Promise<{ readonly path: string; readonly operationId: string }> {
+    const session = this.requireSession(sender, sessionId);
+    const normalized = normalizeVaultRelativePath(vaultPath);
+    const reservationOperationId = operationId(() => "", requestedOperationId);
+    return this.enqueueMutation(session, () => {
+      this.assertPathsNotProjectionOpeningFenced(session, [normalized]);
+      const fences = this.deletionFences.get(session.vaultId) ?? new Map<string, VaultDeletionFenceRecord>();
+      const sameOperation = fences.get(reservationOperationId);
+      if (sameOperation) {
+        if (sameOperation.path !== normalized) {
+          throw new PluginHostBrokerError(
+            "vault-delete-reserved",
+            "The deletion operation is already reserved for another Vault path.",
+          );
+        }
+        if (state === "committed" && sameOperation.state === "precommit") {
+          fences.set(reservationOperationId, Object.freeze({
+            operationId: reservationOperationId,
+            path: normalized,
+            state: "committed",
+          }));
+        }
+        return Object.freeze({ path: normalized, operationId: reservationOperationId });
+      }
+      if ([...fences.values()].some((fence) => pathsOverlap(fence.path, normalized))) {
+        throw new PluginHostBrokerError(
+          "vault-delete-reserved",
+          "An overlapping Vault path deletion is already reserved.",
+        );
+      }
+      fences.set(reservationOperationId, Object.freeze({
+        operationId: reservationOperationId,
+        path: normalized,
+        state,
+      }));
+      this.deletionFences.set(session.vaultId, fences);
+      return Object.freeze({ path: normalized, operationId: reservationOperationId });
+    });
+  }
+
+  async listDeletionFences(
+    sender: SenderIdentity,
+    sessionId: VaultSessionId,
+  ): Promise<readonly {
+    readonly path: string;
+    readonly operationId: string;
+    readonly state: "precommit" | "committed";
+  }[]> {
+    const session = this.requireSession(sender, sessionId);
+    return Object.freeze([...(this.deletionFences.get(session.vaultId)?.values() ?? [])].map((fence) =>
+      Object.freeze({ path: fence.path, operationId: fence.operationId, state: fence.state })));
+  }
+
+  releaseDeletion(
+    sender: SenderIdentity,
+    sessionId: VaultSessionId,
+    vaultPath: string,
+    requestedOperationId: string,
+  ): Promise<boolean> {
+    const session = this.requireSession(sender, sessionId);
+    const normalized = normalizeVaultRelativePath(vaultPath);
+    const reservationOperationId = operationId(() => "", requestedOperationId);
+    return this.enqueueMutation(session, () => {
+      const fences = this.deletionFences.get(session.vaultId);
+      const fence = fences?.get(reservationOperationId);
+      if (!fence) return false;
+      if (fence.path !== normalized) {
+        throw new PluginHostBrokerError(
+          "vault-delete-reserved",
+          "The deletion operation does not match this Vault path.",
+        );
+      }
+      fences!.delete(reservationOperationId);
+      if (fences!.size === 0) this.deletionFences.delete(session.vaultId);
+      return true;
+    });
   }
 
   closeSession(sender: SenderIdentity, sessionId: VaultSessionId): void {
@@ -570,14 +968,49 @@ export class ElectronVaultBroker {
     sessionId: VaultSessionId,
     vaultPath: string,
     data: string | Uint8Array,
-    options: { readonly expectedVersion?: IpcContentVersion; readonly operationId?: string } = {},
+    options: {
+      readonly expectedVersion?: IpcContentVersion | null;
+      readonly operationId?: string;
+      readonly projectionWritePermit?: string;
+    } = {},
   ): Promise<PluginVaultMutation> {
     const session = this.requireSession(sender, sessionId);
     const normalized = normalizeVaultRelativePath(vaultPath);
+    if (options.projectionWritePermit !== undefined) {
+      const permit = this.requireProjectionWritePermit(sender, session, options.projectionWritePermit, normalized);
+      if (permit.used) {
+        throw new PluginHostBrokerError("vault-write-permit-invalid", "Projection write permit was already used.");
+      }
+      permit.used = true;
+      permit.activeCalls += 1;
+      try {
+        return await this.writeAuthorized(session, normalized, data, options);
+      } finally {
+        permit.activeCalls -= 1;
+        this.finishProjectionWritePermit(permit);
+      }
+    }
+    return this.enqueueMutation(session, () => {
+      this.assertPathsNotDeletionFenced(session.vaultId, [normalized]);
+      this.assertPathsNotProjectionOpeningFenced(session, [normalized]);
+      return this.writeAuthorized(session, normalized, data, options);
+    });
+  }
+
+  private async writeAuthorized(
+    session: VaultSessionRecord,
+    normalized: string,
+    data: string | Uint8Array,
+    options: { readonly expectedVersion?: IpcContentVersion | null; readonly operationId?: string },
+  ): Promise<PluginVaultMutation> {
     const lease = await this.acquireAuthorizedPathLease(session, normalized, true);
     try {
       const existed = lease.leafIdentity !== null;
-      if (options.expectedVersion !== undefined) {
+      if (options.expectedVersion === null) {
+        if (existed) {
+          throw new PluginHostBrokerError("vault-version-conflict", "Expected the Vault file to be absent.");
+        }
+      } else if (options.expectedVersion !== undefined) {
         if (!existed) {
           throw new PluginHostBrokerError("vault-version-conflict", "Expected version does not exist.");
         }
@@ -623,6 +1056,18 @@ export class ElectronVaultBroker {
   ): Promise<PluginVaultMutation> {
     const session = this.requireSession(sender, sessionId);
     const normalized = normalizeVaultRelativePath(vaultPath);
+    return this.enqueueMutation(session, () => {
+      this.assertPathsNotDeletionFenced(session.vaultId, [normalized]);
+      this.assertPathsNotProjectionOpeningFenced(session, [normalized]);
+      return this.createFolderAuthorized(session, normalized, requestedOperationId);
+    });
+  }
+
+  private async createFolderAuthorized(
+    session: VaultSessionRecord,
+    normalized: string,
+    requestedOperationId?: string,
+  ): Promise<PluginVaultMutation> {
     const lease = await this.acquireAuthorizedPathLease(session, normalized, true);
     try {
       const nextOperationId = operationId(this.createOperationId, requestedOperationId);
@@ -657,6 +1102,19 @@ export class ElectronVaultBroker {
     const session = this.requireSession(sender, sessionId);
     const sourcePath = normalizeVaultRelativePath(vaultPath);
     const destinationPath = normalizeVaultRelativePath(destination);
+    return this.enqueueMutation(session, () => {
+      this.assertPathsNotDeletionFenced(session.vaultId, [sourcePath, destinationPath]);
+      this.assertPathsNotProjectionOpeningFenced(session, [sourcePath, destinationPath]);
+      return this.renameAuthorized(session, sourcePath, destinationPath, requestedOperationId);
+    });
+  }
+
+  private async renameAuthorized(
+    session: VaultSessionRecord,
+    sourcePath: string,
+    destinationPath: string,
+    requestedOperationId?: string,
+  ): Promise<PluginVaultMutation> {
     const source = await this.acquireAuthorizedPathLease(session, sourcePath, false);
     let target: AuthorizedPathLease | null = null;
     try {
@@ -698,6 +1156,22 @@ export class ElectronVaultBroker {
   ): Promise<PluginVaultMutation & { readonly recoverable: true }> {
     const session = this.requireSession(sender, sessionId);
     const normalized = normalizeVaultRelativePath(vaultPath);
+    return this.enqueueMutation(session, () => {
+      this.assertPathsNotProjectionOpeningFenced(session, [normalized]);
+      this.assertPathsNotDeletionFenced(
+        session.vaultId,
+        [normalized],
+        requestedOperationId === undefined ? undefined : { operationId: requestedOperationId, path: normalized },
+      );
+      return this.trashAuthorized(session, normalized, requestedOperationId);
+    });
+  }
+
+  private async trashAuthorized(
+    session: VaultSessionRecord,
+    normalized: string,
+    requestedOperationId?: string,
+  ): Promise<PluginVaultMutation & { readonly recoverable: true }> {
     const lease = await this.acquireAuthorizedPathLease(session, normalized, false);
     const stagingPath = path.join(
       lease.canonicalParent,
@@ -897,6 +1371,150 @@ export class ElectronVaultBroker {
     return session;
   }
 
+  private assertSessionRecordCurrent(session: VaultSessionRecord): void {
+    if (session.closed || this.sessions.get(session.id) !== session) {
+      throw new PluginHostBrokerError("vault-session-invalid", "Vault session closed during mutation coordination.");
+    }
+  }
+
+  private publishMutationTail(vaultId: VaultId, task: Promise<unknown>): void {
+    const tail = task.then(() => undefined, () => undefined);
+    this.mutationTails.set(vaultId, tail);
+    void tail.then(() => {
+      if (this.mutationTails.get(vaultId) === tail) this.mutationTails.delete(vaultId);
+    });
+  }
+
+  private enqueueMutation<T>(session: VaultSessionRecord, operation: () => T | Promise<T>): Promise<T> {
+    const previous = this.mutationTails.get(session.vaultId) ?? Promise.resolve();
+    const task = previous.then(() => {
+      this.assertSessionRecordCurrent(session);
+      return operation();
+    });
+    this.publishMutationTail(session.vaultId, task);
+    return task;
+  }
+
+  private assertPathsNotDeletionFenced(
+    vaultId: VaultId,
+    paths: readonly string[],
+    allowed?: { readonly operationId: string; readonly path: string },
+  ): void {
+    const conflict = [...(this.deletionFences.get(vaultId)?.values() ?? [])].find((fence) =>
+      paths.some((candidate) => pathsOverlap(candidate, fence.path)) && !(
+        allowed?.operationId === fence.operationId &&
+        allowed.path === fence.path &&
+        paths.length === 1 &&
+        paths[0] === fence.path
+      ));
+    if (conflict) {
+      throw new PluginHostBrokerError(
+        "vault-delete-reserved",
+        "A Vault mutation is blocked by an active path deletion reservation.",
+      );
+    }
+  }
+
+  private assertPathsNotProjectionOpeningFenced(
+    session: VaultSessionRecord,
+    paths: readonly string[],
+    allowedOperationId?: string,
+  ): void {
+    const fences = this.projectionOpeningFences.get(session.vaultId);
+    if (allowedOperationId !== undefined) {
+      const allowed = fences?.get(allowedOperationId);
+      if (
+        !allowed ||
+        allowed.expired ||
+        allowed.state !== "committed" ||
+        allowed.senderId !== session.senderId ||
+        allowed.sessionId !== session.id ||
+        paths.length !== 1 ||
+        paths[0] !== allowed.path
+      ) {
+        throw new PluginHostBrokerError(
+          "vault-projection-opening-conflict",
+          "The collaboration join opening capability is missing, expired, or belongs to another session.",
+        );
+      }
+    }
+    const conflict = [...(fences?.values() ?? [])].find((fence) =>
+      paths.some((candidate) => pathsOverlap(candidate, fence.path)) &&
+      fence.operationId !== allowedOperationId);
+    if (conflict) {
+      throw new PluginHostBrokerError(
+        "vault-projection-opening-conflict",
+        "A Vault mutation is blocked while collaboration is joining this path.",
+      );
+    }
+  }
+
+  private removeProjectionOpeningFence(fence: ProjectionOpeningFenceRecord): void {
+    const fences = this.projectionOpeningFences.get(fence.vaultId);
+    if (fences?.get(fence.operationId) !== fence) return;
+    fences.delete(fence.operationId);
+    if (fence.expiryTimer !== undefined) this.clearTimeoutFn(fence.expiryTimer);
+    if (fences.size === 0) this.projectionOpeningFences.delete(fence.vaultId);
+  }
+
+  private armProjectionOpeningFence(fence: ProjectionOpeningFenceRecord): void {
+    if (fence.expiryTimer !== undefined) this.clearTimeoutFn(fence.expiryTimer);
+    fence.expiryTimer = this.setTimeoutFn(() => {
+      // Expiry revokes the opening capability but deliberately retains the
+      // path fence. Recovery must present the immutable original owner before
+      // rebinding it to a current renderer session.
+      fence.expired = true;
+    }, this.projectionOpeningTtlMs);
+    fence.expiryTimer.unref?.();
+  }
+
+  private projectionOpeningStatus(
+    fence: ProjectionOpeningFenceRecord,
+  ): PluginVaultProjectionOpeningFence {
+    return Object.freeze({
+      operationId: fence.operationId,
+      vaultId: fence.vaultId,
+      path: fence.path,
+      documentId: fence.documentId,
+      owner: Object.freeze({
+        senderId: fence.ownerSenderId,
+        sessionId: fence.ownerSessionId,
+      }),
+      state: fence.state,
+      active: !fence.expired,
+    });
+  }
+
+  private requireProjectionWritePermit(
+    sender: SenderIdentity,
+    session: VaultSessionRecord,
+    permitId: string,
+    expectedPath?: string,
+  ): ProjectionWritePermitRecord {
+    const permit = this.projectionWritePermits.get(permitId);
+    if (
+      !permit ||
+      permit.senderId !== sender.id ||
+      permit.sessionId !== session.id ||
+      permit.vaultId !== session.vaultId ||
+      (expectedPath !== undefined && permit.path !== expectedPath)
+    ) {
+      throw new PluginHostBrokerError(
+        "vault-write-permit-invalid",
+        "Projection write permit is missing or does not match this Vault mutation.",
+      );
+    }
+    return permit;
+  }
+
+  private finishProjectionWritePermit(permit: ProjectionWritePermitRecord): void {
+    if (!permit.releaseRequested || permit.activeCalls > 0) return;
+    if (this.projectionWritePermits.get(permit.permitId) !== permit) return;
+    this.projectionWritePermits.delete(permit.permitId);
+    if (permit.expiryTimer !== undefined) this.clearTimeoutFn(permit.expiryTimer);
+    permit.finishLane();
+  }
+
   private closeRecord(session: VaultSessionRecord): void {
     if (session.closed) return;
     session.closed = true;
@@ -909,6 +1527,20 @@ export class ElectronVaultBroker {
     session.resourceTokens.clear();
     session.pendingEchoes.clear();
     session.watcherVersions.clear();
+    for (const permit of this.projectionWritePermits.values()) {
+      if (permit.sessionId !== session.id) continue;
+      permit.releaseRequested = true;
+      this.finishProjectionWritePermit(permit);
+    }
+    for (const fence of [...(this.projectionOpeningFences.get(session.vaultId)?.values() ?? [])]) {
+      if (fence.sessionId !== session.id) continue;
+      // A renderer exit cannot prove whether Projection Base or Enrollment
+      // crossed its durable boundary. Keep the fence fail-closed for exact
+      // reconciliation by a surviving/new renderer.
+      fence.expired = true;
+      if (fence.expiryTimer !== undefined) this.clearTimeoutFn(fence.expiryTimer);
+      fence.expiryTimer = undefined;
+    }
     this.sessions.delete(session.id);
     const senderSessions = this.sessionsBySender.get(session.senderId);
     senderSessions?.delete(session.id);
@@ -1439,9 +2071,35 @@ export class ElectronPluginStorageBroker {
   async load(pluginId: string): Promise<PluginStorageSnapshot> {
     const id = this.normalizePluginId(pluginId);
     const file = this.filePath(id);
-    if (!existsSync(file)) return Object.freeze({ found: false, revision: 0, data: null });
+    if (!existsSync(file)) {
+      let entries: string[];
+      try {
+        entries = await readdir(path.dirname(file));
+      } catch (cause) {
+        if ((cause as { readonly code?: unknown } | null)?.code === "ENOENT") {
+          return Object.freeze({ found: false, revision: 0, data: null });
+        }
+        throw new PluginHostBrokerError(
+          "plugin-storage-read-failed",
+          "Plugin storage could not be inspected.",
+        );
+      }
+      if (entries.some((entry) => entry.startsWith("data.json.corrupt-"))) {
+        return Object.freeze({ found: false, corrupt: true, revision: 0, data: null });
+      }
+      return Object.freeze({ found: false, revision: 0, data: null });
+    }
+    let serialized: string;
     try {
-      const envelope = this.parseEnvelope(JSON.parse(await readFile(file, "utf8")));
+      serialized = await readFile(file, "utf8");
+    } catch {
+      throw new PluginHostBrokerError(
+        "plugin-storage-read-failed",
+        "Plugin storage could not be read.",
+      );
+    }
+    try {
+      const envelope = this.parseEnvelope(JSON.parse(serialized));
       return Object.freeze({ found: true, revision: envelope.revision, data: structuredClone(envelope.data) });
     } catch {
       const corruptPath = `${file}.corrupt-${this.now()}`;
@@ -1450,7 +2108,7 @@ export class ElectronPluginStorageBroker {
       } catch {
         // Preserve in place if the quarantine rename itself fails.
       }
-      return Object.freeze({ found: false, revision: 0, data: null });
+      return Object.freeze({ found: false, corrupt: true, revision: 0, data: null });
     }
   }
 
@@ -1473,6 +2131,12 @@ export class ElectronPluginStorageBroker {
     const next = prior.catch(() => undefined).then(async () => {
       await mkdir(path.dirname(this.filePath(id)), { recursive: true });
       const current = await this.load(id);
+      if (current.corrupt) {
+        throw new PluginHostBrokerError(
+          "plugin-storage-corrupt",
+          "Corrupt plugin storage must be recovered explicitly before it can be replaced.",
+        );
+      }
       if (current.revision !== expectedRevision) {
         return Object.freeze({ ok: false as const, revision: current.revision });
       }
@@ -1482,9 +2146,10 @@ export class ElectronPluginStorageBroker {
       return Object.freeze({ ok: true as const, revision });
     });
     this.queues.set(id, next);
-    void next.finally(() => {
+    const releaseQueue = () => {
       if (this.queues.get(id) === next) this.queues.delete(id);
-    });
+    };
+    void next.then(releaseQueue, releaseQueue);
     return next;
   }
 

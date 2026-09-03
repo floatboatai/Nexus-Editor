@@ -149,7 +149,7 @@ export interface PluginRuntimeProductContent {
   createFile(path: string): Promise<{ readonly path: string }>;
   createFolder(path: string): Promise<{ readonly path: string }>;
   rename(path: string, destination: string): Promise<{ readonly path: string }>;
-  trash(path: string): Promise<{ readonly ok: true }>;
+  trash(path: string, deletionOperationId?: string): Promise<{ readonly ok: true }>;
   onChanged(listener: () => void): () => void;
 }
 
@@ -304,6 +304,14 @@ class IpcPluginStorageBackend implements PluginStorageBackend {
 
   async read(pluginId: PluginId): Promise<PluginStorageBackendReadResult> {
     const snapshot = await this.bridge.load(pluginId);
+    if (snapshot.corrupt) {
+      return {
+        status: "corrupt",
+        raw: "",
+        version: null,
+        cause: Object.assign(new Error("Plugin storage is quarantined"), { code: "plugin-storage-corrupt" }),
+      };
+    }
     if (!snapshot.found) return { status: "missing" };
     if (typeof snapshot.data !== "string") {
       return {
@@ -1159,8 +1167,8 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
         );
         return Object.freeze({ path: requireSuccess(moved).path });
       },
-      trash: async (path) => {
-        requireSuccess(await this.createDurableFileManagerService(owner).trashFile(requireNode(path)));
+      trash: async (path, deletionOperationId) => {
+        requireSuccess(await this.trashDurably(owner, requireNode(path), deletionOperationId));
         return Object.freeze({ ok: true as const });
       },
       onChanged: (listener) => this.linkIndex.subscribe(listener),
@@ -1356,9 +1364,10 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
   private trashDurably(
     owner: ResourceOwner,
     file: NexusAbstractFile,
+    requestedOperationId?: string,
   ): Promise<ServiceResult<{ readonly recoverable: true }>> {
     return this.enqueueMutationResult(
-      (context) => this.trashDurablyNow(context, owner, file),
+      (context) => this.trashDurablyNow(context, owner, file, requestedOperationId),
       (error) => ({ ok: false, diagnostic: this.reportHostFailure("Vault trash was rejected", error) }),
     );
   }
@@ -1367,12 +1376,13 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
     context: VaultMutationContext,
     owner: ResourceOwner,
     file: NexusAbstractFile,
+    requestedOperationId?: string,
   ): Promise<ServiceResult<{ readonly recoverable: true }>> {
     if (!file.valid || context.vault.getAbstractFileByPath(file.path)?.id !== file.id) {
       return { ok: false, diagnostic: failure("file-invalid-reference", "Invalid Vault file reference") };
     }
     const path = file.path;
-    const requested = this.nextOperationId(owner);
+    const requested = requestedOperationId ?? this.nextOperationId(owner);
     this.pendingPluginOperations.add(requested);
     try {
       const mutation = await this.bridge.vault.trash(

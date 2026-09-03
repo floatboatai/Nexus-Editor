@@ -22,7 +22,7 @@ Every Collaborative Document MUST use an opaque `DocumentId` independent of file
 
 ### Requirement: Create and join are distinct operations
 
-`create(ref, { initialMarkdown })` MUST be the only operation that seeds document content and MUST persist or observe a creation marker before reporting readiness. `open(ref)` MUST mean join and MUST NOT seed from Editor content, a file, an empty Store result, or an empty Y.Text. Duplicate create and metadata mismatch MUST fail explicitly.
+`create(ref, { initialMarkdown })` MUST be the only operation that seeds document content and MUST persist or observe a creation marker before reporting readiness. A durable create MUST load only the Store checkpoint and synchronize an empty Replica before applying any cached update or exposing it to the Provider. Once authenticated remote state is confirmed empty, it MUST checkpoint-replace the old cache before persisting the new creation state; authentication failure or an existing remote document MUST leave the old cache unchanged. `open(ref)` MUST NOT seed from Editor content, a file, an empty Store result, or an empty Y.Text. Its default readiness MAY accept a valid durable local Replica for explicitly enrolled offline recovery, while an invitation join MUST select authenticated Provider synchronization. Duplicate create and metadata mismatch MUST fail explicitly.
 
 #### Scenario: Concurrent join never duplicates initial Markdown
 
@@ -36,9 +36,20 @@ Every Collaborative Document MUST use an opaque `DocumentId` independent of file
 - **THEN** it MUST return a structured already-created or identity error
 - **AND** MUST NOT append the requested initial Markdown
 
+#### Scenario: Durable create does not upload or destroy a stale cache before remote authority
+
+- **GIVEN** the Store contains updates for the requested DocumentId
+- **WHEN** create authenticates against an empty remote room
+- **THEN** the Provider MUST first synchronize an empty Replica without receiving those cached updates
+- **AND** the Engine MUST checkpoint-replace the cache before appending and flushing the new creation state
+- **BUT WHEN** authentication fails or the remote room already exists
+- **THEN** the Store MUST remain unchanged
+
 ### Requirement: Readiness protects authoritative content
 
 A document handle MUST become ready only after a valid local Replica has been restored or a first join has completed authoritative initial synchronization. Editor attachment MUST await the same gate. `replace-editor` MUST explicitly authorize replacing an unused Editor projection; `require-match` MUST compare without overwriting and fail on mismatch.
+
+An invitation-based join MUST require authenticated Provider initial synchronization even when the Store already contains a valid schema. A newly created strict-open Replica MUST load only the Store checkpoint, MUST NOT apply cached Yjs updates before synchronization, and MUST replace the cache with the authenticated remote snapshot before returning. Registry authority provenance is immutable: a Replica opened through local-first readiness or `create()` MUST NOT later satisfy a strict open and MUST reject it with `remote-authority-unavailable`. A rejected strict call MUST release only its reference and MUST NOT close a Replica held by another handle.
 
 #### Scenario: First join does not expose a temporary empty document
 
@@ -46,11 +57,40 @@ A document handle MUST become ready only after a valid local Replica has been re
 - **THEN** `whenReady()` and attach MUST remain pending or fail explicitly
 - **AND** the Engine MUST NOT report the temporary Y.Text value as authoritative content
 
+#### Scenario: Cached Replica does not bypass invitation authentication
+
+- **GIVEN** the local Store contains a valid Replica for the invited ServerUrl and DocumentId
+- **WHEN** an invitation join presents an invalid, wrong-document, expired, or revoked credential
+- **THEN** authenticated-sync readiness MUST fail before File Projection, Enrollment, or Editor attachment
+- **AND** any independently held local-first resume handle MUST remain valid until its owner closes it
+
+#### Scenario: Valid invitation does not upload a stale join cache
+
+- **GIVEN** the Store contains a divergent Replica for the invited ServerUrl and DocumentId
+- **WHEN** a reader or editor invitation performs authenticated-sync open
+- **THEN** initial synchronization MUST start from an empty client Replica and expose only the server-authoritative document
+- **AND** the stale cache MUST NOT enter the Provider protocol or mutate server persistence
+- **AND** the authenticated remote snapshot MUST atomically replace and flush the stale cache before the handle becomes ready
+
+#### Scenario: Existing local authority cannot be upgraded in place
+
+- **GIVEN** a Registry entry was opened through local-first readiness or `create()` and another handle still owns it
+- **WHEN** a caller requests authenticated-sync readiness for the same DocumentId
+- **THEN** the call MUST fail with `remote-authority-unavailable`
+- **AND** the existing handle and Replica MUST remain open until their owner closes them
+
 #### Scenario: Require-match preserves existing Editor content
 
 - **WHEN** an Editor's Markdown differs from the ready Replica and attach uses `require-match`
 - **THEN** attach MUST fail with both identities/revisions needed for diagnosis
 - **AND** MUST NOT overwrite either Editor or Replica
+
+#### Scenario: Editor attach is an atomic readiness fence
+
+- **WHEN** a Local Proposal or remote Yjs update arrives while an Editor Binding is still installing
+- **THEN** the Local Proposal MUST be rejected with a stable not-ready reason and change neither Editor nor Replica
+- **AND** the Binding MUST observe the remote update and reconcile from the current Replica before enabling Local Proposals
+- **AND** closing the document during installation MUST roll back every installed hook and reject the attach
 
 ### Requirement: A Registry owns one Replica per DocumentId and realm
 
@@ -103,15 +143,24 @@ A Binding MUST translate Y.Text changes not produced by its own local origin int
 
 Every Editor Binding MUST own a distinct local origin and Y.UndoManager that tracks only changes created by that Binding. The Binding MUST supply that history controller when acquiring Core authority, so EditorAPI, keyboard, browser history input, and Host commands all use the same history. Remote changes and another local Binding's changes MUST NOT be removed by Undo.
 
+Undo and Redo MUST pass through the same Binding lifecycle, requested-access, and current Provider authorization gate as ordinary Local Proposals. A rejected history action MUST return without mutating Yjs, the Editor projection, or the Store.
+
 #### Scenario: Local undo preserves another participant's work
 
 - **WHEN** two Bindings make interleaved changes and the first Binding invokes Undo
 - **THEN** only the first Binding's most recent tracked operation MUST be undone
 - **AND** the second Binding's operation MUST remain in every converged Replica and Editor
 
+#### Scenario: Permission downgrade blocks history mutation
+
+- **GIVEN** a Binding has local undo or redo history
+- **WHEN** its membership or Provider access is downgraded to read-only
+- **THEN** Undo and Redo MUST be rejected by the same write gate as an ordinary Local Proposal
+- **AND** no Yjs update may be generated
+
 ### Requirement: Provider lifecycle is replaceable and truthful
 
-The Engine MUST depend on a Nexus Provider factory/lease seam rather than a third-party SDK type. Preparation MUST NOT connect or mutate the supplied Replica. Start MUST occur after schema and Store observation are ready. State MUST distinguish transport connection from initial synchronization, and release MUST be idempotent without destroying Engine-owned Yjs objects.
+The Engine MUST depend on a Nexus Provider factory/lease seam rather than a third-party SDK type. Preparation MUST NOT connect or mutate the supplied Replica. Start MUST occur after the shared schema is addressable. Local-authority resume MUST restore and observe the Store before start; remote-first create and authenticated-sync open MUST retain only the Store checkpoint and defer observation until the remote-authority decision can safely preserve or replace the old cache. State MUST distinguish transport connection from initial synchronization, and release MUST be idempotent without destroying Engine-owned Yjs objects.
 
 #### Scenario: Socket-like connection is not reported as synchronized
 
@@ -166,7 +215,7 @@ Direct Core, React, Vue, and any native lifecycle adapter MUST attach through th
 
 ### Requirement: The Electron demonstration is honest and disposable
 
-The Electron demo MUST demonstrate at least two Editors or windows converging through the assessment adapter and MUST expose enough state to observe connection, synchronization, peers, and volatile persistence. Visible documentation/UI MUST label the demonstration local and experimental and MUST NOT imply cloud storage, authentication, crash recovery, or production support.
+The separate assessment lab inside the Electron demo MUST demonstrate at least two Editors or windows converging through the assessment adapter and MUST expose enough state to observe connection, synchronization, peers, and volatile persistence. That lab's visible documentation/UI MUST label the demonstration local and experimental and MUST NOT imply cloud storage, authentication, crash recovery, or production support; this restriction does not erase evidence-scoped capabilities of the separately identified real Host workflow.
 
 #### Scenario: Reviewer exercises the collaboration demo
 
@@ -178,11 +227,21 @@ The Electron demo MUST demonstrate at least two Editors or windows converging th
 
 Binding detach, document-handle close, lifecycle adapter unload, Editor destruction, and Engine close MUST be idempotent. After the final owner closes, observers, timers, animation callbacks, event listeners, Presence state, Provider leases, Store leases, and Registry entries MUST return to the documented baseline without closing resources still owned by another handle.
 
+If initialization fails, its stable opening diagnostic MUST remain the top-level error even when cleanup also fails. Cleanup failures MUST remain inspectable through an aggregate cause, and cleanup MUST still attempt the complete owned resource graph.
+
 #### Scenario: Engine close releases the complete object graph
 
 - **WHEN** an Engine with multiple documents, handles, Editors, and Presence entries closes more than once
 - **THEN** every owned resource MUST be released exactly once in dependency order
 - **AND** later handle operations MUST return stable closed/stale errors without side effects
+
+#### Scenario: Direct Editor destruction detaches its Binding
+
+- **GIVEN** an Editor has an active Binding and the Collaborative Document remains owned by another handle
+- **WHEN** the Host destroys that Editor without first awaiting `binding.detach()`
+- **THEN** the Binding MUST immediately stop proposals and remove its Y.Text observer, Presence, and Replica bookkeeping
+- **AND** a later remote update MUST NOT invoke the destroyed Editor source or quarantine the remaining Replica
+- **AND** asynchronous cleanup failures MUST be caught, aggregated, and reported without an unhandled rejection
 
 ### Requirement: Support status matches qualification evidence
 

@@ -40,6 +40,42 @@ function transaction(
 }
 
 describe("core editor transaction pipeline", () => {
+  it("notifies owner-scoped destroy listeners once and isolates failures", async () => {
+    const { editor } = createTestEditor();
+    const calls: string[] = [];
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const disposed = editor.getContributionSink().registerDestroyListener("disposed", () => {
+      calls.push("disposed");
+    });
+    const broken = editor.getContributionSink().registerDestroyListener("broken", () => {
+      calls.push("broken");
+      throw new Error("injected destroy listener failure");
+    });
+    const asynchronous = editor.getContributionSink().registerDestroyListener("asynchronous", async () => {
+      calls.push("asynchronous");
+      throw new Error("injected asynchronous destroy failure");
+    });
+    const healthy = editor.getContributionSink().registerDestroyListener("healthy", () => {
+      calls.push("healthy");
+    });
+
+    await disposed.dispose();
+    await disposed.dispose();
+    editor.destroy();
+    editor.destroy();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(calls).toEqual(["broken", "asynchronous", "healthy"]);
+    expect(disposed.disposed).toBe(true);
+    expect(broken.disposed).toBe(true);
+    expect(asynchronous.disposed).toBe(true);
+    expect(healthy.disposed).toBe(true);
+    expect(error).toHaveBeenCalledTimes(2);
+    expect(() => editor.getContributionSink().registerDestroyListener("late", () => undefined))
+      .toThrow(/destroyed editor/);
+  });
+
   it("filters before commit and only notifies listeners with the final update", () => {
     const { editor } = createTestEditor();
     const sink = editor.getContributionSink();

@@ -158,7 +158,11 @@ pnpm install
 pnpm dev:electron-demo
 ```
 
-A real Electron app with file IO, live preview, and every plugin enabled. Choose **Collaborate** to open the explicitly experimental, volatile two-Editor collaboration lab.
+`pnpm dev:electron-demo` starts the runtime Host by default. Set `NEXUS_PLUGIN_PLATFORM=0` only when you explicitly need to exercise the legacy compatibility Host.
+
+A real Electron app with file IO, live preview, and every plugin enabled. Choose **Collaborate** to open the experimental Host workflow backed by the real authenticated Provider, server-scoped Electron SQLite utility broker, Markdown File Projection, pending-create/pending-join/persistence recovery, and conflict UI. Interrupted joins remain visibly fenced: the panel can retry safe recovery, accept the same invitation again, or explicitly abandon only when no Projection metadata exists; none of those recovery controls silently rewrites or deletes the Markdown file. File → **New Collaboration Window** (`CmdOrCtrl+Shift+N`) opens another runtime window through the product itself. The separate two-Editor assessment lab remains available only from the collaboration panel as a developer tool.
+
+The reusable `@floatboat/nexus-plugin-collab` default entry remains browser-safe. Real browser Hosts opt into `@floatboat/nexus-plugin-collab/hocuspocus` and/or `@floatboat/nexus-plugin-collab/indexeddb` explicitly. `apps/collab-server` is a single-node authenticated reference server for local qualification; production Hosts still own TLS, external identity, signing-key rotation, database operations, backups, monitoring, scaling, retention, and SLOs.
 
 ---
 
@@ -180,7 +184,7 @@ A real Electron app with file IO, live preview, and every plugin enabled. Choose
 | `@floatboat/nexus-plugin-math` | Inline / block math rendering (KaTeX) |
 | `@floatboat/nexus-plugin-vim` | Vim keybindings powered by `@replit/codemirror-vim` |
 | `@floatboat/nexus-plugin-wordcount` | Markdown-aware word / character / CJK / reading-time stats + ARIA-live status bar |
-| `@floatboat/nexus-plugin-collab` | Experimental headless Yjs Engine, editor binding, scoped history, Presence, and replaceable Provider/Store contracts |
+| `@floatboat/nexus-plugin-collab` | Experimental headless Yjs Engine, Host workflow and three-way File Projection, with explicit Hocuspocus and IndexedDB adapters |
 
 </details>
 
@@ -270,6 +274,12 @@ pnpm test           # run all tests
 
 # Electron demo
 pnpm dev:electron-demo
+
+# Built secure-origin renderer + sandboxed-preload startup regression
+pnpm --filter @floatboat/nexus-electron-demo smoke:startup
+
+# Build and exercise two real Electron clients, recovery and local trusted TLS
+pnpm qualify:collab-electron
 ```
 
 </details>

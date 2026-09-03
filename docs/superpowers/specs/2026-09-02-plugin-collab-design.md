@@ -1,6 +1,6 @@
 # `plugin-collab` 真实需求架构设计
 
-**文档状态：** implemented for experimental assessment；OpenSpec change 保持 active，生产资格未完成
+**文档状态：** 本地真实 Host 产品路径已实现（`experimental`）；OpenSpec change 保持 active，`production-supported` 资格未完成
 **日期：** 2026-09-02；2026-09-03 按产品决策与技术调研更新
 **目标能力：** `realtime-collab`
 **路线图：** `docs/ROADMAP.md` #18
@@ -9,6 +9,8 @@
 > 本文不把“两天笔试 / 单个 PR”误写成临时 MVP 架构。长期目标仍是可在真实产品中运行的本地优先协作能力：多编辑器、多窗口、多设备、离线恢复、持久化、Presence、文件投影、外部文件修改、失败恢复和安全约束都有明确语义；笔试 PR 只对其实际完成的 `experimental` 资格负责。
 >
 > 本文是长期产品架构，不等于当前已经达到生产支持。仓库通常要求 OpenSpec 先审批再实现；本次笔试明确要求不进行中间审批、只提交一个最终 PR，因此该 PR 同时承载 proposal 和 implementation review。这个交付约束不改写仓库治理，也不能把 assessment adapter 描述成生产后端。
+>
+> 2026-09-04 完成本地验收后，用户已将分支改名为 `feat/collab-product-completion` 并授权创建唯一最终 PR；旧 PR #296 已关闭。本文中的“已实现”描述该候选实现，不表示已经合并或发布；封板前的原始验收记录保留原分支名与当时的未提交状态。
 
 配套文档：
 
@@ -33,7 +35,8 @@
 6. **外部文件修改需要三方协调。** `base + live CRDT + incoming disk` 才能判断是否安全应用；公共前后缀 diff 不是通用合并算法。
 7. **Presence 是非持久、非权威数据。** 它有单独协议、节流、过期和输入清洗规则，不能与文档同步状态混为一谈。
 8. **Native plugin 是 adapter。** `CollaborationLifecyclePlugin` 只把 `EditorHostService` 的 attached/detached/contextChanged 生命周期适配到 Engine，不承载第二份协作逻辑。
-9. **失败必须显式降级。** divergence、持久化失败、文件冲突和 provider 错误分别进入可观察状态；禁止继续以 `connected` 或 `synced` 掩盖不一致。
+9. **失败必须显式降级并可恢复。** 认证拒绝/过期/撤销、divergence、持久化失败、文件冲突和 provider 错误分别进入可观察状态；禁止继续以 `connected` 或 `synced` 掩盖不一致。持久化不明确失败提供完整 Replica reconciliation，而不是永久毒化 Engine。
+10. **Host lifecycle 是可恢复事务。** Electron 在远端 create 前持久化 pending intent，以共享 document-context transaction 串行化打开/切换/文件变更；不同服务器的同名 DocumentId 也拥有隔离的本地 Replica journal。
 
 最终模块形状：
 
@@ -92,20 +95,20 @@ CollaborationEngine（headless deep module）
 
 ### 2.3 Non-Goals
 
-- 不在 Nexus 仓库提供账户、邀请、计费、分享对话框或协作成员管理 UI；
+- 不在可复用 Nexus 包中提供账户、计费、组织管理或通用成员后台；`apps/electron-demo` 只提供 reference Host 所需的邀请与冲突处理 UI；
 - 不捆绑某个商业同步厂商 SDK；
 - 不宣称任意 `send(Uint8Array)` 实现自动成为 Yjs Provider；
 - 不把 CRDT 持久化等同于用户可见的版本历史；路线图 #19 仍是独立能力；
 - 不把 external Markdown conflict 描述成“CRDT 自动解决”；
 - 不兼容未经宿主授权的任意远端内容；认证与 update 接入策略属于 Provider seam；
 - 不要求使用协作能力的宿主必须安装完整 plugin-runtime；
-- 不承诺在第一份实现变更中同时完成所有产品 UI，但完整需求的状态与错误必须可供 UI 消费。
+- 不把 Electron reference Host UI 变成 headless Engine 的依赖；完整状态与错误仍通过公开 interface 供其他 Host 自行呈现。
 
 ---
 
-## 3. 待批准的领域语言
+## 3. 领域语言
 
-这些词汇在设计批准后再写入项目 `CONTEXT.md`。在此之前，它们是设计中的规范候选词。
+这些词汇已经同步到项目 `CONTEXT.md`，是实现、测试、diagnostics 和后续设计使用的规范语言。
 
 **Collaborative Document**
 由稳定 `DocumentId` 标识、以 Yjs 共享类型表示的协作文档。它不等同于某个文件路径或 EditorView。
@@ -253,6 +256,9 @@ Markdown file                        — durable human-readable projection
 10. 文本进入 Y.Text 前统一规范为 LF；文件导出时由 host policy 决定行尾表现。
 11. Replica Store、Provider、Editor Binding 和 File Projection 必须分别报告 failure。
 12. 无法证明第 3 条时必须进入 Quarantine，不能继续接受普通编辑。
+13. Electron 本地 Replica 的持久化身份是 `(canonical ServerUrl, DocumentId)`；只知道 bare DocumentId 的旧行不得自动归属到任意服务器。
+14. 远端 create 开始前必须已有 durable pending creation intent；远端效果与 active Enrollment 提交之间失败时，该 intent 一直保留到恢复成功或用户显式 abandon。
+15. Invitation join 在任何 Projection metadata 或文件写入前必须同时具有 exact Host committed opening 与 v4 durable pending join；renderer crash、Host restart 或 release failure 都不能清除唯一恢复证据或开放竞争路径。
 
 ---
 
@@ -335,7 +341,11 @@ Renderer C replica ─┘
                durable store / server
 ```
 
-Electron 的正式资格路径固定为单个 Host-owned utility-process broker 串行化 SQLite durable writes。renderer 不得直接打开同一数据库。当前 Electron 35 与 native dependency 打包配置尚不满足该路径；必须先升级 Electron，并通过目标平台 packaged-app spike。
+Electron 的实现路径使用单个 Host-owned utility process 和 MessagePort broker 串行化内置 `node:sqlite` durable writes；renderer 不接收数据库路径，也不执行 SQL。当前已具备 capability gate、事务 journal、checkpoint compaction、broker 重连和组件级多 renderer 覆盖，但目标平台 packaged-app、真实 renderer crash 和 utility-process 强杀恢复仍属于 Q3/Q5 未完成资格，不能据此声明 `production-supported`。
+
+应用 File 菜单中的 **New Collaboration Window**（`CmdOrCtrl+Shift+N`）会创建新的 runtime BrowserWindow，使用户可以从产品界面进入第二个真实 renderer，而不只依赖测试 harness。这个入口证明路径可达，但本地创建窗口不替代 packaged-app crash/恢复和平台矩阵资格。
+
+每个 renderer 内由 Host-owned document-context transaction 串行化 collaboration opening 与 open file、open Vault、Save、Save As、rename 和 delete。opening 在同一 transaction 中重新读取当前 file，并以 identity generation、path、Editor 对象和 Markdown 快照验证 UI capture；上下文已经切换时在 attach 或 Enrollment commit 前 fail closed。普通 Save 和 collaboration projection Save 都捕获实际 path、Markdown 与 generation；异步写入返回时只有这些值仍匹配当前 Editor 才能清除 dirty，迟到的旧 Save 不能确认后续编辑。
 
 ### 7.3 多设备
 
@@ -353,8 +363,8 @@ Electron 的正式资格路径固定为单个 Host-owned utility-process broker 
 - 创建并管理 DocumentRegistry、EditorBindingRegistry 和 FileProjectionCoordinator；
 - 为直接 EditorAPI 调用方和生命周期 adapter 提供同一个小 interface；
 - 协调 restore → provider start → attach → sync → projection 的顺序与 readiness gate；
-- 关闭时先 quiesce，再按 binding → provider → store → replica 的顺序释放；
-- 收集局部失败，但不因一个文档故障关闭整个 Engine；
+- 关闭时先 quiesce，再按 binding → provider → store → replica 的 ownership 顺序 best-effort 释放；
+- 收集局部失败并聚合报告，任何一个 detach/release/flush/destroy 失败都不能跳过后续资源；也不因一个文档故障关闭整个 Engine；
 - 向宿主/UI 发布稳定、宿主无关的 collaboration state 和 diagnostics。
 
 它是深模块的外部 seam。调用者不直接协调 Y.Doc observer、registration.ready、Provider connect、UndoManager 或文件 watcher。Engine 不知道 editor 来自 Vanilla、React、Vue 还是 plugin-runtime。
@@ -409,7 +419,7 @@ EditorBinding 不拥有 Y.Doc、Provider 或 Replica Store。Editor detach 只�
 
 ### 8.5 Provider adapter
 
-Provider 是 true-external seam，因为生产网络实现、Electron IPC 实现和测试 fake 确实不同。首个 production qualification candidate 是 Hocuspocus 4.6，第二个真实 adapter candidate 是 Y-Sweet 0.9.1；二者都只能通过 Nexus Provider interface 接入，不能把第三方 SDK 类型暴露到 Engine 公共 API。`y-websocket@3.1.0` 与精确兼容的测试 server 只用于协议和本地开发。
+Provider 是 true-external seam，因为真实网络实现和 assessment fake 确实不同。当前 working tree 已在显式 browser entry `@floatboat/nexus-plugin-collab/hocuspocus` 实现 Hocuspocus Provider 4.6，并在 `apps/collab-server` 提供同版本的 authenticated reference server。二者都位于 Nexus Provider interface 之后；默认 Engine entry 不暴露 Hocuspocus、Yjs 或 server SDK 类型。Y-Sweet/WebRTC 等替代实现仍是未来可选 adapter，不属于当前支持声明。
 
 ```ts
 export interface CollaborationProviderFactory {
@@ -418,34 +428,38 @@ export interface CollaborationProviderFactory {
 
 export interface ProviderContext {
   readonly document: CollabDocumentRef;
-  readonly intent: "create" | "join";
-  readonly doc: Y.Doc;
-  readonly awareness: Awareness;
-  readonly signal: AbortSignal;
+  readonly replica: CollaborationReplicaPort;
 }
 
 export interface ProviderLease {
   start(): Promise<void>;
   getState(): ProviderState;
   subscribe(listener: (state: ProviderState) => void): Unsubscribe;
-  requestResync?(reason: string): Promise<void>;
   release(): Promise<void>;
 }
 ```
 
 契约：
 
-- `prepare()` 只分配资源，不得连接网络或修改传入的 Y.Doc；
+- `prepare()` 只分配资源，不得连接网络或修改 Engine-owned Replica；
 - `start()` 只能在 schema 校验、store observer 和 Replica state 已经就绪后调用；
-- `start()` resolve 只表示连接流程启动，不表示 initial sync 完成；
-- ProviderState 必须分开 transport 与 sync；
-- `release()` 幂等，不销毁传入的 Y.Doc/Awareness；
-- Provider 负责 create/join 语义、协议握手、state vector、重连、auth integration 和 awareness wire；
+- `start()` 在认证和 initial sync 完成后 resolve；socket open 本身不满足 readiness；
+- ProviderState 必须分开 transport、sync、authentication 与 access；
+- `release()` 幂等，不销毁 Engine-owned Replica；
+- Provider 负责协议握手、state vector、重连、auth integration 和 awareness wire；Engine 继续拥有 create/open 语义；
 - Adapter 不得把 provider 的“socket open”映射成 `synced`。
+
+当前 reference path 使用短生命周期、DocumentId-scoped HMAC credential，区分 reader/editor、支持运行期撤销和显式 reauthentication。产品 URL 策略只允许任意 `wss:` 或 loopback `ws:`，并拒绝 URL credentials、query 和 fragment。reference server 的单节点文件持久化、health/readiness 和输入上限是本地资格证据，不替代生产 Host 的 TLS、外部身份、备份、监控、扩展和 SLO。
+
+credential 与 invitation 使用不同生命周期：trusted-host CLI 的 session credential 默认 3600 秒，Electron invitation adapter 默认请求 300 秒。服务端不能为了方便降级 `delegated expiry <= delegator expiry` 约束；delegator 剩余时间不足时返回受限的 `delegation-outlives-authority`，客户端仅从严格限长、精确 JSON 错误体识别该状态，并显示不含 token 或原始响应的重新授权提示。Invitation acceptance 还必须要求 envelope 的 canonical ServerUrl 与当前 adapter 完全一致；错配在写入内存 credential 或 accepted-server 状态前以 `invitation-server-mismatch` 失败。
+
+认证状态不折叠成一个泛化 failure：malformed/forged/wrong-room credential 映射为 `authentication="denied"` 与 `authentication-denied`；凭证超时映射为 `authentication="expired"` 与 `authentication-expired`；显式撤销映射为 `authentication="revoked"` 与 `authorization-revoked`。三者都把 access 降为 `none`、清除本地 Presence；Host Workflow 观察该状态并暂停自己拥有的 Binding，直到 Host 提供新凭证。普通网络中断只改变 transport/sync，不伪造 auth verdict。reference server 的文件撤销存储在 load 后、原子 persist 前按可控时钟清除过期记录，并把 load 清理原子回写，避免重启反复恢复已失效条目。
+
+reauthentication 以 DocumentId 隔离并发：每次 staged credential 都有只存在于内存的 generation；同 generation 的 adapter 调用共享一次 reconnect，新 generation 在旧操作结束前得到稳定的 in-progress 拒绝，并保留为下一次显式重试。失败回滚通过 active credential CAS，只在当前 active 仍是本次 attempted credential 时恢复旧值。Workflow 与 Workspace 的公共命令再各自设置 operation gate，防止并发调用重复恢复 Editor Binding 或把未经尝试的新凭证报告为成功；不同 DocumentId 不共用 gate。leave 会先把 Workflow session 标记为 closed，再等待正在进行的 refresh；refresh 在 Provider grant 后重新校验 lifecycle。Workspace leave/close 也要先等待 refresh，再释放 session/backend，所以迟到的 grant 不能在关闭后复活 Binding。
 
 ### 8.6 Replica Store adapter
 
-Replica Store 是 local-substitutable seam。正式资格路径中，浏览器使用 IndexedDB 类 adapter，Electron 使用 utility-process broker 持有的 SQLite append journal + atomic snapshot，测试使用内存实现。Electron 驱动优先验证 `better-sqlite3@13.0.3`，但打包 spike 通过前不得加入 runtime dependency；不再把自研裸文件 journal 当默认方案。
+Replica Store 是 local-substitutable seam。当前 working tree 已通过显式 browser entry `@floatboat/nexus-plugin-collab/indexeddb` 实现原生 IndexedDB Store；Electron 使用单 utility-process broker 持有的内置 `node:sqlite` append journal 与原子 snapshot，测试继续使用 assessment memory Store。没有引入 native addon 或 `better-sqlite3`。
 
 ```ts
 export interface ReplicaStore {
@@ -453,24 +467,31 @@ export interface ReplicaStore {
 }
 
 export interface ReplicaStoreLease {
-  load(): Promise<StoredReplicaState | null>;
-  append(update: Uint8Array): Promise<void>;
-  compact(snapshot: Uint8Array, stateVector: Uint8Array): Promise<void>;
-  loadProjectionBase(): Promise<ProjectionBase | null>;
-  saveProjectionBase(base: ProjectionBase): Promise<void>;
+  load(): Promise<ReplicaStoreLoadResult>;
+  append(update: Uint8Array): Promise<ReplicaStoreCheckpoint>;
   flush(): Promise<void>;
-  release(): Promise<void>;
+  replaceWithSnapshot(
+    update: Uint8Array,
+    options: { readonly through: ReplicaStoreCheckpoint },
+  ): Promise<ReplicaStoreCheckpoint>;
+  close(): Promise<void>;
 }
 ```
 
 要求：
 
-- update append 幂等或能安全处理重复；
-- snapshot + journal replacement 原子化；
+- update journal 保持顺序并能安全 replay 重复 Yjs update；
+- snapshot + journal replacement 必须绑定 Store 返回的 generation/sequence checkpoint，原子替换且保留 checkpoint 之后的并发 append；
 - store corruption 产生明确 diagnostic，不把空文档当恢复成功；
 - `persisted` 只在所有已知本地 update 完成 flush 后成立；
 - compaction 不改变用户可见版本历史；
 - 多进程写必须通过 adapter 自己的锁或 broker 解决。
+
+Electron Host 在这个 Store seam 外包一层 server-scoped adapter，将版本化 domain、canonical ServerUrl 和 DocumentId 做 SHA-256 派生，生成不含 server/document 明文的有界 key。这样两个 ServerUrl 即使复用同一个 DocumentId，也不会共享 SQLite journal。旧版本 bare-DocumentId row 没有可信 ServerUrl 来源，默认 quarantine，不能通过猜测自动迁移。
+
+preload 的 lease/Store close 会先停止接纳新操作并排空已接纳的 per-lease tail，不会用成功 close 截断 append/replace/flush。utility shutdown 与 renderer Store request 来自不同 IPC channel，不能只等待 broker 已见队列。worker 关闭前会在每个 renderer MessagePort 发送有界 drain request；preload bridge 同步停止接纳新 Store 操作，先排空已接纳的 per-lease tail，再等待底层 MessagePort pending request 全部 settle 后沿同一 MessagePort 回传 ack。FIFO 保证 ack 之前发出的 append/replace/flush 已先进入 broker 队列，随后才允许 lease close 和 SQLite close。drain 超时属于 unknown outcome 并使 shutdown 失败；supervisor 只接受 worker 显式 `{ type: "closed", ok: true }`，不再把缺少 cleanup ack 的 exit code 0 当作 durable success。
+
+`append()` 失败可能发生在 durability commit 前，也可能是 commit 后 response 丢失。`document.reconcilePersistence()` / Workflow `retryPersistence()` 会等待旧 Store 队列、load 当前 durable updates、幂等应用到 live Replica、以完整 Replica snapshot 通过 Store-owned checkpoint 执行 replacement 并 flush；全部成功后才清除 `persistence.failed`，再次失败则保持可重试的 failed 状态。
 
 ### 8.7 FileProjectionCoordinator
 
@@ -516,9 +537,9 @@ Lifecycle adapter 只翻译宿主事件，不重新实现协作状态机。
 
 React/Vue 包不增加 collaboration-specific state，也不直接依赖 Yjs。
 
-**Native plugin adapter**
+**可选的 future native plugin adapter（当前未实现）**
 
-`CollaborationLifecyclePlugin extends NexusPluginBase`：
+若未来 Host 需要 `CollaborationLifecyclePlugin extends NexusPluginBase`，它应保持以下薄映射：
 
 - 在 `onload()` 中取得 Editor Host、DocumentIdentityAdapter 和 Engine；
 - 监听 attached/detached/contextChanged；
@@ -528,11 +549,18 @@ React/Vue 包不增加 collaboration-specific state，也不直接依赖 Yjs。
 - 把 Engine 作为 collaboration capability 暴露给命令和 UI 插件；
 - 在 `onunload()` 中关闭 subscriptions 和 Binding；只有通过 adapter factory 创建的 Engine 才由它关闭，注入的共享 Engine 仍归宿主所有。
 
+**Electron Host document-context adapter**
+
+- 一个共享 transaction mutex 覆盖 open file、open Vault、Save、Save As、rename、delete 和 collaboration create/join/resume/pending recovery；
+- collaboration opening 在持锁后重新取得 current file，而不是继续相信 panel 捕获的对象；
+- path、Editor identity、Markdown 或 context generation 变化时返回 `document-context-changed`，不绑定替换后的文档；
+- transaction 只协调 Host context，不把网络、Yjs 或文件状态机复制进 UI。
+
 该 adapter 应足够薄，测试重点是事件映射和资源释放。删除 adapter 后，协作 Engine 的行为测试不应改变。
 
 ---
 
-## 9. 对外 interface 草案
+## 9. 对外 interface（当前实现基线）
 
 最终公开面应尽量小。复杂的 dependency interface 位于 Engine 创建 seam；产品调用方、framework adapter 和 native plugin adapter 都消费同一个 CollaborationEngine。
 
@@ -540,8 +568,11 @@ React/Vue 包不增加 collaboration-specific state，也不直接依赖 Yjs。
 export interface CollaborationEngineOptions {
   readonly providers: CollaborationProviderFactory;
   readonly store: ReplicaStore | { readonly mode: "volatile" };
-  readonly files?: FileProjectionAdapter;
-  readonly localPresence?: LocalPresenceProvider;
+  readonly storeCompaction?: { readonly updateThreshold?: number };
+  readonly storeBackpressure?: {
+    readonly maxPendingOperations?: number;
+    readonly maxPendingBytes?: number;
+  };
   readonly diagnostics?: CollaborationDiagnosticSink;
 }
 
@@ -550,7 +581,12 @@ export interface CollaborationEngine {
     document: CollabDocumentRef,
     options: CreateCollaborativeDocumentOptions,
   ): Promise<CollaborativeDocumentHandle>;
-  open(document: CollabDocumentRef): Promise<CollaborativeDocumentHandle>;
+  open(
+    document: CollabDocumentRef,
+    options?: {
+      readonly readiness?: "allow-local-authority" | "require-authenticated-sync";
+    },
+  ): Promise<CollaborativeDocumentHandle>;
   getSnapshot(documentId: DocumentId): CollaborativeDocumentSnapshot | undefined;
   list(): readonly CollaborativeDocumentSnapshot[];
   subscribe(listener: CollaborationListener): Unsubscribe;
@@ -561,12 +597,15 @@ export interface CreateCollaborativeDocumentOptions {
   readonly initialMarkdown: string;
 }
 
-export interface CollaborativeDocumentHandle {
+export interface CollaborativeDocumentHandle extends CollaborativeMarkdownPort {
   readonly id: DocumentId;
+  readonly closed: boolean;
   whenReady(): Promise<void>;
   getMarkdown(): string | undefined;
   getState(): CollaborativeDocumentSnapshot;
   subscribe(listener: (state: CollaborativeDocumentSnapshot) => void): Unsubscribe;
+  /** Reconcile an ambiguously failed durable append using a full live snapshot. */
+  reconcilePersistence(): Promise<void>;
   attach(
     editor: EditorAPI,
     options: EditorBindingOptions,
@@ -575,9 +614,10 @@ export interface CollaborativeDocumentHandle {
 }
 
 export interface EditorBindingHandle {
-  readonly documentId: DocumentId;
-  undo(): boolean;
-  redo(): boolean;
+  readonly id: string;
+  readonly detached: boolean;
+  getState(): "ready" | "quarantined" | "detached";
+  setPresence(presence: LocalPresence | null): void;
   detach(): Promise<void>;
 }
 
@@ -587,6 +627,8 @@ export interface EditorBindingOptions {
    * `require-match` 不覆盖 Editor，内容不同即拒绝 attach。
    */
   readonly content: "replace-editor" | "require-match";
+  /** Host membership gate; defaults to `read-write` for direct compatibility. */
+  readonly access?: "read-only" | "read-write";
 }
 
 export function createCollaborationEngine(
@@ -596,17 +638,21 @@ export function createCollaborationEngine(
 
 规则：
 
-- `create()` 是唯一可写入 `initialMarkdown` 的入口，并先持久化 creation marker；
+- `create()` 是唯一可写入 `initialMarkdown` 的入口；durable create 与 strict open 一样只读取旧 Store checkpoint，以空 Replica 完成 Provider authentication/initial sync，不 apply 或向 Provider 暴露旧 cache；确认远端 room 仍为空后，先按 checkpoint reset cache，再写入 schema/creation marker/正文并 flush 本地 Store；认证失败或远端已存在时旧 cache 保持不变；
 - `open()` 始终表示 join，绝不根据空 Y.Text 或磁盘内容自动播种；
+- `open()` 默认允许有效本地 Replica 建立离线内容权威；基于 invitation 的 `Workflow.join()` 必须显式使用 `require-authenticated-sync`。strict open 只读取旧 Store checkpoint，不把旧 update 应用到待同步 Replica；它以空 Replica 完成认证与 initial sync、验证远端 schema，再用完整远端 snapshot 原子替换并 flush 旧 Store，之后才可创建 File Projection、Enrollment 或 Editor Binding；
+- strict Registry authority provenance 不可原地升级：由 local-first `open()` 或 `create()` 建立的现存 Replica 必须以 `remote-authority-unavailable` 拒绝 strict 复用，且只释放失败调用自己的引用；无效凭证不得 append 或 replace 旧 Store；
 - `open()` 对相同 DocumentId 幂等并共享 opening work；
+- strict join 即使复用已经被 local-first resume 打开的 Registry entry，也必须等待同一个 Provider start；认证失败只释放 strict 调用自己的 handle，不得关闭仍被 resume 持有的 Replica；
 - 没有有效本地 Replica 的首次 join 必须等待 Provider initial sync，不能把暂时为空的 Y.Text 当正文；
 - `document.whenReady()` 在已有有效本地 Replica，或首次 initial sync 建立内容权威后 resolve；
-- `document.attach()` 等待同一个 readiness gate，再原子安装 Binding 并对齐内容；
+- `document.attach()` 等待同一个 readiness gate，再原子安装 Binding 并对齐内容；安装尚未完成时的 Local Proposal 以稳定的 `collaboration-binding-not-ready` 拒绝，窗口内到达的远端 Yjs update 由已安装 observer 记录并在开放写入前按当前 Replica 完成最终对齐；
 - `replace-editor` 明确授权 Engine 用当前 Replica 覆盖 Editor，只适用于 attach 前内容可丢弃的 Editor；它不是自动播种 Y.Doc；
 - `require-match` 不覆盖已有 Editor 内容；不一致时返回结构化错误；
 - handle 关闭后不可复用；
 - Engine `close()` 幂等并关闭所有 Document/Binding；
 - `store: { mode: "volatile" }` 必须显式选择，避免宿主误以为已经具备崩溃恢复；
+- `reconcilePersistence()` 只在完整 snapshot 经 checkpoint replacement 与 flush 后恢复 `clean`，不能把不明确的 append 回应当成确定未写入；
 - 调用者看不到 `encodeState()`、`applyState()`、`documentKey` 或裸 Awareness wire；
 - 文件导入不通过 `loadDocument(markdown)`；由 watcher/reconciliation 或显式 host command 进入。
 
@@ -616,7 +662,6 @@ export function createCollaborationEngine(
 const engine = createCollaborationEngine({
   providers,
   store,
-  files,
 });
 
 const ref = await documentIdentity.resolve(editorContext);
@@ -628,7 +673,7 @@ const editor = createEditor({
 const binding = await document.attach(editor, { content: "replace-editor" });
 ```
 
-宿主应在 Binding ready 前显示 loading/read-only 状态，避免空 Editor 闪烁或被用户提前编辑。React/Vue 使用已有的 editor-ready hook 取得 EditorAPI 后执行同一 `attach()`；native plugin adapter 也调用同一个方法。
+File Projection 通过独立 `createFileProjectionController()` 与 Host file/metadata adapters 组合，产品级 create/join/resume/leave、pending-create recovery/abandon 和 persistence retry 则由 `createCollaborationWorkflow()` 与 Host Workspace 编排，不扩大 Engine interface。宿主应在 Binding ready 前显示 loading/read-only 状态，避免空 Editor 闪烁或被用户提前编辑。Workflow 必须按 enrollment role 传递 `access`；reader 即使在 Provider 暂时退化为 `local-only` 时也不能提交 Local Proposal。Undo/Redo 与普通 Local Proposal 复用同一个 Binding lifecycle、membership access 与实时 Provider authorization 门禁，权限降级后不得产生 Yjs update。React/Vue 使用已有的 editor-ready hook 取得 EditorAPI 后执行同一 `attach()`。
 
 ---
 
@@ -738,6 +783,8 @@ externalDocumentModelActive: Facet<boolean>
 
 history controller 是 `registerAuthoritativeSource(ownerId, history)` 的必填参数，不是独立 contribution。Collaborative Binding 取得 source 时同步取得所有 Undo/Redo 入口；source 激活期间，即使 controller 返回“无可撤销内容”，键盘和 browser history intent 也必须被消费，不能落到 CM history 改写投影。source dispose 后才恢复现有 CM/plugin-history 路径，且不能把外部文档模型的历史暴露给默认 history。不能只安装高优先级 keymap，同时让工具栏继续调用旧的 `editor.undo()`。
 
+controller 执行 Undo/Redo 前必须重新检查与 Local Proposal 相同的 lifecycle、Binding access 和当前 Provider access。权限在 Binding 建立后降级为 read-only/none 时，history intent 仍被协作 source 消费，但不得调用 Y.UndoManager、修改投影或形成 Store update。
+
 ---
 
 ## 11. Shared document schema
@@ -770,17 +817,22 @@ Y.Map("nexus:meta")
 
 ```text
 host allocates stable DocumentId
+→ persist v4 pending creation intent (no credential)
 → acquire Replica Store lease
-→ verify no existing replica/creation marker
-→ create Y.Doc schema
-→ insert normalized initial Markdown once
-→ persist creation update + Projection Base
-→ prepare Provider
-→ start Provider with create intent
-→ publish document as openable
+→ restore journal and validate any local schema
+→ prepare and start Provider
+→ authenticate and complete initial sync
+→ verify synchronized room has no schema, creation marker, or content
+→ atomically create schema/creation marker and insert normalized initial Markdown once
+→ persist and flush creation update
+→ enroll File Projection / Projection Base
+→ commit pending intent as active Enrollment
+→ publish document as openable and attach
 ```
 
-两个普通 join client 都不得根据 `Y.Text.length === 0` 推断自己是创建者。
+两个普通 join client 都不得根据 `Y.Text.length === 0` 推断自己是创建者。空值判断发生在 Provider initial sync 之后，不能在暂时尚未同步的本地 Replica 上提前播种。reference server 没有把客户端预同步空状态当成 server-side create CAS；产品通过不可猜测的 DocumentId、owner credential 和 pending intent 管理这条显式 lifecycle。
+
+如果远端 create 已经打开但 active Enrollment 提交失败，pending intent 仍留在 durable v4 Enrollment state。写入结果不明确时 Store read back 并只接受完全相同的幂等 mutation。当前进程可用保留 session 重试提交；重启后用户重新输入 owner credential，以 `projectionMode="enroll"` resume，只有明确 `document-not-found` 才重新 create。explicit abandon 只删除本地恢复 intent，不删除远端文档。
 
 ### 12.2 打开已有文档
 
@@ -799,7 +851,9 @@ resolve DocumentId
 → reconcile File Projection
 ```
 
-已有有效本地 Replica 时，restore 后即可离线编辑；首次加入且本地没有 Replica 时，必须等 initial sync 建立内容权威。`synced` 只有在 Provider 明确完成 initial sync 后成立。
+已有有效本地 Replica 时，只有已知 Enrollment 的 resume 才能在 restore 后离线编辑。Invitation join 即使存在同一 ServerUrl/DocumentId 的本地数据，也必须从空 Replica 进行 authenticated initial sync；reader 或 editor 都不能把这份 join cache 带入 SyncStep2。远端状态验证成功后，Engine 先重置并 flush 本地 Store，再报告 ready；重置失败进入 `store-failed`。`synced` 只有在 Provider 明确完成 initial sync 后成立。
+
+Invitation 通过 authenticated sync 后，Host 先按 exact VaultId/sender/session/path/DocumentId/operationId 建立 `precommit`，再将同一 operation 与候选 FileId/Enrollment 写入 v4 durable pending join，随后 promote 为 `committed`；只有这三层证据齐全才允许 Projection 初始化。File Projection 会先保存 exact identity 且 `base:null`，再执行 `writeAtomic`，最后确认 Projection Base，因此 renderer 可能在文件已经改变、但 Base 尚未保存时终止。恢复逻辑不能把 `base:null` 或缺少 metadata 解释成“文件未写”：exact metadata（包括 `base:null`）只用于在不改写文件的前提下补齐 Enrollment；完全没有 metadata 时保留 pending/fence，允许同一 invitation 重试或带明确警告的 explicit abandon。只要存在任何 Projection metadata 就禁止 pending-join abandon，必须先完成 Enrollment，再走 ordinary exact forget。abandon 或 Projection 前 rollback 已 release Host、但 durable pending 删除失败时，coordinator 必须在返回失败前重建并 commit 同一 exact fence；只有 read-back 证明 intent 已不存在才可将模糊响应视为完成。Enrollment 与 pending phase=`enrollment-committed` 在一次 CAS 中提交，Host fence release 成功后才清 pending 并报告 active；release 失败保持可恢复。若 release 成功但 pending cleanup 失败，active Enrollment 和 committed pending 仍共同阻止竞争 join、rename、forget 与 delete，后续恢复只补 cleanup 而不再写文件。renderer close 只令 fence inactive，原 owner identity 与 blocking fence 仍可枚举；Host restart 从 durable pending join 重建它。当前 renderer 自己持有的 exact active fence 直接进入相同证据判断，不冒充“另一个活跃 renderer”。
 
 ### 12.3 Editor attach
 
@@ -816,7 +870,7 @@ resolve EditorContext → DocumentId
 → publish binding ready
 ```
 
-初始化对齐期间不运行普通 file-load filter，也不把初始投影写回 Yjs。`replace-editor` 必须在 Binding 已能接收后续远端 update 的同一临界区内完成，避免读取 Replica 与安装 observer 之间的竞态。
+初始化对齐期间不运行普通 file-load filter，也不把初始投影写回 Yjs。Binding 的 transaction filter 会在 update listener、Y.Text observer、authoritative source 与最终 current-Replica 对齐全部完成前拒绝 Local Proposal；文档在该窗口关闭时会回滚已经安装的所有 hook。`replace-editor` 必须在 Binding 已能接收后续远端 update 的同一临界区内完成，避免读取 Replica 与安装 observer 之间的竞态。
 
 ### 12.4 本地编辑
 
@@ -853,14 +907,14 @@ mark handle/binding quiescing
 → reject new commands
 → publish local Presence tombstone
 → detach editor contributions
-→ flush Replica Store
 → stop/release Provider
 → stop file watcher
+→ drain + flush Replica Store
 → release store lease
 → destroy Awareness/Y.Doc
 ```
 
-所有 release 幂等，并共享同一个进行中的 Promise。
+所有 release 幂等，并共享同一个进行中的 Promise。每层 cleanup 都 best-effort 执行完整 ownership list；单个失败不会 short-circuit 后续 detach/release/flush/destroy，多个失败用 `AggregateError` 聚合并保留 Store failure 的结构化上下文。若 initialize/opening 自身失败，顶层必须保留该稳定 Collaboration error code；cleanup failure 放入可检查的 aggregate cause，不能反向覆盖 opening failure。
 
 ---
 
@@ -872,6 +926,7 @@ mark handle/binding quiescing
 - 使用宿主 `writeAtomic()`，不能直接覆盖半写文件；
 - 写入成功后保存 Projection Base：base Markdown、content hash、关联 state vector/revision、write receipt；
 - watcher 使用 receipt/hash ledger 抑制自身写入回声；
+- `subscribeMarkdown()` 会同步回放当前 snapshot；File Projection 在订阅前先记录同一 live revision/Markdown 作为 observed baseline，并将完全相同的首次回放当成观察确认，不能误标为新编辑或多写一次 metadata CAS；
 - export debounce 与 Replica Store durability 分开，文件未写不影响 CRDT 已持久化状态；
 - 文件写失败进入 `projection.failed`，不能回滚已经协作成功的文本。
 
@@ -895,13 +950,28 @@ incoming  = current disk markdown
 
 用户解决冲突后，resolved text 通过多 hunk diff 写入 Yjs。diff 只负责减少变更范围；安全性来自 base-aware resolution，不来自 diff 本身。
 
+冲突 resolution 同时绑定两侧 generation：`conflictId`/live Collaborative Document revision 与 incoming file version 都必须仍等于 UI 展示的材料。任一侧变化都会生成/保留新的 conflict 并返回 `stale-conflict`，不能让陈旧选择覆盖更新后的 CRDT 或磁盘。
+
+Projection metadata 使用跨窗口 revision CAS。冲突重载后必须再次验证 FileId、DocumentId 和当前 path；并发窗口已推进到目标 rename 时可幂等接受，已推进到其他路径时 fail closed，不能把旧窗口的 path 回滚回去。持久化 envelope、canonical identity 与 Projection Base content hash 都在 load 时校验；reference Host 对 metadata identity 数设 10,000 的有界上限，超限拒绝新 identity 而不写入不可读状态。
+
 ### 13.3 重命名与删除
 
 - rename 更新 DocumentRef/sourcePath，不改变 DocumentId；
 - watcher 必须区分 rename、delete 和 replace；
 - 文件删除默认只让 projection 进入 `missing`，不自动删除 Collaborative Document；
 - 删除远端协作文档需要独立、显式、受授权的 product command；
-- path identity adapter 必须持久化 rename 映射，不能仅依赖当前路径重算 DocumentId。
+- path identity adapter 必须持久化 rename 映射，不能仅依赖当前路径重算 DocumentId；
+- Electron Host 在 matching pending creation intent 存在时拒绝 delete；用户必须先 recovery 或 explicit abandon，避免先删除本地唯一恢复线索；
+- Electron Host 在 overlapping pending join 存在时同样拒绝 rename/delete；先完成恢复，或仅在没有 Projection metadata 时显式 abandon；
+- document-context gate 成功后、trash 前，Host 必须以 storage revision CAS 持久化 path-scoped delete reservation；目录 reservation 覆盖全部 descendants，`beginCreation`、`commitCreation`、`upsert` 与 `rename` 对覆盖路径 fail closed；
+- durable delete reservation 同时映射为 main-process 内按稳定 VaultId 隔离的 mutation fence：已有 projection write 先完成，reserve 才返回；其后所有 renderer/session 的重叠 write、create-folder、rename 与新 projection permit 均拒绝，只有携带 exact operationId 的 trash 可以穿越；renderer/session close 不释放 fence，产品初始化必须从 durable reservation 重建它；
+- Electron File Projection 每次落盘前先取得有界 Host permit，并在 permit 持有期间重新读取 exact Projection Base 与 active Enrollment/pending creation，或携带 exact committed pending-join operation；reservation、tombstone、identity 缺失或 FileId/path/DocumentId 不一致都在文件 I/O 前拒绝。主进程重启产生的新 permit 不能替代 durable authority，已删除 Enrollment 的 stale projection 不能复活路径；遗弃 permit 会超时释放，但已进入文件调用的写入可以先完成；
+- trash 失败可释放 reservation；trash 成功且 Enrollment/Projection coordination 成功时释放（后续 UI refresh 失败不影响）；trash 成功但 coordination 失败时保留 reservation，禁止新 enrollment 复活已删除路径；
+- Vault rename 先做文件系统变更，再协调 active Enrollment/pending intent 和 File Projection；若协调失败，Host 尝试 compensating rename 回原路径并再次补偿 metadata，任一 rollback 失败都通过聚合错误明确报告；
+- forget 或 pending-creation abandon 先读取并验证 exact FileId、DocumentId、path 与 Projection Base revision，再以 CAS 将完整 expected record 移入带 operationId 的 durable tombstone；metadata 删除失败只能恢复仍属于该 operation 的 tombstone，不能用无条件 upsert/beginCreation 覆盖并发 rename。pending-join abandon 不删除 metadata：发现任何 metadata 时直接拒绝并保留 pending/fence；没有 metadata 的显式 abandon 也只释放本地 coordination，不触碰 Markdown；
+- tombstone 与 delete reservation 都必须可枚举为 recovery-required；新 renderer 不得在启动时自动恢复、完成、过期或释放另一个可能仍活跃窗口的 operation。用户显式恢复时，path 缺失则继续 exact descendant Enrollment/Projection cleanup 后释放，path 仍存在则仅在 exact Projection Base 可验证时恢复 tombstone 后 abort/release；
+- open/save/vault switch/rename/delete 与 collaboration opening 共用 document-context transaction；transaction 内再次校验 generation、path、Editor 与 Markdown，禁止旧 UI capture 作用于新文档。
+- directory rename/delete 会投影到所有 descendant watched paths；initial watcher 在首次 read 前已经建立但保持 preparing，期间事件先缓冲，initial reconciliation 完成后才按到达顺序 drain，迟到的旧 path read 不能确认到新 path；initial read/reconcile 同时位于 projection queue 队首，期间观察到的 Collaborative Document update 必须在其后基于最初 document revision 建立的 Projection Base 再协调，不能并发启动另一条 read/write lane；连续 watcher 事件串行处理，rename 期间先建立 replacement watcher 再切换 identity，close/attach-close/move-close 竞态不能遗留新 watcher 或复活已关闭 projection。
 
 ---
 
@@ -960,11 +1030,24 @@ interface CollaborativeDocumentSnapshot {
   lifecycle: "opening" | "open" | "closing" | "closed" | "failed";
   transport: "idle" | "connecting" | "online" | "offline" | "failed";
   sync: "restoring" | "syncing" | "synced" | "stale" | "failed";
-  persistence: "loading" | "clean" | "pending" | "failed";
-  consistency: "healthy" | "catching-up" | "conflicted" | "quarantined";
-  projection: "detached" | "clean" | "dirty" | "missing" | "conflicted" | "failed";
+  authentication:
+    | "not-required"
+    | "authenticating"
+    | "authenticated"
+    | "denied"
+    | "expired"
+    | "failed"
+    | "revoked";
+  access: "none" | "local-only" | "read-only" | "read-write";
+  persistence: "volatile" | "loading" | "clean" | "pending" | "failed";
+  consistency: "healthy" | "catching-up" | "quarantined";
   peers: readonly PeerSnapshot[];
   diagnostic?: CollaborationDiagnostic;
+}
+
+interface FileProjectionSnapshot {
+  projection: "opening" | "clean" | "dirty" | "missing" | "conflicted" | "failed" | "closed";
+  // conflict / diagnostic / generation are projection-owned fields
 }
 ```
 
@@ -973,8 +1056,13 @@ interface CollaborativeDocumentSnapshot {
 - 离线可编辑：`transport=offline, sync=stale, persistence=clean, consistency=healthy`；
 - 网络在线但未完成 initial sync：`transport=online, sync=syncing`；
 - CRDT 已同步但磁盘写失败：`sync=synced, projection=failed`；
-- 外部文件冲突：`consistency=conflicted, projection=conflicted`，网络协作仍可继续；
-- editor/Y.Text 分叉：`consistency=quarantined`，对应 Binding 停止普通编辑。
+- 外部文件冲突：`projection=conflicted`，Collaborative Document consistency 独立保持自身事实，网络协作仍可继续；
+- editor/Y.Text 分叉：`consistency=quarantined`，对应 Binding 停止普通编辑；
+- credential 被拒绝：`authentication=denied, access=none`；
+- credential 已过期：`authentication=expired, access=none`；
+- grant 被撤销：`authentication=revoked, access=none`。
+
+其中 File Projection 状态由 Workflow snapshot 独立组合，不塞回 Collaborative Document 的 consistency 枚举。认证三种终态使用稳定 diagnostics `authentication-denied`、`authentication-expired` 和 `authorization-revoked`；网络断开本身只改变 transport/sync。
 
 ---
 
@@ -986,14 +1074,22 @@ interface CollaborativeDocumentSnapshot {
 - 保持本地编辑和 Replica Store append；
 - 使用 Provider adapter 的 backoff/reconnect；
 - 重连后必须重新完成 sync handshake；
-- 不因 socket reopen 直接标记 synced。
+- 不因 socket reopen 直接标记 synced；
+- denied、expired、revoked 分别保持独立 authentication/diagnostic 并清除 Presence；Host Workflow 暂停自己拥有的 Binding，等待 Host reauthenticate；普通 disconnect 不重写为 auth failure。
+
+reference server 对每个 authenticated document connection 同时限制 pending message 数量与字节数，默认 8 条、2 MiB；认证建立前的缓冲独立采用二者与 transport budget 中更严格的边界。handoff 时 bootstrap queue 可能仍在排空、established gate 已开始接纳，因此瞬时总量以两套 budget 之和为上界，且不超过 authenticated budget 的两倍。越界连接与底层 socket 以稳定的 `authenticated-queue-limit` 关闭，不接纳越界帧。精确 document-size 预检仍需复制并编码完整 Yjs state，因此默认 document cap 收紧为 8 MiB、硬上限采用已测量的 16 MiB 边界，并在持有同房间顺序锁时先让出一次 event loop，使其他房间与 health probe 可以继续推进；server-persistence generation waiter 每个文档硬限制为 64 个。其他默认 request bounds 是 1 MiB WebSocket frame、每 client 16 KiB Awareness state 且单消息最多 64 个 state、4 KiB invitation body，以及 15 分钟 invitation lifetime ceiling。
+
+运行期 revoke 与所有 authenticated inbound message 共用 keyed operation gate。公共 `beforeHandleMessage` 取得 credential turn、在 turn 内复查 durable revocation，并一直持有到 response/apply 与 `afterHandleMessage` 完成；因此 reader SyncStep1、QueryAwareness、Awareness 和 writer update 都覆盖在同一撤销线性化边界内。只有可写 SyncStep2/Update 再按 credential turn → document turn 的固定顺序取得文档锁，并在 event-loop yield 后、candidate validation/Y.Doc mutation 前再次复查。`revokeToken()` 在同一 credential turn 内先持久化撤销，再关闭对应连接。已通过初检的工作要么在 revoke 返回前完成，要么观察到撤销且不再读取、改写或发送受保护状态；reader 同步不会被误判成写入，不同 credential/DocumentId 的工作互不阻塞。
 
 ### 17.2 Replica Store failure
 
 - 立即报告 persistence.failed；
-- 保留有界内存 pending queue；
-- 超过容量或 durability policy 不允许继续时，进入只读/degraded；
+- pending append queue 默认最多 256 个操作、16 MiB，可通过 `storeBackpressure` 收紧；
+- append 失败或超过任一上限后立即停止逐条排队、标记 `persistence="failed"`，后续 live update 只推进 dirty generation，避免慢/挂起 Store 导致无界内存；
+- IndexedDB Store/lease 开始关闭后立即拒绝新操作，但必须先排空关闭前已经接受的 lease 操作再关闭连接；成功 shutdown 不能取消已进入队列的 append；
+- Electron utility shutdown 必须先完成跨 channel MessagePort drain barrier；未收到 renderer drain ack 或 worker durable-cleanup ack 时显式失败，不能以零码退出误报成功；
 - 禁止把 store load failure 当作“没有历史的空文档”；
+- 不确定 append 结果或触发 backpressure 时，`retryPersistence()` 等待旧队列，load durable updates 并幂等合入，再将完整 live Replica snapshot 通过当前 checkpoint 原子替换并 flush；若协调期间 dirty generation 又变化，就重复稳定快照循环；只有稳定版本成功 flush 且没有 pending append 才清除 failure 并回到 `clean`；
 - 可从 Provider 重新拉取后写入新的 store generation，但必须保留原损坏数据用于恢复诊断。
 
 ### 17.3 Binding divergence
@@ -1032,6 +1128,7 @@ interface CollaborativeDocumentSnapshot {
 - DocumentId 和 room routing 不能从未验证的 Awareness 字段推导；
 - avatar URL、display name、color 等远端字段必须清洗；
 - Provider credentials 由 host secrets/network capability 管理，不存入 Y.Doc；
+- 本地 Store identity 必须包含可信的 canonical ServerUrl 与 DocumentId；缺少 ServerUrl provenance 的 bare-key row 必须 quarantine，而不是猜测租户归属；
 - 长时间离线、update journal 和 Awareness peers 必须有资源上限；
 - compaction 与 GC 策略必须经过离线恢复测试，不能只以当前内存占用为依据；
 - 插件卸载后 observer、timer、window listener、provider connection 和 store lease 必须为零。
@@ -1052,6 +1149,7 @@ interface CollaborativeDocumentSnapshot {
 
 - `yjs@13.6.32`：peer dependency + development dependency，确保 host/provider/runtime 使用同一实例；
 - `y-protocols@1.0.7`：direct dependency，用于 Awareness 类型和协议 adapter；
+- `@hocuspocus/provider@4.6.0`：只由显式 `/hocuspocus` browser entry 使用，不进入默认 Engine entry；
 - `y-codemirror.next`：不作为 production binding 依赖；可仅作为行为参考或 spike 对照，不复制其源码；
 - diff/three-way merge 库：在 File Reconciliation OpenSpec 中单独评估许可证、维护状态和 Markdown 语义，不能先锁定。
 
@@ -1061,7 +1159,7 @@ Provider 与 Store 的候选、版本、许可和打包风险记录在配套技�
 
 ## 20. 包与代码归属
 
-建议结构：
+当前实现归属：
 
 ```text
 packages/core/
@@ -1080,35 +1178,35 @@ packages/plugin-runtime/
 
 packages/plugin-collab/
   engine.ts
-  document-registry.ts
-  collaborative-replica.ts
-  editor-binding.ts
-  provider.ts
-  replica-store.ts
-  file-projection.ts
-  reconciliation.ts
-  presence.ts
+  types.ts
   schema.ts
-  state.ts
-  diagnostics.ts
-  testkit/
-  native-plugin/
-    lifecycle-plugin.ts
-    capability.ts
-    index.ts
+  collaboration-workflow.ts
+  file-projection.ts
+  hocuspocus-provider.ts     # explicit browser entry
+  indexeddb-store.ts         # explicit browser entry
+  assessment.ts              # test/developer entry only
 
-host application / separate host adapter package
-  DocumentIdentityAdapter
-  collaboration enrollment policy
-  production ProviderFactory
-  ReplicaStore implementation
-  FileProjectionAdapter
-  auth and conflict UI
+apps/electron-demo/
+  electron/collab-store-worker.ts
+  electron/collab-sqlite-store.ts
+  electron/collab-utility-supervisor.ts
+  renderer/collaboration-enrollment-store.ts
+  renderer/collaboration-scoped-store.ts
+  renderer/collaboration-workspace.ts
+  renderer/document-context-transaction.ts
+  renderer/electron-collaboration-product.ts
+  renderer/collaboration-panel.ts
+  renderer/collaboration-vault-adapters.ts
+
+apps/collab-server/
+  authenticated Hocuspocus reference server
+  token/invitation authority
+  single-node atomic Yjs state store
 ```
 
-`plugin-collab` 默认入口只导出 headless Engine；native plugin adapter 通过独立 subpath 导出，避免 direct-core/React/Vue 调用方引入插件运行时依赖。除非实现时发现现有通用 lifecycle/capability contract 确有缺口，否则不修改 `plugin-api` 或 `plugin-runtime`。
+`plugin-collab` 默认入口导出 browser-safe Engine、Workflow 与 File Projection；真实 Hocuspocus 和 IndexedDB adapters 使用显式 subpath，assessment adapter 也保持独立。这样 direct-core/React/Vue 调用方不会引入 Electron、Node 或 server dependency。当前 Host 直接使用公共 Editor lifecycle 编排，因此没有增加 speculative native plugin adapter，也没有为协作修改 `plugin-api`/`plugin-runtime` 状态机。
 
-`apps/electron-demo` 只能演示 headless capability，不承担账户、邀请或生产服务器。真实产品 adapter 可以在产品仓库实现；Nexus 仓库使用 contract testkit 验证其契约。
+`apps/electron-demo` 现在承担 reference Host integration：v4 Enrollment/pending creation/pending join recovery、跨窗口 identity tombstone/path-delete reservation、内存 credential capability、按 ServerUrl 隔离的 SQLite Replica Store、共享 document-context transaction、Vault File Projection，以及 create/join/resume/leave、邀请、状态、持久化重试和冲突 UI。File 菜单可创建第二个 runtime collaboration window。它仍不是账户系统或生产服务；`apps/collab-server` 是可运行的单节点 reference deployment，外部 Host 仍负责生产身份、TLS、备份、监控、保留和扩展。
 
 ---
 
@@ -1142,23 +1240,36 @@ host application / separate host adapter package
 
 - snapshot + journal restore；
 - append 中途崩溃；
+- append 已 commit 但 response 丢失后的 full-snapshot reconciliation 与重复 retry；
 - compaction 中途崩溃；
 - 重复 update；
 - store corruption；
 - flush failure 与内存 pending 上限；
-- 多进程 adapter contract。
+- 多进程 adapter contract；
+- 同 DocumentId、不同 ServerUrl 的 journal 隔离，以及 legacy bare-key quarantine；
+- v4 pending create/join intent 的 ambiguous-write read-back、进程内恢复、重启 enroll recovery、受约束 explicit abandon，以及 tombstone/path-reservation 恢复；
+- join 在 Host precommit、durable pending、Host commit、`writeAtomic`、Projection Base save、Enrollment CAS、Host release 和 pending clear 各边界的故障恢复。
 
 ### 21.4 File projection
 
 - self-write echo；
+- immediate Markdown subscription replay 不产生虚假 dirty/metadata write；
 - external-only edit；
 - live-only edit；
 - clean three-way merge；
 - overlapping conflict；
-- rename、delete、replace；
+- rename、delete、replace，以及 rename compensation/rollback failure；
+- pending creation delete guard；
+- pending join rename/delete guard，以及有 metadata 时拒绝 abandon；
+- same-Vault 两 renderer/session 的 in-flight projection-write barrier、exact-operation trash、close 后保留、显式跨窗口恢复释放、permit timeout，以及主进程重启后的 stale projection 拒绝；
+- `writeAtomic` 成功但 Projection Base save 失败时保留 exact `base:null` identity，并在恢复时不改写文件地补齐 Enrollment；
+- document-context transaction 下 opening 与 open/save/vault/rename/delete 竞态；
 - CRLF/LF；
 - atomic write failure；
 - conflict resolution 后重新建立 Projection Base。
+- conflict resolution 对 live revision 与 disk version 做双边 generation 校验；
+- 多窗口 metadata CAS、并发 rename 不回滚、envelope/base hash/identity fail closed 和 10,000-entry capacity 拒绝；
+- directory rename/delete、连续 watcher 排序以及 attach/move 与 close 竞态。
 
 ### 21.5 Presence and security
 
@@ -1166,9 +1277,10 @@ host application / separate host adapter package
 - focus/blur/document switch；
 - 恶意 name/color/avatar payload；
 - oversized Awareness/update；
-- auth revoked；
+- auth denied、expired、revoked 与普通 transport disconnect 的区分；
 - unauthorized room；
-- unload 后 listener/connection 泄漏检查。
+- unload 后 listener/connection 泄漏检查；
+- cleanup 单点/多点失败时仍尝试完整 ownership list 并聚合报告。
 
 ### 21.6 性能与长期运行
 
@@ -1186,17 +1298,18 @@ host application / separate host adapter package
 
 ## 22. 单 PR 笔试交付顺序
 
-笔试只允许一个最终 PR，因此使用一个 `add-plugin-collab` change 和一条功能分支，但实现仍按依赖顺序组织为可审查 commit：
+笔试只允许一个最终 PR，因此继续使用一个 `add-plugin-collab` change。旧 PR #296 已关闭，远程分支已删除；用户已在本地验收后授权从 `feat/collab-product-completion` 提交唯一最终 PR。提交不包含版本发布、标签、合并或 OpenSpec 归档。
 
 1. **OpenSpec 与红测：** 冻结本 PR 的 interface、非目标、支持级别和失败 contract；先写 Core authority、收敛、History、IME、Widget 与生命周期失败测试。
 2. **Core authority：** authoritative source、统一 History routing、external-document mode 与 table Markdown-source fallback。
 3. **Headless Engine：** DocumentId、显式 create/open、DocumentRegistry、CollaborativeReplica、readiness、状态与 diagnostics。
 4. **Yjs Binding：** Local Proposal → Y.Text、非本地 Yjs → Authoritative Update、per-Binding UndoManager、divergence Quarantine。
-5. **Assessment adapters：** Provider/Replica Store seam、deterministic in-memory contract adapters 和显式 volatile mode；它们不进入生产支持声明。
-6. **Presence 与集成：** Awareness 安全清洗、direct Core/React/Vue 同一 attach 路径、必要时的薄 native lifecycle adapter，以及 Electron 双 Editor/窗口 demo。
-7. **一次性验证与提交：** Core/包/框架测试、API snapshot、全仓 typecheck/test/build、Electron smoke、人工表格路径、benchmark baseline、OpenSpec strict 和最终 diff 审计。
+5. **真实外部 adapters：** authenticated Hocuspocus Provider/reference server、IndexedDB Store、Electron `node:sqlite` utility broker；assessment adapters 只保留为 deterministic developer tools。
+6. **文件与产品 workflow：** Enrollment、Projection Base、原子写、watcher echo、three-way reconciliation、显式 File Conflict，以及 Electron create/join/resume/leave/reauth/invite UI。
+7. **本地组合资格：** 独立 Engine/SQLite client、真实 loopback server、邀请加入、Editor 收敛、双 Markdown 文件投影、server/client restart 与 offline `local-only` 恢复。
+8. **最终本地验证与一次性提交：** 在最终 tree 上重跑 package/full-repo/API/build/Electron/OpenSpec 检查并完成 diff/secret audit；如用户验收通过，再形成唯一一次提交。packaged multi-renderer、强杀/磁盘故障、跨机器 TLS/Host operations、browser trace、性能和长期运行仍作为明确的 production-qualification 缺口保留，不能用本地通过掩盖。
 
-本 PR 完成时只能声明 `experimental`，但其 Engine/Core seam 是面向最终产品的正式 interface，不是以后需要推翻的临时 MVP。真实 Hocuspocus/Y-Sweet adapter、IndexedDB/SQLite durability、文件三方协调、生产安全/性能/soak 仍按本文后续产品化；未取得对应 Q3–Q8 证据前不得把路线图 #18 标为 done。
+当前功能实现不是以后要推翻的临时 MVP，也不再以 assessment lab 作为完成路径；但支持级别仍只能声明 `experimental`。未取得 Q3–Q8 剩余真实环境证据前，不能把本地 reference deployment 写成 hosted production，也不得把路线图 #18 标为 `done`。
 
 ---
 
@@ -1236,46 +1349,56 @@ host application / separate host adapter package
 
 ---
 
-## 24. 已冻结的产品基线与后续 Host 输入
+## 24. 已实现的产品基线与后续 Host 输入
 
-`docs/superpowers/specs/2026-09-03-plugin-collab-product-decisions.md` 已为后续 OpenSpec 冻结以下默认基线：
+`docs/superpowers/specs/2026-09-03-plugin-collab-product-decisions.md` 冻结的以下默认基线已经在当前 working tree 落地：
 
 - 默认入口 browser-safe；Chromium 承担 Engine/DOM/framework 自动化资格，Electron 承担多 renderer、broker、文件和恢复集成资格；
 - `DocumentId` 是与 `FileId`/路径分离的 opaque 128-bit UUID，单文档显式 Enrollment，create 与 join 分离；
-- Provider 通过 authenticated WebSocket seam；Hocuspocus 4.6 为首个生产候选，Y-Sweet 0.9.1 为第二候选，`y-websocket` 小型 server 只用于测试；
-- browser 使用 IndexedDB 类 Store，Electron 使用单 utility-process broker 的 SQLite append journal + atomic snapshot；
+- Electron Enrollment v4 在远端 create 前持久化 non-secret pending-create intent，并在 invitation projection 前持久化 exact pending-join intent；支持 ambiguous-write read-back、进程内或重启后的证据化恢复、受约束且不改文件的 explicit abandon，以及显式 tombstone/path-reservation 恢复；
+- Provider 通过 authenticated WebSocket seam；显式 Hocuspocus 4.6 browser adapter 与同版本单节点 reference server 已实现，替代 Provider 不属于本轮；
+- denied/expired/revoked 使用独立 authentication 状态和稳定 diagnostic；普通断网只属于 transport/sync；
+- browser 使用原生 IndexedDB Store，Electron 使用单 utility-process broker 的内置 `node:sqlite` append journal + checkpoint-safe atomic snapshot，并以 `(canonical ServerUrl, DocumentId)` 派生本地 key；旧 bare-key rows quarantine；
 - CRDT → file 是基本路径，外部文件导入必须基于 Projection Base 和经过资格验证的 three-way merge；
+- Electron 以共享 document-context transaction 防止 stale opening；同一 Vault 的 invitation join 使用 Host `precommit` → durable pending join → Host `committed`，Enrollment CAS 后 release 再 clear pending；renderer crash 保留可枚举 inactive fence，Host restart 从 durable intent 重建，竞争 join 不得先改写本地文件；delete 采用 Host `precommit` → durable reservation → `committed` 两阶段 fence，并对协调失败的 rename 做 compensating rollback；
 - 第一批要求传输加密和最小权限 token，不默认承诺 E2EE；
 - comments/@mention 不与 #18 同时实现，只预留独立 shared collection 和 migration 机制。
+- Electron reference Host 使用一个 Collaboration Workspace 编排 create/join/resume/leave、pending recovery/abandon、邀请、reauthentication、persistence retry、状态和 File Conflict UI；pending-join 状态、safe recovery、同 invitation retry 与受约束 abandon 在面板可见；用户可从 File 菜单打开第二个 runtime window，assessment lab 只保留为开发工具。
 
-这些是架构输入，不替 Host 做部署选择。进入 Provider/Persistence/File Reconciliation 实现前，具体 Host 仍必须批准并记录：
+这些是架构输入，不替 Host 做生产部署选择。在任何 `production-supported` 声明或外部部署前，具体 Host 仍必须批准并记录：
 
 1. 生产 Provider 部署拓扑、账户/token 签发、权限撤销和 server durable acknowledgement 语义；
-2. `Host document identity ↔ DocumentId` 的具体持久化位置和迁移策略；
+2. `Host document identity ↔ DocumentId` 从当前 reference metadata 迁移到产品数据模型的版本与恢复策略；
 3. 服务端数据保留、备份、恢复、容量与性能 SLO；
 4. 外部文件自动导入 policy，以及冲突解决 UI 的产品归属和验收步骤；
-5. Electron 升级目标与 `better-sqlite3` packaged-app spike 的目标平台；
+5. Electron `node:sqlite` utility process 的目标平台、packaged-app、renderer crash 与强杀恢复矩阵；
 6. 若产品需要 E2EE，另立会改变 Provider、搜索、审计、恢复和密钥生命周期的 OpenSpec change。
 
-单一 `add-plugin-collab` 已覆盖笔试 PR 的 Core authority、Engine、Yjs Binding、assessment adapters、Presence 和集成要求，并通过严格校验。上述 Host 部署选择不阻塞 assessment implementation，但它们仍是任何 `production-supported` 声明的硬前置条件。
+单一 `add-plugin-collab` 现在覆盖 Core authority、Engine/Yjs Binding、真实 Provider、浏览器与 Electron durability、File Projection、Presence 和 Host workflow。上述 Host 部署输入不阻塞本地 `experimental` 功能路径，但仍是任何 `production-supported` 声明的硬前置条件。
 
 ---
 
-## 25. 最终完成定义
+## 25. 本地功能完成与生产支持定义
 
-`plugin-collab` 只有同时满足以下条件，才能被称为真实可用需求而非演示：
+当前 working tree 的本地功能路径已经超出双 Editor 演示，包含：
 
-- Headless Engine 可由 direct EditorAPI 使用，native plugin adapter 不包含第二份协作状态机；
+- Headless Engine 可由 direct EditorAPI 使用，Host lifecycle 直接消费公共 handle；当前没有增加 speculative native plugin adapter 或第二份协作状态机；
 - create/join、内容 readiness、Engine/Binding owner 和稳定 DocumentId 具有明确且可测试的语义；
 - 本地/远端事务不会因 Nexus filters 产生静默分叉；
 - 所有可编辑 Widget 在协作模式下不存在未提交文本黑洞；
-- 至少一个真实产品 Provider adapter 完成端到端资格验证；
-- Replica Store 支持离线、重启和故障恢复；
-- Presence 有协议、安全和退出语义；
-- Markdown 文件投影具有 Projection Base、原子写入和显式 conflict；
-- 多窗口/多设备、网络分区、崩溃和外部文件修改测试通过；
+- Hocuspocus Provider 与 authenticated reference server 完成 loopback 端到端验证；
+- IndexedDB 与 Electron SQLite Replica Store 支持离线、重开、checkpoint compaction 和显式故障；
+- 相同 DocumentId 在不同 ServerUrl 下使用隔离的本地 journal；没有 server provenance 的 legacy bare key 不被自动认领；
+- ambiguous Store append 可通过完整 Replica checkpoint replacement + flush 显式 retry，失败不会永久毒化 Engine；
+- Presence 有协议、安全、远端 peer 与退出语义；
+- Markdown 文件投影具有 Projection Base、乐观原子写入、watcher echo、three-way reconciliation 和显式 conflict；
+- Electron Collaborate 入口使用真实 Workspace、Provider、Store、文件 adapter、v4 pending-create/pending-join/tombstone/path-reservation 恢复 UI 和共享 document-context transaction；File 菜单提供第二个 runtime window，assessment lab 仅是开发工具；
 - diagnostics 能区分 transport、sync、persistence、consistency 和 projection；
-- Engine close、插件卸载、framework unmount、editor detach、document close 后无资源泄漏；
+- Engine close、插件卸载、framework unmount、editor detach、document close 使用幂等 best-effort aggregate cleanup；组件级检查未发现残留 owner resource；
 - OpenSpec requirements、implementation tasks、文档和支持级别与实际证据一致。
 
-在这些条件之外，把 Y.Text 绑定到两个 EditorView 只能证明 CRDT 库能工作，不能证明 Nexus 已经具备真实协作能力。
+`production-supported` 仍额外要求真实 packaged 多 renderer/utility-process 端到端、renderer 与事务故障点强杀、目标平台和跨机器 TLS/身份/备份运维、真实 browser trace、性能/背压基线、安全审查和长期 soak 全部达到 Q3–Q8。当前缺少这些证据，因此 Roadmap #18 保持 `in-progress`，OpenSpec change 保持 active。
+
+结论：当前是可运行、可恢复、可处理文件冲突的真实 `experimental` Host implementation，不是 assessment demo；它也不是已经完成生产资格的托管协作服务。旧 PR #296 已关闭，完成本地验收的候选由 `feat/collab-product-completion` 作为唯一最终 PR 提交。
+
+2026-09-04 的桌面网络收口采用 Host 启动时的 `NEXUS_COLLAB_SERVERS` 精确信任列表、安全 `nexus-app://editor/` 页面来源及启动前 CSP、仅支持固定邀请路由的 Main broker。Provider 与 invitation 都不能通过面板输入扩大信任边界。部署模板和本地真实窗口/TLS 验收的具体边界见 [产品决策 §11](./2026-09-03-plugin-collab-product-decisions.md) 与 [qualification 记录](./2026-09-03-plugin-collab-qualification.md)。

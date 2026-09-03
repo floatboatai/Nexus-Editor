@@ -17,6 +17,7 @@ import type {
   EditorDomEventHook,
   EditorDomEventHookOptions,
   EditorDomEventType,
+  EditorDestroyListener,
   EditorInputTarget,
 } from "@floatboat/nexus-core";
 import { describe, expect, it, vi } from "vitest";
@@ -106,6 +107,13 @@ class FakeContributionSink implements EditorContributionSink {
       dispatch: () => ({ status: "rejected", ownerId, reason: "fake-source" }),
       dispatchTransactions: () => ({ status: "rejected", ownerId, reason: "fake-source" }),
     };
+  }
+
+  registerDestroyListener(
+    ownerId: string,
+    listener: EditorDestroyListener,
+  ): EditorContributionRegistration {
+    return this.add(ownerId, "destroy-listener", listener);
   }
 
   isInteractionActive(): boolean {
