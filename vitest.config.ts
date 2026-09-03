@@ -22,6 +22,10 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    setupFiles: ["./vitest.setup.ts"]
+    setupFiles: ["./vitest.setup.ts"],
+    // Electron demo boot/integration tests each mount a full renderer app
+    // (multi-second boots); under full-suite worker load they occasionally
+    // exceed the 5s default. 15s only raises the ceiling for slow boots.
+    testTimeout: 15000
   }
 });
