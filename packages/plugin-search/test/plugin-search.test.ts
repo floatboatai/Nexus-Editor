@@ -255,6 +255,23 @@ describe("@floatboat/nexus-plugin-search", () => {
     ]);
   });
 
+  it("supports whole-word matching for Unicode text", () => {
+    expect(findSearchMatches("你好 你好世界 世界你好 你好", "你好", { wholeWord: true })).toEqual([
+      { from: 0, to: 2, text: "你好" },
+      { from: 13, to: 15, text: "你好" }
+    ]);
+    expect(findSearchMatches("cafe cafe\u0301 café", "café", { wholeWord: true })).toEqual([
+      { from: 11, to: 15, text: "café" }
+    ]);
+  });
+
+  it("treats punctuation-heavy queries as whole words", () => {
+    expect(findSearchMatches("C++ C++Builder C++", "C++", { wholeWord: true })).toEqual([
+      { from: 0, to: 3, text: "C++" },
+      { from: 15, to: 18, text: "C++" }
+    ]);
+  });
+
   it("replaces all matches in a document", () => {
     expect(replaceAllMatches("cat scatter cat", "cat", "dog")).toBe("dog sdogter dog");
   });
@@ -262,6 +279,12 @@ describe("@floatboat/nexus-plugin-search", () => {
   it("replaces only whole-word matches", () => {
     expect(replaceAllMatches("cat catalog cat concatenate", "cat", "dog", { wholeWord: true })).toBe(
       "dog catalog dog concatenate"
+    );
+  });
+
+  it("replaces only complete Unicode words", () => {
+    expect(replaceAllMatches("你好 你好世界 你好", "你好", "再见", { wholeWord: true })).toBe(
+      "再见 你好世界 再见"
     );
   });
 

@@ -623,16 +623,15 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp | null {
-  const flags = options.caseSensitive ? "g" : "gi";
+const UNICODE_WORD_CHARACTER = "[\\p{L}\\p{M}\\p{N}\\p{Pc}]";
 
-  let pattern: string;
-  if (options.regexp) {
-    pattern = options.wholeWord ? `\\b(?:${query})\\b` : query;
-  } else {
-    const escaped = escapeRegExp(query);
-    pattern = options.wholeWord ? `\\b${escaped}\\b` : escaped;
-  }
+function buildSearchPattern(query: string, options: SearchOptions = {}): RegExp | null {
+  const flags = options.caseSensitive ? "gu" : "giu";
+
+  const source = options.regexp ? query : escapeRegExp(query);
+  const pattern = options.wholeWord
+    ? `(?<!${UNICODE_WORD_CHARACTER})(?:${source})(?!${UNICODE_WORD_CHARACTER})`
+    : source;
 
   try {
     return new RegExp(pattern, flags);
