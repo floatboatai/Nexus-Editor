@@ -1,6 +1,7 @@
 import type { NexusPlugin } from "@floatboat/nexus-core";
 import { colorDecorationExtension } from "./color-decoration";
 import {
+  createLocalizedSlashCommands,
   insertLink,
   toolbarSlashCommands,
   toggleBold,
@@ -8,12 +9,14 @@ import {
   toggleInlineCode,
   toggleItalic,
   toggleStrikethrough,
+  type SlashCommandLabels,
 } from "./toolbar-commands";
 
 export { toggleBlockquote, toggleOrderedList, toggleUnorderedList, insertCodeBlock, insertImage, insertHorizontalRule, applyTextColor, applyHighlight } from "./formatting";
 export { createToolbarUI } from "./toolbar-ui";
 export { colorDecorationExtension } from "./color-decoration";
-export type { ToolbarUI, ToolbarUIOptions, ToolbarButton, ToolbarGroup } from "./toolbar-ui";
+export type { ToolbarUI, ToolbarUIOptions, ToolbarButton, ToolbarGroup, ToolbarUILabels } from "./toolbar-ui";
+export { createLocalizedSlashCommands, type SlashCommandLabels } from "./toolbar-commands";
 export {
   insertLink,
   toolbarSlashCommands,
@@ -25,7 +28,7 @@ export {
   toggleWrap,
 } from "./toolbar-commands";
 
-export function createToolbarPlugin(): NexusPlugin {
+export function createToolbarPlugin(options?: { slashLabels?: SlashCommandLabels }): NexusPlugin {
   return {
     name: "plugin-toolbar",
     shortcuts: [
@@ -38,7 +41,7 @@ export function createToolbarPlugin(): NexusPlugin {
       { key: "Mod-2", run: (e) => toggleHeading(e, 2) },
       { key: "Mod-3", run: (e) => toggleHeading(e, 3) },
     ],
-    slashCommands: toolbarSlashCommands,
+    slashCommands: createLocalizedSlashCommands(options?.slashLabels),
     cmExtensions: [colorDecorationExtension()],
   };
 }

@@ -38,6 +38,7 @@ import {
   iconHighlight,
   iconImage,
   iconFullscreen,
+  iconMore,
 } from "./icons";
 
 export interface ToolbarButton {
@@ -51,8 +52,18 @@ export interface ToolbarGroup {
   buttons: ToolbarButton[];
 }
 
+export interface ToolbarUILabels {
+  /** Label for the overflow "more" button (aria + tooltip). */
+  more?: string;
+  /** Per-action title overrides for the default button groups. */
+  buttons?: Partial<Record<string, string>>;
+  /** Heading dropdown item label for a level (0 = normal text). */
+  heading?: (level: number) => string;
+}
+
 export interface ToolbarUIOptions {
   groups?: ToolbarGroup[];
+  labels?: ToolbarUILabels;
   onFullscreen?: () => void;
 }
 
@@ -89,6 +100,26 @@ function installToolbarTooltip(button: HTMLButtonElement): () => void {
   tooltip.className = "nexus-toolbar-tooltip";
   tooltip.id = `nexus-toolbar-tooltip-${++tooltipId}`;
   tooltip.setAttribute("role", "tooltip");
+  // Must be out of flow: an unstyled static div appended to document.body
+  // would push the document taller on hover (scrollbar flicker / reflow).
+  tooltip.style.cssText = `
+    position: fixed;
+    left: 0;
+    top: 0;
+    transform: translateX(-50%);
+    background: var(--nexus-bg, #fff);
+    border: 1px solid var(--nexus-border, #eee);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    padding: 3px 8px;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--nexus-text, #24292e);
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 10001;
+  `;
   button.setAttribute("aria-describedby", tooltip.id);
 
   const show = () => {
@@ -133,56 +164,58 @@ function installToolbarTooltip(button: HTMLButtonElement): () => void {
 }
 
 function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
+  const titles = options?.labels?.buttons ?? {};
+  const title = (id: string, fallback: string): string => titles[id] ?? fallback;
   return [
     {
       buttons: [
-        { id: "undo", title: "Undo", icon: iconUndo, action: (e) => e.undo() },
-        { id: "redo", title: "Redo", icon: iconRedo, action: (e) => e.redo() },
+        { id: "undo", title: title("undo", "Undo"), icon: iconUndo, action: (e) => e.undo() },
+        { id: "redo", title: title("redo", "Redo"), icon: iconRedo, action: (e) => e.redo() },
       ],
     },
     {
       buttons: [
-        { id: "link", title: "Insert link", icon: iconLink, action: insertLink },
+        { id: "link", title: title("link", "Insert link"), icon: iconLink, action: insertLink },
       ],
     },
     {
       buttons: [
-        { id: "h2", title: "Heading 2", icon: iconH2, action: (e) => toggleHeading(e, 2) },
-        { id: "h3", title: "Heading 3", icon: iconH3, action: (e) => toggleHeading(e, 3) },
-        { id: "heading-menu", title: "More headings", icon: iconHeadingMenu, action: () => {} },
+        { id: "h2", title: title("h2", "Heading 2"), icon: iconH2, action: (e) => toggleHeading(e, 2) },
+        { id: "h3", title: title("h3", "Heading 3"), icon: iconH3, action: (e) => toggleHeading(e, 3) },
+        { id: "heading-menu", title: title("heading-menu", "More headings"), icon: iconHeadingMenu, action: () => {} },
       ],
     },
     {
       buttons: [
-        { id: "bold", title: "Bold", icon: iconBold, action: toggleBold },
-        { id: "italic", title: "Italic", icon: iconItalic, action: toggleItalic },
-        { id: "strikethrough", title: "Strikethrough", icon: iconStrikethrough, action: toggleStrikethrough },
-        { id: "underline", title: "Underline", icon: iconUnderline, action: (e) => toggleWrap(e, "<u>") },
-        { id: "inline-code", title: "Inline code", icon: iconInlineCode, action: toggleInlineCode },
+        { id: "bold", title: title("bold", "Bold"), icon: iconBold, action: toggleBold },
+        { id: "italic", title: title("italic", "Italic"), icon: iconItalic, action: toggleItalic },
+        { id: "strikethrough", title: title("strikethrough", "Strikethrough"), icon: iconStrikethrough, action: toggleStrikethrough },
+        { id: "underline", title: title("underline", "Underline"), icon: iconUnderline, action: (e) => toggleWrap(e, "<u>") },
+        { id: "inline-code", title: title("inline-code", "Inline code"), icon: iconInlineCode, action: toggleInlineCode },
       ],
     },
     {
       buttons: [
-        { id: "blockquote", title: "Blockquote", icon: iconBlockquote, action: toggleBlockquote },
-        { id: "code-block", title: "Code block", icon: iconCodeBlock, action: insertCodeBlock },
+        { id: "blockquote", title: title("blockquote", "Blockquote"), icon: iconBlockquote, action: toggleBlockquote },
+        { id: "code-block", title: title("code-block", "Code block"), icon: iconCodeBlock, action: insertCodeBlock },
       ],
     },
     {
       buttons: [
-        { id: "ordered-list", title: "Ordered list", icon: iconOrderedList, action: toggleOrderedList },
-        { id: "unordered-list", title: "Unordered list", icon: iconUnorderedList, action: toggleUnorderedList },
+        { id: "ordered-list", title: title("ordered-list", "Ordered list"), icon: iconOrderedList, action: toggleOrderedList },
+        { id: "unordered-list", title: title("unordered-list", "Unordered list"), icon: iconUnorderedList, action: toggleUnorderedList },
       ],
     },
     {
       buttons: [
-        { id: "text-color", title: "Text color", icon: iconTextColor, action: () => {} },
-        { id: "highlight", title: "Highlight", icon: iconHighlight, action: () => {} },
+        { id: "text-color", title: title("text-color", "Text color"), icon: iconTextColor, action: () => {} },
+        { id: "highlight", title: title("highlight", "Highlight"), icon: iconHighlight, action: () => {} },
       ],
     },
     {
       buttons: [
-        { id: "image", title: "Insert image", icon: iconImage, action: insertImage },
-        { id: "fullscreen", title: "Fullscreen", icon: iconFullscreen, action: () => options?.onFullscreen?.() },
+        { id: "image", title: title("image", "Insert image"), icon: iconImage, action: insertImage },
+        { id: "fullscreen", title: title("fullscreen", "Fullscreen"), icon: iconFullscreen, action: () => options?.onFullscreen?.() },
       ],
     },
   ];
@@ -190,14 +223,15 @@ function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
 
 const TOOLBAR_STYLES = `
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 2px;
+  gap: 4px 2px;
   padding: 6px 12px;
   background: var(--nexus-bg-subtle, #f6f8fa);
   border-bottom: 1px solid var(--nexus-border, #eee);
   user-select: none;
   flex-shrink: 0;
-  overflow-x: auto;
+  overflow: hidden;
   font-family: system-ui, -apple-system, sans-serif;
 `;
 
@@ -257,6 +291,7 @@ function showHeadingDropdown(
   editor: EditorAPI,
   anchorBtn: HTMLElement,
   onClose: () => void,
+  headingLabel?: (level: number) => string,
 ): { destroy: () => void } {
   const menu = document.createElement("div");
   menu.className = "nexus-toolbar-dropdown";
@@ -266,6 +301,9 @@ function showHeadingDropdown(
   const rect = anchorBtn.getBoundingClientRect();
   menu.style.top = rect.bottom + 4 + "px";
   menu.style.left = rect.left + "px";
+
+  const labelFor = (level: number, fallback: string): string =>
+    headingLabel ? headingLabel(level) : fallback;
 
   const levels = [
     { level: 1, label: "Heading 1", fontSize: "17px", fontWeight: "700" },
@@ -279,10 +317,10 @@ function showHeadingDropdown(
 
   const itemCleanups: Array<() => void> = [];
 
-  for (const { level, label, fontSize, fontWeight } of levels) {
+  for (const { level, fontSize, fontWeight } of levels) {
     const item = document.createElement("button");
     item.type = "button";
-    item.textContent = label;
+    item.textContent = labelFor(level, levels.find((l) => l.level === level)!.label);
     item.style.cssText = DROPDOWN_ITEM_STYLES;
     item.style.fontSize = fontSize;
     item.style.fontWeight = fontWeight;
@@ -451,18 +489,59 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
   toolbar.style.cssText = TOOLBAR_STYLES;
 
   const cleanupFns: Array<() => void> = [];
-  let activeDropdown: { destroy: () => void } | null = null;
-  let outsideHandler: ((e: MouseEvent) => void) | null = null;
+  // --- Single-row overflow folding bookkeeping ---
+  const rowItems: HTMLElement[] = [];
+  const rowButtons = new Map<HTMLElement, ToolbarButton>();
+  const baseStyles = new Map<HTMLElement, string>();
+  let hiddenFrom = rowItems.length;
 
-  function closeDropdown() {
-    if (activeDropdown) {
-      activeDropdown.destroy();
-      activeDropdown = null;
+  // At most one special panel (heading / color) is open at a time.
+  let activePanel: { destroy: () => void } | null = null;
+  let outsideHandler: ((e: MouseEvent) => void) | null = null;
+  /** When true the overflow "more" button has expanded all buttons into rows. */
+  let expanded = false;
+
+  function closePanel() {
+    if (activePanel) {
+      activePanel.destroy();
+      activePanel = null;
     }
+  }
+  function clearOutsideHandler() {
     if (outsideHandler) {
       document.removeEventListener("mousedown", outsideHandler, true);
       outsideHandler = null;
     }
+  }
+  function closeDropdown() {
+    closePanel();
+    clearOutsideHandler();
+  }
+
+  function ensureOutsideHandler(anchor: HTMLElement) {
+    clearOutsideHandler();
+    outsideHandler = (ev: MouseEvent) => {
+      const t = ev.target as Node | null;
+      if (!t) return;
+      let inside = anchor.contains(t);
+      document.querySelectorAll<HTMLElement>(".nexus-toolbar-dropdown").forEach((d) => {
+        if (d.contains(t)) inside = true;
+      });
+      if (!inside) closeDropdown();
+    };
+    document.addEventListener("mousedown", outsideHandler, true);
+  }
+
+  function openSpecialPanel(anchor: HTMLElement, id: string) {
+    closePanel();
+    if (id === "heading-menu") {
+      activePanel = showHeadingDropdown(editor, anchor, closePanel, options?.labels?.heading);
+    } else if (id === "text-color") {
+      activePanel = showColorPicker(editor, anchor, COLOR_PALETTE, applyTextColor, closePanel);
+    } else if (id === "highlight") {
+      activePanel = showColorPicker(editor, anchor, HIGHLIGHT_PALETTE, applyHighlight, closePanel);
+    }
+    ensureOutsideHandler(anchor);
   }
 
   function applyHover(btn: HTMLElement) {
@@ -480,6 +559,8 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
       sep.className = "nexus-toolbar-separator";
       sep.style.cssText = SEPARATOR_STYLES;
       toolbar.appendChild(sep);
+      rowItems.push(sep);
+      baseStyles.set(sep, SEPARATOR_STYLES);
     }
 
     for (const btn of group.buttons) {
@@ -502,25 +583,22 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
           e.preventDefault();
           e.stopPropagation();
 
-          if (activeDropdown) { closeDropdown(); return; }
-
-          if (btn.id === "heading-menu") {
-            activeDropdown = showHeadingDropdown(editor, button, closeDropdown);
-          } else if (btn.id === "text-color") {
-            activeDropdown = showColorPicker(editor, button, COLOR_PALETTE, applyTextColor, closeDropdown);
-          } else if (btn.id === "highlight") {
-            activeDropdown = showColorPicker(editor, button, HIGHLIGHT_PALETTE, applyHighlight, closeDropdown);
+          if (button.closest(".nexus-toolbar-overflow-menu")) {
+            // Clicked from inside the overflow menu: anchor the panel to this
+            // menu item and keep the menu open (items leave the DOM on close).
+            if (activePanel) {
+              closePanel();
+              return;
+            }
+            openSpecialPanel(button, btn.id);
+            return;
           }
 
-          outsideHandler = (ev: MouseEvent) => {
-            const dropdownEl = document.querySelector(".nexus-toolbar-dropdown");
-            if (!button.contains(ev.target as Node) && (!dropdownEl || !dropdownEl.contains(ev.target as Node))) {
-              closeDropdown();
-            }
-          };
-          requestAnimationFrame(() => {
-            if (outsideHandler) document.addEventListener("mousedown", outsideHandler, true);
-          });
+          if (activePanel) {
+            closeDropdown();
+            return;
+          }
+          openSpecialPanel(button, btn.id);
         };
 
         button.addEventListener("click", handleClick);
@@ -534,6 +612,9 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
           closeDropdown();
         });
         toolbar.appendChild(button);
+        rowItems.push(button);
+        rowButtons.set(button, btn);
+        baseStyles.set(button, BUTTON_STYLES);
         continue;
       }
 
@@ -557,7 +638,111 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
       });
 
       toolbar.appendChild(button);
+      rowItems.push(button);
+      rowButtons.set(button, btn);
+      baseStyles.set(button, BUTTON_STYLES);
     }
+  });
+
+  // --- Overflow folding: single visible row + "more" dropdown for the rest ---
+  const moreButton = document.createElement("button");
+  moreButton.type = "button";
+  moreButton.className = "nexus-toolbar-btn nexus-toolbar-more";
+  const moreLabel = options?.labels?.more ?? "More toolbar actions";
+  moreButton.dataset.toolbarTooltip = options?.labels?.more ?? "More";
+  moreButton.setAttribute("aria-label", moreLabel);
+  moreButton.setAttribute("aria-expanded", "false");
+  moreButton.tabIndex = -1;
+  moreButton.style.cssText = BUTTON_STYLES;
+  moreButton.style.display = "none";
+  moreButton.appendChild(iconMore());
+  toolbar.appendChild(moreButton);
+
+  /** Reset every row item to its base style (used on expand and before fold). */
+  function showAllItems() {
+    for (const el of rowItems) {
+      el.style.cssText = baseStyles.get(el) ?? "";
+      el.querySelector(".nexus-toolbar-overflow-label")?.remove();
+      toolbar.insertBefore(el, moreButton);
+    }
+    moreButton.style.display = "";
+  }
+
+  function relayout() {
+    const toolbarRect = toolbar.getBoundingClientRect();
+    if (!toolbar.isConnected || toolbarRect.width <= 0) return;
+    closeDropdown();
+    // Right padding (12) + room for the more button (30 wide + 2 gap).
+    const boundary = toolbarRect.right - 12 - 34;
+
+    if (expanded) {
+      // Keep every button visible while expanded; only auto-collapse once the
+      // full row fits again (so the more button disappears naturally).
+      for (const el of rowItems) {
+        if (el.getBoundingClientRect().right > boundary) return;
+      }
+      expanded = false;
+      moreButton.setAttribute("aria-expanded", "false");
+      moreButton.style.display = "none";
+      return;
+    }
+    showAllItems();
+
+    hiddenFrom = rowItems.length;
+    for (let i = 0; i < rowItems.length; i++) {
+      const r = rowItems[i].getBoundingClientRect();
+      if (r.right > boundary) {
+        hiddenFrom = i;
+        break;
+      }
+    }
+    if (hiddenFrom === rowItems.length) return;
+    for (let i = hiddenFrom; i < rowItems.length; i++) {
+      rowItems[i].style.display = "none";
+    }
+    moreButton.style.display = "";
+  }
+
+  const handleMoreClick = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    closePanel();
+    expanded = !expanded;
+    moreButton.setAttribute("aria-expanded", String(expanded));
+    if (expanded) {
+      // Expand: reveal all buttons — the toolbar container wraps into rows.
+      showAllItems();
+    } else {
+      // Collapse back to the single visible row with overflow folded.
+      relayout();
+    }
+  };
+  moreButton.addEventListener("click", handleMoreClick);
+  const handleMoreHoverEnter = () => applyHover(moreButton);
+  const handleMoreHoverLeave = () => clearHover(moreButton);
+  moreButton.addEventListener("mouseenter", handleMoreHoverEnter);
+  moreButton.addEventListener("mouseleave", handleMoreHoverLeave);
+  const cleanupMoreTooltip = installToolbarTooltip(moreButton);
+
+  const onWindowResize = () => relayout();
+  window.addEventListener("resize", onWindowResize);
+  let toolbarObserver: ResizeObserver | null = null;
+  if (typeof ResizeObserver !== "undefined") {
+    toolbarObserver = new ResizeObserver(() => relayout());
+    toolbarObserver.observe(toolbar);
+  }
+  // First layout pass once the toolbar is connected and measurable.
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(relayout);
+  }
+
+  cleanupFns.push(() => {
+    moreButton.removeEventListener("click", handleMoreClick);
+    moreButton.removeEventListener("mouseenter", handleMoreHoverEnter);
+    moreButton.removeEventListener("mouseleave", handleMoreHoverLeave);
+    cleanupMoreTooltip();
+    window.removeEventListener("resize", onWindowResize);
+    toolbarObserver?.disconnect();
   });
 
   return {
