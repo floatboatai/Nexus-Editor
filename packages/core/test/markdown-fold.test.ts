@@ -64,17 +64,49 @@ describe("markdown fold", () => {
 
   // ── Code block fold ──
 
-  it("provides fold range for fenced code block", () => {
-    const doc = "```js\nconsole.log(1)\nconsole.log(2)\n```";
+  it.each([
+    ["an equal-length backtick fence", "```js", "```"],
+    ["a backtick fence longer by one character", "```js", "````"],
+    ["a backtick fence longer by multiple characters", "```js", "``````"],
+    ["an equal-length tilde fence", "~~~js", "~~~"],
+    ["a longer tilde fence", "~~~js", "~~~~~"],
+    ["a fence with trailing spaces", "```js", "```  "],
+    ["a fence with a trailing tab", "```js", "```\t"]
+  ])("folds a code block closed by %s", (_description, opener, closer) => {
+    const doc = `${opener}\nconsole.log(1)\n${closer}\nAfter`;
     const view = createView(doc);
-    const line = view.state.doc.line(1); // "```js"
+    const line = view.state.doc.line(1);
     const range = foldable(view.state, line.from, line.to);
 
     expect(range).not.toBeNull();
     expect(range!.from).toBe(line.to);
-    // Should fold to end of closing fence
-    const lastLine = view.state.doc.line(4); // "```"
-    expect(range!.to).toBe(lastLine.to);
+    expect(range!.to).toBe(view.state.doc.line(3).to);
+    view.destroy();
+  });
+
+  it.each([
+    ["a shorter fence", "````js", "```", "````"],
+    ["a different fence character", "```js", "~~~", "```"],
+    ["non-whitespace trailing content", "```js", "```x", "```"]
+  ])("does not close a code block with %s", (_description, opener, candidate, closer) => {
+    const doc = `${opener}\ncode\n${candidate}\nstill code\n${closer}`;
+    const view = createView(doc);
+    const line = view.state.doc.line(1);
+    const range = foldable(view.state, line.from, line.to);
+
+    expect(range).not.toBeNull();
+    expect(range!.to).toBe(view.state.doc.line(5).to);
+    view.destroy();
+  });
+
+  it("does not fold Markdown after a longer closing fence", () => {
+    const doc = "```js\ncode\n`````\nAfter\n```";
+    const view = createView(doc);
+    const line = view.state.doc.line(1);
+    const range = foldable(view.state, line.from, line.to);
+
+    expect(range).not.toBeNull();
+    expect(range!.to).toBe(view.state.doc.line(3).to);
     view.destroy();
   });
 

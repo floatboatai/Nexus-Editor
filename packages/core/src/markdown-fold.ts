@@ -43,11 +43,11 @@ export function markdownFoldService(): Extension {
     if (fenceMatch) {
       const fenceChar = fenceMatch[1][0]; // ` or ~
       const fenceLen = fenceMatch[1].length;
+      const closingFenceRe = new RegExp(`^[ \\t]*${fenceChar}{${fenceLen},}[ \\t]*$`);
       // Find closing fence
       for (let i = line.number + 1; i <= state.doc.lines; i++) {
         const nextLine = state.doc.line(i);
-        const trimmed = nextLine.text.trimStart();
-        if (trimmed.startsWith(fenceChar.repeat(fenceLen)) && trimmed.trim().length <= fenceLen + 1) {
+        if (closingFenceRe.test(nextLine.text)) {
           return { from: line.to, to: nextLine.to };
         }
       }
