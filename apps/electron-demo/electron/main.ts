@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol, session, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, session, shell } from "electron";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promises";
 import { existsSync, watch, type FSWatcher } from "node:fs";
@@ -102,6 +102,14 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
   const window = new BrowserWindow({
     width: 1024,
     height: 768,
+    // Hide the native title bar / menu chrome: the demo app draws its own
+    // top toolbar (draggable region). Window controls are kept through the
+    // titleBarOverlay so minimize/maximize/close stay one click away.
+    autoHideMenuBar: true,
+    titleBarStyle: "hidden",
+    titleBarOverlay: process.platform === "win32"
+      ? { color: "#f6f8fa", symbolColor: "#57606a", height: 40 }
+      : undefined,
     // Hide until the renderer has painted — avoids the white-flash window and
     // stops the dock bounce earlier (macOS treats `ready-to-show` as "app
     // finished launching"). Default behavior shows a blank window the moment
@@ -140,7 +148,35 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
   });
 
   window.once("ready-to-show", () => {
+    if (!app.isPackaged) console.log("[dev] window ready-to-show fired");
     if (!window.isDestroyed()) window.show();
+    if (!app.isPackaged) console.log("[dev] window.show() called, visible =", window.isVisible());
+  });
+  window.webContents.on("did-fail-load", (_e, code, desc) => {
+    console.error("[dev] did-fail-load", code, desc);
+  });
+  window.webContents.on("did-finish-load", () => {
+    if (!app.isPackaged) console.log("[dev] renderer did-finish-load");
+    // Fallback: if the first-paint signal never arrives (e.g. a renderer
+    // script error stalls painting), force the window visible so a blank
+    // (but open) window surfaces the problem instead of a hidden process.
+    setTimeout(() => {
+      if (!window.isDestroyed() && !window.isVisible()) {
+        console.error("[dev] ready-to-show never fired; forcing show()");
+        window.show();
+      }
+    }, 2000);
+    // Probe renderer state a moment after load to see whether the app booted.
+    if (!app.isPackaged) {
+      setTimeout(() => {
+        void window.webContents
+          .executeJavaScript(
+            `JSON.stringify({ready: document.readyState, app: document.getElementById('app')?.childElementCount ?? -1, body: document.body?.innerHTML.slice(0, 120) ?? null})`,
+          )
+          .then((probe) => console.log("[dev] probe", probe))
+          .catch((err: unknown) => console.log("[dev] probe failed", String(err)));
+      }, 6000);
+    }
   });
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;
@@ -861,6 +897,10 @@ ipcMain.handle("vault:set-last", async (event, vaultPath: string) => {
 });
 
 app.whenReady().then(() => {
+  // Packaged builds ship without any application menu (no File/Edit/View
+  // bar and no Alt-reveal). Unpackaged dev keeps the default menu purely as
+  // a host for DevTools accelerators — autoHideMenuBar keeps it invisible.
+  if (app.isPackaged) Menu.setApplicationMenu(null);
   registerPluginHostIpc();
   createWindow();
 });
