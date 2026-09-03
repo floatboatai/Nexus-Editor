@@ -1,4 +1,5 @@
 import type { MenuItemDefinition } from "@floatboat/nexus-plugin-api";
+import { t } from "./i18n";
 
 export interface VaultContextMenuRequest {
   readonly event: MouseEvent;
@@ -60,7 +61,7 @@ export function createLegacyVaultPanelBackend(
     await legacyBridge.setLast(rootPath);
     return {
       rootPath,
-      displayName: rootPath.split(/[\\/]/).pop() || "Vault",
+      displayName: rootPath.split(/[\\\\/]/).pop() || t("vault.title"),
       nodes,
     };
   };
@@ -268,26 +269,26 @@ export function createVaultPanel(
 
   const title = document.createElement("div");
   title.style.cssText = HEADER_TITLE_STYLES;
-  title.textContent = "Vault";
+  title.textContent = t("vault.title");
 
   const openBtn = document.createElement("button");
   openBtn.type = "button";
   openBtn.style.cssText = ICON_BTN_STYLES;
   openBtn.textContent = "\uD83D\uDCC1"; // 📁
-  openBtn.title = "Open vault…";
+  openBtn.title = t("vault.openVault");
 
   const newFileBtn = document.createElement("button");
   newFileBtn.type = "button";
   newFileBtn.style.cssText = ICON_BTN_STYLES;
   newFileBtn.textContent = "\u002B"; // +
-  newFileBtn.title = "New file at root";
+  newFileBtn.title = t("vault.newFileAtRoot");
   newFileBtn.disabled = true;
 
   const newFolderBtn = document.createElement("button");
   newFolderBtn.type = "button";
   newFolderBtn.style.cssText = ICON_BTN_STYLES;
   newFolderBtn.textContent = "\uD83D\uDCC2"; // 📂
-  newFolderBtn.title = "New folder at root";
+  newFolderBtn.title = t("vault.newFolderAtRoot");
   newFolderBtn.disabled = true;
 
   header.append(title, newFileBtn, newFolderBtn, openBtn);
@@ -390,11 +391,11 @@ export function createVaultPanel(
   function renderTree(): void {
     tree.innerHTML = "";
     if (!vaultPath) {
-      renderEmpty("No vault opened. Click 📁 to choose a folder.");
+      renderEmpty(t("vault.emptyNoVault"));
       return;
     }
     if (currentTree.length === 0) {
-      renderEmpty("Vault is empty. Click + to create a note.");
+      renderEmpty(t("vault.emptyEmptyVault"));
       return;
     }
     for (const node of currentTree) renderNode(node, 0, tree);
@@ -461,30 +462,30 @@ export function createVaultPanel(
     if (node.kind === "directory") {
       items.push({
         id: "new-file",
-        label: "New file here",
+        label: t("vault.menu.newFileHere"),
         action: () => createFilePrompt(node.path),
       });
       items.push({
         id: "new-folder",
-        label: "New folder here",
+        label: t("vault.menu.newFolderHere"),
         action: () => createFolderPrompt(node.path),
       });
     } else {
       items.push({
         id: "open",
-        label: "Open",
+        label: t("common.open"),
         action: () => callbacks.onOpenFile(node.path),
       });
       items.push({
         id: "new-file",
-        label: "New file in same folder",
+        label: t("vault.menu.newFileSameFolder"),
         action: () => createFilePrompt(parentDir),
       });
     }
 
     items.push({
       id: "rename",
-      label: "Rename",
+      label: t("common.rename"),
       action: () => {
         const row = tree.querySelector<HTMLElement>(`[data-path="${cssEscape(node.path)}"]`);
         const label = row?.querySelector<HTMLElement>("span:last-child");
@@ -494,7 +495,7 @@ export function createVaultPanel(
 
     items.push({
       id: "delete",
-      label: "Delete",
+      label: t("common.delete"),
       dangerous: true,
       action: () => deleteNode(node),
     });
@@ -603,7 +604,7 @@ export function createVaultPanel(
     // destructive-styled and requires an explicit click, so we proceed directly.
     try {
       await backend.trash(node.path);
-      callbacks.onStatus(`Moved ${node.name} to Trash`);
+      callbacks.onStatus(t("vault.movedToTrash", { name: node.name }));
       if (node.kind === "file" && activeFile === node.path) {
         activeFile = null;
       }

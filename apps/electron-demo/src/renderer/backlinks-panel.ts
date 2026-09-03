@@ -1,4 +1,5 @@
 import type { BacklinkHit, LinkIndexReader } from "./link-index";
+import { t } from "./i18n";
 
 export interface BacklinksPanelOptions {
   index: LinkIndexReader;
@@ -144,7 +145,7 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
 
   const header = document.createElement("div");
   header.style.cssText = HEADER_STYLES;
-  header.textContent = "Backlinks";
+  header.textContent = t("backlinks.title");
   root.appendChild(header);
 
   const list = document.createElement("div");
@@ -192,7 +193,7 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
 
     const snippet = document.createElement("div");
     snippet.style.cssText = ITEM_SNIPPET_STYLES;
-    snippet.textContent = hit.snippet || "(empty)";
+    snippet.textContent = hit.snippet || t("backlinks.emptySnippet");
     btn.appendChild(snippet);
 
     parent.appendChild(btn);
@@ -218,18 +219,18 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
     const activeFile = getActiveFile();
     const active = activeFile ? toIndexPath(activeFile) : null;
     if (!activeFile || !active) {
-      header.textContent = "Backlinks";
-      renderEmpty("No active file", list);
+      header.textContent = t("backlinks.title");
+      renderEmpty(t("backlinks.noActiveFile"), list);
       return;
     }
 
     // Fast path: linked mentions are O(1) (Map lookup) — render immediately.
     const linked = index.getBacklinks(active);
-    header.textContent = `Backlinks · ${linked.length} linked · … mentions`;
+    header.textContent = t("backlinks.headerScan", { linked: linked.length });
 
-    renderSectionHeader("Linked mentions", linked.length, list);
+    renderSectionHeader(t("backlinks.linkedMentions"), linked.length, list);
     if (linked.length === 0) {
-      renderEmpty("No linked mentions", list);
+      renderEmpty(t("backlinks.noLinked"), list);
     } else {
       for (const hit of linked) renderItem(hit, list);
     }
@@ -237,8 +238,8 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
     // Placeholder for unlinked section — filled asynchronously so we don't
     // block the UI thread with the O(vault-size) regex scan in
     // getUnlinkedMentions.
-    const unlinkedHeader = renderSectionHeader("Unlinked mentions", 0, list);
-    unlinkedHeader.textContent = "Unlinked mentions — scanning…";
+    const unlinkedHeader = renderSectionHeader(t("backlinks.unlinkedMentions"), 0, list);
+    unlinkedHeader.textContent = t("backlinks.scanning");
     const unlinkedContainer = document.createElement("div");
     list.appendChild(unlinkedContainer);
 
@@ -255,11 +256,14 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
           "backlinks.unlinked-scan", `${(t1 - t0).toFixed(1)}ms`,
           { hits: unlinked.length });
       }
-      header.textContent = `Backlinks · ${linked.length} linked · ${unlinked.length} mention${unlinked.length === 1 ? "" : "s"}`;
+      header.textContent = t("backlinks.headerFull", {
+        linked: linked.length,
+        unlinked: unlinked.length,
+      });
       unlinkedHeader.textContent = "";
-      renderSectionHeaderInto(unlinkedHeader, "Unlinked mentions", unlinked.length);
+      renderSectionHeaderInto(unlinkedHeader, t("backlinks.unlinkedMentions"), unlinked.length);
       if (unlinked.length === 0) {
-        renderEmpty("No unlinked mentions", unlinkedContainer);
+        renderEmpty(t("backlinks.noUnlinked"), unlinkedContainer);
       } else {
         for (const hit of unlinked) renderItem(hit, unlinkedContainer);
       }

@@ -494,6 +494,32 @@ describe("createToolbarUI", () => {
     toolbar.destroy();
     editor.destroy();
   });
+
+  it("keeps the hover tooltip out of the document flow (no scrollbar/reflow on hover)", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({ container, initialValue: "hello world" });
+    const toolbar = createToolbarUI(editor);
+    document.body.appendChild(toolbar.element);
+
+    const button = toolbar.element.querySelector<HTMLButtonElement>('[data-toolbar-action="unordered-list"]');
+    expect(button).not.toBeNull();
+    button?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+
+    const tooltip = document.getElementById(button?.getAttribute("aria-describedby") ?? "");
+    expect(tooltip).not.toBeNull();
+    // Regression guard: the tooltip is appended to document.body on hover.
+    // Without an explicit out-of-flow position it becomes a static block
+    // child that pushes the document taller (viewport scrollbar flicker and
+    // width reflow exactly while hovering).
+    expect(getComputedStyle(tooltip!).position).toBe("fixed");
+    expect(tooltip!.style.left).not.toBe("");
+    expect(tooltip!.style.top).not.toBe("");
+
+    toolbar.destroy();
+    editor.destroy();
+    container.remove();
+  });
 });
 
 describe("toggleUnorderedList — atomic undo", () => {
@@ -604,5 +630,117 @@ describe("toggleUnorderedList — atomic undo", () => {
     editor.undo();
     expect(editor.getDocument()).toBe(original);
     editor.destroy();
+  });
+});
+
+describe("createToolbarUI — single-row overflow folding", () => {
+  function stubRowLayout(toolbar: HTMLElement, width: number) {
+    // Simulate real geometry: toolbar padding 12px, buttons 30px wide,
+    // separators 9px (1px + 4px margins), 2px flex gap between items.
+    const children = Array.from(toolbar.children) as HTMLElement[];
+    let x = 12;
+    for (const el of children) {
+      const w = el.classList.contains("nexus-toolbar-separator") ? 9 : 30;
+      Object.defineProperty(el, "getBoundingClientRect", {
+        configurable: true,
+        value: () =>
+          ({ left: x, top: 0, right: x + w, bottom: 30, width: w, height: 30, x, y: 0, toJSON: () => ({}) }) as DOMRect,
+      });
+      x += w + 2;
+    }
+    Object.defineProperty(toolbar, "getBoundingClientRect", {
+      configurable: true,
+      value: () =>
+        ({ left: 0, top: 0, right: width, bottom: 42, width, height: 42, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect,
+    });
+  }
+
+  function countVisibleButtons(toolbar: HTMLElement): number {
+    return Array.from(toolbar.querySelectorAll<HTMLElement>(".nexus-toolbar-btn")).filter(
+      (b) => !b.classList.contains("nexus-toolbar-more") && b.style.display !== "none",
+    ).length;
+  }
+
+  it("folds overflowing buttons and expands them into rows on more click", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({ container, initialValue: "hello world" });
+    const toolbar = createToolbarUI(editor);
+    document.body.appendChild(toolbar.element);
+    // Multi-row expansion relies on the container wrapping — a regression
+    // guard against collapsing back to flex nowrap + overflow clipping.
+    expect(toolbar.element.style.flexWrap).toBe("wrap");
+    stubRowLayout(toolbar.element, 300); // ~11 of 18 buttons fit
+
+    window.dispatchEvent(new Event("resize"));
+
+    const more = toolbar.element.querySelector<HTMLButtonElement>(".nexus-toolbar-more");
+    expect(more).not.toBeNull();
+    expect(more!.style.display).not.toBe("none");
+    expect(more!.getAttribute("aria-expanded")).toBe("false");
+
+    const folded = Array.from(
+      toolbar.element.querySelectorAll<HTMLElement>("[data-toolbar-action]"),
+    ).filter((b) => b.style.display === "none");
+    expect(folded.length).toBeGreaterThan(0);
+
+    // Clicking "more" expands every button inside the toolbar (no dropdown).
+    more!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(document.querySelector(".nexus-toolbar-overflow-menu")).toBeNull();
+    expect(more!.getAttribute("aria-expanded")).toBe("true");
+    const totalButtons = toolbar.element.querySelectorAll("[data-toolbar-action]").length;
+    expect(countVisibleButtons(toolbar.element)).toBe(totalButtons);
+    // Expanded buttons stay inside the toolbar row (wrapping), not in a menu.
+    expect(toolbar.element.querySelectorAll(".nexus-toolbar-overflow-label")).toHaveLength(0);
+
+    // Clicking again collapses back to the folded single row.
+    more!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(more!.getAttribute("aria-expanded")).toBe("false");
+    const refolded = Array.from(
+      toolbar.element.querySelectorAll<HTMLElement>("[data-toolbar-action]"),
+    ).filter((b) => b.style.display === "none");
+    expect(refolded.length).toBeGreaterThan(0);
+
+    toolbar.destroy();
+    editor.destroy();
+    container.remove();
+  });
+
+  it("runs the action of an expanded button and restores the row when space grows", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({ container, initialValue: "hello world" });
+    const toolbar = createToolbarUI(editor);
+    document.body.appendChild(toolbar.element);
+    stubRowLayout(toolbar.element, 300);
+
+    window.dispatchEvent(new Event("resize"));
+    const more = toolbar.element.querySelector<HTMLButtonElement>(".nexus-toolbar-more");
+    more!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    const bold = toolbar.element.querySelector<HTMLButtonElement>(
+      '[data-toolbar-action="bold"]',
+    );
+    expect(bold).not.toBeNull();
+    expect(bold!.style.display).not.toBe("none"); // revealed by the expand
+
+    editor.setSelection(6, 11);
+    bold!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(editor.getDocument()).toBe("hello **world**");
+    // No dropdown was ever created; the button lives in the toolbar row.
+    expect(document.querySelector(".nexus-toolbar-overflow-menu")).toBeNull();
+
+    // Widen the toolbar → the folded single row fits everything, more hides.
+    stubRowLayout(toolbar.element, 2000);
+    window.dispatchEvent(new Event("resize"));
+    const moreAfter = toolbar.element.querySelector<HTMLElement>(".nexus-toolbar-more");
+    expect(moreAfter!.style.display).toBe("none");
+    const totalButtons = toolbar.element.querySelectorAll("[data-toolbar-action]").length;
+    expect(countVisibleButtons(toolbar.element)).toBe(totalButtons);
+
+    toolbar.destroy();
+    editor.destroy();
+    container.remove();
   });
 });

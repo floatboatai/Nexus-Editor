@@ -80,6 +80,27 @@ export function toggleHeading(editor: EditorAPI, level: number): boolean {
   return true;
 }
 
+/** Command title/description overrides keyed by slash-command id. */
+export interface SlashCommandLabels {
+  titles?: Partial<Record<string, string>>;
+  descriptions?: Partial<Record<string, string>>;
+}
+
+/**
+ * A localized copy of the shared catalogue. Consumers (hosts) pass their own
+ * title/description translations per command id; ids and run handlers are
+ * preserved from `toolbarSlashCommands`.
+ */
+export function createLocalizedSlashCommands(
+  labels: SlashCommandLabels = {},
+): SlashCommandDef[] {
+  return toolbarSlashCommands.map((command) => ({
+    ...command,
+    title: labels.titles?.[command.id] ?? command.title,
+    description: labels.descriptions?.[command.id] ?? command.description,
+  }));
+}
+
 /** Shared command catalogue used by both the legacy and lifecycle entrypoints. */
 export const toolbarSlashCommands: SlashCommandDef[] = [
   {

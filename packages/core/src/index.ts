@@ -33,7 +33,16 @@ export {
   multiCursorKeymap,
   selectNextOccurrence,
 } from "./multi-cursor";
-export { enLocale, zhLocale, resolveLocale, type NexusLocale } from "./locale";
+export {
+  enLocale,
+  zhLocale,
+  ruLocale,
+  jaLocale,
+  koLocale,
+  idLocale,
+  resolveLocale,
+  type NexusLocale,
+} from "./locale";
 export {
   computeSlashState,
   filterSlashCommands,

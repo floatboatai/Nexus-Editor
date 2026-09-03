@@ -19,13 +19,24 @@ body,
 .toolbar {
   display: flex;
   gap: 8px;
-  padding: 8px 12px;
-  background: #f0f0f0;
+  padding: 4px 12px;
+  /* Native title bar is hidden (Electron titleBarStyle: hidden), so the app
+     toolbar doubles as the window drag handle. */
+  -webkit-app-region: drag;
+  /* Windows titleBarOverlay reserves the right side for window controls;
+     env(titlebar-area-*) exposes the remaining area, so keep the buttons
+     clear of the minimize/maximize/close cluster. Falls back to the normal
+     padding in plain browsers. */
+  padding-right: max(160px, calc(100vw - env(titlebar-area-width, 100vw)));
+  background: rgba(255, 255, 255, 1);
   border-bottom: 1px solid #ddd;
   flex-shrink: 0;
 }
 
-.toolbar button {
+.toolbar button,
+.toolbar input,
+.toolbar select {
+  -webkit-app-region: no-drag;
   padding: 4px 12px;
   cursor: pointer;
 }

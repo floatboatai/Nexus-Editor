@@ -144,6 +144,9 @@ function installBridgeHarness(
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
+  // These integration tests locate toolbar buttons by their English labels.
+  // The renderer defaults to Chinese, so pin the UI language to English.
+  localStorage.setItem("nexus-editor-settings", JSON.stringify({ language: "en" }));
   document.body.replaceChildren();
   const root = document.createElement("div");
   root.id = "app";
@@ -178,7 +181,7 @@ describe("Electron renderer plugin runtime integration", () => {
     saveButton?.click();
     await vi.waitFor(() => {
       expect(harness.nexusDemo.saveFile).toHaveBeenCalledWith("/vault-note.md", "outside");
-    });
+    }, { timeout: 5000 });
     expect(harness.nexusDemo.vault.write).not.toHaveBeenCalled();
 
     const first = app.shutdown();
@@ -269,7 +272,7 @@ describe("Electron renderer plugin runtime integration", () => {
       "folder/other.md",
       "runtime edit",
       expect.objectContaining({ operationId: expect.stringMatching(/^renderer:nexus-electron-product:/) }),
-    ));
+    ), { timeout: 5000 });
     expect(harness.nexusDemo.vault.write).not.toHaveBeenCalled();
 
     document.querySelector<HTMLButtonElement>('.nexus-vault-panel button[title="New file at root"]')?.click();

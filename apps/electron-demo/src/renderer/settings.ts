@@ -1,8 +1,11 @@
 import { lightTheme, darkTheme, type NexusTheme } from "@floatboat/nexus-core";
+import { t, LANGS, LANGUAGE_NAMES, type Lang } from "./i18n";
 
 export interface EditorSettings {
   /** "light" | "dark" */
   colorScheme: "light" | "dark";
+  /** UI language. */
+  language: Lang;
   fontSize: number;
   fontFamily: string;
   fontFamilyMono: string;
@@ -19,6 +22,7 @@ const STORAGE_KEY = "nexus-editor-settings";
 export function defaultSettings(): EditorSettings {
   return {
     colorScheme: "light",
+    language: "zh",
     fontSize: 15,
     fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
     fontFamilyMono: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
@@ -34,7 +38,11 @@ export function defaultSettings(): EditorSettings {
 export function loadSettings(): EditorSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...defaultSettings(), ...JSON.parse(raw) };
+    if (raw) {
+      const s = { ...defaultSettings(), ...JSON.parse(raw) } as EditorSettings;
+      if (!(LANGS as readonly string[]).includes(s.language)) s.language = "zh";
+      return s;
+    }
   } catch { /* ignore */ }
   return defaultSettings();
 }
@@ -153,7 +161,11 @@ function createToggle(value: boolean, onChange: (v: boolean) => void): HTMLEleme
   return btn;
 }
 
-function createSelect(options: string[], value: string, onChange: (v: string) => void): HTMLElement {
+function createSelect(
+  options: Array<{ value: string; label: string }>,
+  value: string,
+  onChange: (v: string) => void,
+): HTMLElement {
   const sel = document.createElement("select");
   sel.style.cssText = `
     padding: 4px 8px; border-radius: 6px; font-size: 13px;
@@ -164,9 +176,9 @@ function createSelect(options: string[], value: string, onChange: (v: string) =>
   `;
   for (const opt of options) {
     const o = document.createElement("option");
-    o.value = opt;
-    o.textContent = opt;
-    if (opt === value) o.selected = true;
+    o.value = opt.value;
+    o.textContent = opt.label;
+    if (opt.value === value) o.selected = true;
     sel.appendChild(o);
   }
   sel.addEventListener("change", () => onChange(sel.value));
@@ -255,11 +267,11 @@ export function createSettingsPanel(settings: EditorSettings, onChange: OnChange
   const header = document.createElement("div");
   header.style.cssText = HEADER_STYLES;
   const titleEl = document.createElement("span");
-  titleEl.textContent = "Settings";
+  titleEl.textContent = t("settings.title");
   const closeBtn = document.createElement("button");
   closeBtn.style.cssText = CLOSE_BTN_STYLES;
   closeBtn.innerHTML = "&times;";
-  closeBtn.title = "Close";
+  closeBtn.title = t("settings.closeTitle");
   header.append(titleEl, closeBtn);
 
   // Body
@@ -269,24 +281,56 @@ export function createSettingsPanel(settings: EditorSettings, onChange: OnChange
   const s = { ...settings };
   const emit = () => { saveSettings(s); onChange(s); };
 
+  // -- Language section --
+  body.appendChild(sectionTitle(t("settings.section.language")));
+  body.appendChild(row(
+    t("settings.language"),
+    t("settings.languageDesc"),
+    createSelect(
+      LANGS.map((lang) => ({ value: lang, label: LANGUAGE_NAMES[lang] })),
+      s.language,
+      (v) => {
+        s.language = v as Lang;
+        emit();
+        // Command-built UI has no reactive re-render; a reload re-boots the
+        // whole shell under the new dictionary (instant in Electron).
+        window.location.reload();
+      },
+    ),
+  ));
+
   // -- Display section --
-  body.appendChild(sectionTitle("Display"));
-  body.appendChild(row("Color scheme", "Light or dark theme", createSelect(["light", "dark"], s.colorScheme, (v) => { s.colorScheme = v as "light" | "dark"; emit(); })));
-  body.appendChild(row("Line numbers", "Show line numbers in the gutter", createToggle(s.lineNumbers, (v) => { s.lineNumbers = v; emit(); })));
-  body.appendChild(row("Live preview", "Render markdown in real-time", createToggle(s.livePreview, (v) => { s.livePreview = v; emit(); })));
-  body.appendChild(row("Indent guides", "Show indentation guide lines", createToggle(s.indentGuides, (v) => { s.indentGuides = v; emit(); })));
-  body.appendChild(row("Content max width", "Limit line width for readability (e.g. 720px)", createTextInput(s.contentMaxWidth, "e.g. 720px", (v) => { s.contentMaxWidth = v; emit(); })));
-  body.appendChild(row("Text direction", "Left-to-right or right-to-left", createSelect(["ltr", "rtl"], s.direction, (v) => { s.direction = v as "ltr" | "rtl"; emit(); })));
+  body.appendChild(sectionTitle(t("settings.section.display")));
+  body.appendChild(row(t("settings.scheme"), t("settings.schemeDesc"), createSelect(
+    [
+      { value: "light", label: t("settings.scheme.light") },
+      { value: "dark", label: t("settings.scheme.dark") },
+    ],
+    s.colorScheme,
+    (v) => { s.colorScheme = v as "light" | "dark"; emit(); },
+  )));
+  body.appendChild(row(t("settings.lineNumbers"), t("settings.lineNumbersDesc"), createToggle(s.lineNumbers, (v) => { s.lineNumbers = v; emit(); })));
+  body.appendChild(row(t("settings.livePreview"), t("settings.livePreviewDesc"), createToggle(s.livePreview, (v) => { s.livePreview = v; emit(); })));
+  body.appendChild(row(t("settings.indentGuides"), t("settings.indentGuidesDesc"), createToggle(s.indentGuides, (v) => { s.indentGuides = v; emit(); })));
+  body.appendChild(row(t("settings.contentMaxWidth"), t("settings.contentMaxWidthDesc"), createTextInput(s.contentMaxWidth, "e.g. 720px", (v) => { s.contentMaxWidth = v; emit(); })));
+  body.appendChild(row(t("settings.direction"), t("settings.directionDesc"), createSelect(
+    [
+      { value: "ltr", label: t("settings.direction.ltr") },
+      { value: "rtl", label: t("settings.direction.rtl") },
+    ],
+    s.direction,
+    (v) => { s.direction = v as "ltr" | "rtl"; emit(); },
+  )));
 
   // -- Font section --
-  body.appendChild(sectionTitle("Font"));
-  body.appendChild(row("Font size", "Editor text size in pixels", createNumberInput(s.fontSize, 10, 28, 1, (v) => { s.fontSize = v; emit(); })));
-  body.appendChild(row("Body font", "Font for prose content", createTextInput(s.fontFamily, "system-ui, sans-serif", (v) => { s.fontFamily = v; emit(); })));
-  body.appendChild(row("Code font", "Monospace font for code blocks", createTextInput(s.fontFamilyMono, "ui-monospace, monospace", (v) => { s.fontFamilyMono = v; emit(); })));
+  body.appendChild(sectionTitle(t("settings.section.font")));
+  body.appendChild(row(t("settings.fontSize"), t("settings.fontSizeDesc"), createNumberInput(s.fontSize, 10, 28, 1, (v) => { s.fontSize = v; emit(); })));
+  body.appendChild(row(t("settings.bodyFont"), t("settings.bodyFontDesc"), createTextInput(s.fontFamily, "system-ui, sans-serif", (v) => { s.fontFamily = v; emit(); })));
+  body.appendChild(row(t("settings.codeFont"), t("settings.codeFontDesc"), createTextInput(s.fontFamilyMono, "ui-monospace, monospace", (v) => { s.fontFamilyMono = v; emit(); })));
 
   // -- Behavior section --
-  body.appendChild(sectionTitle("Behavior"));
-  body.appendChild(row("Tab size", "Number of spaces per tab", createNumberInput(s.tabSize, 1, 8, 1, (v) => { s.tabSize = v; emit(); })));
+  body.appendChild(sectionTitle(t("settings.section.behavior")));
+  body.appendChild(row(t("settings.tabSize"), t("settings.tabSizeDesc"), createNumberInput(s.tabSize, 1, 8, 1, (v) => { s.tabSize = v; emit(); })));
 
   dialog.append(header, body);
   backdrop.appendChild(dialog);
