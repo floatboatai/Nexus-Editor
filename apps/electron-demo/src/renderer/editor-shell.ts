@@ -1,8 +1,15 @@
 import {
   createEditor,
   createWikilinksPlugin,
+  enLocale,
+  zhLocale,
+  ruLocale,
+  jaLocale,
+  koLocale,
+  idLocale,
   type EditorAPI,
   type LivePreviewRenderContext,
+  type NexusLocale,
   type NexusPlugin,
 } from "@floatboat/nexus-core";
 import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
@@ -19,8 +26,91 @@ import {
   createWordCountPlugin,
   type WordCountPlugin
 } from "@floatboat/nexus-plugin-wordcount";
+import type { ToolbarUILabels, SlashCommandLabels } from "@floatboat/nexus-plugin-toolbar";
 import type { AppState } from "./state";
 import { type EditorSettings, settingsToTheme } from "./settings";
+import { t, type DictKey, type Lang } from "./i18n";
+
+/** Editor-internal strings (table menus, folds, links) per UI language. */
+export const CORE_LOCALES: Record<Lang, NexusLocale> = {
+  zh: zhLocale,
+  en: enLocale,
+  ru: ruLocale,
+  ja: jaLocale,
+  ko: koLocale,
+  id: idLocale,
+};
+
+/** toolbar action id → UI-dictionary key (default groups use action ids). */
+const TOOLBAR_BUTTON_KEYS: Record<string, DictKey> = {
+  undo: "toolbar.undo",
+  redo: "toolbar.redo",
+  link: "toolbar.link",
+  h2: "toolbar.h2",
+  h3: "toolbar.h3",
+  "heading-menu": "toolbar.headingMenu",
+  bold: "toolbar.bold",
+  italic: "toolbar.italic",
+  strikethrough: "toolbar.strikethrough",
+  underline: "toolbar.underline",
+  "inline-code": "toolbar.inlineCode",
+  blockquote: "toolbar.blockquote",
+  "code-block": "toolbar.codeBlock",
+  "ordered-list": "toolbar.orderedList",
+  "unordered-list": "toolbar.unorderedList",
+  "text-color": "toolbar.textColor",
+  highlight: "toolbar.highlight",
+  image: "toolbar.image",
+  fullscreen: "toolbar.fullscreen",
+};
+
+function toolbarUILabels(): ToolbarUILabels {
+  const buttons: Record<string, string> = {};
+  for (const [id, key] of Object.entries(TOOLBAR_BUTTON_KEYS)) buttons[id] = t(key as DictKey);
+  return {
+    more: t("toolbar.more"),
+    buttons,
+    heading: (level) => (level === 0 ? t("toolbar.normalText") : t(`toolbar.heading${level}` as DictKey)),
+  };
+}
+
+/** Slash-command catalogue titles/descriptions, localized. */
+function toolbarSlashLabels(): SlashCommandLabels {
+  return {
+    titles: {
+      h1: t("toolbar.heading1"),
+      h2: t("toolbar.heading2"),
+      h3: t("toolbar.heading3"),
+      bold: t("toolbar.bold"),
+      italic: t("toolbar.italic"),
+      strikethrough: t("toolbar.strikethrough"),
+      "inline-code": t("toolbar.inlineCode"),
+      "code-block": t("toolbar.codeBlock"),
+      blockquote: t("toolbar.blockquote"),
+      ulist: t("toolbar.ulist"),
+      olist: t("toolbar.olist"),
+      link: t("toolbar.link"),
+      image: t("toolbar.image"),
+      hr: t("toolbar.hr"),
+    },
+    descriptions: {
+      h1: t("toolbar.desc.h1"),
+      h2: t("toolbar.desc.h2"),
+      h3: t("toolbar.desc.h3"),
+      bold: t("toolbar.desc.bold"),
+      italic: t("toolbar.desc.italic"),
+      strikethrough: t("toolbar.desc.strikethrough"),
+      "inline-code": t("toolbar.desc.inlineCode"),
+      "code-block": t("toolbar.desc.codeBlock"),
+      blockquote: t("toolbar.desc.blockquote"),
+      ulist: t("toolbar.desc.ulist"),
+      olist: t("toolbar.desc.olist"),
+      link: t("toolbar.desc.link"),
+      image: t("toolbar.desc.image"),
+      hr: t("toolbar.desc.hr"),
+    },
+  };
+}
 
 // Parse Obsidian-style size specifier from the alt text: `alt|width` or
 // `alt|widthxheight`. Returns { alt, width, height } with the size stripped
@@ -115,7 +205,14 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   const wordcount = runtimeManaged || !contributionFeatures.wordCount
     ? null
     : createWordCountPlugin({
-        statusBar: { container, classPrefix: "nexus-wordcount" },
+        statusBar: {
+          container,
+          classPrefix: "nexus-wordcount",
+          labels: {
+            words: t("wordcount.words"),
+            characters: t("wordcount.chars"),
+          },
+        },
       });
 
   // No more parser worker. Live-preview drives off `syntaxTree(state)` from
@@ -127,6 +224,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   const editor = createEditor({
     container,
     initialValue: state.content,
+    locale: CORE_LOCALES[settings.language],
     // Debounce the onChange pipeline — each keystroke would otherwise trigger
     // a full mdast walk AND linkIndex.updateFile (which rebuilds all reverse
     // edges across the vault). 150ms is imperceptible for typing UX but
@@ -138,7 +236,9 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     plugins: [
       createGfmPreset(),
       createHistoryPlugin(),
-      ...(!runtimeManaged && contributionFeatures.toolbar ? [createToolbarPlugin()] : []),
+      ...(!runtimeManaged && contributionFeatures.toolbar
+        ? [createToolbarPlugin({ slashLabels: toolbarSlashLabels() })]
+        : []),
       createSearchPlugin(),
       wikilinksPlugin,
       ...(wordcount ? [wordcount] : []),
@@ -181,8 +281,8 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
               // Top-right action: jump cursor to image source.
               const srcBtn = document.createElement("button");
               srcBtn.type = "button";
-              srcBtn.title = "View source";
-              srcBtn.setAttribute("aria-label", "View image markdown source");
+              srcBtn.title = t("editor.viewSource");
+              srcBtn.setAttribute("aria-label", t("editor.viewSourceAria"));
               srcBtn.textContent = "</>";
               srcBtn.style.cssText = [
                 "position:absolute",
@@ -218,7 +318,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
               // Bottom-right resize handle — drag to resize; on mouseup writes
               // back `|width` into the image's alt in markdown.
               const resizeDot = document.createElement("span");
-              resizeDot.title = "Drag to resize";
+              resizeDot.title = t("editor.dragToResize");
               resizeDot.style.cssText = [
                 "position:absolute",
                 "bottom:2px",
@@ -299,7 +399,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
 
               img.addEventListener("error", () => {
                 const err = document.createElement("span");
-                err.textContent = `⚠ image not found: ${node.url}`;
+                err.textContent = t("editor.imageNotFound", { url: node.url });
                 err.style.cssText =
                   "display:block;padding:8px 12px;font-size:12px;color:var(--nexus-hl-deletion,#c33);" +
                   "font-family:monospace;background:var(--nexus-bg-subtle);border-radius:4px;";
@@ -334,7 +434,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
 
   const toolbar = runtimeManaged || !contributionFeatures.toolbar
     ? null
-    : createToolbarUI(editor);
+    : createToolbarUI(editor, { labels: toolbarUILabels() });
   if (toolbar) container.insertBefore(toolbar.element, container.firstChild);
 
   // The slash menu owns its own DOM root mounted on document.body so

@@ -1,5 +1,6 @@
 import type { EditorAPI } from "@floatboat/nexus-core";
 import { findSearchMatches, replaceAllMatches } from "@floatboat/nexus-plugin-search";
+import { t } from "./i18n";
 
 export interface SearchBar {
   element: HTMLElement;
@@ -70,34 +71,34 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   // Find input
   const findInput = document.createElement("input");
   findInput.type = "text";
-  findInput.placeholder = "Find...";
+  findInput.placeholder = t("search.find");
   findInput.style.cssText = INPUT_STYLES;
 
   // Replace input
   const replaceInput = document.createElement("input");
   replaceInput.type = "text";
-  replaceInput.placeholder = "Replace...";
+  replaceInput.placeholder = t("search.replaceWith");
   replaceInput.style.cssText = INPUT_STYLES;
   replaceInput.style.width = "160px";
 
   // Buttons
   const prevBtn = document.createElement("button");
   prevBtn.textContent = "\u2191"; // ↑
-  prevBtn.title = "Previous match";
+  prevBtn.title = t("search.prevMatch");
   prevBtn.style.cssText = BTN_STYLES;
 
   const nextBtn = document.createElement("button");
   nextBtn.textContent = "\u2193"; // ↓
-  nextBtn.title = "Next match";
+  nextBtn.title = t("search.nextMatch");
   nextBtn.style.cssText = BTN_STYLES;
 
   const replaceBtn = document.createElement("button");
-  replaceBtn.textContent = "Replace";
+  replaceBtn.textContent = t("search.replace");
   replaceBtn.style.cssText = BTN_STYLES;
 
   const replaceAllBtn = document.createElement("button");
-  replaceAllBtn.textContent = "All";
-  replaceAllBtn.title = "Replace all";
+  replaceAllBtn.textContent = t("search.all");
+  replaceAllBtn.title = t("search.replaceAll");
   replaceAllBtn.style.cssText = BTN_STYLES;
 
   // Count label
@@ -107,7 +108,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   // Close
   const closeBtn = document.createElement("button");
   closeBtn.innerHTML = "&times;";
-  closeBtn.title = "Close (Esc)";
+  closeBtn.title = t("search.close");
   closeBtn.style.cssText = CLOSE_BTN_STYLES;
 
   const spacer = document.createElement("div");
@@ -132,7 +133,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     matches = findSearchMatches(doc, query);
     if (matches.length === 0) {
       currentIdx = -1;
-      countLabel.textContent = "0 results";
+      countLabel.textContent = t("search.noResults");
     } else {
       // Find nearest match to current cursor
       const { anchor } = editor.getSelection();

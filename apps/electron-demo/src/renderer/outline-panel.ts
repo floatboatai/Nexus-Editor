@@ -1,4 +1,5 @@
 import type { EditorAPI, TocEntry } from "@floatboat/nexus-core";
+import { t } from "./i18n";
 
 export interface OutlinePanel {
   element: HTMLElement;
@@ -67,7 +68,7 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
 
   const header = document.createElement("div");
   header.style.cssText = HEADER_STYLES;
-  header.textContent = "Outline";
+  header.textContent = t("outline.title");
 
   const list = document.createElement("div");
   list.style.cssText = LIST_STYLES;
@@ -80,7 +81,7 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
     if (entries.length === 0) {
       const empty = document.createElement("div");
       empty.style.cssText = EMPTY_STYLES;
-      empty.textContent = "No headings";
+      empty.textContent = t("outline.empty");
       list.appendChild(empty);
       return;
     }

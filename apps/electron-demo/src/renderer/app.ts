@@ -36,6 +36,7 @@ import {
 import {
   ElectronRuntimeProductUiAdapter,
 } from "./runtime-product-ui-adapter";
+import { t } from "./i18n";
 
 installLongTaskWatch(50);
 
@@ -155,22 +156,22 @@ function createAppToolbar(): HTMLElement {
   toolbar.className = "toolbar";
 
   const vaultBtn = document.createElement("button");
-  vaultBtn.textContent = "Vault";
-  vaultBtn.title = "Open a folder as a vault";
+  vaultBtn.textContent = t("vault.title");
+  vaultBtn.title = t("vault.openVault");
   vaultBtn.addEventListener("click", () => {
     void vault.promptPickVault();
   });
 
   const openBtn = document.createElement("button");
-  openBtn.textContent = "Open";
+  openBtn.textContent = t("common.open");
   openBtn.addEventListener("click", handleOpen);
 
   const saveBtn = document.createElement("button");
-  saveBtn.textContent = "Save";
+  saveBtn.textContent = t("app.save");
   saveBtn.addEventListener("click", handleSave);
 
   const saveAsBtn = document.createElement("button");
-  saveAsBtn.textContent = "Save As";
+  saveAsBtn.textContent = t("app.saveAs");
   saveAsBtn.addEventListener("click", handleSaveAs);
 
   const spacer = document.createElement("div");
@@ -178,31 +179,31 @@ function createAppToolbar(): HTMLElement {
 
   const vaultToggleBtn = document.createElement("button");
   vaultToggleBtn.textContent = "\uD83D\uDCD1"; // 📑
-  vaultToggleBtn.title = "Toggle vault panel";
+  vaultToggleBtn.title = t("app.toggleVault");
   vaultToggleBtn.style.fontSize = "14px";
   vaultToggleBtn.addEventListener("click", toggleVault);
 
   const outlineBtn = document.createElement("button");
   outlineBtn.textContent = "\u2630"; // ☰
-  outlineBtn.title = "Toggle outline";
+  outlineBtn.title = t("app.toggleOutline");
   outlineBtn.style.fontSize = "14px";
   outlineBtn.addEventListener("click", toggleOutline);
 
   const backlinksBtn = document.createElement("button");
   backlinksBtn.textContent = "\uD83D\uDD17"; // 🔗
-  backlinksBtn.title = "Toggle backlinks panel";
+  backlinksBtn.title = t("app.toggleBacklinks");
   backlinksBtn.style.fontSize = "14px";
   backlinksBtn.addEventListener("click", toggleBacklinks);
 
   const searchBtn = document.createElement("button");
   searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
-  searchBtn.title = "Search (Ctrl+F)";
+  searchBtn.title = t("app.searchTitle");
   searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
 
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "\u2699"; // ⚙
-  settingsBtn.title = "Settings";
+  settingsBtn.title = t("settings.title");
   settingsBtn.style.fontSize = "16px";
   settingsBtn.addEventListener("click", handleSettings);
 
@@ -252,21 +253,23 @@ function createStatusLine(statusBarSlot: HTMLElement): HTMLElement {
 function renderStatus(): void {
   if (!statusText?.isConnected) return;
 
-  const pathLabel = state.activeFile ?? state.filePath ?? "Untitled";
-  const dirtyMark = state.dirty ? " [modified]" : "";
+  const pathLabel = state.activeFile ?? state.filePath ?? t("app.untitled");
+  const dirtyMark = state.dirty ? t("app.modifiedMark") : "";
   // Runtime word-count owns document statistics through the status-bar slot.
   const stats = pluginOwnsDocumentStats ? null : shell?.editor.getDocumentStats();
-  const statsText = stats ? ` | ${stats.words} words, ${stats.lines} lines` : "";
-  const vaultLabel = state.vaultPath
-    ? ` | Vault: ${state.vaultPath.split(/[\\/]/).pop()}`
+  const statsText = stats
+    ? t("app.stats", { words: stats.words, lines: stats.lines })
     : "";
-  const errorText = state.error ? ` — Error: ${state.error}` : "";
+  const vaultLabel = state.vaultPath
+    ? t("app.vaultLabel", { name: state.vaultPath.split(/[\\\\/]/).pop() ?? "" })
+    : "";
+  const errorText = state.error ? t("app.errorPrefix", { message: state.error }) : "";
   statusText.textContent = `${pathLabel}${dirtyMark}${statsText}${vaultLabel}${errorText}`;
 }
 
 async function confirmDiscardIfDirty(): Promise<boolean> {
   if (!state.dirty) return true;
-  return window.confirm("You have unsaved changes. Discard them and switch files?");
+  return window.confirm(t("app.confirmDiscard"));
 }
 
 async function handleOpen(): Promise<void> {
@@ -316,8 +319,8 @@ async function handleSaveAs(): Promise<void> {
   try {
     state.error = null;
     if (pluginRuntime) {
-      if (!state.vaultPath) throw new Error("Open a Vault before saving a runtime document");
-      const name = window.prompt("File name", "untitled.md")?.trim();
+      if (!state.vaultPath) throw new Error(t("app.errorNeedVaultSave"));
+      const name = window.prompt(t("app.fileNamePrompt"), "untitled.md")?.trim();
       if (!name) return;
       const created = await vault.createFile(state.vaultPath, name);
       await vault.writeFile(created.path, state.content);
@@ -406,6 +409,7 @@ function settingValue<T extends SettingValue>(
 function applyRuntimeEditorSettings(values: Readonly<Record<string, SettingValue>>): void {
   const next: EditorSettings = {
     colorScheme: settingValue(values, "colorScheme", settings.colorScheme) === "dark" ? "dark" : "light",
+    language: settings.language,
     fontSize: settingValue(values, "fontSize", settings.fontSize),
     fontFamily: settingValue(values, "fontFamily", settings.fontFamily),
     fontFamilyMono: settingValue(values, "fontFamilyMono", settings.fontFamilyMono),
@@ -428,37 +432,43 @@ function applyRuntimeEditorSetting(key: keyof EditorSettings, value: SettingValu
 function createProductSettingTab(): SettingTabDefinition {
   return {
     id: "settings",
-    name: "Editor settings",
+    name: t("settings.tabTitle"),
     settings: [
       {
         id: "colorScheme",
         type: "select",
-        name: "Color scheme",
-        description: "Light or dark theme",
+        name: t("settings.scheme"),
+        description: t("settings.schemeDesc"),
         defaultValue: settings.colorScheme,
-        options: [{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }],
+        options: [
+          { value: "light", label: t("settings.scheme.light") },
+          { value: "dark", label: t("settings.scheme.dark") },
+        ],
       },
-      { id: "lineNumbers", type: "toggle", name: "Line numbers", defaultValue: settings.lineNumbers },
-      { id: "livePreview", type: "toggle", name: "Live preview", defaultValue: settings.livePreview },
-      { id: "indentGuides", type: "toggle", name: "Indent guides", defaultValue: settings.indentGuides },
+      { id: "lineNumbers", type: "toggle", name: t("settings.lineNumbers"), defaultValue: settings.lineNumbers },
+      { id: "livePreview", type: "toggle", name: t("settings.livePreview"), defaultValue: settings.livePreview },
+      { id: "indentGuides", type: "toggle", name: t("settings.indentGuides"), defaultValue: settings.indentGuides },
       {
         id: "contentMaxWidth",
         type: "text",
-        name: "Content max width",
+        name: t("settings.contentMaxWidth"),
         defaultValue: settings.contentMaxWidth,
         placeholder: "e.g. 720px",
       },
       {
         id: "direction",
         type: "select",
-        name: "Text direction",
+        name: t("settings.direction"),
         defaultValue: settings.direction,
-        options: [{ value: "ltr", label: "Left to right" }, { value: "rtl", label: "Right to left" }],
+        options: [
+          { value: "ltr", label: t("settings.direction.ltr") },
+          { value: "rtl", label: t("settings.direction.rtl") },
+        ],
       },
-      { id: "fontSize", type: "number", name: "Font size", defaultValue: settings.fontSize, min: 10, max: 28, step: 1 },
-      { id: "fontFamily", type: "text", name: "Body font", defaultValue: settings.fontFamily },
-      { id: "fontFamilyMono", type: "text", name: "Code font", defaultValue: settings.fontFamilyMono },
-      { id: "tabSize", type: "number", name: "Tab size", defaultValue: settings.tabSize, min: 1, max: 8, step: 1 },
+      { id: "fontSize", type: "number", name: t("settings.fontSize"), defaultValue: settings.fontSize, min: 10, max: 28, step: 1 },
+      { id: "fontFamily", type: "text", name: t("settings.bodyFont"), defaultValue: settings.fontFamily },
+      { id: "fontFamilyMono", type: "text", name: t("settings.codeFont"), defaultValue: settings.fontFamilyMono },
+      { id: "tabSize", type: "number", name: t("settings.tabSize"), defaultValue: settings.tabSize, min: 1, max: 8, step: 1 },
     ],
     display(context) {
       applyRuntimeEditorSettings(context.values);
@@ -607,7 +617,7 @@ async function handleWikilinkNavigate(target: string, opts: { unresolved: boolea
       return;
     }
     if (!state.vaultPath) {
-      state.error = "Open a vault before following wiki links.";
+      state.error = t("app.errorNeedVaultLink");
       renderStatus();
       return;
     }
