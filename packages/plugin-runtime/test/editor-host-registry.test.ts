@@ -7,14 +7,17 @@ import type {
 } from "@floatboat/nexus-plugin-api";
 import type {
   EditorAPI,
+  EditorAuthoritativeSourceRegistration,
   EditorContributionRegistration,
   EditorContributionSink,
+  EditorHistoryController,
   CoreEditorTransactionFilter,
   CoreEditorTransactionHookOptions,
   CoreEditorUpdateListener,
   EditorDomEventHook,
   EditorDomEventHookOptions,
   EditorDomEventType,
+  EditorDestroyListener,
   EditorInputTarget,
 } from "@floatboat/nexus-core";
 import { describe, expect, it, vi } from "vitest";
@@ -89,6 +92,28 @@ class FakeContributionSink implements EditorContributionSink {
     options?: CoreEditorTransactionHookOptions,
   ): EditorContributionRegistration {
     return this.add(ownerId, "update-listener", { listener, options });
+  }
+
+  registerAuthoritativeSource(
+    ownerId: string,
+    history: EditorHistoryController,
+  ): EditorAuthoritativeSourceRegistration {
+    const registration = this.add(ownerId, "authoritative-source", history);
+    return {
+      ...registration,
+      get disposed() {
+        return registration.disposed;
+      },
+      dispatch: () => ({ status: "rejected", ownerId, reason: "fake-source" }),
+      dispatchTransactions: () => ({ status: "rejected", ownerId, reason: "fake-source" }),
+    };
+  }
+
+  registerDestroyListener(
+    ownerId: string,
+    listener: EditorDestroyListener,
+  ): EditorContributionRegistration {
+    return this.add(ownerId, "destroy-listener", listener);
   }
 
   isInteractionActive(): boolean {

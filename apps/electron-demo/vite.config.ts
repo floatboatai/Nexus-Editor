@@ -36,6 +36,18 @@ export default defineConfig({
         __dirname,
         "../../packages/core/src/index.ts"
       ),
+      "@floatboat/nexus-plugin-collab/assessment": path.resolve(
+        __dirname,
+        "../../packages/plugin-collab/src/assessment.ts"
+      ),
+      "@floatboat/nexus-plugin-collab/hocuspocus": path.resolve(
+        __dirname,
+        "../../packages/plugin-collab/src/hocuspocus-provider.ts"
+      ),
+      "@floatboat/nexus-plugin-collab": path.resolve(
+        __dirname,
+        "../../packages/plugin-collab/src/index.ts"
+      ),
       "@floatboat/nexus-plugin-api": path.resolve(
         __dirname,
         "../../packages/plugin-api/src/index.ts"
@@ -67,6 +79,14 @@ export default defineConfig({
       "@floatboat/nexus-plugin-wordcount": path.resolve(
         __dirname,
         "../../packages/plugin-wordcount/src/index.ts"
+      ),
+      "@floatboat/nexus-plugin-math": path.resolve(
+        __dirname,
+        "../../packages/plugin-math/src/index.ts"
+      ),
+      "@floatboat/nexus-plugin-vim": path.resolve(
+        __dirname,
+        "../../packages/plugin-vim/src/index.ts"
       ),
       "@floatboat/nexus-reference-plugins": path.resolve(
         __dirname,

@@ -19,7 +19,11 @@ import {
 } from "./settings";
 import { createOutlinePanel, type OutlinePanel } from "./outline-panel";
 import { createSearchBar, type SearchBar } from "./search-bar";
-import { createVaultPanel, type VaultPanel } from "./vault-panel";
+import {
+  createVaultPanel,
+  type VaultFileMutationContext,
+  type VaultPanel,
+} from "./vault-panel";
 import { createRuntimeVaultPanelBackend } from "./runtime-vault-panel-backend";
 import {
   LinkIndex,
@@ -36,6 +40,9 @@ import {
 import {
   ElectronRuntimeProductUiAdapter,
 } from "./runtime-product-ui-adapter";
+import type { CollaborationLab } from "./collaboration-lab";
+import type { ElectronCollaborationProduct } from "./electron-collaboration-product";
+import { createDocumentContextTransactions } from "./document-context-transaction";
 
 installLongTaskWatch(50);
 
@@ -59,6 +66,17 @@ let deferredRestoreTimeout: ReturnType<typeof setTimeout> | null = null;
 const deferredRestoreFrames = new Set<number>();
 const settingsPanels = new Set<{ destroy(): void }>();
 let removeRuntimeSettingsListeners: (() => void) | null = null;
+let collaborationLab: CollaborationLab | null = null;
+let collaborationLabOpening: Promise<void> | null = null;
+let collaborationProduct: ElectronCollaborationProduct | null = null;
+let collaborationProductOpening: Promise<ElectronCollaborationProduct> | null = null;
+let editorContainerElement: HTMLElement | null = null;
+
+const documentContextTransactions = createDocumentContextTransactions(() => JSON.stringify([
+  pluginRuntime?.session?.sessionId ?? null,
+  state.vaultPath,
+  state.activeFile,
+]));
 
 let linkIndex: LinkIndexReader | null = null;
 let legacyLinkIndex: LinkIndex | null = null;
@@ -103,6 +121,161 @@ function requireLegacyBridge(): DemoBridge {
 function requirePluginBridge() {
   if (!window.nexusPlugins) throw new Error("Plugin capability bridge is unavailable in legacy mode");
   return window.nexusPlugins;
+}
+
+function currentCollaborationFile() {
+  if (!pluginRuntime || !pluginRuntime.session) return null;
+  const path = toVaultRelativePath(state.vaultPath, state.activeFile);
+  if (!path) return null;
+  const name = path.split("/").pop() ?? path;
+  return {
+    path,
+    title: name.replace(/\.md$/iu, ""),
+    markdown: shell.editor.getDocument(),
+    editor: shell.editor,
+    setReadOnly(readOnly: boolean) {
+      if (!editorContainerElement) return;
+      if (readOnly) editorContainerElement.dataset.collaborationReadOnly = "true";
+      else delete editorContainerElement.dataset.collaborationReadOnly;
+      const content = editorContainerElement.querySelector<HTMLElement>(".cm-content");
+      if (readOnly) content?.setAttribute("aria-readonly", "true");
+      else content?.removeAttribute("aria-readonly");
+    },
+  };
+}
+
+async function openCollaborationLab(): Promise<void> {
+  if (collaborationLab || collaborationLabOpening) return;
+  collaborationLabOpening = import("./collaboration-lab").then(({ createCollaborationLab }) =>
+    createCollaborationLab(document, () => {
+      collaborationLab = null;
+    })).then((lab) => {
+    collaborationLab = lab;
+    document.body.append(lab.element);
+  }).finally(() => {
+    collaborationLabOpening = null;
+  });
+  await collaborationLabOpening;
+}
+
+async function ensureCollaborationProduct(): Promise<ElectronCollaborationProduct> {
+  if (!pluginRuntime || !pluginRuntime.session) {
+    throw new Error("Open a runtime Vault before using collaboration");
+  }
+  if (!window.nexusCollabStore) {
+    throw new Error("Durable Electron collaboration storage is unavailable");
+  }
+  if (!window.nexusCollabNetwork) {
+    throw new Error("Trusted Electron collaboration networking is unavailable");
+  }
+  const sessionId = pluginRuntime.session.sessionId;
+  if (collaborationProduct?.vaultSessionId === sessionId) return collaborationProduct;
+  if (collaborationProductOpening) return collaborationProductOpening;
+
+  collaborationProductOpening = (async () => {
+    if (collaborationProduct) {
+      await collaborationProduct.destroy();
+      collaborationProduct = null;
+    }
+    const { createElectronCollaborationProduct } = await import("./electron-collaboration-product");
+    const { createHostCollaborationInvitationIssuer } = await import("./collaboration-network-adapters");
+    const networkBridge = window.nexusCollabNetwork;
+    if (!networkBridge) throw new Error("Trusted Electron collaboration networking is unavailable");
+    const networkConfiguration = await networkBridge.getConfiguration();
+    if (!pluginRuntime?.session || pluginRuntime.session.sessionId !== sessionId || !window.nexusCollabStore) {
+      throw new Error("The active Vault changed while collaboration was opening");
+    }
+    const product = createElectronCollaborationProduct({
+      ownerDocument: document,
+      pluginBridge: requirePluginBridge(),
+      storeBridge: window.nexusCollabStore,
+      network: {
+        serverUrls: networkConfiguration.serverUrls,
+        issueInvitation: createHostCollaborationInvitationIssuer(networkBridge),
+      },
+      vaultSessionId: sessionId,
+      vaultId: pluginRuntime.session.vaultId,
+      documentContext: documentContextTransactions,
+      getCurrentFile: currentCollaborationFile,
+      isCurrentFileDirty: () => state.dirty,
+      confirmDiscardEditorContent: () => window.confirm(
+        "The current Editor differs from the shared document. Leave and discard the Editor buffer? " +
+        "The existing Markdown file and remote document will not be deleted.",
+      ),
+      confirmDiscardUnprojected: () => window.confirm(
+        "File Projection is unresolved. Leave and discard only the unprojected collaboration state? " +
+        "This does not delete the Markdown file or remote document.",
+      ),
+      onProjectionClean: (projected) => {
+        if (pluginRuntime?.session?.sessionId !== sessionId) return;
+        const current = currentCollaborationFile();
+        if (
+          !current
+          || current.path !== projected.path
+          || current.markdown !== projected.markdown
+        ) return;
+        state.dirty = false;
+        renderStatus();
+      },
+      openDeveloperLab: openCollaborationLab,
+    });
+    try {
+      await product.initialize();
+    } catch (cause) {
+      try {
+        await product.destroy();
+      } catch (cleanupFailure) {
+        throw new AggregateError(
+          [cause, cleanupFailure],
+          "Collaboration initialization and cleanup both failed",
+        );
+      }
+      throw cause;
+    }
+    collaborationProduct = product;
+    return product;
+  })().finally(() => {
+    collaborationProductOpening = null;
+  });
+  return collaborationProductOpening;
+}
+
+async function openCollaborationProduct(): Promise<void> {
+  const product = await ensureCollaborationProduct();
+  await product.open();
+}
+
+interface DocumentContextChangeOptions {
+  /** The current Editor buffer remains the source of the new context (Save As / rename). */
+  readonly preservesEditorContent?: boolean;
+  /** A Host rename moves the active projection instead of leaving its collaboration. */
+  readonly preservesActiveCollaboration?: boolean;
+}
+
+async function prepareForDocumentChange(
+  options: DocumentContextChangeOptions = {},
+): Promise<boolean> {
+  const collaborationPhase = collaborationProduct?.workspace.getState().phase;
+  if (collaborationProduct && collaborationPhase && !["idle", "failed", "closed"].includes(collaborationPhase)) {
+    if (options.preservesActiveCollaboration && collaborationPhase === "active") return true;
+    const allowed = await collaborationProduct.prepareForFileChange();
+    if (allowed) {
+      state.dirty = false;
+      renderStatus();
+    }
+    return allowed;
+  }
+  return options.preservesEditorContent ? true : confirmDiscardIfDirty();
+}
+
+function contextTargetsActiveFile(context: VaultFileMutationContext): boolean {
+  if (!context.activeFile) return false;
+  const active = context.activeFile.replace(/\\/gu, "/");
+  const target = context.targetPath.replace(/\\/gu, "/").replace(/\/+$/u, "");
+  const caseInsensitive = /^[a-z]:\//iu.test(active) || /^[a-z]:\//iu.test(target);
+  const comparableActive = caseInsensitive ? active.toLocaleLowerCase() : active;
+  const comparableTarget = caseInsensitive ? target.toLocaleLowerCase() : target;
+  return comparableActive === comparableTarget || comparableActive.startsWith(`${comparableTarget}/`);
 }
 
 export function toVaultRelativePath(
@@ -206,6 +379,16 @@ function createAppToolbar(): HTMLElement {
   settingsBtn.style.fontSize = "16px";
   settingsBtn.addEventListener("click", handleSettings);
 
+  const collaborationBtn = document.createElement("button");
+  collaborationBtn.textContent = "Collaborate";
+  collaborationBtn.title = "Create, join, or resume authenticated collaboration";
+  collaborationBtn.addEventListener("click", () => {
+    void openCollaborationProduct().catch((error) => {
+      state.error = error instanceof Error ? error.message : String(error);
+      renderStatus();
+    });
+  });
+
   toolbar.append(
     vaultBtn,
     openBtn,
@@ -216,6 +399,7 @@ function createAppToolbar(): HTMLElement {
     outlineBtn,
     backlinksBtn,
     searchBtn,
+    collaborationBtn,
     settingsBtn
   );
   return toolbar;
@@ -271,77 +455,139 @@ async function confirmDiscardIfDirty(): Promise<boolean> {
 
 async function handleOpen(): Promise<void> {
   if (!appDispatching) return;
-  try {
-    state.error = null;
-    if (!(await confirmDiscardIfDirty())) return;
-    const result = await requireLegacyBridge().openFile();
-    if (!result) return;
+  await documentContextTransactions.runContextChange(async () => {
+    try {
+      state.error = null;
+      if (!(await prepareForDocumentChange())) return;
+      const result = await requireLegacyBridge().openFile();
+      if (!result) return;
 
-    state.filePath = result.path;
-    state.activeFile = result.path;
-    shell.loadDocument(result.content);
-    vault.setActiveFile(result.path);
-    await syncRuntimeActiveFile(result.path);
-    backlinks.refresh();
-  } catch (err) {
-    state.error = err instanceof Error ? err.message : String(err);
-  }
-  renderStatus();
+      state.filePath = result.path;
+      state.activeFile = result.path;
+      shell.loadDocument(result.content);
+      vault.setActiveFile(result.path);
+      await syncRuntimeActiveFile(result.path);
+      await collaborationProduct?.refreshFile();
+      backlinks.refresh();
+    } catch (err) {
+      state.error = err instanceof Error ? err.message : String(err);
+    }
+    renderStatus();
+  });
 }
 
 async function handleSave(): Promise<void> {
   if (!appDispatching) return;
-  try {
-    state.error = null;
-    const targetPath = state.activeFile ?? state.filePath;
-    if (targetPath) {
-      if (toVaultRelativePath(state.vaultPath, targetPath) !== null) {
-        await vault.writeFile(targetPath, state.content);
-      } else {
-        await requireLegacyBridge().saveFile(targetPath, state.content);
-      }
-      state.dirty = false;
-    } else {
-      await handleSaveAs();
-      return;
-    }
-  } catch (err) {
-    state.error = err instanceof Error ? err.message : String(err);
+  if (!(state.activeFile ?? state.filePath)) {
+    await handleSaveAs();
+    return;
   }
-  renderStatus();
+  await documentContextTransactions.runContextChange(async () => {
+    try {
+      state.error = null;
+      const targetPath = state.activeFile ?? state.filePath;
+      if (!targetPath) return;
+      const context = documentContextTransactions.capture();
+      const markdown = shell.editor.getDocument();
+      const collaborationPhase = collaborationProduct?.workspace.getState().phase;
+      if (collaborationProduct && collaborationPhase && !["idle", "failed", "closed"].includes(collaborationPhase)) {
+        await collaborationProduct.saveCurrent();
+      } else if (toVaultRelativePath(state.vaultPath, targetPath) !== null) {
+        await vault.writeFile(targetPath, markdown);
+      } else {
+        await requireLegacyBridge().saveFile(targetPath, markdown);
+      }
+      const currentContext = documentContextTransactions.capture();
+      const currentPath = state.activeFile ?? state.filePath;
+      if (
+        currentContext.identity === context.identity
+        && currentContext.generation === context.generation
+        && currentPath === targetPath
+        && shell.editor.getDocument() === markdown
+      ) {
+        state.dirty = false;
+      }
+    } catch (err) {
+      state.error = err instanceof Error ? err.message : String(err);
+    }
+    renderStatus();
+  });
 }
 
 async function handleSaveAs(): Promise<void> {
   if (!appDispatching) return;
-  try {
-    state.error = null;
-    if (pluginRuntime) {
-      if (!state.vaultPath) throw new Error("Open a Vault before saving a runtime document");
-      const name = window.prompt("File name", "untitled.md")?.trim();
-      if (!name) return;
-      const created = await vault.createFile(state.vaultPath, name);
-      await vault.writeFile(created.path, state.content);
-      await vault.refresh();
-      state.filePath = created.path;
-      state.activeFile = created.path;
-      state.dirty = false;
-      vault.setActiveFile(created.path);
-      await syncRuntimeActiveFile(created.path);
-      renderStatus();
-      return;
-    }
-    const result = await requireLegacyBridge().saveFileAs(state.content);
-    if (!result) return;
+  await documentContextTransactions.runContextChange(async () => {
+    try {
+      state.error = null;
+      if (!(await prepareForDocumentChange({ preservesEditorContent: true }))) return;
+      const sourceEditor = shell.editor;
+      const sourcePath = state.activeFile ?? state.filePath;
+      const sourceMarkdown = sourceEditor.getDocument();
+      const sourceContext = documentContextTransactions.capture();
+      if (pluginRuntime) {
+        if (!state.vaultPath) throw new Error("Open a Vault before saving a runtime document");
+        const name = window.prompt("File name", "untitled.md")?.trim();
+        if (!name) return;
+        const created = await vault.createFile(state.vaultPath, name);
+        await vault.writeFile(created.path, sourceMarkdown);
+        await vault.refresh();
+        const currentSourceContext = documentContextTransactions.capture();
+        const sourceContextMatches =
+          currentSourceContext.identity === sourceContext.identity
+          && currentSourceContext.generation === sourceContext.generation
+          && (state.activeFile ?? state.filePath) === sourcePath
+          && shell.editor === sourceEditor;
+        state.filePath = created.path;
+        state.activeFile = created.path;
+        vault.setActiveFile(created.path);
+        const savedContext = documentContextTransactions.capture();
+        await syncRuntimeActiveFile(created.path);
+        await collaborationProduct?.refreshFile();
+        const currentSavedContext = documentContextTransactions.capture();
+        if (
+          sourceContextMatches
+          && currentSavedContext.identity === savedContext.identity
+          && currentSavedContext.generation === savedContext.generation
+          && (state.activeFile ?? state.filePath) === created.path
+          && shell.editor === sourceEditor
+          && sourceEditor.getDocument() === sourceMarkdown
+        ) {
+          state.dirty = false;
+        }
+        renderStatus();
+        return;
+      }
+      const result = await requireLegacyBridge().saveFileAs(sourceMarkdown);
+      if (!result) return;
 
-    state.filePath = result.path;
-    state.activeFile = result.path;
-    state.dirty = false;
-    vault.setActiveFile(result.path);
-    await syncRuntimeActiveFile(result.path);
-  } catch (err) {
-    state.error = err instanceof Error ? err.message : String(err);
-  }
-  renderStatus();
+      const currentSourceContext = documentContextTransactions.capture();
+      const sourceContextMatches =
+        currentSourceContext.identity === sourceContext.identity
+        && currentSourceContext.generation === sourceContext.generation
+        && (state.activeFile ?? state.filePath) === sourcePath
+        && shell.editor === sourceEditor;
+      state.filePath = result.path;
+      state.activeFile = result.path;
+      vault.setActiveFile(result.path);
+      const savedContext = documentContextTransactions.capture();
+      await syncRuntimeActiveFile(result.path);
+      await collaborationProduct?.refreshFile();
+      const currentSavedContext = documentContextTransactions.capture();
+      if (
+        sourceContextMatches
+        && currentSavedContext.identity === savedContext.identity
+        && currentSavedContext.generation === savedContext.generation
+        && (state.activeFile ?? state.filePath) === result.path
+        && shell.editor === sourceEditor
+        && sourceEditor.getDocument() === sourceMarkdown
+      ) {
+        state.dirty = false;
+      }
+    } catch (err) {
+      state.error = err instanceof Error ? err.message : String(err);
+    }
+    renderStatus();
+  });
 }
 
 function handleSettings(): void {
@@ -508,36 +754,39 @@ async function syncRuntimeActiveFile(filePath: string | null): Promise<void> {
 
 async function handleVaultFileOpen(filePath: string): Promise<void> {
   if (!appDispatching) return;
-  const total = perfStart("open-file", { filePath });
-  try {
-    state.error = null;
-    if (!(await confirmDiscardIfDirty())) return;
+  await documentContextTransactions.runContextChange(async () => {
+    const total = perfStart("open-file", { filePath });
+    try {
+      state.error = null;
+      if (filePath !== state.activeFile && !(await prepareForDocumentChange())) return;
 
-    const ipc = perfStart("open-file.ipc-read");
-    const result = await vault.readFile(filePath);
-    perfEnd(ipc, { bytes: result.content.length });
+      const ipc = perfStart("open-file.ipc-read");
+      const result = await vault.readFile(filePath);
+      perfEnd(ipc, { bytes: result.content.length });
 
-    state.filePath = result.path;
-    state.activeFile = result.path;
+      state.filePath = result.path;
+      state.activeFile = result.path;
 
-    const load = perfStart("open-file.loadDocument");
-    shell.loadDocument(result.content);
-    perfEnd(load);
+      const load = perfStart("open-file.loadDocument");
+      shell.loadDocument(result.content);
+      perfEnd(load);
 
-    const setActive = perfStart("open-file.vault.setActiveFile");
-    vault.setActiveFile(result.path);
-    perfEnd(setActive);
+      const setActive = perfStart("open-file.vault.setActiveFile");
+      vault.setActiveFile(result.path);
+      perfEnd(setActive);
 
-    await syncRuntimeActiveFile(result.path);
+      await syncRuntimeActiveFile(result.path);
+      await collaborationProduct?.refreshFile();
 
-    const bl = perfStart("open-file.backlinks.refresh");
-    backlinks.refresh();
-    perfEnd(bl);
-  } catch (err) {
-    state.error = err instanceof Error ? err.message : String(err);
-  }
-  renderStatus();
-  perfEnd(total);
+      const bl = perfStart("open-file.backlinks.refresh");
+      backlinks.refresh();
+      perfEnd(bl);
+    } catch (err) {
+      state.error = err instanceof Error ? err.message : String(err);
+    }
+    renderStatus();
+    perfEnd(total);
+  });
 }
 
 function dirname(p: string): string {
@@ -695,6 +944,14 @@ async function destroyShellAndPanels(): Promise<void> {
   const attempt = async (operation: () => void | Promise<void>) => {
     try { await operation(); } catch (error) { errors.push(error); }
   };
+  await attempt(async () => { await collaborationProductOpening; });
+  collaborationProductOpening = null;
+  await attempt(() => collaborationProduct?.destroy());
+  collaborationProduct = null;
+  await attempt(async () => { await collaborationLabOpening; });
+  collaborationLabOpening = null;
+  await attempt(() => collaborationLab?.destroy());
+  collaborationLab = null;
   removeRuntimeSettingsListeners?.();
   removeRuntimeSettingsListeners = null;
   for (const panel of settingsPanels) await attempt(() => panel.destroy());
@@ -709,6 +966,7 @@ async function destroyShellAndPanels(): Promise<void> {
   await attempt(() => searchBar.destroy());
   await attempt(() => vault.destroy());
   await attempt(() => shell.destroy());
+  editorContainerElement = null;
   await attempt(() => rootElement.replaceChildren());
   if (errors.length > 0) throw new AggregateError(errors, "Renderer UI cleanup was not clean");
 }
@@ -756,6 +1014,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
   const root = options.root ?? document.getElementById("app");
   if (!root) throw new Error("Missing #app element");
   rootElement = root;
+  root.dataset.nexusStartupState = "starting";
   root.replaceChildren();
   appDispatching = true;
   let shellCreated = false;
@@ -768,6 +1027,10 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
     const attempt = async (operation: () => void | Promise<void>) => {
       try { await operation(); } catch (error) { errors.push(error); }
     };
+    await attempt(async () => { await collaborationProductOpening; });
+    collaborationProductOpening = null;
+    await attempt(() => collaborationProduct?.destroy());
+    collaborationProduct = null;
     removeRuntimeSettingsListeners?.();
     removeRuntimeSettingsListeners = null;
     for (const panel of settingsPanels) await attempt(() => panel.destroy());
@@ -782,6 +1045,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
     if (searchBarCreated) await attempt(() => searchBar.destroy());
     if (vaultCreated) await attempt(() => vault.destroy());
     if (shellCreated) await attempt(() => shell.destroy());
+    editorContainerElement = null;
     await attempt(() => root.replaceChildren());
     if (errors.length > 0) throw new AggregateError(errors, "Failed boot UI cleanup was not clean");
   };
@@ -825,6 +1089,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
 
   const editorContainer = document.createElement("div");
   editorContainer.className = "editor-container";
+  editorContainerElement = editorContainer;
   appToolbar.append(slots.ribbon, slots["view-toolbar"]);
   root.append(appToolbar, slots["command-palette"], mainArea, statusLine);
 
@@ -875,11 +1140,27 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
       })
     : undefined;
   vault = createVaultPanel({
+    withDocumentContextChange: (operation) => documentContextTransactions.runContextChange(operation),
     onOpenFile: (filePath) => {
       void handleVaultFileOpen(filePath);
     },
-    onBeforeVaultOpen: (nextPath) =>
-      nextPath === state.vaultPath ? true : confirmDiscardIfDirty(),
+    onBeforeVaultOpen: async (nextPath) =>
+      nextPath === state.vaultPath ? true : prepareForDocumentChange(),
+    onBeforeFileMutation: async (context) => {
+      const targetsActiveFile = contextTargetsActiveFile(context);
+      const prepared = await prepareForDocumentChange({
+        preservesEditorContent: context.kind === "rename" || !targetsActiveFile,
+        preservesActiveCollaboration: context.kind === "rename" || !targetsActiveFile,
+      });
+      if (!prepared) return false;
+      const relativePath = toVaultRelativePath(context.vaultPath, context.targetPath);
+      if (relativePath && pluginRuntime?.session && window.nexusCollabStore) {
+        const product = await ensureCollaborationProduct();
+        const reservation = await product.prepareForFileMutation(context.kind, relativePath);
+        if (reservation) return { deletionOperationId: reservation.operationId };
+      }
+      return true;
+    },
     onVaultOpen: async (nextPath) => {
       state.vaultPath = nextPath;
       if (toVaultRelativePath(nextPath, state.activeFile) === null) {
@@ -889,31 +1170,91 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
         vault.setActiveFile(null);
       }
       await syncRuntimeActiveFile(state.activeFile);
+      if (pluginRuntime?.session && window.nexusCollabStore) {
+        const product = await ensureCollaborationProduct();
+        await product.refreshFile();
+      }
       renderStatus();
       if (legacyLinkIndex) void seedLinkIndex();
     },
-    onFileRenamed: async (oldPath, newPath) => {
-      const activePath = state.activeFile;
-      if (activePath && (activePath === oldPath || activePath.startsWith(`${oldPath.replace(/[\\/]+$/, "")}/`))) {
-        const nextActive = `${newPath}${activePath.slice(oldPath.length)}`;
+    onFileRenamed: async (oldPath, newPath, context) => {
+      const oldRelative = toVaultRelativePath(context.vaultPath, oldPath);
+      const newRelative = toVaultRelativePath(context.vaultPath, newPath);
+      let hostError: unknown;
+      const activePath = context.activeFile;
+      if (
+        state.vaultPath === context.vaultPath
+        && state.activeFile === activePath
+        && contextTargetsActiveFile(context)
+      ) {
+        const nextActive = `${newPath}${activePath!.slice(oldPath.length)}`;
         state.activeFile = nextActive;
         if (state.filePath === activePath) state.filePath = nextActive;
         vault.setActiveFile(nextActive);
-        await syncRuntimeActiveFile(nextActive);
+        try {
+          await syncRuntimeActiveFile(nextActive);
+        } catch (error) {
+          hostError = error;
+        }
         backlinks.refresh();
         renderStatus();
       }
+      let collaborationError: unknown;
+      if (state.vaultPath === context.vaultPath && oldRelative && newRelative) {
+        try {
+          await collaborationProduct?.handlePathRenamed(oldRelative, newRelative);
+        } catch (error) {
+          collaborationError = error;
+        }
+      }
+      if (hostError !== undefined && collaborationError !== undefined) {
+        throw new AggregateError([hostError, collaborationError], "File rename coordination failed");
+      }
+      if (hostError !== undefined) throw hostError;
+      if (collaborationError !== undefined) throw collaborationError;
     },
-    onFileDeleted: async (deletedPath) => {
-      const activePath = state.activeFile;
-      if (!activePath || (activePath !== deletedPath && !activePath.startsWith(`${deletedPath.replace(/[\\/]+$/, "")}/`))) return;
+    onFileDeleted: async (deletedPath, context) => {
+      const deletedRelative = toVaultRelativePath(context.vaultPath, deletedPath);
+      let collaborationError: unknown;
+      if (state.vaultPath === context.vaultPath && deletedRelative) {
+        try {
+          await collaborationProduct?.handleFileDeleted(deletedRelative);
+        } catch (error) {
+          collaborationError = error;
+        }
+      }
+      const activePath = context.activeFile;
+      if (
+        state.vaultPath !== context.vaultPath
+        || state.activeFile !== activePath
+        || !contextTargetsActiveFile(context)
+      ) {
+        if (collaborationError !== undefined) throw collaborationError;
+        return;
+      }
+      // Do not mutate a still-bound Editor after fail-closed leave itself failed.
+      if (collaborationError !== undefined) throw collaborationError;
       state.activeFile = null;
       if (state.filePath === activePath) state.filePath = null;
+      state.dirty = false;
       shell.loadDocument("");
       vault.setActiveFile(null);
       await syncRuntimeActiveFile(null);
       backlinks.refresh();
       renderStatus();
+    },
+    onFileMutationSettled: async (context, outcome) => {
+      const relativePath = toVaultRelativePath(context.vaultPath, context.targetPath);
+      if (relativePath) {
+        await collaborationProduct?.completeFileMutation(context.kind, relativePath, outcome);
+      }
+      if (
+        context.kind === "delete"
+        && outcome.filesystem === "succeeded"
+        && outcome.coordination === "succeeded"
+      ) {
+        await collaborationProduct?.refreshFile();
+      }
     },
     onContextMenu: bootPlan.mode === "runtime" ? async ({ event, node, items }) => {
       if (!runtimeProductUi || !pluginRuntime) return;
@@ -1017,6 +1358,8 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
   // is still looking at the empty editor — invisible to them.
   if (options.deferVaultRestore !== false) scheduleDeferredVaultRestore();
 
+  root.dataset.nexusStartupState = "ready";
+
   return Object.freeze({
     mode: bootPlan.mode,
     state,
@@ -1052,7 +1395,9 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
     linkIndex = null;
     legacyLinkIndex = null;
     state.linkIndex = null;
+    editorContainerElement = null;
     shutdownPromise = null;
+    root.dataset.nexusStartupState = "failed";
     if (errors.length > 1) throw new AggregateError(errors, "Electron renderer boot failed and rollback was not clean");
     throw error;
   }

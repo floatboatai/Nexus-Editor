@@ -8,12 +8,18 @@ import {
   type PluginIpcEventContract,
   type PluginIpcRequest,
   type PluginIpcResponse,
+  type PluginVaultProjectionOpeningOwner,
   type VaultSessionId,
 } from "../src/shared/plugin-ipc";
 import {
   parseHostModeArgument,
   type NexusHostMode,
 } from "../src/shared/host-mode";
+import { createPortReplicaStore } from "../src/renderer/collab-store-client";
+import type { ElectronCollabStoreBridge } from "../src/shared/collab-store-ipc";
+import { createReconnectableCollabStoreBridge } from "./collab-store-preload-bridge";
+import { rendererMessagePortChannel } from "./collab-store-message-port";
+import { COLLAB_NETWORK_CHANNELS, parseCollaborationNetworkConfiguration, type CollaborationInvitationRequest, type ElectronCollabNetworkBridge } from "../src/shared/collab-network-policy";
 
 export interface DemoFileHandle {
   path: string;
@@ -185,6 +191,69 @@ const pluginHostBridge: PluginHostBridge = Object.freeze({
         path,
         ...(operationId === undefined ? {} : { operationId }),
       }),
+    acquireProjectionWrite: (
+      sessionId: VaultSessionId,
+      path: string,
+      projectionOpeningOperationId?: string,
+    ) => invokePluginHost("nexus:vault:projection-write-acquire", {
+      sessionId,
+      path,
+      ...(projectionOpeningOperationId === undefined ? {} : { projectionOpeningOperationId }),
+    }),
+    releaseProjectionWrite: (sessionId: VaultSessionId, permitId: string) =>
+      invokePluginHost("nexus:vault:projection-write-release", { sessionId, permitId }),
+    reserveProjectionOpening: (
+      sessionId: VaultSessionId,
+      path: string,
+      documentId: string,
+      operationId: string,
+      recoveryOwner?: PluginVaultProjectionOpeningOwner,
+    ) => invokePluginHost("nexus:vault:projection-opening-reserve", {
+      sessionId,
+      path,
+      documentId,
+      operationId,
+      ...(recoveryOwner === undefined ? {} : { recoveryOwner }),
+    }),
+    commitProjectionOpening: (
+      sessionId: VaultSessionId,
+      path: string,
+      documentId: string,
+      operationId: string,
+    ) => invokePluginHost("nexus:vault:projection-opening-commit", {
+      sessionId,
+      path,
+      documentId,
+      operationId,
+    }),
+    listProjectionOpenings: (sessionId: VaultSessionId) =>
+      invokePluginHost("nexus:vault:projection-opening-list", { sessionId }),
+    releaseProjectionOpening: (
+      sessionId: VaultSessionId,
+      path: string,
+      documentId: string,
+      operationId: string,
+    ) => invokePluginHost("nexus:vault:projection-opening-release", {
+      sessionId,
+      path,
+      documentId,
+      operationId,
+    }),
+    reserveDeletion: (
+      sessionId: VaultSessionId,
+      path: string,
+      operationId: string,
+      state?: "precommit" | "committed",
+    ) => invokePluginHost("nexus:vault:delete-reserve", {
+      sessionId,
+      path,
+      operationId,
+      ...(state === undefined ? {} : { state }),
+    }),
+    listDeletionFences: (sessionId: VaultSessionId) =>
+      invokePluginHost("nexus:vault:delete-list", { sessionId }),
+    releaseDeletion: (sessionId: VaultSessionId, path: string, operationId: string) =>
+      invokePluginHost("nexus:vault:delete-release", { sessionId, path, operationId }),
     createResourceUrl: (sessionId: VaultSessionId, path: string) =>
       invokePluginHost("nexus:vault:resource-url", { sessionId, path }),
     revokeResourceUrl: (sessionId: VaultSessionId, registrationId: string) =>
@@ -225,6 +294,48 @@ const pluginHostBridge: PluginHostBridge = Object.freeze({
 });
 
 const hostMode = parseHostModeArgument(process.argv);
+const collaborationStoreBridge = createReconnectableCollabStoreBridge();
+let collaborationStoreGeneration = 0;
+
+ipcRenderer.on("nexus:collab-store:port", (event, payload: unknown) => {
+  const generation = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? (payload as { readonly generation?: unknown }).generation
+    : undefined;
+  const port = event.ports[0];
+  if (
+    Object.keys((payload ?? {}) as object).length !== 1 ||
+    !Number.isSafeInteger(generation) ||
+    (generation as number) <= collaborationStoreGeneration ||
+    event.ports.length !== 1 ||
+    !port
+  ) {
+    event.ports.forEach((candidate) => candidate.close());
+    return;
+  }
+  const replacesExistingGeneration = collaborationStoreGeneration > 0;
+  collaborationStoreGeneration = generation as number;
+  // A replacement port can arrive before Electron reports the old port closed.
+  // Fence that generation before the new Store can become active.
+  if (replacesExistingGeneration) collaborationStoreBridge.disconnect();
+  const channel = rendererMessagePortChannel(port);
+  let store!: ReturnType<typeof createPortReplicaStore>;
+  store = createPortReplicaStore(channel, {
+    beforeRemoteDrain: () => collaborationStoreBridge.drain(store),
+  });
+  port.addEventListener("close", () => {
+    if (collaborationStoreGeneration === generation) {
+      collaborationStoreBridge.disconnect();
+    }
+  }, { once: true });
+  void collaborationStoreBridge.install(store).catch(() => {
+    if (collaborationStoreGeneration === generation) collaborationStoreBridge.disconnect();
+  });
+});
+
+ipcRenderer.on("nexus:collab-store:unavailable", () => {
+  collaborationStoreBridge.disconnect();
+});
+
 const hostLifecycleBridge: NexusHostLifecycleBridge = Object.freeze({
   mode: hostMode,
   onShutdown: (
@@ -233,9 +344,30 @@ const hostLifecycleBridge: NexusHostLifecycleBridge = Object.freeze({
   shutdownComplete: () => invokePluginHost("nexus:host:shutdown-complete", {}),
 });
 
+const collaborationNetworkBridge: ElectronCollabNetworkBridge = Object.freeze({
+  async getConfiguration() {
+    try {
+      const value: unknown = await ipcRenderer.invoke(COLLAB_NETWORK_CHANNELS.configuration);
+      if (!value || typeof value !== "object" || Object.keys(value).length !== 1 || !("serverUrls" in value)
+        || !Array.isArray(value.serverUrls) || value.serverUrls.length === 0 || value.serverUrls.length > 16
+        || value.serverUrls.some((entry) => typeof entry !== "string" || entry.length > 2_048 || entry.includes(","))) throw new TypeError();
+      return parseCollaborationNetworkConfiguration(value.serverUrls.join(","));
+    } catch { throw new Error("collaboration-network-unavailable"); }
+  },
+  async issueInvitation(request: CollaborationInvitationRequest) {
+    try { return await ipcRenderer.invoke(COLLAB_NETWORK_CHANNELS.issueInvitation, request); }
+    catch { return { ok: false, error: "invitation-request-failed" }; }
+  },
+});
+
 contextBridge.exposeInMainWorld("nexusHost", hostLifecycleBridge);
 if (hostMode === "runtime") {
+  contextBridge.exposeInMainWorld("nexusCollabNetwork", collaborationNetworkBridge);
   contextBridge.exposeInMainWorld("nexusPlugins", pluginHostBridge);
+  contextBridge.exposeInMainWorld(
+    "nexusCollabStore",
+    collaborationStoreBridge satisfies ElectronCollabStoreBridge,
+  );
 } else {
   contextBridge.exposeInMainWorld("nexusDemo", bridge);
 }

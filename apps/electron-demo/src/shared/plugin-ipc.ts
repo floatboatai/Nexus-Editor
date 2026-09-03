@@ -5,13 +5,17 @@
  */
 
 declare const vaultSessionBrand: unique symbol;
+declare const vaultIdBrand: unique symbol;
 declare const contentVersionBrand: unique symbol;
 
 export type VaultSessionId = string & { readonly [vaultSessionBrand]: true };
+export type VaultId = string & { readonly [vaultIdBrand]: true };
 export type IpcContentVersion = string & { readonly [contentVersionBrand]: true };
 
 export interface PluginVaultSession {
   readonly sessionId: VaultSessionId;
+  /** Stable opaque identity for persistence partitioning; unlike sessionId it survives reopen. */
+  readonly vaultId: VaultId;
   readonly name: string;
 }
 
@@ -40,6 +44,35 @@ export interface PluginVaultMutation {
   readonly operationId: string;
 }
 
+export interface PluginVaultProjectionWritePermit {
+  readonly permitId: string;
+  readonly path: string;
+}
+
+export interface PluginVaultProjectionOpeningOwner {
+  readonly senderId: number;
+  readonly sessionId: VaultSessionId;
+}
+
+export interface PluginVaultProjectionOpeningFence {
+  readonly operationId: string;
+  readonly path: string;
+  readonly documentId: string;
+  readonly vaultId: VaultId;
+  readonly owner: PluginVaultProjectionOpeningOwner;
+  readonly state: "precommit" | "committed";
+  readonly active: boolean;
+}
+
+export interface PluginVaultDeletionFence {
+  readonly operationId: string;
+  readonly path: string;
+}
+
+export interface PluginVaultDeletionFenceStatus extends PluginVaultDeletionFence {
+  readonly state: "precommit" | "committed";
+}
+
 export interface PluginVaultChangeEvent {
   readonly sessionId: VaultSessionId;
   readonly kind: "create" | "modify" | "rename" | "delete" | "rescan";
@@ -52,6 +85,8 @@ export interface PluginVaultChangeEvent {
 
 export interface PluginStorageSnapshot {
   readonly found: boolean;
+  /** The original bytes were preserved for explicit recovery and must not be treated as first-run state. */
+  readonly corrupt?: boolean;
   readonly revision: number;
   readonly data: unknown;
 }
@@ -111,8 +146,9 @@ export interface PluginIpcContract {
       readonly sessionId: VaultSessionId;
       readonly path: string;
       readonly content: string;
-      readonly expectedVersion?: IpcContentVersion;
+      readonly expectedVersion?: IpcContentVersion | null;
       readonly operationId?: string;
+      readonly projectionWritePermit?: string;
     };
     readonly response: PluginVaultMutation;
   };
@@ -121,8 +157,9 @@ export interface PluginIpcContract {
       readonly sessionId: VaultSessionId;
       readonly path: string;
       readonly content: Uint8Array;
-      readonly expectedVersion?: IpcContentVersion;
+      readonly expectedVersion?: IpcContentVersion | null;
       readonly operationId?: string;
+      readonly projectionWritePermit?: string;
     };
     readonly response: PluginVaultMutation;
   };
@@ -150,6 +187,71 @@ export interface PluginIpcContract {
       readonly operationId?: string;
     };
     readonly response: PluginVaultMutation & { readonly recoverable: true };
+  };
+  readonly "nexus:vault:projection-write-acquire": {
+    readonly request: {
+      readonly sessionId: VaultSessionId;
+      readonly path: string;
+      readonly projectionOpeningOperationId?: string;
+    };
+    readonly response: PluginVaultProjectionWritePermit;
+  };
+  readonly "nexus:vault:projection-write-release": {
+    readonly request: { readonly sessionId: VaultSessionId; readonly permitId: string };
+    readonly response: { readonly ok: true };
+  };
+  readonly "nexus:vault:projection-opening-reserve": {
+    readonly request: {
+      readonly sessionId: VaultSessionId;
+      readonly path: string;
+      readonly documentId: string;
+      readonly operationId: string;
+      readonly recoveryOwner?: PluginVaultProjectionOpeningOwner;
+    };
+    readonly response: PluginVaultProjectionOpeningFence;
+  };
+  readonly "nexus:vault:projection-opening-commit": {
+    readonly request: {
+      readonly sessionId: VaultSessionId;
+      readonly path: string;
+      readonly documentId: string;
+      readonly operationId: string;
+    };
+    readonly response: PluginVaultProjectionOpeningFence;
+  };
+  readonly "nexus:vault:projection-opening-list": {
+    readonly request: { readonly sessionId: VaultSessionId };
+    readonly response: readonly PluginVaultProjectionOpeningFence[];
+  };
+  readonly "nexus:vault:projection-opening-release": {
+    readonly request: {
+      readonly sessionId: VaultSessionId;
+      readonly path: string;
+      readonly documentId: string;
+      readonly operationId: string;
+    };
+    readonly response: { readonly released: boolean };
+  };
+  readonly "nexus:vault:delete-reserve": {
+    readonly request: {
+      readonly sessionId: VaultSessionId;
+      readonly path: string;
+      readonly operationId: string;
+      readonly state?: "precommit" | "committed";
+    };
+    readonly response: PluginVaultDeletionFence;
+  };
+  readonly "nexus:vault:delete-list": {
+    readonly request: { readonly sessionId: VaultSessionId };
+    readonly response: readonly PluginVaultDeletionFenceStatus[];
+  };
+  readonly "nexus:vault:delete-release": {
+    readonly request: {
+      readonly sessionId: VaultSessionId;
+      readonly path: string;
+      readonly operationId: string;
+    };
+    readonly response: { readonly released: boolean };
   };
   readonly "nexus:vault:resource-url": {
     readonly request: { readonly sessionId: VaultSessionId; readonly path: string };
@@ -222,6 +324,15 @@ export const PLUGIN_IPC_CHANNELS = Object.freeze([
   "nexus:vault:create-folder",
   "nexus:vault:rename",
   "nexus:vault:trash",
+  "nexus:vault:projection-write-acquire",
+  "nexus:vault:projection-write-release",
+  "nexus:vault:projection-opening-reserve",
+  "nexus:vault:projection-opening-commit",
+  "nexus:vault:projection-opening-list",
+  "nexus:vault:projection-opening-release",
+  "nexus:vault:delete-reserve",
+  "nexus:vault:delete-list",
+  "nexus:vault:delete-release",
   "nexus:vault:resource-url",
   "nexus:vault:revoke-resource-url",
   "nexus:storage:load",
@@ -247,13 +358,21 @@ export interface PluginHostVaultBridge {
     sessionId: VaultSessionId,
     path: string,
     content: string,
-    options?: { readonly expectedVersion?: IpcContentVersion; readonly operationId?: string },
+    options?: {
+      readonly expectedVersion?: IpcContentVersion | null;
+      readonly operationId?: string;
+      readonly projectionWritePermit?: string;
+    },
   ): Promise<PluginVaultMutation>;
   writeBinary(
     sessionId: VaultSessionId,
     path: string,
     content: Uint8Array,
-    options?: { readonly expectedVersion?: IpcContentVersion; readonly operationId?: string },
+    options?: {
+      readonly expectedVersion?: IpcContentVersion | null;
+      readonly operationId?: string;
+      readonly projectionWritePermit?: string;
+    },
   ): Promise<PluginVaultMutation>;
   createFolder(
     sessionId: VaultSessionId,
@@ -271,6 +390,49 @@ export interface PluginHostVaultBridge {
     path: string,
     operationId?: string,
   ): Promise<PluginVaultMutation & { readonly recoverable: true }>;
+  acquireProjectionWrite(
+    sessionId: VaultSessionId,
+    path: string,
+    projectionOpeningOperationId?: string,
+  ): Promise<PluginVaultProjectionWritePermit>;
+  releaseProjectionWrite(
+    sessionId: VaultSessionId,
+    permitId: string,
+  ): Promise<{ readonly ok: true }>;
+  reserveProjectionOpening(
+    sessionId: VaultSessionId,
+    path: string,
+    documentId: string,
+    operationId: string,
+    recoveryOwner?: PluginVaultProjectionOpeningOwner,
+  ): Promise<PluginVaultProjectionOpeningFence>;
+  commitProjectionOpening(
+    sessionId: VaultSessionId,
+    path: string,
+    documentId: string,
+    operationId: string,
+  ): Promise<PluginVaultProjectionOpeningFence>;
+  listProjectionOpenings(
+    sessionId: VaultSessionId,
+  ): Promise<readonly PluginVaultProjectionOpeningFence[]>;
+  releaseProjectionOpening(
+    sessionId: VaultSessionId,
+    path: string,
+    documentId: string,
+    operationId: string,
+  ): Promise<{ readonly released: boolean }>;
+  reserveDeletion(
+    sessionId: VaultSessionId,
+    path: string,
+    operationId: string,
+    state?: "precommit" | "committed",
+  ): Promise<PluginVaultDeletionFence>;
+  listDeletionFences(sessionId: VaultSessionId): Promise<readonly PluginVaultDeletionFenceStatus[]>;
+  releaseDeletion(
+    sessionId: VaultSessionId,
+    path: string,
+    operationId: string,
+  ): Promise<{ readonly released: boolean }>;
   createResourceUrl(
     sessionId: VaultSessionId,
     path: string,
@@ -428,6 +590,39 @@ function assertNode(channel: string, value: unknown): void {
   }
 }
 
+function assertProjectionOpeningOwner(
+  channel: string,
+  direction: "request" | "response",
+  value: unknown,
+): void {
+  const parsed = record(channel, direction, value);
+  numberField(channel, direction, parsed, "senderId");
+  stringField(channel, direction, parsed, "sessionId");
+  assertOnlyKeys(channel, direction, parsed, ["senderId", "sessionId"]);
+}
+
+function assertProjectionOpeningFence(channel: string, value: unknown): void {
+  const parsed = record(channel, "response", value);
+  stringField(channel, "response", parsed, "operationId");
+  stringField(channel, "response", parsed, "path");
+  stringField(channel, "response", parsed, "documentId");
+  stringField(channel, "response", parsed, "vaultId");
+  assertProjectionOpeningOwner(channel, "response", parsed.owner);
+  if (parsed.state !== "precommit" && parsed.state !== "committed") {
+    fail(channel, "response", "expected state to be precommit or committed");
+  }
+  if (typeof parsed.active !== "boolean") fail(channel, "response", "expected active to be boolean");
+  assertOnlyKeys(channel, "response", parsed, [
+    "active",
+    "documentId",
+    "operationId",
+    "owner",
+    "path",
+    "state",
+    "vaultId",
+  ]);
+}
+
 export function parsePluginIpcRequest<C extends PluginIpcChannel>(
   channel: C,
   value: unknown,
@@ -443,6 +638,8 @@ export function parsePluginIpcRequest<C extends PluginIpcChannel>(
     case "nexus:vault:commit":
     case "nexus:vault:list":
     case "nexus:vault:read-all":
+    case "nexus:vault:delete-list":
+    case "nexus:vault:projection-opening-list":
       sessionRequest(channel, value);
       break;
     case "nexus:vault:read":
@@ -450,6 +647,11 @@ export function parsePluginIpcRequest<C extends PluginIpcChannel>(
     case "nexus:vault:resource-url":
       pathRequest(channel, value);
       break;
+    case "nexus:vault:projection-write-acquire": {
+      const parsed = pathRequest(channel, value);
+      stringField(channel, "request", parsed, "projectionOpeningOperationId", { optional: true });
+      break;
+    }
     case "nexus:vault:revoke-resource-url": {
       const parsed = sessionRequest(channel, value);
       stringField(channel, "request", parsed, "registrationId");
@@ -458,15 +660,21 @@ export function parsePluginIpcRequest<C extends PluginIpcChannel>(
     case "nexus:vault:write": {
       const parsed = pathRequest(channel, value);
       stringField(channel, "request", parsed, "content", { nonEmpty: false });
-      stringField(channel, "request", parsed, "expectedVersion", { optional: true });
+      if (parsed.expectedVersion !== null) {
+        stringField(channel, "request", parsed, "expectedVersion", { optional: true });
+      }
       stringField(channel, "request", parsed, "operationId", { optional: true });
+      stringField(channel, "request", parsed, "projectionWritePermit", { optional: true });
       break;
     }
     case "nexus:vault:write-binary": {
       const parsed = pathRequest(channel, value);
       if (!(parsed.content instanceof Uint8Array)) fail(channel, "request", "expected content to be Uint8Array");
-      stringField(channel, "request", parsed, "expectedVersion", { optional: true });
+      if (parsed.expectedVersion !== null) {
+        stringField(channel, "request", parsed, "expectedVersion", { optional: true });
+      }
       stringField(channel, "request", parsed, "operationId", { optional: true });
+      stringField(channel, "request", parsed, "projectionWritePermit", { optional: true });
       break;
     }
     case "nexus:vault:create-folder": {
@@ -483,6 +691,41 @@ export function parsePluginIpcRequest<C extends PluginIpcChannel>(
     case "nexus:vault:trash": {
       const parsed = pathRequest(channel, value);
       stringField(channel, "request", parsed, "operationId", { optional: true });
+      break;
+    }
+    case "nexus:vault:projection-write-release": {
+      const parsed = sessionRequest(channel, value);
+      stringField(channel, "request", parsed, "permitId");
+      break;
+    }
+    case "nexus:vault:projection-opening-reserve": {
+      const parsed = pathRequest(channel, value);
+      stringField(channel, "request", parsed, "documentId");
+      stringField(channel, "request", parsed, "operationId");
+      if (parsed.recoveryOwner !== undefined) {
+        assertProjectionOpeningOwner(channel, "request", parsed.recoveryOwner);
+      }
+      break;
+    }
+    case "nexus:vault:projection-opening-commit":
+    case "nexus:vault:projection-opening-release":
+    {
+      const parsed = pathRequest(channel, value);
+      stringField(channel, "request", parsed, "documentId");
+      stringField(channel, "request", parsed, "operationId");
+      break;
+    }
+    case "nexus:vault:delete-release": {
+      const parsed = pathRequest(channel, value);
+      stringField(channel, "request", parsed, "operationId");
+      break;
+    }
+    case "nexus:vault:delete-reserve": {
+      const parsed = pathRequest(channel, value);
+      stringField(channel, "request", parsed, "operationId");
+      if (parsed.state !== undefined && parsed.state !== "precommit" && parsed.state !== "committed") {
+        fail(channel, "request", "expected state to be precommit or committed");
+      }
       break;
     }
     case "nexus:storage:load": {
@@ -532,12 +775,14 @@ export function parsePluginIpcResponse<C extends PluginIpcChannel>(
       if (value === null) break;
       const parsed = record(channel, "response", value);
       stringField(channel, "response", parsed, "sessionId");
+      stringField(channel, "response", parsed, "vaultId");
       stringField(channel, "response", parsed, "name");
       break;
     }
     case "nexus:vault:close":
     case "nexus:vault:commit":
     case "nexus:vault:revoke-resource-url":
+    case "nexus:vault:projection-write-release":
     case "nexus:host:revoke-plugin":
     case "nexus:host:open-external":
     case "nexus:host:shutdown-complete": {
@@ -573,6 +818,45 @@ export function parsePluginIpcResponse<C extends PluginIpcChannel>(
     case "nexus:vault:trash":
       assertMutation(channel, value, true);
       break;
+    case "nexus:vault:projection-write-acquire":
+    case "nexus:vault:delete-reserve": {
+      const parsed = record(channel, "response", value);
+      stringField(channel, "response", parsed, "path");
+      stringField(
+        channel,
+        "response",
+        parsed,
+        channel === "nexus:vault:projection-write-acquire" ? "permitId" : "operationId",
+      );
+      break;
+    }
+    case "nexus:vault:projection-opening-reserve":
+    case "nexus:vault:projection-opening-commit":
+      assertProjectionOpeningFence(channel, value);
+      break;
+    case "nexus:vault:projection-opening-release":
+    case "nexus:vault:delete-release": {
+      const parsed = record(channel, "response", value);
+      if (typeof parsed.released !== "boolean") fail(channel, "response", "expected released to be boolean");
+      break;
+    }
+    case "nexus:vault:delete-list": {
+      if (!Array.isArray(value)) fail(channel, "response", "expected an array");
+      for (const candidate of value) {
+        const parsed = record(channel, "response", candidate);
+        stringField(channel, "response", parsed, "path");
+        stringField(channel, "response", parsed, "operationId");
+        if (parsed.state !== "precommit" && parsed.state !== "committed") {
+          fail(channel, "response", "expected state to be precommit or committed");
+        }
+      }
+      break;
+    }
+    case "nexus:vault:projection-opening-list": {
+      if (!Array.isArray(value)) fail(channel, "response", "expected an array");
+      for (const candidate of value) assertProjectionOpeningFence(channel, candidate);
+      break;
+    }
     case "nexus:vault:resource-url": {
       const parsed = record(channel, "response", value);
       stringField(channel, "response", parsed, "url");
@@ -582,8 +866,18 @@ export function parsePluginIpcResponse<C extends PluginIpcChannel>(
     case "nexus:storage:load": {
       const parsed = record(channel, "response", value);
       if (typeof parsed.found !== "boolean") fail(channel, "response", "expected found to be boolean");
-      numberField(channel, "response", parsed, "revision");
+      const revision = numberField(channel, "response", parsed, "revision");
       if (!("data" in parsed)) fail(channel, "response", "expected data field");
+      if (parsed.corrupt !== undefined && typeof parsed.corrupt !== "boolean") {
+        fail(channel, "response", "expected corrupt to be boolean");
+      }
+      if (parsed.corrupt === true && (parsed.found || revision !== 0 || parsed.data !== null)) {
+        fail(channel, "response", "corrupt storage cannot be reported as available or missing data");
+      }
+      if (!parsed.found && (revision !== 0 || parsed.data !== null)) {
+        fail(channel, "response", "missing storage must have revision zero and null data");
+      }
+      assertOnlyKeys(channel, "response", parsed, ["found", "corrupt", "revision", "data"]);
       break;
     }
     case "nexus:storage:save": {

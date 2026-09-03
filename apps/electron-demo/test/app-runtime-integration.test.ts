@@ -5,8 +5,20 @@ import type {
   PluginVaultChangeEvent,
   VaultSessionId,
 } from "../src/shared/plugin-ipc";
+import type { ElectronCollabStoreBridge } from "../src/shared/collab-store-ipc";
+import type { DocumentContextTransactions } from "../src/renderer/document-context-transaction";
 
 const sessionId = "11111111-1111-4111-8111-111111111111" as VaultSessionId;
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (cause?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 function createBridgeHarness() {
   const order: string[] = [];
@@ -61,8 +73,8 @@ function createBridgeHarness() {
 
   const nexusPlugins: PluginHostBridge = {
     vault: {
-      pick: vi.fn(async () => ({ sessionId, name: "vault" })),
-      restore: vi.fn(async () => ({ sessionId, name: "vault" })),
+      pick: vi.fn(async () => ({ sessionId, vaultId: "vault-stable-a" as never, name: "vault" })),
+      restore: vi.fn(async () => ({ sessionId, vaultId: "vault-stable-a" as never, name: "vault" })),
       close: vi.fn(async () => {
         order.push("close-plugin-session");
         return { ok: true as const };
@@ -77,6 +89,31 @@ function createBridgeHarness() {
       createFolder: vi.fn(async (_session, path, operationId) => ({ path, operationId: operationId ?? "folder" })),
       rename: vi.fn(async (_session, _path, destination, operationId) => ({ path: destination, operationId: operationId ?? "rename" })),
       trash: vi.fn(async (_session, path, operationId) => ({ path, operationId: operationId ?? "trash", recoverable: true as const })),
+      acquireProjectionWrite: vi.fn(async (_session, path) => ({ path, permitId: "projection-permit" })),
+      releaseProjectionWrite: vi.fn(async () => ({ ok: true as const })),
+      reserveProjectionOpening: vi.fn(async (openingSession, path, documentId, operationId) => ({
+        active: true,
+        documentId,
+        operationId,
+        owner: { senderId: 7, sessionId: openingSession },
+        path,
+        state: "precommit" as const,
+        vaultId: "vault-stable-a" as never,
+      })),
+      commitProjectionOpening: vi.fn(async (openingSession, path, documentId, operationId) => ({
+        active: true,
+        documentId,
+        operationId,
+        owner: { senderId: 7, sessionId: openingSession },
+        path,
+        state: "committed" as const,
+        vaultId: "vault-stable-a" as never,
+      })),
+      listProjectionOpenings: vi.fn(async () => []),
+      releaseProjectionOpening: vi.fn(async () => ({ released: true })),
+      reserveDeletion: vi.fn(async (_session, path, operationId) => ({ path, operationId })),
+      listDeletionFences: vi.fn(async () => []),
+      releaseDeletion: vi.fn(async () => ({ released: true })),
       createResourceUrl: vi.fn(async () => ({ url: "nexus-vault://resource/token", registrationId: "token" })),
       revokeResourceUrl: vi.fn(async () => ({ ok: true as const })),
       onChanged: vi.fn((callback) => {
@@ -135,15 +172,148 @@ function installBridgeHarness(
   if (mode === "runtime") {
     delete window.nexusDemo;
     window.nexusPlugins = harness.nexusPlugins;
+    window.nexusCollabNetwork = {
+      getConfiguration: async () => ({ serverUrls: ["ws://127.0.0.1:1234"] }),
+      issueInvitation: async () => ({ ok: false, error: "invitation-request-failed" }),
+    };
   } else {
     window.nexusDemo = harness.nexusDemo;
     delete window.nexusPlugins;
+    delete window.nexusCollabNetwork;
   }
+}
+
+async function bootWithTransitioningCollaboration() {
+  const prepareForFileChange = vi.fn(async () => false);
+  let collaborationPhase: "idle" | "joining" = "idle";
+  const product = {
+    vaultSessionId: sessionId,
+    workspace: {
+      getState: () => ({
+        phase: collaborationPhase,
+        attachment: "none" as const,
+        serverPersistence: "unverified" as const,
+      }),
+    },
+    panel: {},
+    initialize: vi.fn(async () => undefined),
+    open: vi.fn(async () => undefined),
+    saveCurrent: vi.fn(async () => undefined),
+    prepareForFileChange,
+    prepareForFileMutation: vi.fn(async (kind: "rename" | "delete", path: string) => kind === "delete"
+      ? { schemaVersion: 1 as const, operationId: "delete-note", path }
+      : undefined),
+    completeFileMutation: vi.fn(async () => undefined),
+    listIncompleteFileDeletions: vi.fn(async () => []),
+    recoverFileDeletion: vi.fn(async () => undefined),
+    refreshFile: vi.fn(async () => undefined),
+    handlePathRenamed: vi.fn(async () => undefined),
+    handleFileDeleted: vi.fn(async () => undefined),
+    destroy: vi.fn(async () => undefined),
+  };
+  const createElectronCollaborationProduct = vi.fn(() => product);
+  vi.doMock("../src/renderer/electron-collaboration-product", () => ({
+    createElectronCollaborationProduct,
+  }));
+  const { boot } = await import("../src/renderer/app");
+  const harness = createBridgeHarness();
+  installBridgeHarness(harness, "runtime");
+  window.nexusCollabStore = { request: vi.fn() } as unknown as ElectronCollabStoreBridge;
+  const app = await boot({
+    root: document.getElementById("app")!,
+    featureFlags: { pluginPlatform: true },
+    deferVaultRestore: false,
+  });
+  await app.openVault("/vault");
+  await app.openVaultFile("/vault/note.md");
+  collaborationPhase = "joining";
+  Array.from(document.querySelectorAll<HTMLButtonElement>(".toolbar button"))
+    .find((candidate) => candidate.textContent === "Collaborate")!
+    .click();
+  await vi.waitFor(() => expect(product.open).toHaveBeenCalledTimes(1));
+  return { app, harness, prepareForFileChange };
+}
+
+async function bootWithDocumentContextTransactions() {
+  let documentContext!: DocumentContextTransactions;
+  let collaborationPhase: "idle" | "active" = "idle";
+  const product = {
+    vaultSessionId: sessionId,
+    workspace: {
+      getState: () => ({
+        phase: collaborationPhase,
+        attachment: collaborationPhase === "active" ? "attached" as const : "none" as const,
+        serverPersistence: "unverified" as const,
+      }),
+    },
+    panel: {},
+    initialize: vi.fn(async () => undefined),
+    open: vi.fn(async () => undefined),
+    saveCurrent: vi.fn(async () => undefined),
+    prepareForFileChange: vi.fn(async () => true),
+    prepareForFileMutation: vi.fn(async (kind: "rename" | "delete", path: string) => kind === "delete"
+      ? { schemaVersion: 1 as const, operationId: "delete-note", path }
+      : undefined),
+    completeFileMutation: vi.fn(async () => undefined),
+    listIncompleteFileDeletions: vi.fn(async () => []),
+    recoverFileDeletion: vi.fn(async () => undefined),
+    refreshFile: vi.fn(async () => undefined),
+    handlePathRenamed: vi.fn(async () => undefined),
+    handleFileDeleted: vi.fn(async () => undefined),
+    destroy: vi.fn(async () => undefined),
+  };
+  const createElectronCollaborationProduct = vi.fn((options: {
+    readonly documentContext: DocumentContextTransactions;
+  }) => {
+    documentContext = options.documentContext;
+    return product;
+  });
+  vi.doMock("../src/renderer/electron-collaboration-product", () => ({
+    createElectronCollaborationProduct,
+  }));
+  const { boot } = await import("../src/renderer/app");
+  const harness = createBridgeHarness();
+  installBridgeHarness(harness, "runtime");
+  window.nexusCollabStore = { request: vi.fn() } as unknown as ElectronCollabStoreBridge;
+  const app = await boot({
+    root: document.getElementById("app")!,
+    featureFlags: { pluginPlatform: true },
+    deferVaultRestore: false,
+  });
+  await app.openVault("/vault");
+  await app.openVaultFile("/vault/note.md");
+  Array.from(document.querySelectorAll<HTMLButtonElement>(".toolbar button"))
+    .find((candidate) => candidate.textContent === "Collaborate")!
+    .click();
+  await vi.waitFor(() => expect(product.open).toHaveBeenCalledTimes(1));
+
+  return {
+    app,
+    harness,
+    product,
+    setCollaborationPhase(phase: "idle" | "active") {
+      collaborationPhase = phase;
+    },
+    beginCreate() {
+      const attach = vi.fn(async () => undefined);
+      const opening = documentContext.runOpening(
+        documentContext.capture(),
+        async (assertContextCurrent) => {
+          assertContextCurrent();
+          await attach();
+        },
+      );
+      void opening.catch(() => undefined);
+      return { attach, opening };
+    },
+  };
 }
 
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
+  delete window.nexusCollabNetwork;
+  delete window.nexusCollabStore;
   document.body.replaceChildren();
   const root = document.createElement("div");
   root.id = "app";
@@ -151,7 +321,7 @@ beforeEach(() => {
 });
 
 describe("Electron renderer plugin runtime integration", () => {
-  it("keeps the legacy path as the default and shuts it down once", async () => {
+  it("keeps the explicit legacy compatibility path and shuts it down once", async () => {
     const { boot } = await import("../src/renderer/app");
     const harness = createBridgeHarness();
     installBridgeHarness(harness, "legacy");
@@ -163,6 +333,7 @@ describe("Electron renderer plugin runtime integration", () => {
     });
 
     expect(app.mode).toBe("legacy");
+    expect(document.getElementById("app")?.dataset.nexusStartupState).toBe("ready");
     expect(app.runtime).toBeNull();
     expect(app.productUi).toBeNull();
     expect(app.shell.toolbar).not.toBeNull();
@@ -172,7 +343,8 @@ describe("Electron renderer plugin runtime integration", () => {
 
     app.state.activeFile = "/vault-note.md";
     app.state.filePath = "/vault-note.md";
-    app.state.content = "outside";
+    app.shell.editor.setDocument("outside");
+    await vi.waitFor(() => expect(app.state.content).toBe("outside"));
     const saveButton = Array.from(document.querySelectorAll("button"))
       .find((button) => button.textContent === "Save");
     saveButton?.click();
@@ -209,6 +381,7 @@ describe("Electron renderer plugin runtime integration", () => {
     });
 
     expect(app.mode).toBe("runtime");
+    expect(document.getElementById("app")?.dataset.nexusStartupState).toBe("ready");
     expect(app.state.linkIndex).toBeNull();
     expect(harness.nexusDemo.vault.readAll).not.toHaveBeenCalled();
     expect(harness.nexusDemo.vault.onChanged).not.toHaveBeenCalled();
@@ -259,8 +432,8 @@ describe("Electron renderer plugin runtime integration", () => {
       )?.textContent).toContain("4 words");
     });
 
-    app.state.content = "runtime edit";
-    app.state.dirty = true;
+    app.shell.editor.setDocument("runtime edit");
+    await vi.waitFor(() => expect(app.state.content).toBe("runtime edit"));
     const saveButton = Array.from(document.querySelectorAll<HTMLButtonElement>(".toolbar button"))
       .find((button) => button.textContent === "Save");
     saveButton?.click();
@@ -395,6 +568,510 @@ describe("Electron renderer plugin runtime integration", () => {
     ]);
   });
 
+  it("opens the authenticated durable collaboration product instead of the assessment lab", async () => {
+    const { boot } = await import("../src/renderer/app");
+    const harness = createBridgeHarness();
+    installBridgeHarness(harness, "runtime");
+    window.nexusCollabNetwork!.getConfiguration = async () => ({
+      serverUrls: ["wss://review.example.test"],
+    });
+    const persistenceRequest = vi.fn();
+    window.nexusCollabStore = {
+      request: persistenceRequest,
+    } as unknown as ElectronCollabStoreBridge;
+
+    const app = await boot({
+      root: document.getElementById("app")!,
+      featureFlags: { pluginPlatform: true },
+      deferVaultRestore: false,
+    });
+    await app.openVault("/vault");
+    await app.openVaultFile("/vault/note.md");
+
+    const collaborationButton = Array.from(document.querySelectorAll<HTMLButtonElement>(".toolbar button"))
+      .find((candidate) => candidate.textContent === "Collaborate")!;
+    collaborationButton.click();
+
+    await vi.waitFor(() => {
+      const product = document.querySelector<HTMLElement>(".nexus-collaboration");
+      expect(product).not.toBeNull();
+      expect(product?.hidden).toBe(false);
+      expect(product?.textContent).toContain("Create collaboration");
+      expect(product?.textContent).toContain("Join collaboration");
+    });
+    expect(document.querySelector(".nexus-collab-lab")).toBeNull();
+    expect(document.querySelector<HTMLInputElement>('[name="create-server-url"]')?.value)
+      .toBe("wss://review.example.test");
+    expect(persistenceRequest).not.toHaveBeenCalled();
+
+    await app.shutdown();
+    expect(document.querySelector(".nexus-collaboration")).toBeNull();
+  });
+
+  it("keeps a newer Editor change dirty when an ordinary Save finishes late", async () => {
+    const { app, harness } = await bootWithDocumentContextTransactions();
+    const releaseWrite = deferred<void>();
+    let writeCompleted = false;
+    vi.mocked(harness.nexusPlugins.vault.write).mockImplementation(
+      async (_session, path, _content, options) => {
+        await releaseWrite.promise;
+        writeCompleted = true;
+        return { path, version: "ipc:2" as never, operationId: options?.operationId ?? "write" };
+      },
+    );
+    app.shell.editor.setDocument("save snapshot");
+    await vi.waitFor(() => expect(app.state.content).toBe("save snapshot"));
+
+    Array.from(document.querySelectorAll<HTMLButtonElement>(".toolbar button"))
+      .find((candidate) => candidate.textContent === "Save")!
+      .click();
+    await vi.waitFor(() => expect(harness.nexusPlugins.vault.write).toHaveBeenCalledWith(
+      sessionId,
+      "note.md",
+      "save snapshot",
+      expect.anything(),
+    ));
+
+    app.shell.editor.setDocument("typed while saving");
+    await vi.waitFor(() => expect(app.state.content).toBe("typed while saving"));
+    releaseWrite.resolve();
+    await vi.waitFor(() => expect(writeCompleted).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(app.state.dirty).toBe(true);
+    expect(app.shell.editor.getDocument()).toBe("typed while saving");
+
+    await app.shutdown();
+    vi.doUnmock("../src/renderer/electron-collaboration-product");
+  });
+
+  it("keeps a newer Editor change dirty when runtime Save As finishes late", async () => {
+    const { app, harness } = await bootWithDocumentContextTransactions();
+    const releaseWrite = deferred<void>();
+    vi.spyOn(window, "prompt").mockReturnValue("copy.md");
+    vi.mocked(harness.nexusPlugins.vault.write).mockImplementation(
+      async (_session, path, content, options) => {
+        if (path === "copy.md" && content === "save-as snapshot") await releaseWrite.promise;
+        return { path, version: "ipc:2" as never, operationId: options?.operationId ?? "write" };
+      },
+    );
+    app.shell.editor.setDocument("save-as snapshot");
+    await vi.waitFor(() => expect(app.state.content).toBe("save-as snapshot"));
+
+    Array.from(document.querySelectorAll<HTMLButtonElement>(".toolbar button"))
+      .find((candidate) => candidate.textContent === "Save As")!
+      .click();
+    await vi.waitFor(() => expect(harness.nexusPlugins.vault.write).toHaveBeenLastCalledWith(
+      sessionId,
+      "copy.md",
+      "save-as snapshot",
+      expect.anything(),
+    ));
+
+    app.shell.editor.setDocument("typed while saving as");
+    await vi.waitFor(() => expect(app.state.content).toBe("typed while saving as"));
+    releaseWrite.resolve();
+    await vi.waitFor(() => expect(app.state.activeFile).toBe("/vault/copy.md"));
+    expect(app.state.dirty).toBe(true);
+    expect(app.shell.editor.getDocument()).toBe("typed while saving as");
+
+    await app.shutdown();
+    vi.doUnmock("../src/renderer/electron-collaboration-product");
+  });
+
+  it("keeps a newer Editor change dirty when legacy Save As finishes late", async () => {
+    const { boot } = await import("../src/renderer/app");
+    const harness = createBridgeHarness();
+    const releaseDialog = deferred<void>();
+    vi.mocked(harness.nexusDemo.saveFileAs).mockImplementation(async () => {
+      await releaseDialog.promise;
+      return { path: "/vault/copy.md" };
+    });
+    installBridgeHarness(harness, "legacy");
+    const app = await boot({
+      root: document.getElementById("app")!,
+      featureFlags: { pluginPlatform: false },
+      deferVaultRestore: false,
+    });
+    await app.openVault("/vault");
+    await app.openVaultFile("/vault/note.md");
+    app.shell.editor.setDocument("legacy save-as snapshot");
+    await vi.waitFor(() => expect(app.state.content).toBe("legacy save-as snapshot"));
+
+    Array.from(document.querySelectorAll<HTMLButtonElement>(".toolbar button"))
+      .find((candidate) => candidate.textContent === "Save As")!
+      .click();
+    await vi.waitFor(() => expect(harness.nexusDemo.saveFileAs).toHaveBeenCalledWith(
+      "legacy save-as snapshot",
+    ));
+
+    app.shell.editor.setDocument("typed while legacy dialog was open");
+    await vi.waitFor(() => expect(app.state.content).toBe("typed while legacy dialog was open"));
+    releaseDialog.resolve();
+    await vi.waitFor(() => expect(app.state.activeFile).toBe("/vault/copy.md"));
+    expect(app.state.dirty).toBe(true);
+    expect(app.shell.editor.getDocument()).toBe("typed while legacy dialog was open");
+
+    await app.shutdown();
+  });
+
+  it("keeps a newer Editor change dirty when collaboration projection Save finishes late", async () => {
+    const { app, harness, product, setCollaborationPhase } = await bootWithDocumentContextTransactions();
+    const releaseSave = deferred<void>();
+    let saveCompleted = false;
+    product.saveCurrent.mockImplementation(async () => {
+      await releaseSave.promise;
+      saveCompleted = true;
+    });
+    setCollaborationPhase("active");
+    app.shell.editor.setDocument("shared save snapshot");
+    await vi.waitFor(() => expect(app.state.content).toBe("shared save snapshot"));
+
+    Array.from(document.querySelectorAll<HTMLButtonElement>(".toolbar button"))
+      .find((candidate) => candidate.textContent === "Save")!
+      .click();
+    await vi.waitFor(() => expect(product.saveCurrent).toHaveBeenCalledTimes(1));
+
+    app.shell.editor.setDocument("new shared edit");
+    await vi.waitFor(() => expect(app.state.content).toBe("new shared edit"));
+    releaseSave.resolve();
+    await vi.waitFor(() => expect(saveCompleted).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(app.state.dirty).toBe(true);
+
+    await app.shutdown();
+    vi.doUnmock("../src/renderer/electron-collaboration-product");
+  });
+
+  it("waits for an active projection rename before starting collaboration Save", async () => {
+    const { app, harness, product, setCollaborationPhase } = await bootWithDocumentContextTransactions();
+    const releaseRename = deferred<void>();
+    setCollaborationPhase("active");
+    vi.mocked(harness.nexusPlugins.vault.rename).mockImplementation(
+      async (_session, _path, destination, operationId) => {
+        await releaseRename.promise;
+        return { path: destination, operationId: operationId ?? "rename" };
+      },
+    );
+    const row = document.querySelector<HTMLElement>('[data-path="/vault/note.md"]')!;
+    row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    const renameInput = row.querySelector<HTMLInputElement>("input")!;
+    renameInput.value = "renamed.md";
+    renameInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await vi.waitFor(() => expect(harness.nexusPlugins.vault.rename).toHaveBeenCalledTimes(1));
+
+    Array.from(document.querySelectorAll<HTMLButtonElement>(".toolbar button"))
+      .find((candidate) => candidate.textContent === "Save")!
+      .click();
+    await Promise.resolve();
+    expect(product.saveCurrent).not.toHaveBeenCalled();
+
+    releaseRename.resolve();
+    await vi.waitFor(() => expect(product.handlePathRenamed).toHaveBeenCalledWith("note.md", "renamed.md"));
+    await vi.waitFor(() => expect(product.saveCurrent).toHaveBeenCalledTimes(1));
+    expect(app.state.activeFile).toBe("/vault/renamed.md");
+
+    await app.shutdown();
+    vi.doUnmock("../src/renderer/electron-collaboration-product");
+  });
+
+  it("routes Save As through the context-change gate while collaboration is opening", async () => {
+    const { app, harness, prepareForFileChange } = await bootWithTransitioningCollaboration();
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue("copy.md");
+
+    Array.from(document.querySelectorAll<HTMLButtonElement>(".toolbar button"))
+      .find((candidate) => candidate.textContent === "Save As")!
+      .click();
+
+    await vi.waitFor(() => expect(prepareForFileChange).toHaveBeenCalled());
+    expect(prompt).not.toHaveBeenCalled();
+    expect(harness.nexusPlugins.vault.write).not.toHaveBeenCalledWith(
+      sessionId,
+      "copy.md",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(app.state.activeFile).toBe("/vault/note.md");
+    await app.shutdown();
+    vi.doUnmock("../src/renderer/electron-collaboration-product");
+  });
+
+  it("routes current-file rename through the context-change gate before touching disk", async () => {
+    const { app, harness, prepareForFileChange } = await bootWithTransitioningCollaboration();
+    const row = document.querySelector<HTMLElement>('[data-path="/vault/note.md"]')!;
+
+    row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    const renameInput = row.querySelector<HTMLInputElement>("input")!;
+    renameInput.value = "renamed.md";
+    renameInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    await vi.waitFor(() => expect(prepareForFileChange).toHaveBeenCalledTimes(1));
+    expect(harness.nexusPlugins.vault.rename).not.toHaveBeenCalled();
+    expect(app.state.activeFile).toBe("/vault/note.md");
+    await app.shutdown();
+    vi.doUnmock("../src/renderer/electron-collaboration-product");
+  });
+
+  it("routes current-file delete through the context-change gate before touching disk", async () => {
+    const { app, harness, prepareForFileChange } = await bootWithTransitioningCollaboration();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    document.querySelector<HTMLElement>('[data-path="/vault/note.md"]')!.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, clientX: 10, clientY: 10 }),
+    );
+    let deleteButton: HTMLButtonElement | undefined;
+    await vi.waitFor(() => {
+      deleteButton = Array.from(document.querySelectorAll<HTMLButtonElement>(".nexus-plugin-menu button"))
+        .find((candidate) => candidate.textContent === "Delete");
+      expect(deleteButton).toBeDefined();
+    });
+
+    deleteButton!.click();
+
+    await vi.waitFor(() => expect(prepareForFileChange).toHaveBeenCalledTimes(1));
+    expect(harness.nexusPlugins.vault.trash).not.toHaveBeenCalled();
+    expect(app.state.activeFile).toBe("/vault/note.md");
+    await app.shutdown();
+    vi.doUnmock("../src/renderer/electron-collaboration-product");
+  });
+
+  it("rejects a create that starts after Save As passed its gate but before the new file commits", async () => {
+    const { app, harness, beginCreate } = await bootWithDocumentContextTransactions();
+    const releaseWrite = deferred<void>();
+    vi.mocked(harness.nexusPlugins.vault.write).mockImplementation(async (_session, path, _content, options) => {
+      if (path === "copy.md") await releaseWrite.promise;
+      return { path, version: "ipc:2" as never, operationId: options?.operationId ?? "write" };
+    });
+    vi.spyOn(window, "prompt").mockReturnValue("copy.md");
+
+    Array.from(document.querySelectorAll<HTMLButtonElement>(".toolbar button"))
+      .find((candidate) => candidate.textContent === "Save As")!
+      .click();
+    await vi.waitFor(() => expect(harness.nexusPlugins.vault.write).toHaveBeenCalledWith(
+      sessionId,
+      "copy.md",
+      "",
+      expect.anything(),
+    ));
+
+    const create = beginCreate();
+    await Promise.resolve();
+    expect(create.attach).not.toHaveBeenCalled();
+    releaseWrite.resolve();
+
+    await vi.waitFor(() => expect(app.state.activeFile).toBe("/vault/copy.md"));
+    await expect(create.opening).rejects.toMatchObject({ code: "document-context-changed" });
+    expect(create.attach).not.toHaveBeenCalled();
+    await app.shutdown();
+    vi.doUnmock("../src/renderer/electron-collaboration-product");
+  });
+
+  it("rejects a create that starts after rename passed its gate but before disk coordination finishes", async () => {
+    const { app, harness, beginCreate, product } = await bootWithDocumentContextTransactions();
+    const releaseRename = deferred<void>();
+    vi.mocked(harness.nexusPlugins.vault.rename).mockImplementation(
+      async (_session, _path, destination, operationId) => {
+        await releaseRename.promise;
+        return { path: destination, operationId: operationId ?? "rename" };
+      },
+    );
+    const row = document.querySelector<HTMLElement>('[data-path="/vault/note.md"]')!;
+    row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    const renameInput = row.querySelector<HTMLInputElement>("input")!;
+    renameInput.value = "renamed.md";
+    renameInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await vi.waitFor(() => expect(harness.nexusPlugins.vault.rename).toHaveBeenCalled());
+
+    const create = beginCreate();
+    await Promise.resolve();
+    expect(create.attach).not.toHaveBeenCalled();
+    releaseRename.resolve();
+
+    await vi.waitFor(() => expect(app.state.activeFile).toBe("/vault/renamed.md"));
+    await vi.waitFor(() => expect(product.handlePathRenamed).toHaveBeenCalledWith("note.md", "renamed.md"));
+    await expect(create.opening).rejects.toMatchObject({ code: "document-context-changed" });
+    expect(create.attach).not.toHaveBeenCalled();
+    await app.shutdown();
+    vi.doUnmock("../src/renderer/electron-collaboration-product");
+  });
+
+  it("rolls back a Host rename when collaboration identity migration fails", async () => {
+    const { app, harness, product } = await bootWithDocumentContextTransactions();
+    product.handlePathRenamed.mockRejectedValueOnce(Object.assign(
+      new Error("enrollment write failed"),
+      { code: "enrollment-write-failed" },
+    ));
+    const row = document.querySelector<HTMLElement>('[data-path="/vault/note.md"]')!;
+    row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    const renameInput = row.querySelector<HTMLInputElement>("input")!;
+    renameInput.value = "renamed.md";
+    renameInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    await vi.waitFor(() => expect(harness.nexusPlugins.vault.rename).toHaveBeenCalledTimes(2));
+    expect(harness.nexusPlugins.vault.rename).toHaveBeenNthCalledWith(
+      1,
+      sessionId,
+      "note.md",
+      "renamed.md",
+      expect.any(String),
+    );
+    expect(harness.nexusPlugins.vault.rename).toHaveBeenNthCalledWith(
+      2,
+      sessionId,
+      "renamed.md",
+      "note.md",
+      expect.any(String),
+    );
+    expect(product.handlePathRenamed).toHaveBeenNthCalledWith(1, "note.md", "renamed.md");
+    await vi.waitFor(() => expect(product.handlePathRenamed).toHaveBeenCalledTimes(2));
+    expect(product.handlePathRenamed).toHaveBeenNthCalledWith(2, "renamed.md", "note.md");
+    await vi.waitFor(() => expect(app.state.activeFile).toBe("/vault/note.md"));
+
+    await app.shutdown();
+    vi.doUnmock("../src/renderer/electron-collaboration-product");
+  });
+
+  it("rejects a create that starts after delete passed its gate but before disk coordination finishes", async () => {
+    const { app, harness, beginCreate, product } = await bootWithDocumentContextTransactions();
+    const releaseTrash = deferred<void>();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(harness.nexusPlugins.vault.trash).mockImplementation(
+      async (_session, path, operationId) => {
+        await releaseTrash.promise;
+        return { path, operationId: operationId ?? "trash", recoverable: true as const };
+      },
+    );
+    document.querySelector<HTMLElement>('[data-path="/vault/note.md"]')!.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true }),
+    );
+    let deleteButton: HTMLButtonElement | undefined;
+    await vi.waitFor(() => {
+      deleteButton = Array.from(document.querySelectorAll<HTMLButtonElement>(".nexus-plugin-menu button"))
+        .find((candidate) => candidate.textContent === "Delete");
+      expect(deleteButton).toBeDefined();
+    });
+    deleteButton!.click();
+    await vi.waitFor(() => expect(harness.nexusPlugins.vault.trash).toHaveBeenCalled());
+
+    const create = beginCreate();
+    await Promise.resolve();
+    expect(create.attach).not.toHaveBeenCalled();
+    releaseTrash.resolve();
+
+    await vi.waitFor(() => expect(app.state.activeFile).toBeNull());
+    await vi.waitFor(() => expect(product.handleFileDeleted).toHaveBeenCalledWith("note.md"));
+    await expect(create.opening).rejects.toMatchObject({ code: "document-context-changed" });
+    expect(create.attach).not.toHaveBeenCalled();
+    await app.shutdown();
+    vi.doUnmock("../src/renderer/electron-collaboration-product");
+  });
+
+  it("prepares the active document change before reserving its file deletion", async () => {
+    const { app, harness, product, setCollaborationPhase } = await bootWithDocumentContextTransactions();
+    setCollaborationPhase("active");
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    document.querySelector<HTMLElement>('[data-path="/vault/note.md"]')!.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true }),
+    );
+    let deleteButton: HTMLButtonElement | undefined;
+    await vi.waitFor(() => {
+      deleteButton = Array.from(document.querySelectorAll<HTMLButtonElement>(".nexus-plugin-menu button"))
+        .find((candidate) => candidate.textContent === "Delete");
+      expect(deleteButton).toBeDefined();
+    });
+    deleteButton!.click();
+
+    await vi.waitFor(() => expect(product.completeFileMutation).toHaveBeenCalledWith("delete", "note.md", {
+      filesystem: "succeeded",
+      coordination: "succeeded",
+      refresh: "succeeded",
+    }));
+    expect(harness.nexusPlugins.vault.trash).toHaveBeenCalledWith(
+      sessionId,
+      "note.md",
+      "delete-note",
+    );
+    expect(product.prepareForFileChange.mock.invocationCallOrder[0]).toBeLessThan(
+      product.prepareForFileMutation.mock.invocationCallOrder[0]!,
+    );
+    await app.shutdown();
+    vi.doUnmock("../src/renderer/electron-collaboration-product");
+  });
+
+  it("releases the prepared delete mutation when trash fails", async () => {
+    const { app, harness, product } = await bootWithDocumentContextTransactions();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(harness.nexusPlugins.vault.trash).mockRejectedValueOnce(new Error("trash unavailable"));
+    document.querySelector<HTMLElement>('[data-path="/vault/note.md"]')!.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true }),
+    );
+    let deleteButton: HTMLButtonElement | undefined;
+    await vi.waitFor(() => {
+      deleteButton = Array.from(document.querySelectorAll<HTMLButtonElement>(".nexus-plugin-menu button"))
+        .find((candidate) => candidate.textContent === "Delete");
+      expect(deleteButton).toBeDefined();
+    });
+    deleteButton!.click();
+
+    await vi.waitFor(() => expect(product.completeFileMutation).toHaveBeenCalledWith("delete", "note.md", {
+      filesystem: "failed",
+      coordination: "not-run",
+      refresh: "not-run",
+    }));
+    expect(product.handleFileDeleted).not.toHaveBeenCalled();
+    await app.shutdown();
+    vi.doUnmock("../src/renderer/electron-collaboration-product");
+  });
+
+  it("settles the prepared delete mutation so the product can retain it when coordination fails", async () => {
+    const { app, product } = await bootWithDocumentContextTransactions();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    product.handleFileDeleted.mockRejectedValueOnce(new Error("coordination unavailable"));
+    document.querySelector<HTMLElement>('[data-path="/vault/note.md"]')!.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true }),
+    );
+    let deleteButton: HTMLButtonElement | undefined;
+    await vi.waitFor(() => {
+      deleteButton = Array.from(document.querySelectorAll<HTMLButtonElement>(".nexus-plugin-menu button"))
+        .find((candidate) => candidate.textContent === "Delete");
+      expect(deleteButton).toBeDefined();
+    });
+    deleteButton!.click();
+
+    await vi.waitFor(() => expect(product.handleFileDeleted).toHaveBeenCalledWith("note.md"));
+    await vi.waitFor(() => expect(product.completeFileMutation).toHaveBeenCalledWith("delete", "note.md", {
+      filesystem: "succeeded",
+      coordination: "failed",
+      refresh: "not-run",
+    }));
+    await app.shutdown();
+    vi.doUnmock("../src/renderer/electron-collaboration-product");
+  });
+
+  it("does not delete a file while it has a pending collaboration creation", async () => {
+    const { app, harness, product } = await bootWithDocumentContextTransactions();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    product.prepareForFileMutation.mockRejectedValueOnce(Object.assign(
+      new Error("recover pending collaboration first"),
+      { code: "pending-creation-delete-blocked" },
+    ));
+    document.querySelector<HTMLElement>('[data-path="/vault/note.md"]')!.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true }),
+    );
+    let deleteButton: HTMLButtonElement | undefined;
+    await vi.waitFor(() => {
+      deleteButton = Array.from(document.querySelectorAll<HTMLButtonElement>(".nexus-plugin-menu button"))
+        .find((candidate) => candidate.textContent === "Delete");
+      expect(deleteButton).toBeDefined();
+    });
+    deleteButton!.click();
+
+    await vi.waitFor(() => expect(product.prepareForFileMutation).toHaveBeenCalledWith("delete", "note.md"));
+    expect(harness.nexusPlugins.vault.trash).not.toHaveBeenCalled();
+    expect(app.state.activeFile).toBe("/vault/note.md");
+
+    await app.shutdown();
+    vi.doUnmock("../src/renderer/electron-collaboration-product");
+  });
+
   it("rolls back a failed runtime boot without acknowledging shutdown and can retry", async () => {
     const actualRuntime = await import("../src/renderer/plugin-runtime-host");
     let failNextEnable = true;
@@ -463,6 +1140,72 @@ describe("Electron renderer plugin runtime integration", () => {
       "unsubscribe-shutdown",
       "shutdown-complete",
     ]);
+  });
+
+  it("continues renderer cleanup when an opening developer lab fails during shutdown", async () => {
+    const labOpening = deferred<{ element: HTMLElement; destroy(): void }>();
+    const createCollaborationLab = vi.fn(() => labOpening.promise);
+    vi.doMock("../src/renderer/collaboration-lab", () => ({ createCollaborationLab }));
+    let openDeveloperLab: (() => void | Promise<void>) | undefined;
+    const product = {
+      vaultSessionId: sessionId,
+      workspace: {
+        getState: () => ({
+          phase: "idle" as const,
+          attachment: "none" as const,
+          serverPersistence: "unverified" as const,
+        }),
+      },
+      panel: {},
+      initialize: vi.fn(async () => undefined),
+      open: vi.fn(async () => { await openDeveloperLab?.(); }),
+      saveCurrent: vi.fn(async () => undefined),
+      prepareForFileChange: vi.fn(async () => true),
+      prepareForFileMutation: vi.fn(async () => undefined),
+      completeFileMutation: vi.fn(async () => undefined),
+      listIncompleteFileDeletions: vi.fn(async () => []),
+      recoverFileDeletion: vi.fn(async () => undefined),
+      refreshFile: vi.fn(async () => undefined),
+      handlePathRenamed: vi.fn(async () => undefined),
+      handleFileDeleted: vi.fn(async () => undefined),
+      destroy: vi.fn(async () => undefined),
+    };
+    vi.doMock("../src/renderer/electron-collaboration-product", () => ({
+      createElectronCollaborationProduct: (options: {
+        readonly openDeveloperLab?: () => void | Promise<void>;
+      }) => {
+        openDeveloperLab = options.openDeveloperLab;
+        return product;
+      },
+    }));
+    const { boot } = await import("../src/renderer/app");
+    const harness = createBridgeHarness();
+    installBridgeHarness(harness, "runtime");
+    window.nexusCollabStore = { request: vi.fn() } as unknown as ElectronCollabStoreBridge;
+    const app = await boot({
+      root: document.getElementById("app")!,
+      featureFlags: { pluginPlatform: true },
+      deferVaultRestore: false,
+    });
+    await app.openVault("/vault");
+    await app.openVaultFile("/vault/note.md");
+    Array.from(document.querySelectorAll<HTMLButtonElement>(".toolbar button"))
+      .find((candidate) => candidate.textContent === "Collaborate")!
+      .click();
+    await vi.waitFor(() => expect(createCollaborationLab).toHaveBeenCalledTimes(1));
+
+    const shuttingDown = app.shutdown();
+    await vi.waitFor(() => expect(product.destroy).toHaveBeenCalledTimes(1));
+    labOpening.reject(new Error("developer lab opening failed"));
+
+    await expect(shuttingDown).rejects.toThrow("renderer shutdown");
+    expect(document.getElementById("app")?.childElementCount).toBe(0);
+    expect(harness.nexusPlugins.host.shutdownComplete).toHaveBeenCalledTimes(1);
+    expect(harness.order).toContain("close-plugin-session");
+    expect(harness.order).toContain("unsubscribe-plugin-vault");
+
+    vi.doUnmock("../src/renderer/electron-collaboration-product");
+    vi.doUnmock("../src/renderer/collaboration-lab");
   });
 
   it("keeps the previous Vault context when runtime restore fails", async () => {

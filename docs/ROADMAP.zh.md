@@ -66,7 +66,7 @@
 
 | # | 功能 | 归属包 | 优先级 | 状态 | 需要 OpenSpec | 备注 |
 |---|---|---|---|---|---|---|
-| 18 | 实时协作（OT / CRDT） | 新包 `plugin-collab` | P3 | planned | 是 | 大特性，先做技术选型 design doc |
+| 18 | 实时协作（OT / CRDT） | `plugin-collab` | P3 | in-progress | 是 | active change `add-plugin-collab` 已实现 experimental 端到端 Host 路径：authenticated Hocuspocus Provider/reference server、IndexedDB 与 Electron SQLite durability、Markdown 三方 File Projection，以及带 version-4 pending-join crash recovery 的 Electron workflow/UI。packaged 多 renderer crash 覆盖、外部 TLS/运维、目标平台证据、安全审查、性能 trace 和 soak 资格仍未完成 |
 | 19 | 版本历史 / 快照 | `core` + 宿主存储 | P2 | planned | 是 | electron-demo 先落地参考实现 |
 | 20 | 共享注释 / @mention | 新包 `plugin-annotation` | P3 | planned | 是 | 依赖 #18 完成 |
 

@@ -1,0 +1,43 @@
+[Unit]
+Description=Nexus single-node collaboration reference server
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=exec
+User=nexus-collab
+Group=nexus-collab
+WorkingDirectory=/opt/nexus-editor
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/nexus-collab/server.env
+LoadCredential=auth-secret:/etc/nexus-collab/auth-secret
+ExecStart=/usr/bin/node /opt/nexus-editor/apps/collab-server/deploy/run-with-credentials.mjs serve
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGTERM
+KillMode=control-group
+TimeoutStopSec=15s
+StateDirectory=nexus-collab
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+LimitCORE=0
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nexus-collab
+
+[Install]
+WantedBy=multi-user.target

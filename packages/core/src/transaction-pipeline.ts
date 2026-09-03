@@ -17,7 +17,10 @@ import type {
   CoreEditorUpdateContext,
   CoreEditorUpdateListener,
   EditorAPI,
+  EditorAuthoritativeSourceRegistration,
   EditorContributionRegistration,
+  EditorHistoryController,
+  EditorTransactionAuthority,
   EditorTransactionContributionSink,
   SelectionState,
 } from "./types";
@@ -41,6 +44,8 @@ interface TransactionPipelineHost {
   readonly editor: EditorAPI;
   readonly view: EditorView;
   isDestroyed(): boolean;
+  setExternalDocumentMode(active: boolean): void;
+  prepareAuthoritativeUpdate(): void;
 }
 
 interface PreparedTransaction {
@@ -97,7 +102,12 @@ function changesFromTransaction(transaction: Transaction): readonly CoreEditorCh
   return changes;
 }
 
-function makeContext(editor: EditorAPI, transaction: Transaction): CoreEditorTransactionContext {
+function makeContext(
+  editor: EditorAPI,
+  transaction: Transaction,
+  authority: EditorTransactionAuthority,
+  sourceOwnerId?: string,
+): CoreEditorTransactionContext {
   return Object.freeze({
     editor,
     changes: Object.freeze(changesFromTransaction(transaction)),
@@ -105,6 +115,8 @@ function makeContext(editor: EditorAPI, transaction: Transaction): CoreEditorTra
     selectionAfter: Object.freeze(selectionSnapshot(transaction.newSelection)),
     origin: Object.freeze([...(transaction.annotation(editorTransactionOrigin) ?? [])]),
     userEvent: transaction.annotation(Transaction.userEvent),
+    authority,
+    sourceOwnerId,
   });
 }
 
@@ -162,6 +174,13 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
   private registrationSequence = 0;
   private notificationDepth = 0;
   private destroyed = false;
+  private authoritativeSource: {
+    readonly id: string;
+    readonly ownerId: string;
+    readonly history: EditorHistoryController;
+    disposed: boolean;
+    invalidReason: "source-disposed" | "editor-destroyed";
+  } | null = null;
 
   constructor(private readonly host: TransactionPipelineHost) {}
 
@@ -181,6 +200,82 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
     return this.register(this.updateListeners, "update-listener", ownerId, listener, options);
   }
 
+  registerAuthoritativeSource(
+    ownerId: string,
+    history: EditorHistoryController,
+  ): EditorAuthoritativeSourceRegistration {
+    validateOwnerId(ownerId);
+    if (this.destroyed || this.host.isDestroyed()) {
+      throw new Error("Cannot register an authoritative source on a destroyed editor");
+    }
+    if (this.authoritativeSource && !this.authoritativeSource.disposed) {
+      throw new Error(
+        `Editor already has an authoritative source owned by ${this.authoritativeSource.ownerId}`,
+      );
+    }
+    const entry: NonNullable<CoreEditorTransactionPipeline["authoritativeSource"]> = {
+      id: `authoritative-source:${++this.registrationId}`,
+      ownerId,
+      history,
+      disposed: false,
+      invalidReason: "source-disposed",
+    };
+    this.authoritativeSource = entry;
+    try {
+      this.host.setExternalDocumentMode(true);
+    } catch (error) {
+      entry.disposed = true;
+      this.authoritativeSource = null;
+      throw error;
+    }
+
+    const invalidResult = (): CoreEditorTransactionDispatchResult => ({
+      status: "rejected",
+      ownerId,
+      reason: entry.invalidReason,
+    });
+    const dispatchTransactions = (
+      transactions: readonly CoreEditorTransaction[],
+    ): CoreEditorTransactionDispatchResult => {
+      if (entry.disposed || this.authoritativeSource !== entry) return invalidResult();
+      if (this.destroyed || this.host.isDestroyed()) {
+        entry.invalidReason = "editor-destroyed";
+        entry.disposed = true;
+        return invalidResult();
+      }
+      if (this.notificationDepth >= EDITOR_TRANSACTION_RECURSION_LIMIT) {
+        return { status: "recursion-limit", limit: EDITOR_TRANSACTION_RECURSION_LIMIT };
+      }
+      try {
+        this.host.prepareAuthoritativeUpdate();
+        const merged = this.mergeBatch(this.host.view.state, transactions, false, false);
+        return this.commit(merged, this.host.view, "authoritative", ownerId);
+      } catch (error) {
+        console.error(`[NexusEditor] Authoritative apply failed (${ownerId})`, error);
+        return { status: "rejected", ownerId, reason: "authoritative-apply-failed" };
+      }
+    };
+
+    return {
+      id: entry.id,
+      ownerId,
+      ready: Promise.resolve(),
+      get disposed() {
+        return entry.disposed;
+      },
+      dispatch: (transaction) => dispatchTransactions([transaction]),
+      dispatchTransactions,
+      dispose: async () => {
+        if (entry.disposed) return;
+        entry.disposed = true;
+        if (this.authoritativeSource === entry) {
+          this.authoritativeSource = null;
+          this.host.setExternalDocumentMode(false);
+        }
+      },
+    };
+  }
+
   dispatchTransaction(transaction: CoreEditorTransaction): CoreEditorTransactionDispatchResult {
     return this.dispatchTransactions([transaction]);
   }
@@ -193,8 +288,13 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
       return { status: "recursion-limit", limit: EDITOR_TRANSACTION_RECURSION_LIMIT };
     }
 
-    const merged = this.mergeBatch(this.host.view.state, transactions);
-    return this.commit(merged, this.host.view);
+    const merged = this.mergeBatch(
+      this.host.view.state,
+      transactions,
+      true,
+      this.authoritativeSource === null,
+    );
+    return this.commit(merged, this.host.view, "proposal");
   }
 
   dispatchCodeMirrorTransactions(
@@ -213,20 +313,41 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
       return { status: "recursion-limit", limit: EDITOR_TRANSACTION_RECURSION_LIMIT };
     }
 
-    const merged = this.mergeNativeBatch(view.state, transactions);
-    return this.commit(merged, view);
+    const merged = this.mergeNativeBatch(view.state, transactions, this.authoritativeSource === null);
+    return this.commit(merged, view, "proposal");
+  }
+
+  runAuthoritativeHistory(action: "undo" | "redo"): { active: boolean; changed: boolean } {
+    const source = this.authoritativeSource;
+    if (!source || source.disposed || this.destroyed || this.host.isDestroyed()) {
+      return { active: false, changed: false };
+    }
+    try {
+      return { active: true, changed: source.history[action]() };
+    } catch (error) {
+      console.error(`[NexusEditor] Authoritative ${action} failed (${source.ownerId})`, error);
+      return { active: true, changed: false };
+    }
   }
 
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    if (this.authoritativeSource) {
+      this.authoritativeSource.invalidReason = "editor-destroyed";
+      this.authoritativeSource.disposed = true;
+      this.authoritativeSource = null;
+      this.host.setExternalDocumentMode(false);
+    }
     this.filters.clear();
     this.updateListeners.clear();
   }
 
   private mergeBatch(
     state: EditorState,
-    transactions: readonly CoreEditorTransaction[]
+    transactions: readonly CoreEditorTransaction[],
+    filter = true,
+    addToHistory = true,
   ): Transaction {
     if (transactions.length === 0) return state.update({});
     const origins: string[] = [];
@@ -235,19 +356,26 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
         if (origins[origins.length - 1] !== origin) origins.push(origin);
       }
       const { annotations: _annotations, ...spec } = toTransactionSpec(transaction);
-      return index === 0 ? spec : { ...spec, sequential: true };
+      const filteredSpec = filter ? spec : { ...spec, filter: false };
+      return index === 0 ? filteredSpec : { ...filteredSpec, sequential: true };
     });
+    const annotations = [
+      ...(origins.length > 0 ? [editorTransactionOrigin.of(Object.freeze(origins))] : []),
+      ...(!addToHistory ? [Transaction.addToHistory.of(false)] : []),
+    ];
     specs[0] = {
       ...specs[0],
-      annotations: origins.length > 0
-        ? editorTransactionOrigin.of(Object.freeze(origins))
-        : undefined,
+      annotations: annotations.length > 0 ? annotations : undefined,
     };
     return state.update(...specs);
   }
 
-  private mergeNativeBatch(state: EditorState, transactions: readonly Transaction[]): Transaction {
-    if (transactions.length === 1) return transactions[0];
+  private mergeNativeBatch(
+    state: EditorState,
+    transactions: readonly Transaction[],
+    addToHistory = true,
+  ): Transaction {
+    if (transactions.length === 1 && addToHistory) return transactions[0];
     const origins: string[] = [];
     const specs = transactions.map((transaction, index): TransactionSpec => {
       for (const origin of transaction.annotation(editorTransactionOrigin) ?? []) {
@@ -257,8 +385,11 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
         changes: transaction.changes,
         selection: transaction.selection,
         effects: transaction.effects,
-        annotations: index === transactions.length - 1 && origins.length > 0
-          ? editorTransactionOrigin.of(Object.freeze(origins))
+        annotations: index === 0
+          ? [
+              ...(origins.length > 0 ? [editorTransactionOrigin.of(Object.freeze(origins))] : []),
+              ...(!addToHistory ? [Transaction.addToHistory.of(false)] : []),
+            ]
           : undefined,
         scrollIntoView: transaction.scrollIntoView,
         userEvent: transaction.annotation(Transaction.userEvent),
@@ -271,9 +402,19 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
 
   private commit(
     initial: Transaction,
-    view: EditorView
+    view: EditorView,
+    authority: EditorTransactionAuthority,
+    sourceOwnerId?: string,
   ): CoreEditorTransactionDispatchResult {
-    const filtered = this.applyFilters(initial);
+    const filtered: FilterPreparation = authority === "proposal"
+      ? this.applyFilters(initial)
+      : {
+          status: "accepted",
+          prepared: {
+            transaction: initial,
+            context: makeContext(this.host.editor, initial, authority, sourceOwnerId),
+          },
+        };
     if (filtered.status === "rejected") return filtered;
 
     const { transaction, context } = filtered.prepared;
@@ -290,7 +431,7 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
 
   private applyFilters(initial: Transaction): FilterPreparation {
     let transaction = initial;
-    let context = makeContext(this.host.editor, transaction);
+    let context = makeContext(this.host.editor, transaction, "proposal");
     const filters = stableHookOrder(this.filters.values());
 
     for (const entry of filters) {
@@ -310,7 +451,7 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
           ...toTransactionSpec(inheritReplacement(context, result.transaction)),
           filter: false,
         });
-        context = makeContext(this.host.editor, transaction);
+        context = makeContext(this.host.editor, transaction, "proposal");
       }
     }
     return { status: "accepted", prepared: { transaction, context } };

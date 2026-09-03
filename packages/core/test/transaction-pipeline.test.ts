@@ -40,6 +40,42 @@ function transaction(
 }
 
 describe("core editor transaction pipeline", () => {
+  it("notifies owner-scoped destroy listeners once and isolates failures", async () => {
+    const { editor } = createTestEditor();
+    const calls: string[] = [];
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const disposed = editor.getContributionSink().registerDestroyListener("disposed", () => {
+      calls.push("disposed");
+    });
+    const broken = editor.getContributionSink().registerDestroyListener("broken", () => {
+      calls.push("broken");
+      throw new Error("injected destroy listener failure");
+    });
+    const asynchronous = editor.getContributionSink().registerDestroyListener("asynchronous", async () => {
+      calls.push("asynchronous");
+      throw new Error("injected asynchronous destroy failure");
+    });
+    const healthy = editor.getContributionSink().registerDestroyListener("healthy", () => {
+      calls.push("healthy");
+    });
+
+    await disposed.dispose();
+    await disposed.dispose();
+    editor.destroy();
+    editor.destroy();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(calls).toEqual(["broken", "asynchronous", "healthy"]);
+    expect(disposed.disposed).toBe(true);
+    expect(broken.disposed).toBe(true);
+    expect(asynchronous.disposed).toBe(true);
+    expect(healthy.disposed).toBe(true);
+    expect(error).toHaveBeenCalledTimes(2);
+    expect(() => editor.getContributionSink().registerDestroyListener("late", () => undefined))
+      .toThrow(/destroyed editor/);
+  });
+
   it("filters before commit and only notifies listeners with the final update", () => {
     const { editor } = createTestEditor();
     const sink = editor.getContributionSink();
@@ -229,6 +265,259 @@ describe("core editor transaction pipeline", () => {
 
     expect(calls).toEqual(["first"]);
     expect(second.disposed).toBe(true);
+    editor.destroy();
+  });
+
+  it("registers one authoritative source and bypasses proposal filters", async () => {
+    const { editor } = createTestEditor("abcd");
+    const filter = vi.fn(() => ({ action: "reject" as const, reason: "local-policy" }));
+    const listener = vi.fn();
+    const sink = editor.getContributionSink();
+    sink.registerTransactionFilter("guard", filter);
+    sink.registerUpdateListener("observer", listener);
+
+    const source = sink.registerAuthoritativeSource("collab", {
+      undo: () => false,
+      redo: () => false,
+    });
+    await source.ready;
+
+    const result = source.dispatch(transaction(
+      [{ from: 1, to: 3, insert: "XY" }],
+      ["remote-yjs"],
+    ));
+
+    expect(result.status).toBe("success");
+    expect(filter).not.toHaveBeenCalled();
+    expect(editor.getDocument()).toBe("aXYd");
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener.mock.calls[0][0]).toMatchObject({
+      authority: "authoritative",
+      sourceOwnerId: "collab",
+      origin: ["remote-yjs"],
+      documentBefore: "abcd",
+      documentAfter: "aXYd",
+    });
+    editor.destroy();
+  });
+
+  it("keeps ordinary dispatches as filterable local proposals", () => {
+    const { editor } = createTestEditor("abcd");
+    const listener = vi.fn();
+    editor.getContributionSink().registerUpdateListener("observer", listener);
+
+    const result = editor.dispatchTransaction(transaction(
+      [{ from: 0, to: 1, insert: "A" }],
+      ["user"],
+    ));
+
+    expect(result.status).toBe("success");
+    expect(listener.mock.calls[0][0]).toMatchObject({
+      authority: "proposal",
+      sourceOwnerId: undefined,
+    });
+    editor.destroy();
+  });
+
+  it("rejects a competing source without disturbing the active owner", async () => {
+    const { editor } = createTestEditor("abcd");
+    const sink = editor.getContributionSink();
+    const first = sink.registerAuthoritativeSource("first", {
+      undo: () => false,
+      redo: () => false,
+    });
+    await first.ready;
+
+    expect(() => sink.registerAuthoritativeSource("second", {
+      undo: () => false,
+      redo: () => false,
+    })).toThrow(/first/);
+
+    expect(first.dispatch(transaction([{ from: 0, to: 1, insert: "A" }])).status).toBe("success");
+    expect(editor.getDocument()).toBe("Abcd");
+    editor.destroy();
+  });
+
+  it("routes EditorAPI history to the active source and restores defaults after disposal", async () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "ab",
+      plugins: [{ name: "history", cmExtensions: [history()] }],
+    });
+    const undo = vi.fn(() => false);
+    const redo = vi.fn(() => true);
+    const source = editor.getContributionSink().registerAuthoritativeSource("collab", { undo, redo });
+    await source.ready;
+
+    expect(editor.undo()).toBe(false);
+    expect(editor.redo()).toBe(true);
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(redo).toHaveBeenCalledTimes(1);
+
+    editor.dispatchTransaction(transaction([{ from: 1, to: 1, insert: "C" }], ["collab-local"]));
+    source.dispatch(transaction([{ from: 2, to: 2, insert: "R" }], ["collab-remote"]));
+    await source.dispose();
+    expect(editor.undo()).toBe(false);
+    editor.dispatchTransaction(transaction([{ from: 3, to: 3, insert: "X" }]));
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("aCRb");
+    editor.destroy();
+  });
+
+  it("routes keymap and beforeinput history without falling through while a source is active", async () => {
+    const container = document.createElement("div");
+    let view: EditorView | null = null;
+    const editor = createEditor({
+      container,
+      initialValue: "ab",
+      plugins: [{
+        name: "history-and-view",
+        cmExtensions: [
+          history(),
+          ViewPlugin.fromClass(class {
+            constructor(current: EditorView) {
+              view = current;
+            }
+          }),
+        ],
+      }],
+    });
+    if (!view) throw new Error("Expected EditorView to be captured");
+    const activeView = view as EditorView;
+    editor.dispatchTransaction(transaction([{ from: 1, to: 1, insert: "X" }]));
+    const undo = vi.fn(() => false);
+    const redo = vi.fn(() => false);
+    const source = editor.getContributionSink().registerAuthoritativeSource("collab", { undo, redo });
+    await source.ready;
+
+    const keyEvent = new KeyboardEvent("keydown", {
+      key: "z",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    activeView.contentDOM.dispatchEvent(keyEvent);
+    expect(keyEvent.defaultPrevented).toBe(true);
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(editor.getDocument()).toBe("aXb");
+
+    const inputEvent = new InputEvent("beforeinput", {
+      inputType: "historyRedo",
+      bubbles: true,
+      cancelable: true,
+    });
+    activeView.contentDOM.dispatchEvent(inputEvent);
+    expect(inputEvent.defaultPrevented).toBe(true);
+    expect(redo).toHaveBeenCalledTimes(1);
+    expect(editor.getDocument()).toBe("aXb");
+
+    await source.dispose();
+    const fallbackKey = new KeyboardEvent("keydown", {
+      key: "z",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    activeView.contentDOM.dispatchEvent(fallbackKey);
+    expect(editor.getDocument()).toBe("ab");
+    editor.destroy();
+  });
+
+  it("invalidates source dispatch after disposal and Editor destruction", async () => {
+    const { editor } = createTestEditor("ab");
+    const source = editor.getContributionSink().registerAuthoritativeSource("collab", {
+      undo: () => false,
+      redo: () => false,
+    });
+    await source.dispose();
+    expect(source.dispatch(transaction([{ from: 0, to: 0, insert: "x" }]))).toEqual({
+      status: "rejected",
+      ownerId: "collab",
+      reason: "source-disposed",
+    });
+
+    const second = editor.getContributionSink().registerAuthoritativeSource("second", {
+      undo: () => false,
+      redo: () => false,
+    });
+    await second.ready;
+    editor.destroy();
+    expect(second.disposed).toBe(true);
+    expect(second.dispatch(transaction([{ from: 0, to: 0, insert: "x" }]))).toEqual({
+      status: "rejected",
+      ownerId: "second",
+      reason: "editor-destroyed",
+    });
+  });
+
+  it("commits an authoritative batch atomically and isolates listener failures", () => {
+    const onChange = vi.fn();
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "ab", onChange });
+    const observed: CoreEditorUpdateContext[] = [];
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    editor.getContributionSink().registerUpdateListener("broken", () => {
+      throw new Error("injected listener failure");
+    }, { priority: 10 });
+    editor.getContributionSink().registerUpdateListener("healthy", (update) => observed.push(update));
+    const source = editor.getContributionSink().registerAuthoritativeSource("collab", {
+      undo: () => false,
+      redo: () => false,
+    });
+
+    const result = source.dispatchTransactions([
+      transaction([{ from: 1, to: 1, insert: "X" }], ["remote"]),
+      {
+        changes: [{ from: 2, to: 2, insert: "Y" }],
+        selection: { ranges: [{ anchor: 3, head: 3 }], mainIndex: 0 },
+        origin: ["batch"],
+      },
+    ]);
+
+    expect(result.status).toBe("success");
+    expect(editor.getDocument()).toBe("aXYb");
+    expect(editor.getSelections()).toEqual({ ranges: [{ anchor: 3, head: 3 }], mainIndex: 0 });
+    expect(observed).toHaveLength(1);
+    expect(observed[0]).toMatchObject({
+      authority: "authoritative",
+      sourceOwnerId: "collab",
+      origin: ["remote", "batch"],
+      documentBefore: "ab",
+      documentAfter: "aXYb",
+    });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalled();
+    editor.destroy();
+  });
+
+  it("bounds authoritative listener recursion and returns a structured apply failure", () => {
+    const { editor } = createTestEditor("");
+    let source: ReturnType<ReturnType<typeof editor.getContributionSink>["registerAuthoritativeSource"]>;
+    let stopped: ReturnType<typeof source.dispatch> | undefined;
+    editor.getContributionSink().registerUpdateListener("recursive-authority", (update) => {
+      if (update.authority !== "authoritative") return;
+      const end = editor.getDocument().length;
+      const result = source.dispatch(transaction([{ from: end, to: end, insert: "x" }], ["recursive"]));
+      if (result.status === "recursion-limit") stopped = result;
+    });
+    source = editor.getContributionSink().registerAuthoritativeSource("collab", {
+      undo: () => false,
+      redo: () => false,
+    });
+
+    source.dispatch(transaction([{ from: 0, to: 0, insert: "x" }], ["start"]));
+    expect(stopped).toEqual({ status: "recursion-limit", limit: EDITOR_TRANSACTION_RECURSION_LIMIT });
+    expect(editor.getDocument()).toHaveLength(EDITOR_TRANSACTION_RECURSION_LIMIT);
+
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const failed = source.dispatch(transaction([{ from: 99, to: 99, insert: "bad" }]));
+    expect(failed).toEqual({
+      status: "rejected",
+      ownerId: "collab",
+      reason: "authoritative-apply-failed",
+    });
+    expect(error).toHaveBeenCalled();
     editor.destroy();
   });
 });

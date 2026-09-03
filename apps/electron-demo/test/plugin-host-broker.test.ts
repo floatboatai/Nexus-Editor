@@ -73,6 +73,10 @@ function createBroker(options: {
   lstatPath?: VaultBrokerOptions["lstatPath"];
   realpathPath?: VaultBrokerOptions["realpathPath"];
   openPath?: VaultBrokerOptions["openPath"];
+  projectionWritePermitTtlMs?: number;
+  projectionOpeningTtlMs?: number;
+  setTimeoutFn?: VaultBrokerOptions["setTimeoutFn"];
+  clearTimeoutFn?: VaultBrokerOptions["clearTimeoutFn"];
 } = {}): ElectronVaultBroker {
   let sessionCounter = 0;
   let operationCounter = 0;
@@ -88,6 +92,10 @@ function createBroker(options: {
     lstatPath: options.lstatPath,
     realpathPath: options.realpathPath,
     openPath: options.openPath,
+    projectionWritePermitTtlMs: options.projectionWritePermitTtlMs,
+    projectionOpeningTtlMs: options.projectionOpeningTtlMs,
+    setTimeoutFn: options.setTimeoutFn,
+    clearTimeoutFn: options.clearTimeoutFn,
   });
 }
 
@@ -243,6 +251,519 @@ describe("ElectronExternalNavigationBroker", () => {
 });
 
 describe("ElectronVaultBroker", () => {
+  it("fences every same-Vault writer only after an admitted projection write settles", async () => {
+    const { root } = await fixtureVault();
+    const broker = createBroker({
+      trashItem: async (absolutePath) => { await unlink(absolutePath); },
+    });
+    const deletingSession = await broker.openSession(sender, root);
+    const projectingSession = await broker.openSession(otherSender, root);
+    const permit = await broker.acquireProjectionWrite(
+      otherSender,
+      projectingSession.sessionId,
+      "Notes/A.md",
+    );
+
+    let reservationSettled = false;
+    const reserving = broker.reserveDeletion(
+      sender,
+      deletingSession.sessionId,
+      "Notes/A.md",
+      "delete-notes-a",
+    ).then((reservation) => {
+      reservationSettled = true;
+      return reservation;
+    });
+    await Promise.resolve();
+    expect(reservationSettled).toBe(false);
+
+    await expect(broker.write(otherSender, projectingSession.sessionId, "Notes/A.md", "admitted", {
+      projectionWritePermit: permit.permitId,
+    })).resolves.toMatchObject({ path: "Notes/A.md" });
+    await broker.releaseProjectionWrite(otherSender, projectingSession.sessionId, permit.permitId);
+    await expect(reserving).resolves.toEqual({ path: "Notes/A.md", operationId: "delete-notes-a" });
+
+    await expect(broker.acquireProjectionWrite(
+      otherSender,
+      projectingSession.sessionId,
+      "Notes/A.md",
+    )).rejects.toMatchObject({ code: "vault-delete-reserved" });
+    await expect(broker.write(otherSender, projectingSession.sessionId, "Notes/A.md", "stale"))
+      .rejects.toMatchObject({ code: "vault-delete-reserved" });
+    await expect(broker.trash(sender, deletingSession.sessionId, "Notes/A.md", "wrong-operation"))
+      .rejects.toMatchObject({ code: "vault-delete-reserved" });
+
+    await expect(broker.trash(
+      sender,
+      deletingSession.sessionId,
+      "Notes/A.md",
+      "delete-notes-a",
+    )).resolves.toMatchObject({ path: "Notes/A.md", recoverable: true });
+    broker.closeSender(sender.id);
+    await expect(broker.write(otherSender, projectingSession.sessionId, "Notes/A.md", "still fenced", {
+      expectedVersion: null,
+    })).rejects.toMatchObject({ code: "vault-delete-reserved" });
+
+    await expect(broker.releaseDeletion(
+      otherSender,
+      projectingSession.sessionId,
+      "Notes/A.md",
+      "delete-notes-a",
+    )).resolves.toBe(true);
+    await expect(broker.write(otherSender, projectingSession.sessionId, "Notes/A.md", "replacement", {
+      expectedVersion: null,
+    })).resolves.toMatchObject({ path: "Notes/A.md" });
+  });
+
+  it("blocks folder creation and either side of a rename under an active deletion fence", async () => {
+    const { root } = await fixtureVault();
+    await writeFile(path.join(root, "Outside.md"), "outside");
+    const broker = createBroker();
+    const deletingSession = await broker.openSession(sender, root);
+    const mutatingSession = await broker.openSession(otherSender, root);
+
+    await broker.reserveDeletion(sender, deletingSession.sessionId, "Notes", "delete-notes");
+
+    await expect(broker.createFolder(otherSender, mutatingSession.sessionId, "Notes/New"))
+      .rejects.toMatchObject({ code: "vault-delete-reserved" });
+    await expect(broker.rename(otherSender, mutatingSession.sessionId, "Notes/A.md", "Moved.md"))
+      .rejects.toMatchObject({ code: "vault-delete-reserved" });
+    await expect(broker.rename(otherSender, mutatingSession.sessionId, "Outside.md", "Notes/Outside.md"))
+      .rejects.toMatchObject({ code: "vault-delete-reserved" });
+
+    await expect(readFile(path.join(root, "Notes", "A.md"), "utf8")).resolves.toBe("alpha");
+    await expect(readFile(path.join(root, "Outside.md"), "utf8")).resolves.toBe("outside");
+  });
+
+  it("keeps an uncommitted Host-first delete fence recoverable across renderer close", async () => {
+    const { root } = await fixtureVault();
+    const broker = createBroker();
+    const preparingSession = await broker.openSession(sender, root);
+    const recoverySession = await broker.openSession(otherSender, root);
+
+    await broker.reserveDeletion(
+      sender,
+      preparingSession.sessionId,
+      "Notes/A.md",
+      "delete-precommit",
+      "precommit",
+    );
+    broker.closeSender(sender.id);
+
+    await expect(broker.listDeletionFences(otherSender, recoverySession.sessionId)).resolves.toEqual([
+      {
+        path: "Notes/A.md",
+        operationId: "delete-precommit",
+        state: "precommit",
+      },
+    ]);
+    await expect(broker.write(otherSender, recoverySession.sessionId, "Notes/A.md", "blocked"))
+      .rejects.toMatchObject({ code: "vault-delete-reserved" });
+
+    await expect(broker.releaseDeletion(
+      otherSender,
+      recoverySession.sessionId,
+      "Notes/A.md",
+      "delete-precommit",
+    )).resolves.toBe(true);
+    await expect(broker.write(otherSender, recoverySession.sessionId, "Notes/A.md", "recovered"))
+      .resolves.toMatchObject({ path: "Notes/A.md" });
+  });
+
+  it("promotes the exact Host-first fence after durable reservation read-back", async () => {
+    const { root } = await fixtureVault();
+    const broker = createBroker();
+    const preparingSession = await broker.openSession(sender, root);
+    const recoverySession = await broker.openSession(otherSender, root);
+
+    await broker.reserveDeletion(
+      sender,
+      preparingSession.sessionId,
+      "Notes",
+      "delete-promoted",
+      "precommit",
+    );
+    await broker.reserveDeletion(
+      otherSender,
+      recoverySession.sessionId,
+      "Notes",
+      "delete-promoted",
+      "committed",
+    );
+
+    await expect(broker.listDeletionFences(otherSender, recoverySession.sessionId)).resolves.toEqual([
+      {
+        path: "Notes",
+        operationId: "delete-promoted",
+        state: "committed",
+      },
+    ]);
+  });
+
+  it("holds one same-Vault join opening across projection writes and rejects a competing renderer", async () => {
+    const { root } = await fixtureVault();
+    const broker = createBroker();
+    const firstSession = await broker.openSession(sender, root);
+    const secondSession = await broker.openSession(otherSender, root);
+    const inFlight = await broker.acquireProjectionWrite(
+      otherSender,
+      secondSession.sessionId,
+      "Notes/A.md",
+    );
+    let openingSettled = false;
+    const opening = broker.reserveProjectionOpening(
+      sender,
+      firstSession.sessionId,
+      "Notes/A.md",
+      "document-a",
+      "join-first",
+    ).then((value) => {
+      openingSettled = true;
+      return value;
+    });
+    await Promise.resolve();
+    expect(openingSettled).toBe(false);
+    broker.releaseProjectionWrite(otherSender, secondSession.sessionId, inFlight.permitId);
+    await expect(opening).resolves.toMatchObject({
+      path: "Notes/A.md",
+      documentId: "document-a",
+      operationId: "join-first",
+      state: "precommit",
+      owner: { senderId: sender.id, sessionId: firstSession.sessionId },
+    });
+
+    await expect(broker.acquireProjectionWrite(
+      sender,
+      firstSession.sessionId,
+      "Notes/A.md",
+      "join-first",
+    )).rejects.toMatchObject({ code: "vault-projection-opening-conflict" });
+    await expect(broker.commitProjectionOpening(
+      sender,
+      firstSession.sessionId,
+      "Notes/A.md",
+      "document-a",
+      "join-first",
+    )).resolves.toMatchObject({ state: "committed" });
+
+    await expect(broker.reserveProjectionOpening(
+      otherSender,
+      secondSession.sessionId,
+      "Notes/A.md",
+      "document-b",
+      "join-second",
+    )).rejects.toMatchObject({ code: "vault-projection-opening-conflict" });
+    await expect(broker.releaseProjectionOpening(
+      otherSender,
+      secondSession.sessionId,
+      "Notes/A.md",
+      "document-a",
+      "join-first",
+    )).rejects.toMatchObject({ code: "vault-projection-opening-conflict" });
+    await expect(broker.write(otherSender, secondSession.sessionId, "Notes/A.md", "ordinary"))
+      .rejects.toMatchObject({ code: "vault-projection-opening-conflict" });
+    await expect(broker.acquireProjectionWrite(
+      otherSender,
+      secondSession.sessionId,
+      "Notes/A.md",
+      "join-first",
+    )).rejects.toMatchObject({ code: "vault-projection-opening-conflict" });
+    await expect(broker.reserveDeletion(
+      otherSender,
+      secondSession.sessionId,
+      "Notes/A.md",
+      "delete-during-join",
+      "precommit",
+    )).rejects.toMatchObject({ code: "vault-projection-opening-conflict" });
+
+    const permitted = await broker.acquireProjectionWrite(
+      sender,
+      firstSession.sessionId,
+      "Notes/A.md",
+      "join-first",
+    );
+    await expect(broker.write(sender, firstSession.sessionId, "Notes/A.md", "joined", {
+      projectionWritePermit: permitted.permitId,
+    })).resolves.toMatchObject({ path: "Notes/A.md" });
+    broker.releaseProjectionWrite(sender, firstSession.sessionId, permitted.permitId);
+
+    await expect(broker.releaseProjectionOpening(
+      sender,
+      firstSession.sessionId,
+      "Notes/A.md",
+      "document-a",
+      "join-first",
+    )).resolves.toBe(true);
+    await expect(broker.acquireProjectionWrite(
+      sender,
+      firstSession.sessionId,
+      "Notes/A.md",
+      "join-first",
+    )).rejects.toMatchObject({ code: "vault-projection-opening-conflict" });
+    await expect(broker.reserveProjectionOpening(
+      otherSender,
+      secondSession.sessionId,
+      "Notes/A.md",
+      "document-b",
+      "join-second",
+    )).resolves.toMatchObject({
+      path: "Notes/A.md",
+      documentId: "document-b",
+      operationId: "join-second",
+      state: "precommit",
+    });
+  });
+
+  it("expires a join opening capability without opening its path to a competing join", async () => {
+    const { root } = await fixtureVault();
+    let expireOpening: (() => void) | undefined;
+    const broker = createBroker({
+      projectionOpeningTtlMs: 25,
+      setTimeoutFn: ((callback: () => void) => {
+        expireOpening = callback;
+        return { unref() {} } as never;
+      }) as VaultBrokerOptions["setTimeoutFn"],
+      clearTimeoutFn: vi.fn(),
+    });
+    const firstSession = await broker.openSession(sender, root);
+    const secondSession = await broker.openSession(otherSender, root);
+    await broker.reserveProjectionOpening(
+      sender,
+      firstSession.sessionId,
+      "Notes/A.md",
+      "document-expired",
+      "join-expired",
+    );
+    await broker.commitProjectionOpening(
+      sender,
+      firstSession.sessionId,
+      "Notes/A.md",
+      "document-expired",
+      "join-expired",
+    );
+
+    expireOpening?.();
+
+    await expect(broker.acquireProjectionWrite(
+      sender,
+      firstSession.sessionId,
+      "Notes/A.md",
+      "join-expired",
+    )).rejects.toMatchObject({ code: "vault-projection-opening-conflict" });
+    await expect(broker.reserveProjectionOpening(
+      otherSender,
+      secondSession.sessionId,
+      "Notes/A.md",
+      "document-competing",
+      "join-competing",
+    )).rejects.toMatchObject({ code: "vault-projection-opening-conflict" });
+
+    await expect(broker.releaseProjectionOpening(
+      sender,
+      firstSession.sessionId,
+      "Notes/A.md",
+      "document-expired",
+      "join-expired",
+    )).resolves.toBe(true);
+    await expect(broker.reserveProjectionOpening(
+      otherSender,
+      secondSession.sessionId,
+      "Notes/A.md",
+      "document-competing",
+      "join-competing",
+    )).resolves.toMatchObject({ operationId: "join-competing" });
+    await broker.releaseProjectionOpening(
+      otherSender,
+      secondSession.sessionId,
+      "Notes/A.md",
+      "document-competing",
+      "join-competing",
+    );
+
+    broker.closeSession(sender, firstSession.sessionId);
+    await expect(broker.reserveProjectionOpening(
+      otherSender,
+      secondSession.sessionId,
+      "Notes/A.md",
+      "document-competing",
+      "join-competing",
+    )).resolves.toMatchObject({ operationId: "join-competing" });
+  });
+
+  it("retains a renderer-crashed opening, enumerates its immutable owner, and rebinds only exact recovery", async () => {
+    const { root } = await fixtureVault();
+    const broker = createBroker();
+    const crashedSession = await broker.openSession(sender, root);
+    const recoverySession = await broker.openSession(otherSender, root);
+    await broker.reserveProjectionOpening(
+      sender,
+      crashedSession.sessionId,
+      "Notes/A.md",
+      "document-crash",
+      "join-crash",
+    );
+    await broker.commitProjectionOpening(
+      sender,
+      crashedSession.sessionId,
+      "Notes/A.md",
+      "document-crash",
+      "join-crash",
+    );
+
+    broker.closeSession(sender, crashedSession.sessionId);
+
+    await expect(broker.listProjectionOpenings(otherSender, recoverySession.sessionId)).resolves.toEqual([{
+      vaultId: recoverySession.vaultId,
+      path: "Notes/A.md",
+      documentId: "document-crash",
+      operationId: "join-crash",
+      state: "committed",
+      active: false,
+      owner: { senderId: sender.id, sessionId: crashedSession.sessionId },
+    }]);
+    await expect(broker.write(otherSender, recoverySession.sessionId, "Notes/A.md", "ordinary"))
+      .rejects.toMatchObject({ code: "vault-projection-opening-conflict" });
+    await expect(broker.reserveProjectionOpening(
+      otherSender,
+      recoverySession.sessionId,
+      "Notes/A.md",
+      "document-crash",
+      "join-crash",
+      { senderId: 999, sessionId: crashedSession.sessionId },
+    )).rejects.toMatchObject({ code: "vault-projection-opening-conflict" });
+
+    await expect(broker.reserveProjectionOpening(
+      otherSender,
+      recoverySession.sessionId,
+      "Notes/A.md",
+      "document-crash",
+      "join-crash",
+      { senderId: sender.id, sessionId: crashedSession.sessionId },
+    )).resolves.toMatchObject({ state: "committed", active: true });
+    const permit = await broker.acquireProjectionWrite(
+      otherSender,
+      recoverySession.sessionId,
+      "Notes/A.md",
+      "join-crash",
+    );
+    broker.releaseProjectionWrite(otherSender, recoverySession.sessionId, permit.permitId);
+    await expect(broker.releaseProjectionOpening(
+      otherSender,
+      recoverySession.sessionId,
+      "Notes/A.md",
+      "document-crash",
+      "join-crash",
+    )).resolves.toBe(true);
+    await expect(broker.listProjectionOpenings(otherSender, recoverySession.sessionId)).resolves.toEqual([]);
+  });
+
+  it("expires an abandoned projection permit so it cannot wedge the Vault mutation lane", async () => {
+    const { root } = await fixtureVault();
+    let expirePermit: (() => void) | undefined;
+    const clearTimeoutFn = vi.fn();
+    const broker = createBroker({
+      projectionWritePermitTtlMs: 25,
+      setTimeoutFn: ((callback: () => void) => {
+        expirePermit = callback;
+        return 1 as never;
+      }) as VaultBrokerOptions["setTimeoutFn"],
+      clearTimeoutFn,
+    });
+    const projectingSession = await broker.openSession(otherSender, root);
+    const deletingSession = await broker.openSession(sender, root);
+    await broker.acquireProjectionWrite(otherSender, projectingSession.sessionId, "Notes/A.md");
+    const reserving = broker.reserveDeletion(
+      sender,
+      deletingSession.sessionId,
+      "Notes/A.md",
+      "delete-after-timeout",
+    );
+    let settled = false;
+    void reserving.then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    expirePermit?.();
+
+    await expect(reserving).resolves.toMatchObject({ operationId: "delete-after-timeout" });
+    expect(clearTimeoutFn).toHaveBeenCalledOnce();
+  });
+
+  it("lets a write admitted before permit expiry finish before releasing the mutation lane", async () => {
+    const { root } = await fixtureVault();
+    let expirePermit: (() => void) | undefined;
+    let expireDuringOpen = false;
+    const broker = createBroker({
+      projectionWritePermitTtlMs: 25,
+      setTimeoutFn: ((callback: () => void) => {
+        expirePermit = callback;
+        return { unref() {} } as never;
+      }) as VaultBrokerOptions["setTimeoutFn"],
+      clearTimeoutFn: vi.fn(),
+      openPath: (async (...args: Parameters<typeof open>) => {
+        const handle = await open(...args);
+        if (expireDuringOpen) {
+          expireDuringOpen = false;
+          expirePermit?.();
+        }
+        return handle;
+      }) as typeof open,
+    });
+    const projectingSession = await broker.openSession(otherSender, root);
+    const deletingSession = await broker.openSession(sender, root);
+    const permit = await broker.acquireProjectionWrite(
+      otherSender,
+      projectingSession.sessionId,
+      "Notes/A.md",
+    );
+    expireDuringOpen = true;
+
+    await expect(broker.write(otherSender, projectingSession.sessionId, "Notes/A.md", "completed", {
+      projectionWritePermit: permit.permitId,
+    })).resolves.toMatchObject({ path: "Notes/A.md" });
+    expect(() => broker.releaseProjectionWrite(
+      otherSender,
+      projectingSession.sessionId,
+      permit.permitId,
+    )).not.toThrow();
+    await expect(broker.reserveDeletion(
+      sender,
+      deletingSession.sessionId,
+      "Notes/A.md",
+      "delete-after-active-timeout",
+    )).resolves.toMatchObject({ operationId: "delete-after-active-timeout" });
+    await expect(readFile(path.join(root, "Notes", "A.md"), "utf8")).resolves.toBe("completed");
+  });
+
+  it("keeps Vault identity stable for one canonical root without aliasing another root", async () => {
+    const firstFixture = await fixtureVault();
+    const secondFixture = await fixtureVault();
+    const collidingStat = (async (...args: Parameters<typeof stat>) => {
+      const info = await stat(...args);
+      return new Proxy(info, {
+        get(target, property, receiver) {
+          if (property === "dev") return typeof target.dev === "bigint" ? 73n : 73;
+          if (property === "ino") return typeof target.ino === "bigint" ? 91n : 91;
+          return Reflect.get(target, property, receiver);
+        },
+      });
+    }) as typeof stat;
+    const broker = createBroker({
+      events: [],
+      watch: watchHarness(),
+      statPath: collidingStat,
+    });
+
+    const first = await broker.openSession(sender, firstFixture.root);
+    const repeated = await broker.openSession(sender, firstFixture.root);
+    const second = await broker.openSession(sender, secondFixture.root);
+
+    expect(first.vaultId).toBe(repeated.vaultId);
+    expect(first.vaultId).not.toBe(second.vaultId);
+    expect(first.vaultId).not.toContain(await realpath(firstFixture.root));
+    expect(second.vaultId).not.toContain(await realpath(secondFixture.root));
+  });
+
   it("does not publish a session or watcher when its sender closes during stat", async () => {
     const { root } = await fixtureVault();
     const waitingStat = deferred<Awaited<ReturnType<typeof stat>>>();
@@ -500,6 +1021,20 @@ describe("ElectronVaultBroker", () => {
     expect(events[0]).toMatchObject({ origin: "host", operationId: "operation-1" });
   });
 
+  it("atomically creates only when an expected-missing target is still absent", async () => {
+    const { root } = await fixtureVault();
+    const broker = createBroker();
+    const session = await broker.openSession(sender, root);
+
+    await expect(broker.write(sender, session.sessionId, "Notes/New.md", "first", {
+      expectedVersion: null,
+    })).resolves.toMatchObject({ path: "Notes/New.md" });
+    await expect(broker.write(sender, session.sessionId, "Notes/New.md", "second", {
+      expectedVersion: null,
+    })).rejects.toMatchObject({ code: "vault-version-conflict" });
+    await expect(readFile(path.join(root, "Notes", "New.md"), "utf8")).resolves.toBe("first");
+  });
+
   it("coalesces the watcher echo for a host write but reports later external changes", async () => {
     const { root } = await fixtureVault();
     const events: PluginVaultChangeEvent[] = [];
@@ -735,6 +1270,8 @@ describe("ElectronVaultBroker", () => {
     const broker = createBroker({ events: [], watch: watchHarness() });
     const first = await broker.openSession(sender, root);
     const second = await broker.openSession(sender, root);
+    expect(first.sessionId).not.toBe(second.sessionId);
+    expect(first.vaultId).toBe(second.vaultId);
     const resource = await broker.createResourceUrl(sender, first.sessionId, "Notes/A.md");
     const secondResource = await broker.createResourceUrl(sender, second.sessionId, "Notes/A.md");
     const [, firstCapability, firstToken] = new URL(resource.url).pathname.split("/");
@@ -929,7 +1466,16 @@ describe("ElectronPluginStorageBroker", () => {
 
     await mkdir(path.join(root, "fixture"), { recursive: true });
     await writeFile(path.join(root, "fixture", "data.json"), "{broken");
-    await expect(broker.load("fixture")).resolves.toEqual({ found: false, revision: 0, data: null });
+    await expect(broker.load("fixture")).resolves.toEqual({
+      found: false,
+      corrupt: true,
+      revision: 0,
+      data: null,
+    });
     expect(await readFile(path.join(root, "fixture", "data.json.corrupt-123"), "utf8")).toBe("{broken");
+    await expect(broker.load("fixture")).resolves.toMatchObject({ found: false, corrupt: true });
+    await expect(broker.save("fixture", 0, { replacement: true })).rejects.toMatchObject({
+      code: "plugin-storage-corrupt",
+    });
   });
 });

@@ -5,8 +5,10 @@ import type {
   EditorDomEventHookOptions,
   EditorDomEventMap,
   EditorDomEventType,
+  EditorDestroyListener,
   EditorInputSurface,
   EditorInputTarget,
+  EditorLifecycleContributionSink,
   SelectionState,
 } from "@floatboat/nexus-core";
 import type { NexusComponent } from "./component";
@@ -31,8 +33,10 @@ export type {
   EditorDomEventHookResult,
   EditorDomEventMap,
   EditorDomEventType,
+  EditorDestroyListener,
   EditorInputSurface,
   EditorInputTarget,
+  EditorLifecycleContributionSink,
 } from "@floatboat/nexus-core";
 
 export interface EditorSurfaceContext {

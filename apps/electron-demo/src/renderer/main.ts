@@ -1,5 +1,6 @@
-import { boot } from "./app";
+import { renderStartupFailure } from "./startup-failure";
 
-void boot().catch((error) => {
-  console.error("Nexus renderer failed to start", error);
+void import("./app").then(({ boot }) => boot()).catch(() => {
+  console.error("Nexus renderer failed to start [renderer-startup-failed]");
+  renderStartupFailure();
 });

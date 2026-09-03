@@ -293,6 +293,13 @@ export interface CoreEditorTransaction {
   readonly userEvent?: string;
 }
 
+export type EditorTransactionAuthority = "proposal" | "authoritative";
+
+export interface EditorHistoryController {
+  undo(): boolean;
+  redo(): boolean;
+}
+
 export interface CoreEditorTransactionContext {
   readonly editor: EditorAPI;
   readonly changes: readonly CoreEditorChange[];
@@ -300,6 +307,8 @@ export interface CoreEditorTransactionContext {
   readonly selectionAfter: SelectionState;
   readonly origin: readonly string[];
   readonly userEvent?: string;
+  readonly authority: EditorTransactionAuthority;
+  readonly sourceOwnerId?: string;
 }
 
 export interface CoreEditorUpdateContext extends CoreEditorTransactionContext {
@@ -334,11 +343,34 @@ export interface EditorTransactionContributionSink {
     listener: CoreEditorUpdateListener,
     options?: CoreEditorTransactionHookOptions
   ): EditorContributionRegistration;
+  registerAuthoritativeSource(
+    ownerId: string,
+    history: EditorHistoryController
+  ): EditorAuthoritativeSourceRegistration;
+}
+
+/** Invoked once when the owning Editor begins destruction. */
+export type EditorDestroyListener = () => void | Promise<void>;
+
+export interface EditorLifecycleContributionSink {
+  registerDestroyListener(
+    ownerId: string,
+    listener: EditorDestroyListener
+  ): EditorContributionRegistration;
+}
+
+export interface EditorAuthoritativeSourceRegistration
+  extends EditorContributionRegistration {
+  dispatch(transaction: CoreEditorTransaction): CoreEditorTransactionDispatchResult;
+  dispatchTransactions(
+    transactions: readonly CoreEditorTransaction[]
+  ): CoreEditorTransactionDispatchResult;
 }
 
 export interface EditorContributionSink
   extends EditorExtensionContributionSink,
-    EditorTransactionContributionSink {}
+    EditorTransactionContributionSink,
+    EditorLifecycleContributionSink {}
 
 export type CoreEditorTransactionDispatchResult =
   | { readonly status: "success"; readonly update: CoreEditorUpdateContext }

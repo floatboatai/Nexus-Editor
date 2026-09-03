@@ -47,6 +47,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Smoke test Electron clean-workspace startup
+        run: pnpm --filter @floatboat/nexus-electron-demo smoke:startup
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -64,6 +67,13 @@ jobs:
 
       - name: Smoke test Electron multi-window runtime
         run: pnpm --filter @floatboat/nexus-electron-demo smoke:multi-window
+
+      - name: Test reference-server deployment credentials
+        run: pnpm --filter @floatboat/nexus-collab-server test:deployment
+
+      - name: Test real Electron collaboration and trusted local TLS
+        timeout-minutes: 10
+        run: pnpm --filter @floatboat/nexus-electron-demo smoke:collaboration
 
   publish:
     name: Publish Packages

@@ -1,9 +1,21 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol, session, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  MenuItem,
+  MessageChannelMain,
+  protocol,
+  session,
+  shell,
+  utilityProcess,
+  type MessagePortMain,
+} from "electron";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promises";
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import {
   parsePluginIpcRequest,
   parsePluginIpcResponse,
@@ -25,19 +37,37 @@ import {
   type SenderIdentity,
 } from "./plugin-host-broker";
 import { SenderWindowRegistry } from "./window-registry";
+import {
+  createCollabUtilitySupervisor,
+  type CollabUtilityChild,
+  type CollabUtilityPort,
+  type CollabUtilitySupervisor,
+} from "./collab-utility-supervisor";
+import { COLLAB_NETWORK_CHANNELS, collaborationContentSecurityPolicy, parseCollaborationNetworkConfiguration } from "../src/shared/collab-network-policy";
+import { CollaborationInvitationBroker } from "./collab-invitation-broker";
+import { BUILT_RENDERER_URL, createRendererProtocolHandler } from "./collab-renderer-protocol";
 
 // Must be called before app ready — declares our custom scheme as privileged
 // so images served via nexus-vault:// pass fetch/<img> with credentials / CORS.
 protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "nexus-app",
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+  },
   {
     scheme: "nexus-vault",
     privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true },
   },
 ]);
 
+// Main-owned startup configuration is immutable for the process lifetime.
+const collaborationNetworkConfiguration = parseCollaborationNetworkConfiguration(process.env.NEXUS_COLLAB_SERVERS);
+const collaborationInvitationBroker = new CollaborationInvitationBroker(collaborationNetworkConfiguration);
+
 let externalNavigationBroker: ElectronExternalNavigationBroker | null = null;
 let pluginVaultBroker: ElectronVaultBroker | null = null;
 let pluginStorageBroker: ElectronPluginStorageBroker | null = null;
+let collabUtilitySupervisor: CollabUtilitySupervisor | null = null;
 let appIsQuitting = false;
 let forceQuit = false;
 let quitFallbackTimer: NodeJS.Timeout | null = null;
@@ -55,6 +85,53 @@ interface WindowRuntimeState {
 }
 
 const windowRegistry = new SenderWindowRegistry<BrowserWindow, WindowRuntimeState>();
+const RENDERER_STARTUP_TIMEOUT_MS = 15_000;
+
+type StartupFailureCode =
+  | "preload-load-failed"
+  | "renderer-load-failed"
+  | "renderer-startup-timeout"
+  | "renderer-url-invalid";
+
+function trustedRendererDevUrl(rawUrl: string): string | null {
+  try {
+    const url = new URL(rawUrl);
+    const isLoopback = url.hostname === "localhost"
+      || url.hostname === "127.0.0.1"
+      || url.hostname === "[::1]";
+    if (
+      url.protocol !== "http:"
+      || !isLoopback
+      || url.username
+      || url.password
+      || url.search
+      || url.hash
+    ) {
+      return null;
+    }
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+function createCollaborationPersistenceSupervisor(): CollabUtilitySupervisor {
+  const databasePath = path.join(app.getPath("userData"), "collaboration", "replicas.sqlite3");
+  return createCollabUtilitySupervisor({
+    spawn: () => utilityProcess.fork(
+      path.join(__dirname, "collab-store-worker.js"),
+      [`--nexus-collab-database=${databasePath}`],
+      { serviceName: "Nexus Collaboration Persistence", stdio: "inherit" },
+    ) as unknown as CollabUtilityChild,
+    createChannel: () => {
+      const channel = new MessageChannelMain();
+      return {
+        port1: channel.port1 as unknown as CollabUtilityPort,
+        port2: channel.port2 as unknown as CollabUtilityPort,
+      };
+    },
+  });
+}
 
 interface MainOwnedPluginPermissionPolicy {
   readonly declaredPermissions: readonly PluginHostPermissionId[];
@@ -91,6 +168,40 @@ export interface CreateWindowOptions {
   readonly windowId?: string;
 }
 
+const NEW_COLLABORATION_WINDOW_COMMAND = "nexus-new-collaboration-window";
+
+function newCollaborationWindowMenuItem(): MenuItem {
+  return new MenuItem({
+    id: NEW_COLLABORATION_WINDOW_COMMAND,
+    label: "New Collaboration Window",
+    accelerator: "CmdOrCtrl+Shift+N",
+    click: () => { createWindow({ hostMode: "runtime" }); },
+  });
+}
+
+/** Installs one user-reachable Host command without replacing the existing app menu. */
+export function installCollaborationWindowCommand(): void {
+  const current = Menu.getApplicationMenu();
+  const fileMenu = current?.items.find((item) => item.role === "fileMenu" || item.label === "File");
+  if (fileMenu?.submenu?.items.some((item) => item.id === NEW_COLLABORATION_WINDOW_COMMAND)) return;
+  if (current && fileMenu?.submenu) {
+    fileMenu.submenu.append(newCollaborationWindowMenuItem());
+    Menu.setApplicationMenu(current);
+    return;
+  }
+  Menu.setApplicationMenu(Menu.buildFromTemplate([{
+    label: "File",
+    submenu: [
+      {
+        id: NEW_COLLABORATION_WINDOW_COMMAND,
+        label: "New Collaboration Window",
+        accelerator: "CmdOrCtrl+Shift+N",
+        click: () => { createWindow({ hostMode: "runtime" }); },
+      },
+    ],
+  }]));
+}
+
 export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
   const hostMode = options.hostMode ?? resolveMainHostMode(process.env);
   const windowId = options.windowId ??
@@ -99,6 +210,16 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
     throw new RangeError("Electron window ID must contain only letters, numbers, and hyphens");
   }
   const windowSession = session.fromPartition(`persist:nexus-window-${windowId}`, { cache: false });
+  const configuredDevUrl = process.env.VITE_DEV_SERVER_URL;
+  const devUrl = configuredDevUrl ? trustedRendererDevUrl(configuredDevUrl) : null;
+  const contentSecurityPolicy = collaborationContentSecurityPolicy(collaborationNetworkConfiguration, devUrl ?? undefined);
+  windowSession.protocol.handle("nexus-app", createRendererProtocolHandler(path.join(__dirname, "../dist"), contentSecurityPolicy));
+  if (devUrl) {
+    windowSession.webRequest.onHeadersReceived({ urls: [`${new URL(devUrl).origin}/*`] }, (details, callback) => {
+      const headers = Object.fromEntries(Object.entries(details.responseHeaders ?? {}).filter(([name]) => name.toLowerCase() !== "content-security-policy"));
+      callback({ responseHeaders: { ...headers, "Content-Security-Policy": [contentSecurityPolicy] } });
+    });
+  }
   const window = new BrowserWindow({
     width: 1024,
     height: 768,
@@ -129,25 +250,103 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
     finalizePromise: null,
   };
   const { senderId } = windowRegistry.register(window, state);
+  let startupWatchdog: NodeJS.Timeout | null = null;
+  const clearStartupWatchdog = (): void => {
+    if (startupWatchdog) clearTimeout(startupWatchdog);
+    startupWatchdog = null;
+  };
   registerVaultProtocol(windowSession.protocol, senderId);
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, targetUrl) => {
     if (!isTrustedRendererLocation(targetUrl)) event.preventDefault();
   });
   window.webContents.once("destroyed", () => {
+    clearStartupWatchdog();
+    collabUtilitySupervisor?.detach(senderId);
     releaseWindowResources(senderId);
     finishAppQuitIfReady();
   });
+  window.webContents.once("render-process-gone", () => {
+    // A crashed renderer can no longer hold write authority. Close its
+    // sender-scoped sessions immediately; ElectronVaultBroker marks exact join
+    // openings inactive but retains their blocking recovery fences, and also
+    // retains durable deletion fences.
+    releaseWindowResources(senderId);
+    if (!window.isDestroyed()) window.destroy();
+    finishAppQuitIfReady();
+  });
+
+  if (hostMode === "runtime") {
+    window.webContents.on("did-finish-load", () => {
+      const supervisor = collabUtilitySupervisor;
+      if (!supervisor || window.webContents.isDestroyed()) return;
+      void supervisor.attach({
+        id: senderId,
+        isDestroyed: () => window.webContents.isDestroyed(),
+        postMessage: (channel, message, ports = []) => {
+          window.webContents.postMessage(
+            channel,
+            message,
+            ports as readonly MessagePortMain[] as MessagePortMain[],
+          );
+        },
+      }).catch(() => {
+        if (!window.webContents.isDestroyed()) {
+          window.webContents.send("nexus:collab-store:unavailable", {
+            code: "store-worker-unavailable",
+          });
+        }
+      });
+    });
+  }
 
   window.once("ready-to-show", () => {
     if (!window.isDestroyed()) window.show();
   });
 
-  const devUrl = process.env.VITE_DEV_SERVER_URL;
-  if (devUrl) {
-    void window.loadURL(devUrl);
+  let startupFailureShown = false;
+  const showStartupFailure = (code: StartupFailureCode): void => {
+    if (startupFailureShown || window.isDestroyed()) return;
+    startupFailureShown = true;
+    clearStartupWatchdog();
+    dialog.showErrorBox(
+      "Nexus Editor could not start",
+      `Error code: ${code}\n\n` +
+      "Restart the client after checking that its development server or packaged files are available.",
+    );
+    window.show();
+  };
+  window.webContents.once("preload-error", () => {
+    showStartupFailure("preload-load-failed");
+  });
+  window.webContents.once("did-finish-load", () => {
+    if (startupFailureShown || window.webContents.isDestroyed()) return;
+    clearStartupWatchdog();
+    startupWatchdog = setTimeout(() => {
+      startupWatchdog = null;
+      if (startupFailureShown || window.webContents.isDestroyed()) return;
+      void window.webContents.executeJavaScript(
+        "document.querySelector('#app')?.dataset.nexusStartupState ?? null",
+      ).then((startupState: unknown) => {
+        if (startupState !== "ready" && startupState !== "failed") {
+          showStartupFailure("renderer-startup-timeout");
+        }
+      }).catch(() => {
+        showStartupFailure("renderer-startup-timeout");
+      });
+    }, RENDERER_STARTUP_TIMEOUT_MS);
+    startupWatchdog.unref();
+  });
+
+  if (configuredDevUrl && !devUrl) {
+    showStartupFailure("renderer-url-invalid");
   } else {
-    void window.loadFile(path.join(__dirname, "../dist/index.html"));
+    const rendererLoad = devUrl
+      ? window.loadURL(devUrl)
+      : window.loadURL(BUILT_RENDERER_URL);
+    void rendererLoad.catch(() => {
+      showStartupFailure("renderer-load-failed");
+    });
   }
 
   // Allow opening DevTools in packaged builds via Cmd/Ctrl+Shift+I or F12 —
@@ -168,6 +367,7 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
     event.preventDefault();
     if (registration.state.shutdownInProgress) return;
     registration.state.shutdownInProgress = true;
+    collaborationInvitationBroker.closeSender(senderId);
     window.webContents.send("nexus:host:shutdown", {
       reason: appIsQuitting ? "app-quit" : "window-close",
     });
@@ -233,10 +433,13 @@ function contentTypeForPath(resourcePath: string): string {
 function isTrustedRendererLocation(rawUrl: string): boolean {
   try {
     const url = new URL(rawUrl);
-    const devUrl = process.env.VITE_DEV_SERVER_URL;
-    if (devUrl) return url.origin === new URL(devUrl).origin;
-    const expected = pathToFileURL(path.join(__dirname, "../dist/index.html"));
-    return url.protocol === expected.protocol && url.pathname === expected.pathname;
+    if (url.username || url.password) return false;
+    const configuredDevUrl = process.env.VITE_DEV_SERVER_URL;
+    if (configuredDevUrl) {
+      const devUrl = trustedRendererDevUrl(configuredDevUrl);
+      return devUrl !== null && url.origin === new URL(devUrl).origin;
+    }
+    return url.protocol === "nexus-app:" && url.host === "editor" && url.pathname === "/index.html" && !url.search && !url.hash;
   } catch {
     return false;
   }
@@ -303,6 +506,21 @@ function assertAuthorizedSender(sender: SenderIdentity): void {
 }
 
 export function registerPluginHostIpc(): void {
+  const isAuthorizedNetworkSender = (event: Electron.IpcMainInvokeEvent): boolean => {
+    const registration = windowRegistry.registrationForSenderId(event.sender.id);
+    return Boolean(registration && registration.state.hostMode === "runtime"
+      && !registration.state.shutdownInProgress && registration.window.webContents === event.sender
+      && event.senderFrame && event.senderFrame === event.sender.mainFrame
+      && event.senderFrame.url === event.sender.getURL() && isTrustedRendererLocation(event.senderFrame.url));
+  };
+  ipcMain.handle(COLLAB_NETWORK_CHANNELS.configuration, (event) => {
+    if (!isAuthorizedNetworkSender(event)) throw new Error("sender-not-authorized");
+    return collaborationNetworkConfiguration;
+  });
+  ipcMain.handle(COLLAB_NETWORK_CHANNELS.issueInvitation, (event, request: unknown) => {
+    if (!isAuthorizedNetworkSender(event)) return { ok: false, error: "sender-not-authorized" };
+    return collaborationInvitationBroker.issueInvitation(event.sender.id, request);
+  });
   externalNavigationBroker = new ElectronExternalNavigationBroker({
     isSenderAuthorized: isAuthorizedPluginSender,
     openExternal: (url) => shell.openExternal(url),
@@ -359,11 +577,17 @@ export function registerPluginHostIpc(): void {
     requirePluginVaultBroker().write(sender, request.sessionId, request.path, request.content, {
       ...(request.expectedVersion === undefined ? {} : { expectedVersion: request.expectedVersion }),
       ...(request.operationId === undefined ? {} : { operationId: request.operationId }),
+      ...(request.projectionWritePermit === undefined
+        ? {}
+        : { projectionWritePermit: request.projectionWritePermit }),
     }));
   registerPluginIpcHandler("nexus:vault:write-binary", (sender, request) =>
     requirePluginVaultBroker().write(sender, request.sessionId, request.path, request.content, {
       ...(request.expectedVersion === undefined ? {} : { expectedVersion: request.expectedVersion }),
       ...(request.operationId === undefined ? {} : { operationId: request.operationId }),
+      ...(request.projectionWritePermit === undefined
+        ? {}
+        : { projectionWritePermit: request.projectionWritePermit }),
     }));
   registerPluginIpcHandler("nexus:vault:create-folder", (sender, request) =>
     requirePluginVaultBroker().createFolder(
@@ -387,6 +611,63 @@ export function registerPluginHostIpc(): void {
       request.path,
       request.operationId,
     ));
+  registerPluginIpcHandler("nexus:vault:projection-write-acquire", (sender, request) =>
+    requirePluginVaultBroker().acquireProjectionWrite(
+      sender,
+      request.sessionId,
+      request.path,
+      request.projectionOpeningOperationId,
+    ));
+  registerPluginIpcHandler("nexus:vault:projection-write-release", (sender, request) => {
+    requirePluginVaultBroker().releaseProjectionWrite(sender, request.sessionId, request.permitId);
+    return { ok: true };
+  });
+  registerPluginIpcHandler("nexus:vault:projection-opening-reserve", (sender, request) =>
+    requirePluginVaultBroker().reserveProjectionOpening(
+      sender,
+      request.sessionId,
+      request.path,
+      request.documentId,
+      request.operationId,
+      request.recoveryOwner,
+    ));
+  registerPluginIpcHandler("nexus:vault:projection-opening-commit", (sender, request) =>
+    requirePluginVaultBroker().commitProjectionOpening(
+      sender,
+      request.sessionId,
+      request.path,
+      request.documentId,
+      request.operationId,
+    ));
+  registerPluginIpcHandler("nexus:vault:projection-opening-list", (sender, request) =>
+    requirePluginVaultBroker().listProjectionOpenings(sender, request.sessionId));
+  registerPluginIpcHandler("nexus:vault:projection-opening-release", async (sender, request) => ({
+    released: await requirePluginVaultBroker().releaseProjectionOpening(
+      sender,
+      request.sessionId,
+      request.path,
+      request.documentId,
+      request.operationId,
+    ),
+  }));
+  registerPluginIpcHandler("nexus:vault:delete-reserve", (sender, request) =>
+    requirePluginVaultBroker().reserveDeletion(
+      sender,
+      request.sessionId,
+      request.path,
+      request.operationId,
+      request.state,
+    ));
+  registerPluginIpcHandler("nexus:vault:delete-list", (sender, request) =>
+    requirePluginVaultBroker().listDeletionFences(sender, request.sessionId));
+  registerPluginIpcHandler("nexus:vault:delete-release", async (sender, request) => ({
+    released: await requirePluginVaultBroker().releaseDeletion(
+      sender,
+      request.sessionId,
+      request.path,
+      request.operationId,
+    ),
+  }));
   registerPluginIpcHandler("nexus:vault:resource-url", (sender, request) =>
     requirePluginVaultBroker().createResourceUrl(sender, request.sessionId, request.path));
   registerPluginIpcHandler("nexus:vault:revoke-resource-url", (sender, request) => {
@@ -449,10 +730,14 @@ function releaseWindowResources(senderId: number): void {
   if (state.shutdownTimer) clearTimeout(state.shutdownTimer);
   state.shutdownTimer = null;
   stopWatcher(state);
+  collabUtilitySupervisor?.detach(senderId);
   externalNavigationBroker?.closeSender(senderId);
   pluginVaultBroker?.closeSender(senderId);
+  collaborationInvitationBroker.closeSender(senderId);
   try {
     state.windowSession.protocol.unhandle("nexus-vault");
+    state.windowSession.protocol.unhandle("nexus-app");
+    state.windowSession.webRequest.onHeadersReceived(null);
   } catch {
     // The Session may already have been disposed with its webContents.
   }
@@ -475,8 +760,20 @@ function finishAppQuitIfReady(): void {
   if (!appIsQuitting || windowRegistry.liveRegistrations.length > 0 || forceQuit) return;
   pluginVaultBroker?.closeAll();
   if (quitDrainPromise) return;
-  quitDrainPromise = pluginStorageBroker?.drain() ?? Promise.resolve();
-  void quitDrainPromise.finally(() => {
+  quitDrainPromise = Promise.allSettled([
+    pluginStorageBroker?.drain() ?? Promise.resolve(),
+    collabUtilitySupervisor?.close() ?? Promise.resolve(),
+  ]).then((results) => {
+    for (const result of results) {
+      if (result.status !== "rejected") continue;
+      const code = (result.reason as { readonly code?: unknown } | null)?.code;
+      console.error(
+        "Nexus durable shutdown was not clean",
+        typeof code === "string" ? code : "shutdown-cleanup-failed",
+      );
+    }
+  });
+  void quitDrainPromise.then(() => {
     if (forceQuit || windowRegistry.liveRegistrations.length > 0) return;
     forceQuit = true;
     if (quitFallbackTimer) clearTimeout(quitFallbackTimer);
@@ -495,6 +792,16 @@ function forceFinishAppQuit(): void {
     if (!window.isDestroyed()) window.destroy();
   }
   pluginVaultBroker?.closeAll();
+  const closeCollaborationStore = collabUtilitySupervisor?.close();
+  if (closeCollaborationStore) {
+    void closeCollaborationStore.catch((cause) => {
+      const code = (cause as { readonly code?: unknown } | null)?.code;
+      console.error(
+        "Nexus forced collaboration shutdown was not clean",
+        typeof code === "string" ? code : "shutdown-cleanup-failed",
+      );
+    });
+  }
   app.quit();
 }
 
@@ -861,7 +1168,9 @@ ipcMain.handle("vault:set-last", async (event, vaultPath: string) => {
 });
 
 app.whenReady().then(() => {
+  collabUtilitySupervisor = createCollaborationPersistenceSupervisor();
   registerPluginHostIpc();
+  installCollaborationWindowCommand();
   createWindow();
 });
 

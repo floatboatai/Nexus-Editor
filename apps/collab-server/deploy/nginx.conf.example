@@ -1,0 +1,56 @@
+# Include once inside nginx's http {} context, not inside an existing server {}.
+# Replace the hostname and certificate paths before enabling this virtual host.
+map $http_upgrade $nexus_collab_connection {
+    default upgrade;
+    '' close;
+}
+
+# No URI, query, Authorization, request/response body, or peer identity is logged.
+log_format nexus_collab_safe '$time_iso8601 status=$status duration=$request_time bytes=$bytes_sent';
+
+server {
+    listen 443 ssl;
+    server_name collab.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/collab.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/collab.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    access_log /var/log/nginx/nexus-collab-access.log nexus_collab_safe;
+    # Native error logs can include raw request lines; avoid recording bearer URLs.
+    error_log /dev/null crit;
+
+    client_max_body_size 4k;
+    client_body_timeout 10s;
+    client_header_timeout 10s;
+
+    location = /healthz {
+        allow 127.0.0.1;
+        allow ::1;
+        deny all;
+        proxy_pass http://127.0.0.1:1234;
+        proxy_set_header Host $host;
+    }
+
+    location = /readyz {
+        allow 127.0.0.1;
+        allow ::1;
+        deny all;
+        proxy_pass http://127.0.0.1:1234;
+        proxy_set_header Host $host;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:1234;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $nexus_collab_connection;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        # Preserve Origin: never make an untrusted browser look like Electron Main.
+        proxy_set_header Origin $http_origin;
+        proxy_buffering off;
+        proxy_read_timeout 75s;
+        proxy_send_timeout 75s;
+    }
+}

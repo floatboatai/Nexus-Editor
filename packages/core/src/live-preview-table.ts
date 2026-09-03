@@ -3,6 +3,7 @@ import type { Table } from "mdast";
 
 import type { LivePreviewLabels } from "./types";
 import { setInputTargetProvider } from "./input-target-provider";
+import { isExternalDocumentModeActive } from "./authoritative-source";
 
 const tableEditingCounts = new WeakMap<EditorView, number>();
 
@@ -23,6 +24,7 @@ function decrementTableEditing(view: EditorView): void {
 interface TableEditSession {
   flush(): boolean;
   finish(): void;
+  cancel(): void;
 }
 
 const tableEditSessions = new WeakMap<EditorView, Set<TableEditSession>>();
@@ -72,6 +74,20 @@ export function flushPendingTableEdits(view: EditorView, finishEditing = false):
   }
   if (hasError) throw firstError;
   return changed;
+}
+
+/** Cancel in-progress pointer gestures without publishing DOM-local table state. */
+export function cancelActiveTableInteractions(view: EditorView): void {
+  const sessions = Array.from(tableEditSessions.get(view) ?? []);
+  let firstError: unknown;
+  for (const session of sessions) {
+    try {
+      session.cancel();
+    } catch (error) {
+      firstError ??= error;
+    }
+  }
+  if (firstError) throw firstError;
 }
 
 // 表格方向键导航的调试日志，仅在显式开启 floatboat:markdown-debug 标记后输出。
@@ -708,6 +724,8 @@ export class EditableTableWidget extends WidgetType {
     let registeredSessionView: EditorView | null = null;
     let sessionClosed = false;
     let removeInputTargetProvider: (() => void) | null = null;
+    let removeCellPointerListeners: (() => void) | null = null;
+    let removeResizePointerListeners: (() => void) | null = null;
 
     const tableEditSession: TableEditSession = {
       flush: () => syncDirtyRowsToDocument(),
@@ -715,6 +733,7 @@ export class EditableTableWidget extends WidgetType {
         self.reusable = false;
         self.cleanupEditingLocks?.();
       },
+      cancel: () => cancelActiveInteraction(),
     };
 
     function hasEditingLocks(): boolean {
@@ -1029,6 +1048,7 @@ export class EditableTableWidget extends WidgetType {
       const onUp = (): void => {
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
+        removeResizePointerListeners = null;
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
         tableColumnWidths.set(widthKey, baseWidths.slice());
@@ -1036,6 +1056,12 @@ export class EditableTableWidget extends WidgetType {
       };
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
+      removeResizePointerListeners = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
     };
 
     // ── Selection overlay — highlights entire table when CM6 selection covers it ──
@@ -1174,6 +1200,33 @@ export class EditableTableWidget extends WidgetType {
         const h = el as HTMLElement;
         h.style.background = h.tagName === "TH" ? "var(--nexus-bg-subtle)" : "";
       });
+    }
+
+    function cancelActiveInteraction(): void {
+      removeCellPointerListeners?.();
+      removeCellPointerListeners = null;
+      removeResizePointerListeners?.();
+      removeResizePointerListeners = null;
+      document.removeEventListener("mousemove", onDragMove);
+      document.removeEventListener("mouseup", onDragEnd);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      cellMouseDown = false;
+      isRangeSelecting = false;
+      rangeActive = false;
+      draggingCol = -1;
+      draggingRow = -1;
+      dropTargetCol = -1;
+      dropTargetRow = -1;
+      clearDragHighlights();
+      hideIndicators();
+      floatingPill.style.display = "none";
+      floatingRowPill.style.display = "none";
+      clearSelection();
+      clearRangeSelection();
+      dirtyRows.clear();
+      self.reusable = false;
+      self.cleanupEditingLocks?.();
     }
 
     // ── Range selection border overlay ──
@@ -1944,6 +1997,17 @@ export class EditableTableWidget extends WidgetType {
 
         td.addEventListener("mousedown", (e) => {
           if (e.button !== 0) return; // only left button
+          const activeView = self.viewRef.current;
+          if (activeView && isExternalDocumentModeActive(activeView.state)) {
+            e.preventDefault();
+            e.stopPropagation();
+            clearPendingNativeTextSelection();
+            clearSelection();
+            clearRangeSelection();
+            syncEditorSelectionToCell(sourceLineIdx, cellCol);
+            activeView.focus();
+            return;
+          }
           e.stopPropagation();
           const rawCaretOffset = rawSourceOffsetFromPoint(td, e);
           const startX = e.clientX;
@@ -1978,6 +2042,7 @@ export class EditableTableWidget extends WidgetType {
           const onCellMouseUp = (ue: MouseEvent): void => {
             document.removeEventListener("mousemove", onCellMouseMove);
             document.removeEventListener("mouseup", onCellMouseUp);
+            removeCellPointerListeners = null;
             cellMouseDown = false;
             isRangeSelecting = false;
             const dragDistance = Math.hypot(ue.clientX - startX, ue.clientY - startY);
@@ -2085,15 +2150,31 @@ export class EditableTableWidget extends WidgetType {
           };
           document.addEventListener("mousemove", onCellMouseMove);
           document.addEventListener("mouseup", onCellMouseUp);
+          removeCellPointerListeners = () => {
+            document.removeEventListener("mousemove", onCellMouseMove);
+            document.removeEventListener("mouseup", onCellMouseUp);
+          };
         });
 
         td.addEventListener("focus", () => {
+          const activeView = self.viewRef.current;
+          if (activeView && isExternalDocumentModeActive(activeView.state)) {
+            td.contentEditable = "false";
+            syncEditorSelectionToCell(sourceLineIdx, cellCol);
+            activeView.focus();
+            return;
+          }
           acquireEditingLock("focus");
           syncEditorSelectionToCell(sourceLineIdx, cellCol);
           clearRangeSelection();
           enterRawEditingMode();
         });
         td.addEventListener("blur", () => {
+          const activeView = self.viewRef.current;
+          if (activeView && isExternalDocumentModeActive(activeView.state)) {
+            td.contentEditable = "false";
+            return;
+          }
           // input/compositionend can be followed immediately by blur. Snapshot
           // before swapping raw DOM back to rich rendering so the final IME
           // candidate (or last ordinary keystroke) cannot be overwritten.

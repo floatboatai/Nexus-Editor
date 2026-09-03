@@ -5,6 +5,9 @@
     "paths": {
       "@floatboat/nexus-core": ["packages/core/src/index.ts"],
       "@floatboat/nexus-plugin-api": ["packages/plugin-api/src/index.ts"],
+      "@floatboat/nexus-plugin-collab": ["packages/plugin-collab/src/index.ts"],
+      "@floatboat/nexus-plugin-collab/assessment": ["packages/plugin-collab/src/assessment.ts"],
+      "@floatboat/nexus-plugin-collab/hocuspocus": ["packages/plugin-collab/src/hocuspocus-provider.ts"],
       "@floatboat/nexus-plugin-runtime": ["packages/plugin-runtime/src/index.ts"],
       "@floatboat/nexus-preset-gfm": ["packages/preset-gfm/src/index.ts"],
       "@floatboat/nexus-plugin-history": ["packages/plugin-history/src/index.ts"],
