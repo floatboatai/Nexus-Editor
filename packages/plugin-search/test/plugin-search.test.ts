@@ -887,4 +887,116 @@ describe("@floatboat/nexus-plugin-search", () => {
     editor.destroy();
     container.remove();
   });
+
+  describe("fuzzy search", () => {
+    it("finds fuzzy substring matches across word boundaries", () => {
+      expect(findSearchMatches("hello world", "hlo", { fuzzy: true })).toEqual([
+        { from: 0, to: 5, text: "hello" }
+      ]);
+    });
+
+    it("prefers compact, boundary-weighted matches", () => {
+      expect(findSearchMatches("alpha beta gamma alpha", "agm", { fuzzy: true })).toEqual([
+        { from: 0, to: 14, text: "alpha beta gam" }
+      ]);
+    });
+
+    it("scores trailing boundary bonus higher than pure consecutive stretch", () => {
+      expect(findSearchMatches("alpha beta gamma alpha", "gma", { fuzzy: true })).toEqual([
+        { from: 11, to: 18, text: "gamma a" }
+      ]);
+    });
+
+    it("finds multiple non-overlapping fuzzy matches per line", () => {
+      expect(findSearchMatches("abab", "ab", { fuzzy: true })).toEqual([
+        { from: 0, to: 2, text: "ab" },
+        { from: 2, to: 4, text: "ab" }
+      ]);
+    });
+
+    it("finds multiple non-overlapping fuzzy matches after non-word prefixes", () => {
+      expect(findSearchMatches("1ab ab", "ab", { fuzzy: true })).toEqual([
+        { from: 1, to: 3, text: "ab" },
+        { from: 4, to: 6, text: "ab" }
+      ]);
+    });
+
+    it("finds fuzzy matches across multiple lines", () => {
+      expect(findSearchMatches("hello world\nhello there", "hlo", { fuzzy: true })).toEqual([
+        { from: 0, to: 5, text: "hello" },
+        { from: 12, to: 17, text: "hello" }
+      ]);
+    });
+
+    it("supports case-sensitive fuzzy matching", () => {
+      expect(findSearchMatches("HeLlo", "HL", { fuzzy: true, caseSensitive: true })).toEqual([
+        { from: 0, to: 3, text: "HeL" }
+      ]);
+    });
+
+    it("folds case in insensitive fuzzy matching", () => {
+      expect(findSearchMatches("HeLlo", "hl", { fuzzy: true })).toEqual([
+        { from: 0, to: 3, text: "HeL" }
+      ]);
+    });
+
+    it("replaces all fuzzy matches in a document", () => {
+      expect(replaceAllMatches("cat scatter cat", "ct", "X", { fuzzy: true })).toBe("X sXter X");
+    });
+
+    it("renders a fuzzy toggle in the search panel", async () => {
+      const harness = setupSearchPanel();
+      const fuzzyField = harness.container.querySelector<HTMLInputElement>(
+        '[data-test-id="markdown-search-fuzzy-toggle"]'
+      );
+      expect(fuzzyField).not.toBeNull();
+      expect(fuzzyField!.checked).toBe(false);
+
+      fuzzyField!.checked = true;
+      fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const regexpField = harness.container.querySelector<HTMLInputElement>(
+        '[data-test-id="markdown-search-regexp-toggle"]'
+      );
+      const wholeWordField = harness.container.querySelector<HTMLInputElement>(
+        '[data-test-id="markdown-search-word-toggle"]'
+      );
+      expect(regexpField!.checked).toBe(false);
+      expect(wholeWordField!.checked).toBe(false);
+
+      harness.destroy();
+    });
+
+    it("unchecks fuzzy when regexp or whole-word is enabled", async () => {
+      const harness = setupSearchPanel({ fuzzy: true });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const fuzzyField = harness.container.querySelector<HTMLInputElement>(
+        '[data-test-id="markdown-search-fuzzy-toggle"]'
+      );
+      const regexpField = harness.container.querySelector<HTMLInputElement>(
+        '[data-test-id="markdown-search-regexp-toggle"]'
+      );
+      expect(fuzzyField!.checked).toBe(true);
+
+      regexpField!.checked = true;
+      regexpField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(fuzzyField!.checked).toBe(false);
+      harness.destroy();
+    });
+
+    it("can enable fuzzy search by default via plugin options", async () => {
+      const harness = setupSearchPanel({ fuzzy: true });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const fuzzyField = harness.container.querySelector<HTMLInputElement>(
+        '[data-test-id="markdown-search-fuzzy-toggle"]'
+      );
+      expect(fuzzyField!.checked).toBe(true);
+      harness.destroy();
+    });
+  });
 });
