@@ -17,6 +17,7 @@ export interface VaultPanelBackend {
   openVault(rootPath: string): Promise<VaultPanelSnapshot | null>;
   pickVault(): Promise<VaultPanelSnapshot | null>;
   list(rootPath: string): Promise<VaultNode[]>;
+  listChildren(dirPath: string): Promise<VaultNode[]>;
   read(filePath: string): Promise<DemoFileHandle>;
   write(filePath: string, content: string): Promise<{ path: string }>;
   createFile(parentDir: string, name: string): Promise<{ path: string }>;
@@ -71,6 +72,7 @@ export function createLegacyVaultPanelBackend(
       return picked ? snapshot(picked.path) : null;
     },
     list: (rootPath) => legacyBridge.list(rootPath),
+    listChildren: (dirPath) => legacyBridge.listChildren(dirPath),
     read: (filePath) => legacyBridge.read(filePath),
     write: (filePath, content) => legacyBridge.write(filePath, content),
     createFile: (parentDir, name) => legacyBridge.createFile(parentDir, name),
@@ -313,7 +315,12 @@ export function createVaultPanel(
   let vaultPath: string | null = null;
   let currentTree: VaultNode[] = [];
   let activeFile: string | null = null;
-  const collapsed = new Set<string>();
+  const expanded = new Set<string>();
+  // Lazily-fetched children for expanded directories (legacy backend lists
+  // only one level at a time; eager backends like the runtime still set
+  // `node.children` directly and never touch these).
+  const loadedChildren = new Map<string, VaultNode[]>();
+  const loadingChildren = new Set<string>();
   let unsubscribeChanged: (() => void) | null = null;
   let closeContextMenu: (() => void) | null = null;
 
@@ -338,8 +345,8 @@ export function createVaultPanel(
     const icon = document.createElement("span");
     icon.style.cssText = "width: 12px; flex-shrink: 0; color: #888; font-size: 11px;";
     if (node.kind === "directory") {
-      const open = !collapsed.has(node.path);
-      icon.textContent = folderIcon(open);
+      const expandable = node.children ? node.children.length > 0 : node.hasChildren === true;
+      icon.textContent = expandable ? folderIcon(expanded.has(node.path)) : fileIcon();
     } else {
       icon.textContent = fileIcon();
     }
@@ -360,8 +367,19 @@ export function createVaultPanel(
 
     row.addEventListener("click", () => {
       if (node.kind === "directory") {
-        if (collapsed.has(node.path)) collapsed.delete(node.path);
-        else collapsed.add(node.path);
+        const expandable = node.children ? node.children.length > 0 : node.hasChildren === true;
+        if (!expandable) return;
+        if (expanded.has(node.path)) expanded.delete(node.path);
+        else expanded.add(node.path);
+        const nowExpanded = expanded.has(node.path);
+        if (
+          nowExpanded &&
+          !node.children &&
+          !loadedChildren.has(node.path) &&
+          !loadingChildren.has(node.path)
+        ) {
+          void loadChildren(node.path);
+        }
         renderTree();
       } else {
         callbacks.onOpenFile(node.path);
@@ -380,9 +398,17 @@ export function createVaultPanel(
       openNodeContextMenu(e, node);
     });
 
-    if (node.kind === "directory" && !collapsed.has(node.path) && node.children) {
-      for (const child of node.children) {
-        renderNode(child, depth + 1, parent);
+    if (node.kind === "directory" && expanded.has(node.path)) {
+      if (node.children) {
+        // Eager backend (runtime) — children were already supplied.
+        for (const child of node.children) renderNode(child, depth + 1, parent);
+      } else if (node.hasChildren === true) {
+        const children = loadedChildren.get(node.path);
+        if (children) {
+          for (const child of children) renderNode(child, depth + 1, parent);
+        } else if (loadingChildren.has(node.path)) {
+          renderLoadingRow(parent, depth + 1);
+        }
       }
     }
   }
@@ -398,6 +424,28 @@ export function createVaultPanel(
       return;
     }
     for (const node of currentTree) renderNode(node, 0, tree);
+  }
+
+  function renderLoadingRow(parent: HTMLElement, depth: number): void {
+    const row = document.createElement("div");
+    row.style.cssText = ITEM_BASE;
+    row.style.paddingLeft = `${8 + depth * 14}px`;
+    row.style.color = "var(--nexus-text-faint, #bbb)";
+    row.textContent = "…";
+    parent.appendChild(row);
+  }
+
+  async function loadChildren(dirPath: string): Promise<void> {
+    loadingChildren.add(dirPath);
+    renderTree();
+    try {
+      loadedChildren.set(dirPath, await backend.listChildren(dirPath));
+    } catch (err) {
+      callbacks.onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      loadingChildren.delete(dirPath);
+      renderTree();
+    }
   }
 
   function beginInlineRename(row: HTMLElement, label: HTMLElement, node: VaultNode): void {
@@ -618,6 +666,19 @@ export function createVaultPanel(
     if (!vaultPath) return;
     try {
       currentTree = await backend.list(vaultPath);
+      // Re-fetch children of still-expanded directories so external changes
+      // (created/renamed/deleted files) propagate through the lazy tree.
+      const expandedDirs = [...loadedChildren.keys()].filter((dir) => expanded.has(dir));
+      loadedChildren.clear();
+      await Promise.all(
+        expandedDirs.map(async (dir) => {
+          try {
+            loadedChildren.set(dir, await backend.listChildren(dir));
+          } catch {
+            /* ignore per-directory errors during refresh */
+          }
+        }),
+      );
       renderTree();
     } catch (err) {
       callbacks.onError(err instanceof Error ? err.message : String(err));
@@ -639,7 +700,9 @@ export function createVaultPanel(
     title.textContent = next.displayName;
     title.title = next.rootPath;
     syncButtonEnabled();
-    collapsed.clear();
+    expanded.clear();
+    loadedChildren.clear();
+    loadingChildren.clear();
     unsubscribeChanged = backend.onChanged(() => void refresh());
     renderTree();
     await callbacks.onVaultOpen?.(next.rootPath);
