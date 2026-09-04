@@ -25,6 +25,7 @@
   "dependencies": {
     "@floatboat/nexus-core": "workspace:*",
     "@floatboat/nexus-plugin-api": "workspace:*",
+    "@floatboat/nexus-plugin-duplicate-line": "workspace:^",
     "@floatboat/nexus-plugin-history": "workspace:*",
     "@floatboat/nexus-plugin-runtime": "workspace:*",
     "@floatboat/nexus-plugin-search": "workspace:*",

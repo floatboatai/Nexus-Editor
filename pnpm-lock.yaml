@@ -56,6 +56,9 @@ importers:
       '@floatboat/nexus-plugin-api':
         specifier: workspace:*
         version: link:../../packages/plugin-api
+      '@floatboat/nexus-plugin-duplicate-line':
+        specifier: workspace:^
+        version: link:../../packages/plugin-duplicate-line
       '@floatboat/nexus-plugin-history':
         specifier: workspace:*
         version: link:../../packages/plugin-history
@@ -149,6 +152,12 @@ importers:
         version: 11.0.5
 
   packages/plugin-api:
+    dependencies:
+      '@floatboat/nexus-core':
+        specifier: workspace:*
+        version: link:../core
+
+  packages/plugin-duplicate-line:
     dependencies:
       '@floatboat/nexus-core':
         specifier: workspace:*
@@ -308,6 +317,9 @@ importers:
       '@floatboat/nexus-plugin-api':
         specifier: workspace:*
         version: link:../plugin-api
+      '@floatboat/nexus-plugin-duplicate-line':
+        specifier: workspace:*
+        version: link:../plugin-duplicate-line
       '@floatboat/nexus-plugin-history':
         specifier: workspace:*
         version: link:../plugin-history
@@ -1428,6 +1440,7 @@ packages:
   '@xmldom/xmldom@0.8.13':
     resolution: {integrity: sha512-KRYzxepc14G/CEpEGc3Yn+JKaAeT63smlDr+vjB8jRfgTBBI9wRj/nkQEO+ucV8p8I9bfKLWp37uHgFrbntPvw==}
     engines: {node: '>=10.0.0'}
+    deprecated: this version has critical issues, please update to the latest version
 
   abbrev@1.1.1:
     resolution: {integrity: sha512-nne9/IiQ/hzIhY6pdDnbBtz7DjPTKrY00P/zvPSm5pOFkl6xuGrGnXn/VtTNNfNtAfZ9/1RtehkszU9qcTii0Q==}
