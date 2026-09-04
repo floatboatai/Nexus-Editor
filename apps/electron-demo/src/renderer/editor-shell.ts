@@ -7,6 +7,7 @@ import {
 } from "@floatboat/nexus-core";
 import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
+import { createDuplicateLinePlugin } from "@floatboat/nexus-plugin-duplicate-line";
 import {
   createToolbarPlugin,
   createToolbarUI,
@@ -143,6 +144,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       wikilinksPlugin,
       ...(wordcount ? [wordcount] : []),
       ...editorContributions,
+      createDuplicateLinePlugin(),
     ],
     livePreview: settings.livePreview
       ? {

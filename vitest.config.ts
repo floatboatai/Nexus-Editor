@@ -17,7 +17,8 @@ export default defineConfig({
       "@floatboat/nexus-plugin-math": path.resolve(__dirname, "packages/plugin-math/src/index.ts"),
       "@floatboat/nexus-plugin-vim": path.resolve(__dirname, "packages/plugin-vim/src/index.ts"),
       "@floatboat/nexus-plugin-wordcount": path.resolve(__dirname, "packages/plugin-wordcount/src/index.ts"),
-      "@floatboat/nexus-reference-plugins": path.resolve(__dirname, "packages/reference-plugins/src/index.ts")
+      "@floatboat/nexus-reference-plugins": path.resolve(__dirname, "packages/reference-plugins/src/index.ts"),
+      "@floatboat/nexus-plugin-duplicate-line": path.resolve(__dirname, "packages/plugin-duplicate-line/src/index.ts")
     }
   },
   test: {
