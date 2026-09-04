@@ -155,22 +155,22 @@ function createAppToolbar(): HTMLElement {
   toolbar.className = "toolbar";
 
   const vaultBtn = document.createElement("button");
-  vaultBtn.textContent = "仓库";
+  vaultBtn.textContent = "Vault";
   vaultBtn.title = "Open a folder as a vault";
   vaultBtn.addEventListener("click", () => {
     void vault.promptPickVault();
   });
 
   const openBtn = document.createElement("button");
-  openBtn.textContent = "打开";
+  openBtn.textContent = "Open";
   openBtn.addEventListener("click", handleOpen);
 
   const saveBtn = document.createElement("button");
-  saveBtn.textContent = "保存";
+  saveBtn.textContent = "Save";
   saveBtn.addEventListener("click", handleSave);
 
   const saveAsBtn = document.createElement("button");
-  saveAsBtn.textContent = "另存为";
+  saveAsBtn.textContent = "Save As";
   saveAsBtn.addEventListener("click", handleSaveAs);
 
   const spacer = document.createElement("div");
