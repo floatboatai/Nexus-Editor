@@ -1,8 +1,29 @@
 import { EditorView, WidgetType, runScopeHandlers } from "@codemirror/view";
-import type { Table } from "mdast";
+import type { PhrasingContent, Table, TableCell } from "mdast";
 
 import type { LivePreviewLabels } from "./types";
 import { setInputTargetProvider } from "./input-target-provider";
+
+/**
+ * Structural shape for inline mdast nodes consumed by {@link renderInlineMdast}
+ * and {@link getNodeSourceOffsets}. Using a structural type (instead of the
+ * full `PhrasingContent` union) avoids a sprawl of type guards across the
+ * `switch (node.type)` branches while still eliminating `any`: every field
+ * access in the renderer is covered by an optional declaration here, and
+ * the runtime `typeof` checks remain the source of truth for safety.
+ */
+type InlineMdastNode = {
+  type: string;
+  value?: string | null;
+  url?: string | null;
+  alt?: string | null;
+  title?: string | null;
+  children?: InlineMdastNode[];
+  position?: {
+    start?: { offset?: number };
+    end?: { offset?: number };
+  };
+};
 
 const tableEditingCounts = new WeakMap<EditorView, number>();
 
@@ -165,7 +186,7 @@ function sourceOffsetForCell(lines: string[], lineIdx: number, colIdx: number, t
 }
 
 function getNodeSourceOffsets(
-  node: any,
+  node: InlineMdastNode,
   tableFrom: number,
   rawSourceStart: number,
   inlineCodeValue?: string
@@ -348,13 +369,15 @@ function selectRawSourceRange(td: HTMLElement, from: number, to: number): boolea
   return true;
 }
 
-function extractCellText(cell: any): string {
-  if (!cell || !("children" in cell) || !Array.isArray(cell.children)) return "";
+function extractCellText(cell: TableCell | null | undefined): string {
+  if (!cell || !Array.isArray(cell.children)) return "";
   return cell.children
-    .map((c: any) => {
+    .map((c: PhrasingContent) => {
       if ("value" in c && typeof c.value === "string") return c.value;
       if ("children" in c && Array.isArray(c.children))
-        return c.children.map((n: any) => ("value" in n ? n.value : "")).join("");
+        return c.children
+          .map((n: PhrasingContent) => ("value" in n && typeof n.value === "string" ? n.value : ""))
+          .join("");
       return "";
     })
     .join("");
@@ -401,9 +424,9 @@ function estimateTableHeight(source: string): number {
  * ignored. Media-only cells render the image scaled to the cell width
  * so the user can grow / shrink the image by resizing the column.
  */
-function isCellMediaOnly(astCell: any): boolean {
+function isCellMediaOnly(astCell: TableCell | null | undefined): boolean {
   if (!astCell || !Array.isArray(astCell.children)) return false;
-  const meaningful = astCell.children.filter((c: any) => {
+  const meaningful = astCell.children.filter((c: PhrasingContent) => {
     if (!c) return false;
     if (c.type === "text") return typeof c.value === "string" && c.value.trim() !== "";
     return true;
@@ -412,7 +435,7 @@ function isCellMediaOnly(astCell: any): boolean {
   const only = meaningful[0];
   if (only.type === "image") return true;
   if (only.type === "link" && Array.isArray(only.children)) {
-    const linkInner = only.children.filter((c: any) => {
+    const linkInner = only.children.filter((c: PhrasingContent) => {
       if (!c) return false;
       if (c.type === "text") return typeof c.value === "string" && c.value.trim() !== "";
       return true;
@@ -422,7 +445,7 @@ function isCellMediaOnly(astCell: any): boolean {
   return false;
 }
 
-function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourceStart = 0): Node {
+function renderInlineMdast(node: InlineMdastNode | null, mediaOnly = false, tableFrom = 0, rawSourceStart = 0): Node {
   if (!node) return document.createTextNode("");
   switch (node.type) {
     case "text": {
@@ -490,28 +513,28 @@ function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourc
       //     stop huge images from forcing a 1000-px-tall row.
       const styles = mediaOnly
         ? [
-            "display:block",
-            "width:100%",
-            "max-width:100%",
-            "height:auto",
-            "max-height:240px",
-            "min-height:32px",
-            "border-radius:3px",
-            "background:var(--nexus-bg-muted)",
-            "border:1px solid var(--nexus-border-subtle)",
-            "object-fit:contain",
-          ]
+          "display:block",
+          "width:100%",
+          "max-width:100%",
+          "height:auto",
+          "max-height:240px",
+          "min-height:32px",
+          "border-radius:3px",
+          "background:var(--nexus-bg-muted)",
+          "border:1px solid var(--nexus-border-subtle)",
+          "object-fit:contain",
+        ]
         : [
-            "max-height:1.6em",
-            "min-height:1.6em",
-            "min-width:1.6em",
-            "max-width:160px",
-            "vertical-align:middle",
-            "border-radius:3px",
-            "background:var(--nexus-bg-muted)",
-            "border:1px solid var(--nexus-border-subtle)",
-            "object-fit:contain",
-          ];
+          "max-height:1.6em",
+          "min-height:1.6em",
+          "min-width:1.6em",
+          "max-width:160px",
+          "vertical-align:middle",
+          "border-radius:3px",
+          "background:var(--nexus-bg-muted)",
+          "border:1px solid var(--nexus-border-subtle)",
+          "object-fit:contain",
+        ];
       img.style.cssText = styles.join(";") + ";";
       // Stop CM6's cell mousedown handler from intercepting clicks on the
       // image (otherwise ⌘-clicking the image to open the link wouldn't
@@ -533,14 +556,19 @@ function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourc
   }
 }
 
-function renderCellRich(td: HTMLElement, astCell: any, tableFrom = 0, rawSourceStart = 0): void {
+function renderCellRich(td: HTMLElement, astCell: TableCell | null | undefined, tableFrom = 0, rawSourceStart = 0): void {
   td.textContent = "";
   if (!astCell || !Array.isArray(astCell.children)) {
     writeRenderedSourceMap(td);
     return;
   }
   const mediaOnly = isCellMediaOnly(astCell);
-  for (const child of astCell.children) td.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart));
+  // PhrasingContent is structurally compatible with InlineMdastNode; the cast
+  // bridges mdast's union representation to the structural shape the renderer
+  // switches on. Runtime safety comes from the typeof guards in each branch.
+  for (const child of astCell.children) {
+    td.appendChild(renderInlineMdast(child as unknown as InlineMdastNode, mediaOnly, tableFrom, rawSourceStart));
+  }
   writeRenderedSourceMap(td);
 }
 
@@ -560,7 +588,21 @@ interface PendingNativeTextSelection {
   expiresAt: number;
 }
 
-export class EditableTableWidget extends WidgetType {
+/**
+ * Contract for the four context-menu / + -button actions exposed by
+ * {@link EditableTableWidget}. The context menu and the + buttons reference
+ * this interface instead of the concrete class so that method renames
+ * surface as compile errors at the call site (previously hidden by
+ * `as any` casts).
+ */
+export interface TableWidgetActions {
+  addRow(): void;
+  addColumn(): void;
+  deleteRow(rowIdx: number): void;
+  deleteColumn(colIdx: number): void;
+}
+
+export class EditableTableWidget extends WidgetType implements TableWidgetActions {
   private editing = false;
   private reusable = true;
   private cleanupEditingLocks: (() => void) | null = null;
@@ -602,7 +644,7 @@ export class EditableTableWidget extends WidgetType {
     v.dispatch({ changes: { from: this.tableFrom, to: this.tableFrom + this.source.length, insert: newSource } });
   }
 
-  private deleteColumn(colIdx: number): void {
+  public deleteColumn(colIdx: number): void {
     const lines = this.source.split("\n");
     const newLines = lines.map((line) => {
       const cells = line.split("|").filter((_, i, a) => i > 0 && i < a.length - 1);
@@ -613,7 +655,7 @@ export class EditableTableWidget extends WidgetType {
     this.dispatch(newLines.join("\n"));
   }
 
-  private deleteRow(rowIdx: number): void {
+  public deleteRow(rowIdx: number): void {
     const lines = this.source.split("\n");
     const dataLines: number[] = [];
     for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dataLines.push(i);
@@ -623,14 +665,14 @@ export class EditableTableWidget extends WidgetType {
     this.dispatch(lines.join("\n"));
   }
 
-  private addColumn(): void {
+  public addColumn(): void {
     const lines = this.source.split("\n");
     const nl = lines.map((l) => SEPARATOR_RE.test(l) ? l.replace(/\|?\s*$/, " | --- |") : l.replace(/\|?\s*$/, " |  |"));
     this.dispatch(nl.join("\n"));
   }
 
-  private addRow(): void {
-    const cc = (this.node.children?.[0] as any)?.children?.length ?? 2;
+  public addRow(): void {
+    const cc = this.node.children?.[0]?.children?.length ?? 2;
     const nr = "\n| " + Array(cc).fill("  ").join(" | ") + " |";
     const v = this.viewRef.current;
     if (!v) return;
@@ -2007,12 +2049,12 @@ export class EditableTableWidget extends WidgetType {
               };
               const hitTestRange =
                 rawCaretOffset !== null &&
-                rawSelectionEndOffset !== null &&
-                rawCaretOffset !== rawSelectionEndOffset
+                  rawSelectionEndOffset !== null &&
+                  rawCaretOffset !== rawSelectionEndOffset
                   ? {
-                      from: Math.min(rawCaretOffset, rawSelectionEndOffset),
-                      to: Math.max(rawCaretOffset, rawSelectionEndOffset),
-                    }
+                    from: Math.min(rawCaretOffset, rawSelectionEndOffset),
+                    to: Math.max(rawCaretOffset, rawSelectionEndOffset),
+                  }
                   : null;
               const currentNativeRange = rawSourceRangeFromNativeSelection(td) ?? hitTestRange;
               if (currentNativeRange) {
@@ -2357,8 +2399,8 @@ export class EditableTableWidget extends WidgetType {
       // Skip if a range drag just completed (this click is the tail of that drag)
       if (rangeActive) return;
       if (!(e.target as HTMLElement).closest(".nexus-cell") &&
-          !(e.target as HTMLElement).closest(".nexus-row-grip") &&
-          !(e.target as HTMLElement).closest(".nexus-col-grip")) {
+        !(e.target as HTMLElement).closest(".nexus-row-grip") &&
+        !(e.target as HTMLElement).closest(".nexus-col-grip")) {
         clearSelection();
         clearRangeSelection();
       }
@@ -2500,11 +2542,11 @@ function showContextMenu(
   }
 
   if (!isHeader) {
-    addItem(labels.deleteRow, () => (widget as any).deleteRow(rowIdx));
+    addItem(labels.deleteRow, () => widget.deleteRow(rowIdx));
   }
-  addItem(labels.deleteColumn, () => (widget as any).deleteColumn(colIdx), colCount <= 1);
-  addItem(labels.insertRowBelow, () => (widget as any).addRow());
-  addItem(labels.insertColumnAfter, () => (widget as any).addColumn());
+  addItem(labels.deleteColumn, () => widget.deleteColumn(colIdx), colCount <= 1);
+  addItem(labels.insertRowBelow, () => widget.addRow());
+  addItem(labels.insertColumnAfter, () => widget.addColumn());
 
   mountTarget.appendChild(menu);
 
