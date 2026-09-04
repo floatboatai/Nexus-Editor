@@ -284,7 +284,8 @@ function computeFromPlainText(source: string, options: WordCountOptions): WordCo
   const stripped = source
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`[^`]*`/g, " ")
-    .replace(/^---\n[\s\S]*?\n---\n?/m, " ")
+    // Accept both Unix and Windows line endings in YAML frontmatter.
+    .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/m, " ")
     .replace(/<!--[\s\S]*?-->/g, " ")
     .replace(/<[^>]+>/g, " ")
     .replace(/\$\$[\s\S]*?\$\$/g, " ")
