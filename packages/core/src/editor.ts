@@ -23,6 +23,7 @@ import {
   getMarkdownTransformRevision,
 } from "./markdown-contributions";
 import { createLivePreviewExtension } from "./live-preview";
+import { externalSearchQueryField, setExternalSearchQuery } from "./external-search";
 import { flushPendingTableEdits } from "./live-preview-table";
 import { createMarkdownLanguageSupport } from "./lezer-markdown";
 import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
@@ -766,6 +767,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
         ...createWidgetExtension(widgetParser, widgetDefs),
         ...shortcutExtensions,
         ...commandKeymapExtensions,
+        externalSearchQueryField,
         ...cmExtensions
       ]
     })
@@ -839,6 +841,15 @@ export function createEditor(config: EditorConfig): EditorAPI {
       view.dispatch({
         selection: { anchor, head },
         scrollIntoView: true
+      });
+    },
+    setSearchQuery(query) {
+      if (destroyed) {
+        return;
+      }
+
+      view.dispatch({
+        effects: setExternalSearchQuery.of(query)
       });
     },
     setSelections(ranges, mainIndex) {

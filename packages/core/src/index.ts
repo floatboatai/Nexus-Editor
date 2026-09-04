@@ -1,4 +1,5 @@
 export { createEditor } from "./editor";
+export { externalSearchQueryField, setExternalSearchQuery } from "./external-search";
 export {
   DynamicEditorContributionSink,
   EDITOR_PLUGIN_PRIORITY_MAX,

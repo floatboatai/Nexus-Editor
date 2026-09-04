@@ -343,6 +343,39 @@ describe("@floatboat/nexus-plugin-search", () => {
     }
   });
 
+  it("highlights rendered table cell matches from a host-set query without the panel", () => {
+    const highlightSupport = installCssHighlightMock();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({
+      container,
+      initialValue: [
+        "| Name | Status |",
+        "| --- | --- |",
+        "| SearchNeedle070 | Todo |",
+        "| Other | Done |"
+      ].join("\n"),
+      livePreview: true,
+      plugins: [createGfmPreset(), createSearchPlugin()]
+    });
+
+    try {
+      editor.setSearchQuery("SearchNeedle070");
+
+      expect(readTableHighlightTexts(highlightSupport.registry, "match")).toEqual([
+        "SearchNeedle070"
+      ]);
+      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual([]);
+
+      editor.setSearchQuery("");
+      expect(readTableHighlightTexts(highlightSupport.registry, "match")).toEqual([]);
+    } finally {
+      editor.destroy();
+      container.remove();
+      highlightSupport.restore();
+    }
+  });
+
   it("maps rich table matches to their exact Markdown source ranges", () => {
     const highlightSupport = installCssHighlightMock();
     const container = document.createElement("div");
