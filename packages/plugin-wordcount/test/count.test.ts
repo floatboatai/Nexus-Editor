@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { countMarkdown, countMarkdownAsync, type WordCountStats } from "../src/count";
+import type { ParserLike } from "@floatboat/nexus-core";
 
 const zeroStats = (): WordCountStats => ({
   words: 0,
@@ -43,6 +44,13 @@ describe("countMarkdown — basic prose", () => {
 
   it("never throws on garbage input", () => {
     expect(() => countMarkdown("\u0000\u0001\uFFFE   ```unterminated")).not.toThrow();
+  });
+
+  it("strips CRLF frontmatter in the plain-text fallback", () => {
+    const parser: ParserLike = { parse: () => { throw new Error("parse failed"); } };
+    const result = countMarkdown("---\r\ntitle: hidden words\r\n---\r\nvisible", { parser });
+    expect(result.words).toBe(1);
+    expect(result.paragraphs).toBe(1);
   });
 });
 
