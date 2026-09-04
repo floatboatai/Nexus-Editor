@@ -126,8 +126,11 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       matches = [];
       currentIdx = -1;
       countLabel.textContent = "";
+      editor.setSearchQuery("");
       return;
     }
+    // Drive live-preview search highlighting (table cells) from this toolbar.
+    editor.setSearchQuery(query);
     const doc = editor.getDocument();
     matches = findSearchMatches(doc, query);
     if (matches.length === 0) {
@@ -140,7 +143,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
       for (let i = 0; i < matches.length; i++) {
         if (matches[i].from >= anchor) { currentIdx = i; break; }
       }
-      highlightCurrent();
+      countLabel.textContent = `${currentIdx + 1} / ${matches.length}`;
     }
   }
 
@@ -225,6 +228,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     matches = [];
     currentIdx = -1;
     countLabel.textContent = "";
+    editor.setSearchQuery("");
     editor.focus();
   }
 

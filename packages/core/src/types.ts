@@ -381,6 +381,13 @@ export interface EditorAPI {
   uploadAsset(file: File): Promise<string | null>;
   setSelection(anchor: number, head?: number): void;
   /**
+   * Set a host-driven search query for live-preview highlighting (e.g. table
+   * cells) without opening the CodeMirror search panel. The search plugin reads
+   * this to highlight rendered matches — including inside replaced widgets like
+   * tables — while the panel is closed. Pass an empty string to clear.
+   */
+  setSearchQuery(query: string): void;
+  /**
    * Replace the selection with the given ranges. `mainIndex` defaults to the
    * last range (CodeMirror's latest-added-is-main convention). Multiple
    * ranges require `multiCursor: true` — without it CodeMirror collapses the

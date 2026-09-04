@@ -23,7 +23,11 @@ import {
   type ViewUpdate
 } from "@codemirror/view";
 
-import type { NexusPlugin } from "@floatboat/nexus-core";
+import {
+  externalSearchQueryField,
+  setExternalSearchQuery,
+  type NexusPlugin
+} from "@floatboat/nexus-core";
 
 export interface SearchMatch {
   from: number;
@@ -105,6 +109,10 @@ const DEFAULT_SEARCH_HISTORY_KEY = "nexus.search.history";
 const DEFAULT_SEARCH_HISTORY_MAX_ENTRIES = 20;
 const TABLE_SEARCH_CELL_SELECTOR = ".nexus-table-wrapper .nexus-cell";
 const TABLE_SEARCH_HIGHLIGHT_PREFIX = "nexus-table-search";
+// Single search-highlight color used across table cells, the selection layer
+// (current match) and `highlightSelectionMatches` (other matches) so every
+// match renders in one consistent color.
+const SEARCH_MATCH_COLOR = "rgba(255, 214, 10, 0.45)";
 
 let nextTableSearchHighlightId = 0;
 
@@ -190,16 +198,41 @@ function createTableSearchHighlightStyles(
   style.dataset.nexusTableSearchHighlight = "true";
   style.textContent = `
 ::highlight(${names.match}) {
-  background-color: rgba(255, 214, 10, 0.38);
+  background-color: ${SEARCH_MATCH_COLOR};
   color: inherit;
 }
 ::highlight(${names.selected}) {
-  background-color: rgba(255, 177, 0, 0.68);
+  background-color: ${SEARCH_MATCH_COLOR};
   color: inherit;
 }
 `;
   doc.head.appendChild(style);
   return style;
+}
+
+const SEARCH_SELECTION_STYLE_ID = "nexus-search-selection-style";
+
+/**
+ * Inject (once) the CSS that gives host-driven search a prominent "current
+ * match" selection background and a subtle "other match" background. These are
+ * scoped under `.nexus-search-active`, a class toggled on the editor only while
+ * a host-set search query is active, so plain text selection is left untouched.
+ */
+function ensureSearchSelectionStyles(doc: Document): void {
+  if (doc.getElementById(SEARCH_SELECTION_STYLE_ID)) return;
+
+  const style = doc.createElement("style");
+  style.id = SEARCH_SELECTION_STYLE_ID;
+  style.dataset.nexusSearchSelectionHighlight = "true";
+  style.textContent = `
+.cm-editor .cm-selectionMatch {
+  background-color: ${SEARCH_MATCH_COLOR} !important;
+}
+.cm-editor.nexus-search-active .cm-selectionLayer .cm-selectionBackground {
+  background-color: ${SEARCH_MATCH_COLOR} !important;
+}
+`;
+  doc.head.appendChild(style);
 }
 
 function createTextRanges(root: Element, from: number, to: number): Range[] {
@@ -389,6 +422,34 @@ class TableSearchHighlighter {
   sync(): void {
     if (this.destroyed) return;
     const doc = this.view.dom.ownerDocument;
+
+    const state = this.view.state;
+    let query: SearchQuery | null = null;
+    let externalActive = false;
+    if (searchPanelOpen(state)) {
+      const panelQuery = getSearchQuery(state);
+      if (panelQuery.valid) {
+        query = panelQuery;
+      }
+    } else {
+      // Host-driven search (e.g. the demo toolbar) sets a query through
+      // `EditorAPI.setSearchQuery` without opening the CodeMirror panel. Honor
+      // it so rendered table cells still highlight.
+      const external = state.field(externalSearchQueryField, false);
+      if (typeof external === "string" && external.trim().length > 0) {
+        query = new SearchQuery({ search: external });
+        externalActive = true;
+      }
+    }
+
+    // The CM6 selection layer (`.cm-selectionBackground`) is shared between
+    // plain text selection and the host search bar's "current match" highlight.
+    // Scope a more prominent color to active host search so the current match
+    // (and other matches via `.cm-selectionMatch`) stand out, without changing
+    // how a normal text selection looks.
+    this.view.dom.classList.toggle("nexus-search-active", externalActive);
+    ensureSearchSelectionStyles(doc);
+
     const support = getCssHighlightSupport(doc);
     if (!support) {
       this.clear();
@@ -401,8 +462,7 @@ class TableSearchHighlighter {
     }
     this.registry = support.registry;
 
-    const query = getSearchQuery(this.view.state);
-    if (!searchPanelOpen(this.view.state) || !query.valid) {
+    if (!query) {
       this.clear();
       return;
     }
@@ -475,10 +535,13 @@ const tableSearchHighlightPlugin = ViewPlugin.fromClass(
       const searchQueryChanged = update.transactions.some((transaction) =>
         transaction.effects.some((effect) => effect.is(setSearchQuery))
       );
+      const externalSearchChanged = update.transactions.some((transaction) =>
+        transaction.effects.some((effect) => effect.is(setExternalSearchQuery))
+      );
       const searchPanelChanged = searchPanelOpen(update.startState) !== searchPanelOpen(update.state);
       if (update.docChanged || update.viewportChanged) {
         this.highlighter.scheduleSync();
-      } else if (update.selectionSet || searchQueryChanged || searchPanelChanged) {
+      } else if (update.selectionSet || searchQueryChanged || externalSearchChanged || searchPanelChanged) {
         this.highlighter.sync();
       }
     }

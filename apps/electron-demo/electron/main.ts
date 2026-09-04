@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol, session, shell } from "electron";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promises";
-import { existsSync, watch, type FSWatcher } from "node:fs";
+import { existsSync, watch, type Dirent, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -76,6 +76,9 @@ export interface VaultNode {
   path: string;
   kind: "file" | "directory";
   children?: VaultNode[];
+  /** Set on directories that contain at least one visible entry (subdirectory
+   * or supported file). Drives lazy expansion without eagerly scanning them. */
+  hasChildren?: boolean;
 }
 
 interface VaultState {
@@ -573,33 +576,56 @@ function assertInsideVault(state: WindowRuntimeState, target: string): string {
   return resolved;
 }
 
-async function scanDirectory(dir: string): Promise<VaultNode[]> {
-  const entries = await readdir(dir, { withFileTypes: true });
+// Reads a directory, returning null when it is unreadable (macOS TCC-protected
+// dirs like `Library/Accounts` throw EPERM) so callers can skip rather than abort.
+async function tryReadDir(dir: string): Promise<Dirent[] | null> {
+  try {
+    return await readdir(dir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+}
+
+function isVisibleEntry(entry: Dirent): boolean {
+  if (entry.name.startsWith(".")) return false;
+  if (SKIP_DIRS.has(entry.name)) return false;
+  return true;
+}
+
+// True when `dir` has at least one entry the panel would list (a subdirectory
+// or a supported file). Bounded to a single level — no recursive descent — so
+// it stays fast on huge directories.
+async function directoryHasVisibleEntries(dir: string): Promise<boolean> {
+  const entries = await tryReadDir(dir);
+  if (!entries) return false;
+  return entries.some(
+    (entry) =>
+      isVisibleEntry(entry) &&
+      (entry.isDirectory() || SUPPORTED_EXT.has(path.extname(entry.name).toLowerCase())),
+  );
+}
+
+// Lists only the immediate children of `dir`. Subdirectories are returned as
+// lazy nodes (hasChildren hint, no eager `children`) so opening a large vault
+// no longer recursively scans the whole tree up front.
+async function listImmediateChildren(dir: string): Promise<VaultNode[]> {
+  const entries = await tryReadDir(dir);
+  if (!entries) return [];
   const nodes: VaultNode[] = [];
 
   for (const entry of entries) {
-    if (entry.name.startsWith(".") && SKIP_DIRS.has(entry.name)) continue;
-    if (SKIP_DIRS.has(entry.name)) continue;
-    if (entry.name.startsWith(".")) continue; // skip all dotfiles/dotdirs
+    if (!isVisibleEntry(entry)) continue;
 
     const childPath = path.join(dir, entry.name);
 
     if (entry.isDirectory()) {
-      const children = await scanDirectory(childPath);
-      if (children.length > 0) {
-        nodes.push({
-          name: entry.name,
-          path: childPath,
-          kind: "directory",
-          children,
-        });
-      }
-      continue;
-    }
-
-    if (entry.isFile()) {
-      const ext = path.extname(entry.name).toLowerCase();
-      if (!SUPPORTED_EXT.has(ext)) continue;
+      nodes.push({
+        name: entry.name,
+        path: childPath,
+        kind: "directory",
+        hasChildren: await directoryHasVisibleEntries(childPath),
+      });
+    } else if (entry.isFile() && SUPPORTED_EXT.has(path.extname(entry.name).toLowerCase())) {
       nodes.push({ name: entry.name, path: childPath, kind: "file" });
     }
   }
@@ -686,13 +712,23 @@ ipcMain.handle("vault:pick", async (event) => {
 ipcMain.handle("vault:list", async (event, vaultPath: string) => {
   const { senderId, state } = registrationForEvent(event);
   const abs = path.resolve(vaultPath);
-  const info = await stat(abs);
-  if (!info.isDirectory()) throw new Error(`Not a directory: ${abs}`);
+  const info = await stat(abs).catch(() => null);
+  if (!info || !info.isDirectory()) throw new Error(`Not a directory: ${abs}`);
 
   state.activeVault = abs;
   startWatcher(senderId, state, abs);
 
-  return scanDirectory(abs);
+  return listImmediateChildren(abs);
+});
+
+// Lists a single directory's children without mutating the active vault or
+// watcher — used for lazy expansion of the vault tree.
+ipcMain.handle("vault:list-children", async (event, dirPath: string) => {
+  const { state } = registrationForEvent(event);
+  const abs = assertInsideVault(state, dirPath);
+  const info = await stat(abs).catch(() => null);
+  if (!info || !info.isDirectory()) throw new Error(`Not a directory: ${abs}`);
+  return listImmediateChildren(abs);
 });
 
 ipcMain.handle("vault:read", async (event, filePath: string) => {
@@ -704,14 +740,19 @@ ipcMain.handle("vault:read", async (event, filePath: string) => {
 
 // Bulk read every markdown file in the active vault — used to seed the
 // wiki-link index without N individual round-trips.
-async function collectFiles(dir: string, acc: string[]): Promise<void> {
-  const entries = await readdir(dir, { withFileTypes: true });
+async function collectFiles(dir: string, acc: string[], budget: { dirsLeft: number }): Promise<void> {
+  // Skip unreadable directories (TCC-protected) instead of aborting, and stop
+  // descending once the directory budget is exhausted so a huge vault (e.g. a
+  // home directory) can't make this walk unbounded.
+  if (budget.dirsLeft <= 0) return;
+  budget.dirsLeft -= 1;
+  const entries = await tryReadDir(dir);
+  if (!entries) return;
   for (const entry of entries) {
-    if (entry.name.startsWith(".")) continue;
-    if (SKIP_DIRS.has(entry.name)) continue;
+    if (!isVisibleEntry(entry)) continue;
     const childPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      await collectFiles(childPath, acc);
+      await collectFiles(childPath, acc, budget);
       continue;
     }
     if (entry.isFile() && SUPPORTED_EXT.has(path.extname(entry.name).toLowerCase())) {
@@ -720,12 +761,16 @@ async function collectFiles(dir: string, acc: string[]): Promise<void> {
   }
 }
 
+// Directory-visit budget for the bulk link-index read. Generous for a normal
+// vault; only bounds pathological walks like a whole home directory.
+const MAX_COLLECT_DIR_VISITS = 20_000;
+
 ipcMain.handle("vault:read-all", async (event) => {
   const { state } = registrationForEvent(event);
   const activeVault = state.activeVault;
   if (!activeVault) return [];
   const paths: string[] = [];
-  await collectFiles(activeVault, paths);
+  await collectFiles(activeVault, paths, { dirsLeft: MAX_COLLECT_DIR_VISITS });
   // Bounded-concurrency parallel read — ~5-10x faster than serial on large
   // vaults, without risking EMFILE.
   const CONCURRENCY = 32;

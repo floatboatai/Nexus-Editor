@@ -34,6 +34,7 @@ function createBridgeHarness() {
           children: [{ name: "other.md", path: absolute("folder/other.md"), kind: "file" as const }],
         },
       ]),
+      listChildren: vi.fn(async () => []),
       read: vi.fn(async (path: string) => ({
         path,
         content: files.get(path.replace(/^[/\\]vault[/\\]/i, "").replace(/\\/g, "/")) ?? "",

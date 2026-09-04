@@ -98,6 +98,22 @@ export function createRuntimeVaultPanelBackend(
       }
       return runtime.productContent.list().map((node) => nodeForDisplay(root, node));
     },
+    listChildren: async (requestedDir) => {
+      const root = requireRoot();
+      const rel = relativePath(root, requestedDir);
+      const find = (nodes: readonly PluginVaultNode[]): PluginVaultNode | null => {
+        for (const node of nodes) {
+          if (node.path === rel) return node;
+          if (node.children) {
+            const hit = find(node.children);
+            if (hit) return hit;
+          }
+        }
+        return null;
+      };
+      const node = find(runtime.productContent.list());
+      return (node?.children ?? []).map((child) => nodeForDisplay(root, child));
+    },
     read: async (path) => {
       const root = requireRoot();
       const result = await runtime.productContent.read(relativePath(root, path));

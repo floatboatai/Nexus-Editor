@@ -283,6 +283,7 @@ async function handleOpen(): Promise<void> {
     vault.setActiveFile(result.path);
     await syncRuntimeActiveFile(result.path);
     backlinks.refresh();
+    outline.update();
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
   }
@@ -361,7 +362,6 @@ function handleSettings(): void {
   });
   settingsPanels.add(panel);
 }
-
 function togglePanel(panel: HTMLElement, onShow?: () => void): void {
   if (panel.style.display === "none") {
     panel.style.display = "";
@@ -533,6 +533,7 @@ async function handleVaultFileOpen(filePath: string): Promise<void> {
     const bl = perfStart("open-file.backlinks.refresh");
     backlinks.refresh();
     perfEnd(bl);
+    outline.update();
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
   }
@@ -887,6 +888,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
         state.activeFile = null;
         shell.loadDocument("");
         vault.setActiveFile(null);
+        outline.update();
       }
       await syncRuntimeActiveFile(state.activeFile);
       renderStatus();
@@ -914,6 +916,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
       await syncRuntimeActiveFile(null);
       backlinks.refresh();
       renderStatus();
+      outline.update();
     },
     onContextMenu: bootPlan.mode === "runtime" ? async ({ event, node, items }) => {
       if (!runtimeProductUi || !pluginRuntime) return;

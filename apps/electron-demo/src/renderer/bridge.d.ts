@@ -12,6 +12,7 @@ declare global {
     path: string;
     kind: "file" | "directory";
     children?: VaultNode[];
+    hasChildren?: boolean;
   }
 
   interface VaultState {
@@ -22,6 +23,7 @@ declare global {
   interface VaultBridge {
     pick(): Promise<{ path: string } | null>;
     list(vaultPath: string): Promise<VaultNode[]>;
+    listChildren(dirPath: string): Promise<VaultNode[]>;
     read(filePath: string): Promise<DemoFileHandle>;
     readAll(): Promise<Array<{ path: string; content: string }>>;
     write(filePath: string, content: string): Promise<{ path: string }>;
