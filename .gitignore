@@ -1,26 +1,3 @@
-# Dependencies
-node_modules/
-
-# Build outputs
-dist/
-dist-electron/
-release/
-*.tsbuildinfo
-
-# Logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# Local environment
-.env
-.env.*
-!.env.example
-
-# OS / editor files
-.DS_Store
-Thumbs.db
-.idea/
-.vscode/
+﻿node_modules
+dist
+.pnpm-store
