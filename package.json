@@ -1,30 +1,51 @@
 {
-  "name": "nexus-editor",
-  "private": true,
-  "version": "0.0.14",
-  "packageManager": "pnpm@9.15.4",
+  "name": "@floatboat/nexus-plugin-search-fuzzy",
+  "version": "0.1.0",
+  "description": "Fuzzy search plugin for Nexus Editor",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "pnpm --filter @floatboat/nexus-core build && pnpm --filter @floatboat/nexus-plugin-api build && pnpm --filter @floatboat/nexus-plugin-runtime build && pnpm --filter @floatboat/nexus-react build && pnpm --filter @floatboat/nexus-vue build && pnpm --filter @floatboat/nexus-preset-gfm build && pnpm --filter @floatboat/nexus-plugin-slash build && pnpm --filter @floatboat/nexus-plugin-history build && pnpm --filter @floatboat/nexus-plugin-search build && pnpm --filter @floatboat/nexus-plugin-toolbar build && pnpm --filter @floatboat/nexus-plugin-math build && pnpm --filter @floatboat/nexus-plugin-vim build && pnpm --filter @floatboat/nexus-plugin-wordcount build && pnpm --filter @floatboat/nexus-reference-plugins build",
-    "check:api": "pnpm --filter @floatboat/nexus-plugin-api check:api && pnpm --filter @floatboat/nexus-plugin-runtime check:api && pnpm --filter @floatboat/nexus-reference-plugins check:api",
-    "typecheck": "pnpm -r exec tsc --noEmit",
+    "build": "tsup src/index.ts --format cjs,esm --dts",
     "test": "vitest run",
-    "dev:electron-demo": "pnpm --filter @floatboat/nexus-electron-demo dev",
-    "build:electron-demo": "pnpm --filter @floatboat/nexus-electron-demo build",
-    "publish:packages": "pnpm -r --filter \"./packages/*\" publish --access public --no-git-checks"
+    "lint": "eslint src --ext .ts,.tsx",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\""
+  },
+  "dependencies": {
+    "@codemirror/search": "^6.0.0",
+    "@codemirror/state": "^6.0.0",
+    "@codemirror/view": "^6.0.0"
   },
   "devDependencies": {
-    "@testing-library/react": "^16.3.0",
-    "@types/mdast": "^4.0.4",
-    "@types/node": "^24.6.0",
-    "@types/react": "^19.2.2",
-    "@types/react-dom": "^19.2.2",
-    "@vue/test-utils": "^2.4.6",
-    "jsdom": "^25.0.1",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "tsup": "^8.5.0",
-    "typescript": "^5.9.3",
-    "vue": "^3.5.22",
-    "vitest": "^2.1.9"
+    "@types/node": "^26.4.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@typescript-eslint/eslint-plugin": "^8.69.0",
+    "@typescript-eslint/parser": "^8.69.0",
+    "eslint": "^8.57.1",
+    "eslint-plugin-react": "^7.37.5",
+    "prettier": "^3.9.6",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "tsup": "^7.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^0.34.0"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0"
+  },
+  "keywords": [
+    "nexus-editor",
+    "fuzzy-search",
+    "codemirror"
+  ],
+  "author": "",
+  "license": "MIT",
+  "allowScripts": {
+    "esbuild@0.18.20": true,
+    "esbuild@0.21.5": true
   }
 }
