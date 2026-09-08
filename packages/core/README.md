@@ -71,6 +71,36 @@ editor.on("selectionChange", ({ anchor, head, ranges, mainIndex }) => {
 
 Multiple ranges in `setSelections` require `multiCursor: true` — without the flag CodeMirror collapses the selection to its main range.
 
+## Wiki links
+
+`createWikilinksPlugin` / `createWikilinksExtension` render Obsidian-style `[[target]]` chips. Hosts supply `resolve`, `onNavigate`, and optional `suggest`. Heading and block anchors are first-class:
+
+```ts
+import {
+  createWikilinksPlugin,
+  collectMarkdownHeadings,
+  collectMarkdownBlockIds,
+} from "@floatboat/nexus-core";
+
+createWikilinksPlugin({
+  resolve: (name) => index.resolve(name),
+  onNavigate(target, { unresolved, path, anchor }) {
+    // `[[#Setup]]` → path "", anchor { kind: "heading", value: "Setup" }
+    // `[[Guide#Setup]]` → path "Guide", same anchor
+  },
+  suggest: (query) => index.noteNames(query),
+  suggestAnchors: ({ path, kind, query }) => {
+    const content = path ? index.read(path) : editor.getDocument();
+    const items = kind === "heading"
+      ? collectMarkdownHeadings(content)
+      : collectMarkdownBlockIds(content);
+    return items.filter((item) => item.toLowerCase().includes(query.toLowerCase()));
+  },
+});
+```
+
+`scanWikiLinks`, `parseWikiLinkTarget`, `findAnchorPosition`, `collectMarkdownHeadings`, and `collectMarkdownBlockIds` are pure helpers for hosts that keep their own link index.
+
 ## Other config highlights
 
 See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.
