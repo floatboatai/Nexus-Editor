@@ -5,6 +5,7 @@ import { parser as commonmarkParser, GFM } from "@lezer/markdown";
 
 import { footnoteExtension } from "./lezer-footnote-extension";
 import type {
+  AlignType,
   Blockquote,
   Code,
   Content,
@@ -308,9 +309,26 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
       };
       return out;
     }
-    case "Link":
     case "Autolink":
     case "URL": {
+      // GFM autolink literal (`<https://…>` or a bare `https://…` / email
+      // address). There is no `[…]` label — the destination is the visible
+      // text — so emit a single flat text child. Falling through to the Link
+      // label walk here would recurse into the URL child and wrap the autolink
+      // in a second, nested Link.
+      const urlChild = findChildByName(node, "URL");
+      const textFrom = urlChild ? urlChild.from : node.from;
+      const textTo = urlChild ? urlChild.to : node.to;
+      const urlText = readSlice(source, textFrom, textTo);
+      return {
+        type: "link",
+        url: urlText,
+        title: null,
+        children: [emitText(source, textFrom, textTo)],
+        position: position(node.from, node.to),
+      };
+    }
+    case "Link": {
       // Lezer Link: contains LinkMark `[`, label content, LinkMark `]`,
       // optional `(URL "title")`. We pull URL via child name.
       const url = findChildByName(node, "URL");
@@ -408,7 +426,7 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
 
 function adaptListItem(source: Source, node: SyntaxNode): ListItem {
   const children: Content[] = [];
-  let checked: boolean | null | undefined = undefined;
+  let checked: boolean | null = null;
   // GFM TaskList extension wraps the `[x]`/`[ ]` marker in a `Task` node
   // (with a TaskMarker child). Some dialects emit TaskMarker directly under
   // ListItem; handle both shapes.
@@ -423,11 +441,32 @@ function adaptListItem(source: Source, node: SyntaxNode): ListItem {
       const marker = findChildByName(c, "TaskMarker");
       const m = marker ?? c;
       checked = detectTaskChecked(readSlice(source, m.from, m.to));
-      // Task wraps Paragraph content too — descend so inner blocks are kept.
+      // Lezer keeps a task item's content as inline children of the Task node
+      // (raw text gaps plus StrongEmphasis / InlineCode / …), not as a
+      // Paragraph block. Synthesize the mdast Paragraph here so the item text
+      // isn't silently dropped from the AST.
+      let contentStart = m ? m.to : c.from;
+      // The `[x]` marker is followed by a single separator space that is not
+      // part of the content — skip it, matching remark-gfm.
+      while (contentStart < c.to && /[ \t]/.test(readSlice(source, contentStart, contentStart + 1))) {
+        contentStart++;
+      }
+      const inline: PhrasingContent[] = [];
+      let cursor = contentStart;
       for (let inner = c.firstChild; inner; inner = inner.nextSibling) {
         if (inner.name === "TaskMarker") continue;
-        const block = adaptBlockChild(source, inner);
-        if (block) children.push(block);
+        if (inner.from > cursor) inline.push(emitText(source, cursor, inner.from));
+        const phr = adaptInlineNode(source, inner);
+        if (phr) inline.push(phr);
+        cursor = inner.to;
+      }
+      if (cursor < c.to) inline.push(emitText(source, cursor, c.to));
+      if (inline.length > 0) {
+        children.push({
+          type: "paragraph",
+          children: inline,
+          position: position(contentStart, c.to),
+        });
       }
       continue;
     }
@@ -473,10 +512,42 @@ function adaptList(source: Source, node: SyntaxNode, ordered: boolean): List {
   };
 }
 
+function parseTableAlignment(delimiter: string): AlignType[] {
+  // Split the GFM delimiter row (`| :--- | ---: |`) on unescaped pipes. The
+  // leading / trailing cells belong to the outer `|…|` and carry no data.
+  const cells: string[] = [];
+  let cell = "";
+  for (let i = 0; i < delimiter.length; i++) {
+    if (delimiter[i] === "|" && !isEscapedPipe(delimiter, i)) {
+      cells.push(cell);
+      cell = "";
+    } else {
+      cell += delimiter[i];
+    }
+  }
+  cells.push(cell);
+  if (cells.length > 0 && cells[0].trim() === "") cells.shift();
+  if (cells.length > 0 && cells[cells.length - 1].trim() === "") cells.pop();
+
+  return cells.map((raw) => {
+    const cell = raw.trim();
+    if (cell === "" || !cell.includes("-")) return null;
+    const left = cell.startsWith(":");
+    const right = cell.endsWith(":");
+    if (left && right) return "center";
+    if (right) return "right";
+    if (left) return "left";
+    return null;
+  });
+}
+
 function adaptTable(source: Source, node: SyntaxNode): Table {
   const rows: TableRow[] = [];
+  let align: AlignType[] = [];
   for (let c = node.firstChild; c; c = c.nextSibling) {
-    if (c.name === "TableHeader" || c.name === "TableRow") {
+    if (c.name === "TableDelimiter") {
+      align = parseTableAlignment(readSlice(source, c.from, c.to));
+    } else if (c.name === "TableHeader" || c.name === "TableRow") {
       const cells = adaptTableRowCells(source, c);
       rows.push({
         type: "tableRow",
@@ -487,7 +558,7 @@ function adaptTable(source: Source, node: SyntaxNode): Table {
   }
   return {
     type: "table",
-    align: [],
+    align,
     children: rows,
     position: position(node.from, node.to),
   };
