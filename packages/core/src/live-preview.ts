@@ -715,9 +715,31 @@ function buildHtmlDecorations(
 }
 
 const BLOCKQUOTE_MARKER_RE = /^( {0,3}>[ \t]?)/;
-const ALERT_TAG_RE = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$/;
+// Obsidian-compatible head line: `> [!TYPE]`, optionally followed by a fold
+// marker (`-` collapsed by default, `+` expanded) and/or a custom title.
+//   > [!NOTE]
+//   > [!TIP]- Short recap
+//   > [!WARNING]+ Details
+const ALERT_TAG_RE = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]([+-]?)(?:[ \t]+(.*?))?[ \t]*$/;
 
 type AlertType = "NOTE" | "TIP" | "IMPORTANT" | "WARNING" | "CAUTION";
+
+interface AlertInfo {
+  type: AlertType;
+  headLineEnd: number;
+  tagStartInLine: number;
+  tagEndInLine: number;
+  /** `-` = foldable, collapsed by default; `+` = foldable, expanded; `""` = static. */
+  foldMarker: "" | "-" | "+";
+  customTitle: string | null;
+}
+
+/** Per-view fold state + toggle entry point (wired in livePreview()). */
+interface AlertFoldContext {
+  /** User overrides keyed by blockquote start offset; absence = follow the marker. */
+  overrides: ReadonlyMap<number, boolean>;
+  toggle(key: number, folded: boolean): void;
+}
 
 interface AlertStyle {
   borderColor: string;
@@ -739,17 +761,13 @@ const ALERT_STYLES: Record<AlertType, AlertStyle> = {
  * Detect a GFM Alert (GitHub-style callout). Source convention:
  *   > [!NOTE]
  *   > body...
- * The first non-marker content on line 0 must match `[!TYPE]` exactly
- * (whitespace allowed before/after). Returns the type and the original
- * head-line length so the caller can register a parentSpan that hides
- * the inline link decoration the lezer adapter emits for `[!TYPE]`.
+ * The first non-marker content on line 0 must match `[!TYPE]`, optionally
+ * followed by an Obsidian-style fold marker (`-`/`+`) and a custom title.
+ * Returns the type, the fold marker, the custom title and the head-line
+ * extent so the caller can register a parentSpan that hides the inline link
+ * decoration the lezer adapter emits for `[!TYPE]`.
  */
-function detectAlert(source: string): {
-  type: AlertType;
-  headLineEnd: number;
-  tagStartInLine: number;
-  tagEndInLine: number;
-} | null {
+function detectAlert(source: string): AlertInfo | null {
   const newlineIdx = source.indexOf("\n");
   const firstLine = newlineIdx === -1 ? source : source.slice(0, newlineIdx);
   const markerMatch = BLOCKQUOTE_MARKER_RE.exec(firstLine);
@@ -757,11 +775,16 @@ function detectAlert(source: string): {
   const after = firstLine.slice(markerMatch[0].length);
   const alertMatch = ALERT_TAG_RE.exec(after);
   if (!alertMatch) return null;
+  const customTitle = (alertMatch[3] ?? "").trim();
   return {
     type: alertMatch[1] as AlertType,
     headLineEnd: firstLine.length,
     tagStartInLine: markerMatch[0].length,
-    tagEndInLine: markerMatch[0].length + alertMatch[0].trimEnd().length,
+    // The badge replaces the whole tag expression up to end-of-line, so both
+    // the fold marker and the custom title never show up as raw source.
+    tagEndInLine: markerMatch[0].length + after.trimEnd().length,
+    foldMarker: alertMatch[2] as "" | "-" | "+",
+    customTitle: customTitle.length > 0 ? customTitle : null,
   };
 }
 
@@ -775,13 +798,22 @@ function detectAlert(source: string): {
 function buildBlockquoteDecorations(
   range: { from: number; to: number; source: string },
   selection: readonly SelectionRange[],
-  decos: Range<Decoration>[]
+  decos: Range<Decoration>[],
+  alertFold?: AlertFoldContext
 ): { alertHeadEnd: number } | null {
   const source = range.source;
   const lines = source.split("\n");
   const cursorInBlockquote = selectionIntersects(range.from, range.to, selection, true);
   const alert = detectAlert(source);
   const style = alert ? ALERT_STYLES[alert.type] : null;
+  const foldable = !!alert && alert.foldMarker !== "";
+  // Editing always wins over the fold state: with the cursor inside the
+  // blockquote the raw source stays visible so the body remains editable.
+  const folded =
+    !!alert &&
+    foldable &&
+    !cursorInBlockquote &&
+    (alertFold?.overrides.get(range.from) ?? alert.foldMarker === "-");
   let offset = range.from;
   let alertHeadEnd = -1;
 
@@ -820,7 +852,8 @@ function buildBlockquoteDecorations(
         decos.push(Decoration.replace({}).range(lineStart, markerEnd));
       }
 
-      // Replace the `[!TYPE]` tag on the head line with a styled badge.
+      // Replace the `[!TYPE]` expression (plus fold marker / custom title)
+      // on the head line with a styled badge.
       if (alert && style && i === 0) {
         const tagStart = lineStart + alert.tagStartInLine;
         const tagEnd = lineStart + alert.tagEndInLine;
@@ -830,16 +863,31 @@ function buildBlockquoteDecorations(
           badge.style.cssText =
             `display:inline-flex;align-items:center;gap:6px;` +
             `color:${style.textColor};font-weight:600;font-size:0.95em;`;
+          if (foldable) {
+            const chevron = document.createElement("span");
+            chevron.textContent = folded ? "▸" : "▾";
+            chevron.setAttribute("aria-hidden", "true");
+            chevron.style.cssText = "cursor:pointer;user-select:none;font-size:0.85em;";
+            // stopPropagation keeps CM6's own mousedown handling (cursor
+            // placement) from racing the fold toggle.
+            chevron.addEventListener("mousedown", (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              alertFold?.toggle(range.from, !folded);
+            });
+            badge.appendChild(chevron);
+          }
           const iconSpan = document.createElement("span");
           iconSpan.textContent = style.icon;
           iconSpan.setAttribute("aria-hidden", "true");
           const labelSpan = document.createElement("span");
-          labelSpan.textContent = style.label;
+          labelSpan.textContent = alert.customTitle ?? style.label;
           badge.appendChild(iconSpan);
           badge.appendChild(labelSpan);
+          const badgeKey = `alert:${alert.type}:${tagStart}:${foldable ? (folded ? "folded" : "open") : "static"}`;
           decos.push(
             Decoration.replace({
-              widget: createWidget(badge, false, undefined, `alert:${alert.type}:${tagStart}`),
+              widget: createWidget(badge, false, undefined, badgeKey),
             }).range(tagStart, tagEnd)
           );
           alertHeadEnd = lineEnd;
@@ -848,6 +896,33 @@ function buildBlockquoteDecorations(
     }
 
     offset = lineEnd + 1;
+  }
+
+  // Collapsed alert: replace every body line with one small clickable
+  // placeholder block. The head line (badge + title) stays visible.
+  if (alert && folded && lines.length > 1) {
+    const bodyStart = range.from + lines[0].length + 1;
+    const buildPlaceholder = (): HTMLElement => {
+      const el = document.createElement("span");
+      el.textContent = "⋯";
+      el.title = "Expand";
+      el.setAttribute("aria-label", "Expand alert body");
+      el.style.cssText =
+        "display:inline-block;cursor:pointer;user-select:none;" +
+        "color:var(--nexus-text-muted, #888);padding:0 4px;";
+      el.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        alertFold?.toggle(range.from, false);
+      });
+      return el;
+    };
+    decos.push(
+      Decoration.replace({
+        widget: createWidget(buildPlaceholder, true, 0, `alert-fold:${range.from}`),
+        block: true,
+      }).range(bodyStart, range.to)
+    );
   }
 
   return alertHeadEnd >= 0 ? { alertHeadEnd } : null;
@@ -1045,7 +1120,8 @@ function buildDecorations(
   selection: readonly SelectionRange[],
   config: NormalizedLivePreviewConfig,
   viewRef: { current: EditorView | null },
-  ctx: BuildContext
+  ctx: BuildContext,
+  alertFold?: AlertFoldContext
 ): { decos: DecorationSet; ast: Root; codeTokens: CodeHighlightToken[] } {
   if (!config.enabled) return { decos: Decoration.none, ast: ctx.ast ?? createEmptyAst(), codeTokens: [] };
 
@@ -1102,7 +1178,8 @@ function buildDecorations(
       const alertInfo = buildBlockquoteDecorations(
         range as { from: number; to: number; source: string },
         selection,
-        decos
+        decos,
+        alertFold
       );
       if (alertInfo) {
         // GFM Alert: suppress the inline link decoration that lezer emits for
@@ -1325,6 +1402,24 @@ export function createLivePreviewExtension(
   const rebuildForCompositionStart = StateEffect.define<null>();
   const rebuildAfterComposition = StateEffect.define<null>();
 
+  // GFM alert fold state. Keys are blockquote start offsets; absence means
+  // "follow the source marker" (`-` collapsed, `+` expanded). Any document
+  // edit invalidates the offsets, so the map resets and markers take over
+  // again — deliberate: mid-edit the author should see raw source anyway.
+  const alertFoldOverrides = new Map<number, boolean>();
+  const rebuildForAlertFold = StateEffect.define<null>();
+  const alertFold: AlertFoldContext = {
+    overrides: alertFoldOverrides,
+    toggle(key, folded) {
+      alertFoldOverrides.set(key, folded);
+      try {
+        viewRef.current?.dispatch({ effects: rebuildForAlertFold.of(null) });
+      } catch {
+        // The view may already be destroyed when a stray click lands.
+      }
+    },
+  };
+
   function build(state: EditorState, selection: readonly SelectionRange[], reuseCache: boolean): DecorationSet {
     lastTransformRevision = getMarkdownTransformRevision(state);
     const docStr = state.doc.toString();
@@ -1335,7 +1430,7 @@ export function createLivePreviewExtension(
       const out = buildDecorations(state, selection, normalized, viewRef, {
         ...ctx,
         compositionActive,
-      });
+      }, alertFold);
       lastBuilt = { doc: docStr, ast: out.ast, codeTokens: out.codeTokens };
       return out.decos;
     } catch (err) {
@@ -1356,6 +1451,10 @@ export function createLivePreviewExtension(
     update(decos: DecorationSet, tr: Transaction) {
       if (isTableEditing(viewRef.current)) {
         return tr.docChanged ? decos.map(tr.changes) : decos;
+      }
+      if (tr.effects.some((effect) => effect.is(rebuildForAlertFold))) {
+        // Fold toggle: doc unchanged, so reuse the cached ast/codeTokens.
+        return build(tr.state, tr.state.selection.ranges, true);
       }
       if (tr.effects.some((effect) => effect.is(rebuildForCompositionStart))) {
         compositionActive = true;
@@ -1378,7 +1477,9 @@ export function createLivePreviewExtension(
       if (tr.docChanged) {
         // Doc changed → invalidate the cache and rebuild from the live Lezer
         // tree. Lezer's parse is incremental (intrinsic to EditorState), so
-        // this is cheap regardless of doc length.
+        // this is cheap regardless of doc length. Fold overrides are keyed by
+        // offsets, so they no longer point at the right blockquotes.
+        alertFoldOverrides.clear();
         return build(tr.state, tr.state.selection.ranges, false);
       }
       if (tr.selection) {

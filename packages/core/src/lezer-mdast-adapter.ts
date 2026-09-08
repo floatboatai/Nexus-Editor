@@ -33,6 +33,7 @@ import type {
 } from "mdast";
 
 import { findChildByName, headingDepth } from "./lezer-helpers";
+import { mdastToHtml } from "./mdast-to-html";
 
 // Lezer markdown's Document tree → real mdast Root. Designed to be CHEAP
 // (one synchronous walk, viewport-agnostic) so it can fully replace the
@@ -539,12 +540,17 @@ function adaptHeading(source: Source, node: SyntaxNode): Heading {
   };
 }
 
-// Docusaurus / VitePress / Obsidian style fenced callouts. Single-paragraph
-// shape (the only one lezer keeps in one node — body without blank lines):
+// Docusaurus / VitePress / Obsidian style fenced callouts:
 //   :::type [optional title]
-//   body line(s) without blank lines
+//   body (any blocks, blank lines allowed, callouts may nest)
 //   :::
+// Single-paragraph bodies (no blank lines) stay inside one lezer Paragraph
+// node and match CALLOUT_FENCE_RE in adaptParagraph. Multi-paragraph bodies
+// are split across sibling top-level nodes, so walkRoot re-assembles them via
+// tryAdaptCalloutSpan before adaptBlockChild runs.
 const CALLOUT_FENCE_RE = /^:::([a-zA-Z]+)(?:[ \t]+(.+?))?\r?\n([\s\S]*?)\r?\n:::\s*$/;
+// An opening fence line: `:::type` optionally followed by a custom title.
+const CALLOUT_OPEN_RE = /^:::([a-zA-Z]+)(?:[ \t]+(.+?))?[ \t]*\r?$/;
 
 interface CalloutPalette {
   border: string;
@@ -573,7 +579,7 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function buildCalloutHtml(type: string, title: string | null, body: string): string {
+function buildCalloutHtml(type: string, title: string | null, bodyHtml: string): string {
   const palette = CALLOUT_PALETTE[type.toLowerCase()] ?? CALLOUT_PALETTE.info;
   const heading = title ?? palette.defaultLabel;
   return (
@@ -585,25 +591,120 @@ function buildCalloutHtml(type: string, title: string | null, body: string): str
       `<span aria-hidden="true">${palette.icon}</span>` +
       `<span>${escapeHtml(heading)}</span>` +
       `</div>` +
-      `<div class="nexus-callout-body" style="color:var(--nexus-text);white-space:pre-wrap;">` +
-      escapeHtml(body) +
+      `<div class="nexus-callout-body" style="color:var(--nexus-text);font-size:0.95em;line-height:1.6;">` +
+      bodyHtml +
       `</div>` +
     `</div>`
   );
+}
+
+// Parse a callout body as full markdown (same GFM + footnote configuration
+// as the host document) and serialize it to HTML. Nested callouts inside the
+// body are handled naturally: lezerStringToMdast → walkRoot → this function
+// again at a smaller span. The single-slot cache keeps repeated re-parses of
+// an unchanged body off the keystroke hot path.
+let calloutBodyCache: { source: string; html: string } | null = null;
+function renderCalloutBodyHtml(body: string): string {
+  if (calloutBodyCache && calloutBodyCache.source === body) return calloutBodyCache.html;
+  const html = mdastToHtml(lezerStringToMdast(body));
+  calloutBodyCache = { source: body, html };
+  return html;
+}
+
+/**
+ * Re-assemble a fenced callout that lezer split across sibling top-level
+ * nodes (any body containing a blank line). Starting from `open` — a
+ * Paragraph whose first line is an opening fence — scan forward line by
+ * line, tracking nesting depth (`:::type` opens, bare `:::` closes) until
+ * the matching close is found. Block code / raw-HTML siblings are skipped
+ * wholesale so `:::` lines inside them don't affect depth.
+ *
+ * Returns the synthesized html node plus the sibling node containing the
+ * closing fence, so the caller can resume iteration after it. Returns null
+ * when `open` doesn't start a callout or no matching close exists (the
+ * document then falls through to normal block handling, matching the
+ * historical unclosed-fence behaviour).
+ */
+function tryAdaptCalloutSpan(
+  source: Source,
+  open: SyntaxNode
+): { html: Html; last: SyntaxNode } | null {
+  if (open.name !== "Paragraph") return null;
+  const openSrc = readSlice(source, open.from, open.to);
+  const firstNlIdx = openSrc.indexOf("\n");
+  const firstLine = firstNlIdx === -1 ? openSrc : openSrc.slice(0, firstNlIdx);
+  const openMatch = CALLOUT_OPEN_RE.exec(firstLine);
+  if (!openMatch) return null;
+
+  let depth = 0;
+  let closeLineStart = -1;
+  let closeLineEnd = -1;
+  let closeNode: SyntaxNode | null = null;
+
+  scan: for (let node: SyntaxNode | null = open; node; node = node.nextSibling) {
+    if (node !== open) {
+      // `:::` inside fenced code / indented code / raw HTML blocks is
+      // content, not a fence — skip those siblings entirely.
+      if (
+        node.name === "FencedCode" ||
+        node.name === "CodeBlock" ||
+        node.name === "IndentedCode" ||
+        node.name === "HTMLBlock" ||
+        node.name === "CommentBlock"
+      ) {
+        continue;
+      }
+    }
+    const src = readSlice(source, node.from, node.to);
+    let offset = node.from;
+    for (const line of src.split("\n")) {
+      const lineEnd = offset + line.length;
+      const trimmed = line.replace(/\r$/, "").trim();
+      if (node === open && offset === open.from) {
+        depth = 1;
+      } else if (/^:::[a-zA-Z]/.test(trimmed)) {
+        depth++;
+      } else if (trimmed === ":::") {
+        depth--;
+        if (depth === 0) {
+          closeLineStart = offset;
+          closeLineEnd = lineEnd;
+          closeNode = node;
+          break scan;
+        }
+      }
+      offset = lineEnd + 1;
+    }
+  }
+
+  if (!closeNode || closeLineStart < 0) return null;
+
+  const full = readSlice(source, open.from, closeLineStart);
+  const body = full.slice(full.indexOf("\n") + 1).replace(/\s+$/, "");
+  return {
+    html: {
+      type: "html",
+      value: buildCalloutHtml(openMatch[1], openMatch[2] ?? null, renderCalloutBodyHtml(body)),
+      position: position(open.from, closeLineEnd),
+    },
+    last: closeNode,
+  };
 }
 
 function adaptParagraph(source: Source, node: SyntaxNode): Paragraph | Html {
   const src = readSlice(source, node.from, node.to);
 
   // Docusaurus / VitePress / Obsidian callout: `:::type [title]\n...\n:::`.
-  // Body is rendered verbatim (no inner Markdown pass yet) — acceptable
-  // because typical callout bodies are short, single-paragraph notes.
+  // This branch only fires for single-node (blank-line-free) callouts —
+  // typically nested inside a blockquote or list, where walkRoot's sibling
+  // merge can't reach. The body goes through the full markdown pipeline
+  // (renderCalloutBodyHtml), so inline marks render just like top-level text.
   const calloutMatch = CALLOUT_FENCE_RE.exec(src);
   if (calloutMatch) {
     const [, type, title, body] = calloutMatch;
     return {
       type: "html",
-      value: buildCalloutHtml(type, title ?? null, body),
+      value: buildCalloutHtml(type, title ?? null, renderCalloutBodyHtml(body)),
       position: position(node.from, node.to),
     };
   }
@@ -723,15 +824,19 @@ function adaptBlockChild(source: Source, node: SyntaxNode): Content | null {
  */
 function walkRoot(tree: Tree, source: Source): Root {
   const children: RootContent[] = [];
-  const cursor = tree.cursor();
-  if (!cursor.firstChild()) {
-    return { type: "root", children: [], position: position(0, source.length) };
-  }
-  do {
-    const node = cursor.node;
+  // Iterate top-level blocks by node links (not a cursor) so a multi-paragraph
+  // callout can consume its opening node plus every sibling through the
+  // closing fence in one step.
+  for (let node = tree.topNode.firstChild; node; node = node.nextSibling) {
+    const span = tryAdaptCalloutSpan(source, node);
+    if (span) {
+      children.push(span.html);
+      node = span.last;
+      continue;
+    }
     const block = adaptBlockChild(source, node);
     if (block) children.push(block as RootContent);
-  } while (cursor.nextSibling());
+  }
   return {
     type: "root",
     children,
