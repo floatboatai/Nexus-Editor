@@ -426,7 +426,7 @@ function adaptInlineNode(source: Source, node: SyntaxNode): PhrasingContent | nu
 
 function adaptListItem(source: Source, node: SyntaxNode): ListItem {
   const children: Content[] = [];
-  let checked: boolean | null | undefined = undefined;
+  let checked: boolean | null = null;
   // GFM TaskList extension wraps the `[x]`/`[ ]` marker in a `Task` node
   // (with a TaskMarker child). Some dialects emit TaskMarker directly under
   // ListItem; handle both shapes.
