@@ -9,6 +9,23 @@ const VAULT_ROOT = path.resolve(__dirname, "../sample-vault");
 const SUPPORTED = new Set([".md", ".markdown", ".txt"]);
 const SKIP_DIRS = new Set(["node_modules", ".git"]);
 
+function normalizedJoin(pathApi: Pick<typeof path, "join">, ...parts: string[]): string {
+  return normalizeSlashes(pathApi.join(...parts));
+}
+
+function normalizedVaultPath(...parts: string[]): string {
+  return normalizedJoin(path, VAULT_ROOT, ...parts);
+}
+
+describe("sample-vault path expectations", () => {
+  it.each([
+    ["POSIX", path.posix, "/vault", "/vault/Topics/AI.md"],
+    ["Windows", path.win32, "C:\\vault", "C:/vault/Topics/AI.md"],
+  ])("normalizes %s fixture paths to LinkIndex separators", (_platform, pathApi, root, expected) => {
+    expect(normalizedJoin(pathApi, root, "Topics", "AI.md")).toBe(expected);
+  });
+});
+
 async function collect(dir: string, acc: string[]): Promise<void> {
   const entries = await readdir(dir, { withFileTypes: true });
   for (const e of entries) {
@@ -78,19 +95,19 @@ describe("sample-vault fixture — end-to-end wiki-link behavior", () => {
   it("[[AI]] from Daily resolves to Topics/AI.md (globally unique basename)", async () => {
     const idx = await buildIndex();
     const daily = path.join(VAULT_ROOT, "Daily/2026-04-20.md");
-    expect(idx.resolve("AI", daily)).toBe(normalizeSlashes(path.join(VAULT_ROOT, "Topics/AI.md")));
+    expect(idx.resolve("AI", daily)).toBe(normalizedVaultPath("Topics", "AI.md"));
   });
 
   it("[[Meeting]] from work/Inbox.md resolves to work/Meeting.md (same-dir wins)", async () => {
     const idx = await buildIndex();
     const inbox = path.join(VAULT_ROOT, "work/Inbox.md");
-    expect(idx.resolve("Meeting", inbox)).toBe(normalizeSlashes(path.join(VAULT_ROOT, "work/Meeting.md")));
+    expect(idx.resolve("Meeting", inbox)).toBe(normalizedVaultPath("work", "Meeting.md"));
   });
 
   it("[[Meeting]] from personal/Diary.md resolves to personal/Meeting.md (symmetric)", async () => {
     const idx = await buildIndex();
     const diary = path.join(VAULT_ROOT, "personal/Diary.md");
-    expect(idx.resolve("Meeting", diary)).toBe(normalizeSlashes(path.join(VAULT_ROOT, "personal/Meeting.md")));
+    expect(idx.resolve("Meeting", diary)).toBe(normalizedVaultPath("personal", "Meeting.md"));
   });
 
   it("[[Ghost Note]] in ghost-demo.md is unresolved (creates-on-click scenario)", async () => {
@@ -171,10 +188,10 @@ describe("sample-vault fixture — end-to-end wiki-link behavior", () => {
     const idx = await buildIndex();
     const ideas = path.join(VAULT_ROOT, "Projects/Ideas.md");
     expect(idx.resolve("Projects/Nexus-Editor#Context", ideas)).toBe(
-      normalizeSlashes(path.join(VAULT_ROOT, "Projects/Nexus-Editor.md"))
+      normalizedVaultPath("Projects", "Nexus-Editor.md")
     );
     expect(idx.resolve("Projects/Nexus-Editor^some-block", ideas)).toBe(
-      normalizeSlashes(path.join(VAULT_ROOT, "Projects/Nexus-Editor.md"))
+      normalizedVaultPath("Projects", "Nexus-Editor.md")
     );
   });
 
