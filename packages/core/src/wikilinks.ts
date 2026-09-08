@@ -12,6 +12,10 @@ import type { NexusPlugin } from "./types";
 const COMPOSITION_REDECORATE_DELAY_MS = 60;
 const ATX_HEADING_RE = /^(\s{0,3})(#{1,6})\s+(.+?)\s*#*\s*$/;
 const BLOCK_ID_RE = /(?:^|\s)\^([A-Za-z0-9_-]+)(?=\s|$)/;
+// Note completions must die on `#` / `^` so CodeMirror re-queries suggestAnchors
+// instead of keeping the note list and fuzzy-filtering it against the marker.
+const NOTE_COMPLETION_VALID = /^[^\[\]\n|#^]*$/;
+const ANCHOR_COMPLETION_VALID = /^[^\[\]\n|^]*$/;
 
 /**
  * Obsidian-style bidirectional wiki link extension.
@@ -421,7 +425,7 @@ function applyWikiCompletion(view: EditorView, from: number, to: number, text: s
   });
 }
 
-function createAutocompleteSource(
+export function createWikiLinkAutocompleteSource(
   suggest: WikilinksOptions["suggest"],
   suggestAnchors: WikilinksOptions["suggestAnchors"]
 ) {
@@ -455,7 +459,7 @@ function createAutocompleteSource(
         from: wk.openFrom + 2 + wk.anchor.markerIndex + 1,
         to: pos,
         options,
-        validFor: /^[^\[\]\n|^]*$/,
+        validFor: ANCHOR_COMPLETION_VALID,
       };
     }
 
@@ -477,7 +481,7 @@ function createAutocompleteSource(
       from: wk.openFrom + 2,
       to: pos,
       options,
-      validFor: /^[^\[\]\n|]*$/,
+      validFor: NOTE_COMPLETION_VALID,
     };
   };
 }
@@ -557,7 +561,7 @@ export function createWikilinksExtension(options: WikilinksOptions = {}): Extens
   if (options.suggest || options.suggestAnchors) {
     exts.push(
       autocompletion({
-        override: [createAutocompleteSource(options.suggest, options.suggestAnchors)],
+        override: [createWikiLinkAutocompleteSource(options.suggest, options.suggestAnchors)],
         activateOnTyping: true,
       })
     );

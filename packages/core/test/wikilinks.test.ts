@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { CompletionContext } from "@codemirror/autocomplete";
 import { EditorState, EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
@@ -14,6 +15,7 @@ import {
   createWikilinksPlugin,
   createEditor,
 } from "../src/index";
+import { createWikiLinkAutocompleteSource } from "../src/wikilinks";
 
 describe("scanWikiLinks", () => {
   it("parses a plain wiki link", () => {
@@ -380,6 +382,48 @@ describe("wikilinks autocomplete", () => {
     const ctx = getWikiLinkTypingContext("[[Guide#Su", "[[Guide#Su".length);
     expect(ctx).not.toBeNull();
     expect(ctx!.openFrom + 2 + ctx!.anchor!.markerIndex + 1).toBe("[[Guide#".length);
+  });
+
+  it("treats [[# with no heading text as a same-file heading query", () => {
+    expect(getWikiLinkTypingContext("[[#", 3)).toEqual({
+      openFrom: 0,
+      query: "#",
+      path: "",
+      anchor: { kind: "heading", query: "", markerIndex: 0 },
+    });
+  });
+
+  it("calls suggestAnchors for [[# instead of suggest", async () => {
+    const suggest = vi.fn(() => ["Index"]);
+    const suggestAnchors = vi.fn(() => ["Index", "Projects", "People"]);
+    const source = createWikiLinkAutocompleteSource(suggest, suggestAnchors);
+    const doc = "[[#";
+    const state = EditorState.create({
+      doc,
+      selection: EditorSelection.cursor(doc.length),
+    });
+    const result = await source(new CompletionContext(state, doc.length, true));
+    expect(suggest).not.toHaveBeenCalled();
+    expect(suggestAnchors).toHaveBeenCalledWith({ path: "", kind: "heading", query: "" });
+    expect(result?.from).toBe(3);
+    expect(result?.options.map((option) => option.label)).toEqual(["Index", "Projects", "People"]);
+  });
+
+  it("invalidates note completions when # or ^ is typed", async () => {
+    const source = createWikiLinkAutocompleteSource(() => ["Index"], () => ["Projects"]);
+    const doc = "[[";
+    const state = EditorState.create({
+      doc,
+      selection: EditorSelection.cursor(doc.length),
+    });
+    const result = await source(new CompletionContext(state, doc.length, true));
+    const validFor = result?.validFor;
+    expect(validFor).toBeInstanceOf(RegExp);
+    const pattern = validFor as RegExp;
+    expect(pattern.test("In")).toBe(true);
+    expect(pattern.test("#")).toBe(false);
+    expect(pattern.test("Note#")).toBe(false);
+    expect(pattern.test("Note^")).toBe(false);
   });
 
   it("calls suggest with the query typed after [[", async () => {

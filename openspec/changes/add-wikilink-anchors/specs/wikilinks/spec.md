@@ -46,6 +46,11 @@ When `suggestAnchors` is provided, typing `[[` followed by a `#` or `^` SHALL qu
 - **WHEN** the user has typed `[[#Lo`
 - **THEN** `suggestAnchors` SHALL be called with an empty `path` and `kind: "heading"`
 
+#### Scenario: Same-file heading query at the marker
+- **WHEN** the user has typed `[[#` with no heading text yet
+- **THEN** `suggestAnchors` SHALL be called with `{ path: "", kind: "heading", query: "" }`
+- **AND** an active note-name completion SHALL be discarded so heading candidates can open
+
 #### Scenario: Note completion unchanged without a marker
 - **WHEN** the user has typed `[[Gui` with no `#` or `^`
 - **THEN** `suggest(query)` SHALL run as before
