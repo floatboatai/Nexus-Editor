@@ -88,7 +88,7 @@ No breaking changes, no new dependencies, no public API changes.
     `detectAlert`, `buildBlockquoteDecorations` (chevron, fold
     placeholder), fold-state plumbing (`AlertFoldContext`,
     `rebuildForAlertFold`).
-  - `packages/core/test/live-preview.test.ts` — 11 new cases.
+  - `packages/core/test/live-preview.test.ts` — 10 new cases.
 - Out of scope (explicit non-goals):
   - Folding fenced (`:::`) callouts — the Obsidian dialect for that is
     the blockquote form; adding fold state to the html-block widget

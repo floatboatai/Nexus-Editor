@@ -89,7 +89,9 @@
 
 - [x] 5.1 `pnpm exec tsc --noEmit -p packages/core` clean.
 - [x] 5.2 `vitest run packages/core` — 286/286 (17 files) including the
-  11 new cases.
+  10 new cases; full-monorepo suite 886/908 with the 22 failures being
+  the pre-existing Windows-symlink ElectronVaultBroker cases (baseline
+  876/898 — no new regressions, +10 passing).
 - [x] 5.3 `pnpm --filter @floatboat/nexus-core build` — ESM + dts emit
   cleanly.
 - [ ] 5.4 Manual smoke in the electron demo — deferred (jsdom
