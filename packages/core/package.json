@@ -36,5 +36,8 @@
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
+  },
+  "devDependencies": {
+    "remark-gfm": "^4.0.1"
   }
 }
