@@ -67,6 +67,7 @@ describe("sample-vault fixture — end-to-end wiki-link behavior", () => {
       "Topics/AI.md",
       "Topics/Testing.md",
       "ghost-demo.md",
+      "anchor-demo.md",
       "personal/Diary.md",
       "personal/Meeting.md",
       "work/Inbox.md",
@@ -208,8 +209,42 @@ describe("sample-vault fixture — end-to-end wiki-link behavior", () => {
     // Duplicates dedup'd — "Meeting" (work vs personal) must appear once.
     expect(names.filter((n) => n === "Meeting")).toHaveLength(1);
     // Key notes present.
-    for (const n of ["index", "AI", "Alice", "Bob", "Nexus-Editor", "Ideas", "ghost-demo"]) {
+    for (const n of ["index", "AI", "Alice", "Bob", "Nexus-Editor", "Ideas", "ghost-demo", "anchor-demo"]) {
       expect(names).toContain(n);
     }
+  });
+
+  it("anchor-demo.md nested heading, block id, and missing heading behave as specified", async () => {
+    const demo = path.join(VAULT_ROOT, "anchor-demo.md");
+    const content = await readFile(demo, "utf-8");
+    const nested = parseAnchor("#Parent#Child");
+    expect(nested.anchor).toEqual({ kind: "heading", value: "Parent#Child" });
+    const childPos = findAnchorPosition(content, nested.anchor!);
+    expect(childPos).not.toBeNull();
+    expect(content.slice(childPos!).startsWith("### Child")).toBe(true);
+
+    const block = parseAnchor("^quote-1");
+    const blockPos = findAnchorPosition(content, block.anchor!);
+    expect(blockPos).not.toBeNull();
+    expect(content.slice(blockPos!).includes("^quote-1")).toBe(true);
+
+    const missing = parseAnchor("#Does not exist");
+    expect(findAnchorPosition(content, missing.anchor!)).toBeNull();
+  });
+
+  it("Daily/2026-04-20.md exposes Morning and the standup-notes block", async () => {
+    const daily = path.join(VAULT_ROOT, "Daily/2026-04-20.md");
+    const content = await readFile(daily, "utf-8");
+    const morning = parseAnchor("Daily/2026-04-20#Morning");
+    const morningPos = findAnchorPosition(content, morning.anchor!);
+    expect(morningPos).not.toBeNull();
+    expect(content.slice(morningPos!).startsWith("## Morning")).toBe(true);
+
+    const block = parseAnchor("Daily/2026-04-20^standup-notes");
+    const blockPos = findAnchorPosition(content, block.anchor!);
+    expect(blockPos).not.toBeNull();
+    expect(content.slice(blockPos!).includes("^standup-notes")).toBe(true);
+
+    expect(findAnchorPosition(content, parseAnchor("#Missing").anchor!)).toBeNull();
   });
 });

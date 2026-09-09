@@ -4,6 +4,8 @@ import {
   type EditorAPI,
   type LivePreviewRenderContext,
   type NexusPlugin,
+  type WikiLinkAnchorSuggestContext,
+  type WikiLinkNavigateOptions,
 } from "@floatboat/nexus-core";
 import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
@@ -51,11 +53,13 @@ export interface EditorShellOptions {
   settings: EditorSettings;
   onStateChange: () => void;
   /** Called when the user clicks a wiki link. */
-  onWikilinkNavigate?(target: string, opts: { unresolved: boolean }): void;
+  onWikilinkNavigate?(target: string, opts: WikiLinkNavigateOptions): void;
   /** Resolves a wiki-link name to an absolute target path; null = unresolved. */
   resolveWikilink?(name: string): string | null;
   /** Returns autocomplete candidates for the query after `[[`. */
   suggestWikilinks?(query: string): string[];
+  /** Returns heading / block-id candidates after `[[note#` / `[[note^`. */
+  suggestWikilinkAnchors?(ctx: WikiLinkAnchorSuggestContext): string[];
   /**
    * Selects the single owner for migrated editor contributions. Runtime mode
    * leaves toolbar, slash-menu and word-count lifecycle to PluginManager.
@@ -92,6 +96,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     onWikilinkNavigate,
     resolveWikilink,
     suggestWikilinks,
+    suggestWikilinkAnchors,
     contributionMode = "legacy",
     contributionFeatures = { toolbar: true, slashMenu: true, wordCount: true },
     editorContributions = [],
@@ -106,6 +111,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     resolve: resolveWikilink ? (name) => resolveWikilink(name) : undefined,
     onNavigate: onWikilinkNavigate,
     suggest: suggestWikilinks ? (q) => suggestWikilinks(q) : undefined,
+    suggestAnchors: suggestWikilinkAnchors ? (ctx) => suggestWikilinkAnchors(ctx) : undefined,
   });
 
   // The wordcount plugin reads `editor.getAst()` on each (debounced)

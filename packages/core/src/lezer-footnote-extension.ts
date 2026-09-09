@@ -53,6 +53,8 @@ export const footnoteExtension: MarkdownConfig = {
       parse(cx, next, pos) {
         if (next !== OPEN_BRACKET) return -1;
         if (cx.char(pos + 1) !== CARET) return -1;
+        // `[[^block-id]]` is a wiki-link block ref, not a GFM footnote `[^id]`.
+        if (pos > 0 && cx.char(pos - 1) === OPEN_BRACKET) return -1;
         let end = pos + 2;
         while (end < cx.end) {
           const ch = cx.char(end);

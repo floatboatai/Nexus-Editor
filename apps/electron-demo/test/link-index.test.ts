@@ -78,6 +78,13 @@ describe("LinkIndex.backlinks", () => {
 });
 
 describe("LinkIndex.getAllNoteNames", () => {
+  it("returns cached file contents", () => {
+    const idx = new LinkIndex();
+    idx.rebuild([{ path: "/v/Guide.md", content: "# Setup\nbody" }]);
+    expect(idx.getFileContent("/v/Guide.md")).toBe("# Setup\nbody");
+    expect(idx.getFileContent("/v/missing.md")).toBeNull();
+  });
+
   it("returns dedup'd basenames without extension", () => {
     const idx = new LinkIndex();
     idx.rebuild([

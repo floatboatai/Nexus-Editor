@@ -45,11 +45,20 @@ export {
 export { lightTheme, darkTheme, type NexusTheme } from "./theme";
 export {
   scanWikiLinks,
+  parseWikiLinkTarget,
+  stripWikiLinkAnchor,
+  findAnchorPosition,
+  collectMarkdownHeadings,
+  collectMarkdownBlockIds,
+  getWikiLinkTypingContext,
   createWikilinksExtension,
   createWikilinksPlugin,
+  type WikiLinkAnchor,
   type WikiLinkMatch,
   type WikilinksOptions,
   type WikiLinkNavigateOptions,
+  type WikiLinkAnchorSuggestContext,
+  type WikiLinkTypingContext,
 } from "./wikilinks";
 export type {
   CodeHighlightToken,

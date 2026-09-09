@@ -26,6 +26,18 @@ added in the `add-wikilinks` change proposal.
 - **Escape sequence** — `\[[NotALink]]` in `ghost-demo.md` stays literal.
 - **Autocomplete** — in a new note, type `[[me` and confirm the popup lists
   `Meeting` (twice, one per directory) plus other matches.
+- **Heading anchors** — open [[anchor-demo]] (or [[index]]). Type `[[#` and
+  pick a heading; click [[#Projects]] on `index.md` to jump in-file.
+- **Cross-file heading** — click [[Daily/2026-04-20#Morning]] or type
+  `[[Daily/2026-04-20#` and pick `Morning` / `Afternoon` / `Meetings`.
+- **Nested heading** — on [[anchor-demo]], click [[#Parent#Child]] (lands on
+  `### Child`).
+- **Block refs** — on [[anchor-demo]], click **quote-1** at the top (alias of
+  `[[anchor-demo^quote-1]]`); it should scroll to the `^quote-1` line. Or click
+  [[Daily/2026-04-20^standup-notes]]. Type `[[^` to complete block ids.
+- **Missing anchor** — [[#Does not exist]] on `anchor-demo.md` stays put and
+  is not a red dashed ghost. [[Daily/2026-04-20#Missing]] opens the daily
+  note without jumping to a heading.
 
 ## Topology
 
@@ -34,6 +46,7 @@ sample-vault/
 ├── README.md                 (this file, also [[index]] linked)
 ├── index.md                  (hub: links to every other note)
 ├── ghost-demo.md             (unresolved + escape demo)
+├── anchor-demo.md            (heading / block / nested / missing anchors)
 ├── Projects/
 │   ├── Nexus-Editor.md       (links to index, AI, Alice)
 │   └── Ideas.md              (links to Nexus-Editor, Bob)

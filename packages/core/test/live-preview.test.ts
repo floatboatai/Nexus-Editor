@@ -2,7 +2,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 
 import { createGfmPreset } from "../../preset-gfm/src/index";
-import { createEditor, type EditorAPI } from "../src/index";
+import { createEditor, createWikilinksPlugin, type EditorAPI } from "../src/index";
 
 beforeAll(() => {
   if (!("getClientRects" in Range.prototype)) {
@@ -537,6 +537,41 @@ describe("live preview", () => {
     const sup = container.querySelector("sup");
     expect(sup).not.toBeNull();
     expect(sup?.textContent).toBe("1");
+    editor.destroy();
+  });
+
+  it("does not treat [[^block-id]] as a GFM footnote", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "See [[^quote-1]] here\n\nA paragraph. ^quote-1\n",
+      livePreview: true,
+      plugins: [createGfmPreset(), createWikilinksPlugin()],
+    });
+    editor.setSelection(editor.getDocument().length);
+
+    expect(container.querySelector("sup")).toBeNull();
+    const chip = container.querySelector("[data-wikilink-target]") as HTMLElement;
+    expect(chip).not.toBeNull();
+    expect(chip.getAttribute("data-wikilink-anchor-kind")).toBe("block");
+    expect(chip.getAttribute("data-wikilink-anchor")).toBe("quote-1");
+    editor.destroy();
+  });
+
+  it("does not treat a list-item [[^block-id]] as a GFM footnote", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "- Block: [[^quote-1]]\n\n^quote-1\n",
+      livePreview: true,
+      plugins: [createGfmPreset(), createWikilinksPlugin()],
+    });
+    editor.setSelection(editor.getDocument().length);
+
+    expect(container.querySelector("sup")).toBeNull();
+    const chip = container.querySelector("[data-wikilink-target]") as HTMLElement;
+    expect(chip).not.toBeNull();
+    expect(chip.getAttribute("data-wikilink-target")).toBe("^quote-1");
     editor.destroy();
   });
 

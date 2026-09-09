@@ -12,6 +12,11 @@ import {
 import { createState, type AppState } from "./state";
 import { createEditorShell, type EditorShell } from "./editor-shell";
 import {
+  collectMarkdownBlockIds,
+  collectMarkdownHeadings,
+  type WikiLinkNavigateOptions,
+} from "@floatboat/nexus-core";
+import {
   loadSettings,
   saveSettings,
   createSettingsPanel,
@@ -148,6 +153,14 @@ function fromIndexPath(filePath: string | null): string | null {
 function resolveWikilink(name: string): string | null {
   const resolved = linkIndex?.resolve(name, toIndexPath(state.activeFile)) ?? null;
   return fromIndexPath(resolved);
+}
+
+function readIndexedNoteContent(notePath: string): string {
+  const resolved = resolveWikilink(notePath);
+  if (!resolved) return "";
+  if (state.activeFile && resolved === state.activeFile) return state.content;
+  const indexed = toIndexPath(resolved);
+  return (indexed ? linkIndex?.getFileContent(indexed) : null) ?? "";
 }
 
 function createAppToolbar(): HTMLElement {
@@ -578,19 +591,27 @@ async function seedLinkIndex(): Promise<void> {
   perfEnd(total);
 }
 
-async function handleWikilinkNavigate(target: string, opts: { unresolved: boolean }): Promise<void> {
+async function handleWikilinkNavigate(target: string, opts: WikiLinkNavigateOptions): Promise<void> {
   try {
     state.error = null;
-    // Parse `#heading` / `^blockid` — bare part is what the resolver needs
-    // to match a file on disk; the anchor (if any) is used AFTER the file is
-    // loaded to scroll the editor to the matching heading / block.
-    const { bare, anchor } = parseAnchor(target);
+    // Prefer the structured fields from core; fall back to host-side parse
+    // so older plugin wrappers that only pass `{ unresolved }` still work.
+    const parsed = opts.path !== undefined
+      ? { bare: opts.path, anchor: opts.anchor ?? null }
+      : parseAnchor(target);
+    const { bare, anchor } = parsed;
     if (!bare && !anchor) return;
 
     // `[[#heading]]` with no bare target means "jump inside the current file".
     if (!bare && anchor && state.activeFile) {
-      const pos = findAnchorPosition(state.content, anchor);
-      if (pos !== null) shell.editor.setSelection(pos);
+      const content = shell.editor.getDocument();
+      const pos = findAnchorPosition(content, anchor);
+      // Missing heading/block: keep the caret. Do not treat this as a ghost
+      // link — same-file anchors are not filesystem paths.
+      if (pos !== null) {
+        shell.editor.setSelection(pos);
+        shell.editor.focus();
+      }
       return;
     }
     if (!bare) return;
@@ -600,8 +621,12 @@ async function handleWikilinkNavigate(target: string, opts: { unresolved: boolea
       if (resolved) {
         await handleVaultFileOpen(resolved);
         if (anchor) {
-          const pos = findAnchorPosition(state.content, anchor);
-          if (pos !== null) shell.editor.setSelection(pos);
+          const pos = findAnchorPosition(shell.editor.getDocument(), anchor);
+          // Missing in-note anchor: the note is already open; do not jump.
+          if (pos !== null) {
+            shell.editor.setSelection(pos);
+            shell.editor.focus();
+          }
         }
       }
       return;
@@ -839,6 +864,15 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
       if (!q) return names.slice(0, 50);
       const qLower = q.toLowerCase();
       return names.filter((n) => n.toLowerCase().includes(qLower)).slice(0, 50);
+    },
+    suggestWikilinkAnchors: ({ path, kind, query }) => {
+      const content = path ? readIndexedNoteContent(path) : state.content;
+      const items = kind === "heading"
+        ? collectMarkdownHeadings(content)
+        : collectMarkdownBlockIds(content);
+      const q = query.trim().toLowerCase();
+      const filtered = q ? items.filter((item) => item.toLowerCase().includes(q)) : items;
+      return filtered.slice(0, 50);
     },
     onWikilinkNavigate: (target, opts) => {
       void handleWikilinkNavigate(target, opts);
