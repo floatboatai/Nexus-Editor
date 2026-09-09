@@ -9,12 +9,14 @@
 - [x] 2.1 Export `getWikiLinkTypingContext` and `suggestAnchors`
 - [x] 2.2 Pass `path` / `anchor` through `onNavigate`
 - [x] 2.3 Unit tests for parse, scan, styling, typing context, heading completion
+- [x] 2.4 Same-file `[[^id]]`, missing-anchor `findAnchorPosition` null, `[[^` autocomplete
 
 ## 3. Electron demo
 
 - [x] 3.1 Reuse core parsers from `link-index.ts`
 - [x] 3.2 `getFileContent` on the link index reader
 - [x] 3.3 Wire `suggestWikilinkAnchors` from vault / current buffer
+- [x] 3.4 Sample vault `anchor-demo.md` + README verification for `#` / `^` / nested / missing
 
 ## 4. Docs
 

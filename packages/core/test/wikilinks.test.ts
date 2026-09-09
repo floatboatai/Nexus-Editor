@@ -3,6 +3,7 @@ import { CompletionContext } from "@codemirror/autocomplete";
 import { EditorState, EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
+import { createGfmPreset } from "../../preset-gfm/src/index";
 import {
   scanWikiLinks,
   parseWikiLinkTarget,
@@ -96,6 +97,15 @@ describe("scanWikiLinks", () => {
     expect(doc.slice(matches[0].displayFrom, matches[0].displayTo)).toBe("Local heading");
   });
 
+  it("parses a same-file block jump", () => {
+    const doc = "see [[^quote-1]] below";
+    const matches = scanWikiLinks(doc);
+    expect(matches[0].path).toBe("");
+    expect(matches[0].anchor).toEqual({ kind: "block", value: "quote-1" });
+    expect(matches[0].display).toBe("quote-1");
+    expect(doc.slice(matches[0].displayFrom, matches[0].displayTo)).toBe("quote-1");
+  });
+
   it("ignores a bare marker with no heading or block id", () => {
     expect(scanWikiLinks("[[#]] [[^]]")).toHaveLength(0);
   });
@@ -153,6 +163,12 @@ describe("findAnchorPosition / collectors", () => {
     const doc = "# Alpha\n## Beta\n# Alpha\npara ^one\nother ^one\nend ^two";
     expect(collectMarkdownHeadings(doc)).toEqual(["Alpha", "Beta"]);
     expect(collectMarkdownBlockIds(doc)).toEqual(["one", "two"]);
+  });
+
+  it("returns null when the heading or block id is missing", () => {
+    const doc = "# Alpha\npara ^one";
+    expect(findAnchorPosition(doc, { kind: "heading", value: "Gamma" })).toBeNull();
+    expect(findAnchorPosition(doc, { kind: "block", value: "nope" })).toBeNull();
   });
 });
 
@@ -222,6 +238,22 @@ describe("wikilinks decorations (rendered output)", () => {
     const span = container.querySelector("[data-wikilink-target]") as HTMLElement;
     expect(span).not.toBeNull();
     expect(span.getAttribute("data-wikilink-unresolved")).toBeNull();
+    editor.destroy();
+  });
+
+  it("treats [[^block]] as resolved even when resolve returns null", () => {
+    const { container, editor } = mount("line 1\n[[^quote-1]]\n\nend", {
+      resolve: () => null,
+    });
+    editor.setSelection(editor.getDocument().length);
+    const text = container.textContent ?? "";
+    expect(text).toContain("quote-1");
+    expect(text).not.toContain("[[");
+    expect(text).not.toContain("^quote-1");
+    const span = container.querySelector("[data-wikilink-target]") as HTMLElement;
+    expect(span.getAttribute("data-wikilink-unresolved")).toBeNull();
+    expect(span.getAttribute("data-wikilink-anchor-kind")).toBe("block");
+    expect(span.getAttribute("data-wikilink-anchor")).toBe("quote-1");
     editor.destroy();
   });
 
@@ -346,6 +378,50 @@ describe("wikilinks navigation callback", () => {
     });
     editor.destroy();
   });
+
+  it("passes parsed block anchors through onNavigate", () => {
+    const onNavigate = vi.fn();
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "start\n[[Spec^blk-1]]\n\nend",
+      livePreview: false,
+      plugins: [createWikilinksPlugin({ onNavigate, resolve: () => "/x/Spec.md" })],
+    });
+    editor.setSelection(editor.getDocument().length);
+    const span = container.querySelector("[data-wikilink-target]") as HTMLElement;
+    span.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    expect(onNavigate).toHaveBeenCalledWith("Spec^blk-1", {
+      unresolved: false,
+      path: "Spec",
+      anchor: { kind: "block", value: "blk-1" },
+    });
+    editor.destroy();
+  });
+
+  it("navigates [[^quote-1]] under live preview instead of treating it as a footnote", () => {
+    const onNavigate = vi.fn();
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "See [[^quote-1]] here\n\nA paragraph. ^quote-1\n",
+      livePreview: true,
+      plugins: [
+        createGfmPreset(),
+        createWikilinksPlugin({ onNavigate, resolve: () => null }),
+      ],
+    });
+    editor.setSelection(editor.getDocument().length);
+    const span = container.querySelector("[data-wikilink-target]") as HTMLElement;
+    expect(span).not.toBeNull();
+    span.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    expect(onNavigate).toHaveBeenCalledWith("^quote-1", {
+      unresolved: false,
+      path: "",
+      anchor: { kind: "block", value: "quote-1" },
+    });
+    editor.destroy();
+  });
 });
 
 describe("wikilinks autocomplete", () => {
@@ -391,6 +467,11 @@ describe("wikilinks autocomplete", () => {
       path: "",
       anchor: { kind: "heading", query: "", markerIndex: 0 },
     });
+    expect(getWikiLinkTypingContext("[[^", 3)?.anchor).toEqual({
+      kind: "block",
+      query: "",
+      markerIndex: 0,
+    });
   });
 
   it("calls suggestAnchors for [[# instead of suggest", async () => {
@@ -407,6 +488,29 @@ describe("wikilinks autocomplete", () => {
     expect(suggestAnchors).toHaveBeenCalledWith({ path: "", kind: "heading", query: "" });
     expect(result?.from).toBe(3);
     expect(result?.options.map((option) => option.label)).toEqual(["Index", "Projects", "People"]);
+  });
+
+  it("calls suggestAnchors for same-file and cross-file block queries", async () => {
+    const suggest = vi.fn(() => ["Spec"]);
+    const suggestAnchors = vi.fn(() => ["quote-1", "standup"]);
+    const source = createWikiLinkAutocompleteSource(suggest, suggestAnchors);
+
+    const sameFile = await source(new CompletionContext(
+      EditorState.create({ doc: "[[^", selection: EditorSelection.cursor(3) }),
+      3,
+      true,
+    ));
+    expect(suggestAnchors).toHaveBeenCalledWith({ path: "", kind: "block", query: "" });
+    expect(sameFile?.from).toBe(3);
+
+    const crossFile = await source(new CompletionContext(
+      EditorState.create({ doc: "[[Spec^st", selection: EditorSelection.cursor("[[Spec^st".length) }),
+      "[[Spec^st".length,
+      true,
+    ));
+    expect(suggestAnchors).toHaveBeenCalledWith({ path: "Spec", kind: "block", query: "st" });
+    expect(crossFile?.from).toBe("[[Spec^".length);
+    expect(suggest).not.toHaveBeenCalled();
   });
 
   it("invalidates note completions when # or ^ is typed", async () => {

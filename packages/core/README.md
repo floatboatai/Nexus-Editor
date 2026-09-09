@@ -99,7 +99,7 @@ createWikilinksPlugin({
 });
 ```
 
-`scanWikiLinks`, `parseWikiLinkTarget`, `findAnchorPosition`, `collectMarkdownHeadings`, and `collectMarkdownBlockIds` are pure helpers for hosts that keep their own link index.
+`scanWikiLinks`, `parseWikiLinkTarget`, `findAnchorPosition`, `collectMarkdownHeadings`, and `collectMarkdownBlockIds` are pure helpers for hosts that keep their own link index. `findAnchorPosition` returns `null` when the heading or block id is missing — hosts should open the note without creating a file or moving the caret.
 
 ## Other config highlights
 

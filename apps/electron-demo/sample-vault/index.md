@@ -32,6 +32,12 @@ show a long list.
 
 - [[slash-demo]] — type `/` anywhere to open the floating command menu
 
+## Heading & block anchors
+
+- [[anchor-demo]] — `[[#heading]]`, `[[note#heading]]`, `[[^block]]`, nested `Parent#Child`
+- Same-file jump on this hub: [[#Projects]]
+- Cross-file heading: [[Daily/2026-04-20#Morning]]
+
 ## Edge cases
 
 - [[ghost-demo]] — try clicking the red dashed ghost link inside

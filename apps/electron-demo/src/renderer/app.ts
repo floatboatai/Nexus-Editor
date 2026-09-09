@@ -604,8 +604,14 @@ async function handleWikilinkNavigate(target: string, opts: WikiLinkNavigateOpti
 
     // `[[#heading]]` with no bare target means "jump inside the current file".
     if (!bare && anchor && state.activeFile) {
-      const pos = findAnchorPosition(state.content, anchor);
-      if (pos !== null) shell.editor.setSelection(pos);
+      const content = shell.editor.getDocument();
+      const pos = findAnchorPosition(content, anchor);
+      // Missing heading/block: keep the caret. Do not treat this as a ghost
+      // link — same-file anchors are not filesystem paths.
+      if (pos !== null) {
+        shell.editor.setSelection(pos);
+        shell.editor.focus();
+      }
       return;
     }
     if (!bare) return;
@@ -615,8 +621,12 @@ async function handleWikilinkNavigate(target: string, opts: WikiLinkNavigateOpti
       if (resolved) {
         await handleVaultFileOpen(resolved);
         if (anchor) {
-          const pos = findAnchorPosition(state.content, anchor);
-          if (pos !== null) shell.editor.setSelection(pos);
+          const pos = findAnchorPosition(shell.editor.getDocument(), anchor);
+          // Missing in-note anchor: the note is already open; do not jump.
+          if (pos !== null) {
+            shell.editor.setSelection(pos);
+            shell.editor.focus();
+          }
         }
       }
       return;

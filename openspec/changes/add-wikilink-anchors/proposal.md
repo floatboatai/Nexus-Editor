@@ -11,6 +11,7 @@
 - New host callback `suggestAnchors` completes headings and block ids after `[[note#` / `[[note^`.
 - Pure helpers `parseWikiLinkTarget`, `findAnchorPosition`, `collectMarkdownHeadings`, and `collectMarkdownBlockIds` move into `@floatboat/nexus-core` so hosts share one implementation.
 - Electron demo wires heading/block autocomplete from vault file contents.
+- Sample vault `anchor-demo.md` covers same-file / nested / block / missing-anchor clicks.
 
 No breaking changes: existing `[[target]]` / `[[target|alias]]` behaviour is unchanged; `onNavigate` gains additive `path` / `anchor` fields.
 
