@@ -236,6 +236,7 @@ export class ElectronExternalNavigationBroker {
 export interface VaultBrokerOptions {
   readonly isSenderAuthorized: (sender: SenderIdentity) => boolean;
   readonly trashItem: (absolutePath: string) => Promise<void>;
+  readonly showItemInFolder?: (absolutePath: string) => void | Promise<void>;
   readonly onChange?: (senderId: number, event: PluginVaultChangeEvent) => void;
   readonly watchFactory?: (
     root: string,
@@ -406,6 +407,7 @@ export class ElectronVaultBroker {
   private readonly resources = new Map<string, ResourceRecord>();
   private readonly isSenderAuthorized: VaultBrokerOptions["isSenderAuthorized"];
   private readonly trashItem: VaultBrokerOptions["trashItem"];
+  private readonly revealItem: NonNullable<VaultBrokerOptions["showItemInFolder"]>;
   private readonly onChange?: VaultBrokerOptions["onChange"];
   private readonly watchFactory: NonNullable<VaultBrokerOptions["watchFactory"]>;
   private readonly createOperationId: () => string;
@@ -423,6 +425,7 @@ export class ElectronVaultBroker {
   constructor(options: VaultBrokerOptions) {
     this.isSenderAuthorized = options.isSenderAuthorized;
     this.trashItem = options.trashItem;
+    this.revealItem = options.showItemInFolder ?? (() => undefined);
     this.onChange = options.onChange;
     this.watchFactory = options.watchFactory ?? defaultWatchFactory;
     this.createOperationId = options.operationId ?? randomUUID;
@@ -529,6 +532,21 @@ export class ElectronVaultBroker {
       content: data.toString("utf8"),
       version: contentVersion(data),
     });
+  }
+
+  async showItemInFolder(
+    sender: SenderIdentity,
+    sessionId: VaultSessionId,
+    vaultPath: string,
+  ): Promise<void> {
+    const session = this.requireSession(sender, sessionId);
+    const lease = await this.acquireAuthorizedPathLease(session, vaultPath, false);
+    try {
+      await this.assertLeaseCurrent(lease);
+      await this.revealItem(lease.operationPath);
+    } finally {
+      await lease.parentHandle.close().catch(() => undefined);
+    }
   }
 
   async readBinary(

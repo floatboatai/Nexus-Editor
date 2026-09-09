@@ -115,6 +115,7 @@ function createBridgeHarness() {
   return {
     nexusDemo,
     nexusPlugins,
+    showItemInFolder: vi.fn(async () => ({ ok: true as const })),
     files,
     order,
     emitLegacyVaultChange: () => legacyVaultChanged?.(),
@@ -129,6 +130,7 @@ function installBridgeHarness(
 ): void {
   window.nexusHost = {
     mode,
+    showItemInFolder: harness.showItemInFolder,
     onShutdown: harness.nexusPlugins.host.onShutdown,
     shutdownComplete: harness.nexusPlugins.host.shutdownComplete,
   };
@@ -172,7 +174,7 @@ describe("Electron renderer plugin runtime integration", () => {
 
     app.state.activeFile = "/vault-note.md";
     app.state.filePath = "/vault-note.md";
-    app.state.content = "outside";
+    app.shell.loadDocument("outside");
     const saveButton = Array.from(document.querySelectorAll("button"))
       .find((button) => button.textContent === "Save");
     saveButton?.click();
@@ -193,6 +195,92 @@ describe("Electron renderer plugin runtime integration", () => {
       "unsubscribe-shutdown",
       "shutdown-complete",
     ]);
+  });
+
+  it("saves the current editor buffer with Ctrl+S", async () => {
+    const { boot } = await import("../src/renderer/app");
+    const harness = createBridgeHarness();
+    installBridgeHarness(harness, "legacy");
+    const app = await boot({
+      root: document.getElementById("app")!,
+      featureFlags: { pluginPlatform: false },
+      deferVaultRestore: false,
+    });
+    app.state.activeFile = "/outside.md";
+    app.state.filePath = "/outside.md";
+    app.shell.loadDocument("before");
+    app.shell.editor.setDocument("edited just before save");
+
+    const event = new KeyboardEvent("keydown", {
+      key: "s",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    document.querySelector(".cm-content")?.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    await vi.waitFor(() => {
+      expect(harness.nexusDemo.saveFile).toHaveBeenCalledWith(
+        "/outside.md",
+        "edited just before save",
+      );
+    });
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    expect(app.state.dirty).toBe(false);
+    await app.shutdown();
+  });
+
+  it("reveals a vault item from the legacy context menu without changing the editor", async () => {
+    const { boot } = await import("../src/renderer/app");
+    const harness = createBridgeHarness();
+    installBridgeHarness(harness, "legacy");
+    const app = await boot({
+      root: document.getElementById("app")!,
+      featureFlags: { pluginPlatform: false },
+      deferVaultRestore: false,
+    });
+    await app.openVault("/vault");
+    app.shell.loadDocument("unchanged");
+
+    document.querySelector<HTMLElement>('[data-path="/vault/note.md"]')?.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true }),
+    );
+    const revealButton = Array.from(document.querySelectorAll<HTMLButtonElement>(".nexus-vault-ctxmenu button"))
+      .find((button) => button.textContent === "Show in File Explorer");
+    revealButton?.click();
+
+    await vi.waitFor(() => {
+      expect(harness.showItemInFolder).toHaveBeenCalledWith("/vault/note.md");
+    });
+    expect(app.shell.editor.getDocument()).toBe("unchanged");
+    expect(app.state.dirty).toBe(false);
+    await app.shutdown();
+  });
+
+  it("reveals a runtime Vault item through its authorized session", async () => {
+    const { boot } = await import("../src/renderer/app");
+    const harness = createBridgeHarness();
+    installBridgeHarness(harness, "runtime");
+    const app = await boot({
+      root: document.getElementById("app")!,
+      featureFlags: { pluginPlatform: true },
+      deferVaultRestore: false,
+    });
+    await app.openVault("/vault");
+
+    document.querySelector<HTMLElement>('[data-path="/vault/note.md"]')?.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true }),
+    );
+    await vi.waitFor(() => expect(document.querySelector(".nexus-plugin-menu")).not.toBeNull());
+    const revealButton = Array.from(document.querySelectorAll<HTMLButtonElement>(".nexus-plugin-menu button"))
+      .find((button) => button.textContent === "Show in File Explorer");
+    revealButton?.click();
+
+    await vi.waitFor(() => {
+      expect(harness.showItemInFolder).toHaveBeenCalledWith("note.md", sessionId);
+    });
+    await app.shutdown();
   });
 
   it("boots one runtime owner, synchronizes relative file context, and preserves slot DOM", async () => {
@@ -243,7 +331,16 @@ describe("Electron renderer plugin runtime integration", () => {
     expect(app.runtime?.linkIndex.getBacklinks("folder/other.md")).toMatchObject([
       { sourcePath: "note.md", target: "folder/other" },
     ]);
-    await app.openVaultFile("/vault/folder/other.md");
+    app.shell.editor.focus();
+    document.querySelector(".cm-content")?.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    app.state.content = "unfinished composition";
+    app.state.dirty = true;
+    const openFile = app.openVaultFile("/vault/folder/other.md");
+    await vi.waitFor(() => expect(document.querySelector(".nexus-confirm-dialog")).not.toBeNull());
+    document.querySelector<HTMLButtonElement>('.nexus-confirm-dialog [data-action="discard"]')?.click();
+    await openFile;
+    expect(app.shell.editor.getDocument()).toBe("gamma");
+    expect(document.activeElement).toBe(document.querySelector(".cm-content"));
     expect(harness.nexusPlugins.vault.restore).toHaveBeenCalledTimes(1);
     expect(harness.nexusPlugins.vault.read).not.toHaveBeenCalled();
     expect(harness.nexusDemo.vault.read).not.toHaveBeenCalled();
@@ -259,8 +356,7 @@ describe("Electron renderer plugin runtime integration", () => {
       )?.textContent).toContain("4 words");
     });
 
-    app.state.content = "runtime edit";
-    app.state.dirty = true;
+    app.shell.editor.setDocument("runtime edit");
     const saveButton = Array.from(document.querySelectorAll<HTMLButtonElement>(".toolbar button"))
       .find((button) => button.textContent === "Save");
     saveButton?.click();
@@ -344,6 +440,9 @@ describe("Electron renderer plugin runtime integration", () => {
     await vi.waitFor(() => {
       expect(document.querySelectorAll(".nexus-runtime-settings-panel")).toHaveLength(1);
     });
+    const settingsHeader = document.querySelector<HTMLElement>(".nexus-runtime-settings-dialog > header")!;
+    expect(settingsHeader.style.position).toBe("sticky");
+    expect(settingsHeader.style.top).toBe("0px");
     await vi.waitFor(() => {
       expect(document.querySelector("[data-setting-id='fontSize'] input")).not.toBeNull();
     });
@@ -353,6 +452,33 @@ describe("Electron renderer plugin runtime integration", () => {
     await vi.waitFor(() => {
       expect(JSON.parse(localStorage.getItem("nexus-editor-settings") ?? "{}").fontSize).toBe(19);
     });
+
+    app.shell.editor.setDocument("unsaved language switch");
+    app.state.content = "unsaved language switch";
+    app.state.dirty = true;
+    const locale = document.querySelector<HTMLSelectElement>("[data-setting-id='locale'] select")!;
+    locale.value = "zh-CN";
+    locale.dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.waitFor(() => {
+      expect(document.documentElement.lang).toBe("zh-CN");
+      expect(Array.from(document.querySelectorAll<HTMLButtonElement>(".toolbar button"))
+        .some((button) => button.textContent === "保存")).toBe(true);
+      expect(document.querySelector('[data-ui-action-id="toolbar:undo"]')?.textContent).toBe("撤销");
+      expect(document.querySelector(".nexus-slash-menu")?.getAttribute("aria-label")).toBe("斜杠命令");
+      expect(document.querySelector('[data-ui-action-id="wordcount:document-stats"]')?.textContent)
+        .toContain("个词");
+    });
+    expect(app.shell.editor.getDocument()).toBe("unsaved language switch");
+    expect(app.state.dirty).toBe(true);
+
+    locale.value = "en";
+    locale.dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.waitFor(() => {
+      expect(document.documentElement.lang).toBe("en");
+      expect(JSON.parse(localStorage.getItem("nexus-editor-settings") ?? "{}").locale).toBe("en");
+      expect(document.querySelector('[data-ui-action-id="toolbar:undo"]')?.textContent).toBe("Undo");
+    });
+    expect(app.shell.editor.getDocument()).toBe("unsaved language switch");
     settingsButton?.click();
     expect(document.querySelectorAll(".nexus-runtime-settings-panel")).toHaveLength(1);
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));

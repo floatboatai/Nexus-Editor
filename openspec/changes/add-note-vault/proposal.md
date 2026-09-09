@@ -12,6 +12,7 @@ The electron demo currently only supports opening one file at a time via a file-
 - Persist the last opened vault in `userData/vault.json` and auto-restore on launch.
 - Watch the vault via `fs.watch` (recursive) and refresh the tree on external changes.
 - Dirty-state guard when switching files in the tree.
+- Right-click action to reveal a vault file or folder in the operating system file manager.
 - File-type filter: only `.md`, `.markdown`, `.txt` are shown (and empty parent directories are pruned).
 - Path-escape guard: all file-system IPC validates that the target path resolves inside the active vault.
 - **No changes to `@nexus/core`** — the core editor remains path-agnostic; vault is host-side only.

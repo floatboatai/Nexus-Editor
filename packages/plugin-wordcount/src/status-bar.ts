@@ -65,6 +65,8 @@ export interface StatusBarOptions {
 export interface StatusBarHandle {
   /** Root element of the bar. Useful for portal teleporting or styling. */
   element: HTMLElement;
+  /** Update labels and number formatting without remounting the widget. */
+  setLabels(labels: Partial<WordCountLabels>, locale?: string | string[]): void;
   /** Detach the bar and unsubscribe from the plugin. */
   destroy(): void;
 }
@@ -76,13 +78,14 @@ export interface StatusBarHandle {
  * before re-creating.
  */
 export function createStatusBar(plugin: WordCountAPI, options: StatusBarOptions = {}): StatusBarHandle {
-  const labels: WordCountLabels = { ...defaultStatusBarLabels, ...options.labels };
+  let labels: WordCountLabels = { ...defaultStatusBarLabels, ...options.labels };
   const classPrefix = options.classPrefix ?? "nexus-wordcount";
   const showCharactersNoSpaces = options.showCharactersNoSpaces ?? false;
   const showReadingTime = options.showReadingTime ?? true;
   const showSelection = options.showSelection ?? true;
 
-  const formatter = new Intl.NumberFormat(options.locale);
+  let formatter = new Intl.NumberFormat(options.locale);
+  let currentState: WordCountState | null = null;
 
   const root = document.createElement("div");
   root.className = `${classPrefix}__bar`;
@@ -110,6 +113,7 @@ export function createStatusBar(plugin: WordCountAPI, options: StatusBarOptions 
   container.appendChild(root);
 
   const render = (state: WordCountState): void => {
+    currentState = state;
     renderDoc(state.doc);
     if (selectionSpan) {
       if (state.isSelectionActive) {
@@ -139,6 +143,11 @@ export function createStatusBar(plugin: WordCountAPI, options: StatusBarOptions 
 
   return {
     element: root,
+    setLabels(next, locale) {
+      labels = { ...defaultStatusBarLabels, ...next };
+      formatter = new Intl.NumberFormat(locale);
+      if (currentState) render(currentState);
+    },
     destroy() {
       unsubscribe();
       root.remove();

@@ -1,4 +1,5 @@
 import type { EditorAPI, TocEntry } from "@floatboat/nexus-core";
+import { createI18n, type I18n } from "./i18n";
 
 export interface OutlinePanel {
   element: HTMLElement;
@@ -9,6 +10,7 @@ export interface OutlinePanel {
 const PANEL_STYLES = `
   width: 220px;
   flex-shrink: 0;
+  border-left: 1px solid var(--nexus-border, #eee);
   border-right: 1px solid var(--nexus-border, #eee);
   background: var(--nexus-bg, #fff);
   overflow-y: auto;
@@ -19,7 +21,11 @@ const PANEL_STYLES = `
 `;
 
 const HEADER_STYLES = `
-  padding: 10px 14px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -60,14 +66,13 @@ const EMPTY_STYLES = `
   font-style: italic;
 `;
 
-export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
+export function createOutlinePanel(editor: EditorAPI, i18n: I18n = createI18n()): OutlinePanel {
   const panel = document.createElement("div");
   panel.className = "nexus-outline-panel";
   panel.style.cssText = PANEL_STYLES;
 
   const header = document.createElement("div");
   header.style.cssText = HEADER_STYLES;
-  header.textContent = "Outline";
 
   const list = document.createElement("div");
   list.style.cssText = LIST_STYLES;
@@ -80,7 +85,7 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
     if (entries.length === 0) {
       const empty = document.createElement("div");
       empty.style.cssText = EMPTY_STYLES;
-      empty.textContent = "No headings";
+      empty.textContent = i18n.t("outline.empty");
       list.appendChild(empty);
       return;
     }
@@ -111,18 +116,21 @@ export function createOutlinePanel(editor: EditorAPI): OutlinePanel {
   }
 
   function update() {
+    header.textContent = i18n.t("outline.title");
     renderItems(editor.getTableOfContents());
   }
 
   // Initial render + listen for changes
   update();
   editor.on("change", update);
+  const unsubscribeLocale = i18n.subscribe(update);
 
   return {
     element: panel,
     update,
     destroy() {
       editor.off("change", update);
+      unsubscribeLocale();
       panel.remove();
     },
   };

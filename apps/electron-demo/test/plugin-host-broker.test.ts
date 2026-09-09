@@ -67,6 +67,7 @@ async function fixtureVault(): Promise<{ root: string; outside: string }> {
 function createBroker(options: {
   events?: PluginVaultChangeEvent[];
   trashItem?: (absolutePath: string) => Promise<void>;
+  showItemInFolder?: (absolutePath: string) => void | Promise<void>;
   watch?: ReturnType<typeof watchHarness>;
   now?: () => number;
   statPath?: VaultBrokerOptions["statPath"];
@@ -79,6 +80,7 @@ function createBroker(options: {
   return new ElectronVaultBroker({
     isSenderAuthorized: (candidate) => candidate.url === "app://nexus/index.html" && [7, 8].includes(candidate.id),
     trashItem: options.trashItem ?? (async () => undefined),
+    showItemInFolder: options.showItemInFolder,
     watchFactory: options.watch?.factory ?? (() => ({ close() {} })),
     onChange: (_senderId, event) => options.events?.push(event),
     sessionId: () => `11111111-1111-4111-8111-${String(++sessionCounter).padStart(12, "0")}`,
@@ -243,6 +245,19 @@ describe("ElectronExternalNavigationBroker", () => {
 });
 
 describe("ElectronVaultBroker", () => {
+  it("reveals only a path authorized by the owning Vault session", async () => {
+    const { root } = await fixtureVault();
+    const showItemInFolder = vi.fn();
+    const broker = createBroker({ showItemInFolder });
+    const session = await broker.openSession(sender, root);
+
+    await broker.showItemInFolder(sender, session.sessionId, "Notes/A.md");
+    expect(showItemInFolder).toHaveBeenCalledWith(await realpath(path.join(root, "Notes", "A.md")));
+    await expect(broker.showItemInFolder(sender, session.sessionId, "../outside/secret.md"))
+      .rejects.toMatchObject({ code: "vault-path-invalid" });
+    expect(showItemInFolder).toHaveBeenCalledTimes(1);
+  });
+
   it("does not publish a session or watcher when its sender closes during stat", async () => {
     const { root } = await fixtureVault();
     const waitingStat = deferred<Awaited<ReturnType<typeof stat>>>();

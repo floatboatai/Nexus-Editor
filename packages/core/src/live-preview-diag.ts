@@ -89,7 +89,7 @@ function auditWidgets(view: EditorView): WidgetSample[] {
     [".nexus-table-wrapper", "table"],
     ["[data-live-preview-image]", "image"],
     ["blockquote", "blockquote"],
-    ["hr", "hr"],
+    ["hr, [data-live-preview-hr]", "hr"],
     [".cm-line[role='code']", "codeFence"],
     [".cm-line[aria-level]", "heading"],
   ];

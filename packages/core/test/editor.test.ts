@@ -35,6 +35,17 @@ describe("createEditor", () => {
     expect(container.querySelector(".cm-editor")).toBeNull();
   });
 
+  it("soft-wraps long lines without changing the markdown document", () => {
+    const container = document.createElement("div");
+    const markdown = "a".repeat(200);
+    const editor = createEditor({ container, initialValue: markdown });
+
+    expect(container.querySelector(".cm-content")?.classList.contains("cm-lineWrapping")).toBe(true);
+    expect(editor.getDocument()).toBe(markdown);
+
+    editor.destroy();
+  });
+
   it("can create a read-only editor without host-provided CodeMirror extensions", () => {
     const container = document.createElement("div");
     const editor = createEditor({ container, initialValue: "# Hello", readOnly: true });
@@ -657,6 +668,8 @@ describe("createEditor — composition-safe setDocument", () => {
     });
     const view = requireEditorView(capturedView);
 
+    document.body.append(container);
+    editor.focus();
     expect(editor.isComposing()).toBe(false);
     view.contentDOM.dispatchEvent(new Event("compositionstart", { bubbles: true }));
     expect(editor.isComposing()).toBe(true);
@@ -675,6 +688,8 @@ describe("createEditor — composition-safe setDocument", () => {
     });
     const view = requireEditorView(capturedView);
 
+    document.body.append(container);
+    editor.focus();
     view.contentDOM.dispatchEvent(new Event("compositionstart", { bubbles: true }));
     // 组合输入中宿主回灌文档：必须被推迟，不能整文档替换打断 IME。
     editor.setDocument("external load", { silent: true });
@@ -684,6 +699,27 @@ describe("createEditor — composition-safe setDocument", () => {
     // 组合输入结束后才应用被推迟的回灌。
     expect(editor.getDocument()).toBe("external load");
     editor.destroy();
+  });
+
+  it("applies an external document load after a composing editor loses focus", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    let capturedView: EditorView | null = null;
+    const editor = createEditor({
+      container,
+      initialValue: "unsaved draft",
+      plugins: [{ name: "capture", cmExtensions: [captureViewPlugin((view) => (capturedView = view))] }],
+    });
+    const view = requireEditorView(capturedView);
+
+    editor.focus();
+    view.contentDOM.dispatchEvent(new Event("compositionstart", { bubbles: true }));
+    editor.blur();
+    editor.setDocument("other file", { silent: true });
+
+    expect(editor.getDocument()).toBe("other file");
+    editor.destroy();
+    container.remove();
   });
 
   it("keeps deferred setDocument selection options after IME composition ends", () => {
@@ -696,6 +732,8 @@ describe("createEditor — composition-safe setDocument", () => {
     });
     const view = requireEditorView(capturedView);
 
+    document.body.append(container);
+    editor.focus();
     editor.setSelection(6, 11);
     view.contentDOM.dispatchEvent(new Event("compositionstart", { bubbles: true }));
     editor.setDocument("hello nexus", { silent: true, preserveSelection: true });
@@ -719,6 +757,8 @@ describe("createEditor — composition-safe setDocument", () => {
     });
     const view = requireEditorView(capturedView);
 
+    document.body.append(container);
+    editor.focus();
     editor.setSelection(5, 9);
     view.contentDOM.dispatchEvent(new Event("compositionstart", { bubbles: true }));
     editor.setDocument("first", { preserveSelection: true });
@@ -747,6 +787,8 @@ describe("createEditor — composition-safe setDocument", () => {
     });
     const view = requireEditorView(capturedView);
 
+    document.body.append(container);
+    editor.focus();
     view.contentDOM.dispatchEvent(new Event("compositionstart", { bubbles: true }));
     view.dispatch({ changes: { from: 0, insert: "你好" }, userEvent: "input.type.compose" });
     expect(editor.getDocument()).toBe("你好");

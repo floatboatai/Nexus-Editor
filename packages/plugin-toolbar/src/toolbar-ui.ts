@@ -54,10 +54,12 @@ export interface ToolbarGroup {
 export interface ToolbarUIOptions {
   groups?: ToolbarGroup[];
   onFullscreen?: () => void;
+  labels?: Readonly<Record<string, string>>;
 }
 
 export interface ToolbarUI {
   element: HTMLElement;
+  setLabels(labels: Readonly<Record<string, string>>): void;
   destroy(): void;
 }
 
@@ -87,6 +89,19 @@ function positionToolbarTooltip(button: HTMLElement, tooltip: HTMLElement): void
 function installToolbarTooltip(button: HTMLButtonElement): () => void {
   const tooltip = document.createElement("div");
   tooltip.className = "nexus-toolbar-tooltip";
+  tooltip.style.cssText = `
+    position: fixed;
+    z-index: 10000;
+    pointer-events: none;
+    transform: translateX(-50%);
+    padding: 4px 7px;
+    border-radius: 4px;
+    background: var(--nexus-tooltip-bg, #24292e);
+    color: var(--nexus-tooltip-text, #fff);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+    font: 12px/1.4 system-ui, -apple-system, sans-serif;
+    white-space: nowrap;
+  `;
   tooltip.id = `nexus-toolbar-tooltip-${++tooltipId}`;
   tooltip.setAttribute("role", "tooltip");
   button.setAttribute("aria-describedby", tooltip.id);
@@ -192,7 +207,9 @@ const TOOLBAR_STYLES = `
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 6px 12px;
+  height: 36px;
+  min-height: 36px;
+  padding: 4px 8px;
   background: var(--nexus-bg-subtle, #f6f8fa);
   border-bottom: 1px solid var(--nexus-border, #eee);
   user-select: none;
@@ -205,10 +222,10 @@ const BUTTON_STYLES = `
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   border: none;
-  border-radius: 4px;
+  border-radius: 5px;
   background: transparent;
   color: var(--nexus-text-muted, #888);
   cursor: pointer;
@@ -257,6 +274,7 @@ function showHeadingDropdown(
   editor: EditorAPI,
   anchorBtn: HTMLElement,
   onClose: () => void,
+  labels: Readonly<Record<string, string>>,
 ): { destroy: () => void } {
   const menu = document.createElement("div");
   menu.className = "nexus-toolbar-dropdown";
@@ -268,13 +286,13 @@ function showHeadingDropdown(
   menu.style.left = rect.left + "px";
 
   const levels = [
-    { level: 1, label: "Heading 1", fontSize: "17px", fontWeight: "700" },
-    { level: 2, label: "Heading 2", fontSize: "15px", fontWeight: "700" },
-    { level: 3, label: "Heading 3", fontSize: "14px", fontWeight: "600" },
-    { level: 4, label: "Heading 4", fontSize: "13px", fontWeight: "600" },
-    { level: 5, label: "Heading 5", fontSize: "13px", fontWeight: "500" },
-    { level: 6, label: "Heading 6", fontSize: "12px", fontWeight: "500" },
-    { level: 0, label: "Normal text", fontSize: "13px", fontWeight: "400" },
+    { level: 1, label: labels.h1 ?? "Heading 1", fontSize: "17px", fontWeight: "700" },
+    { level: 2, label: labels.h2 ?? "Heading 2", fontSize: "15px", fontWeight: "700" },
+    { level: 3, label: labels.h3 ?? "Heading 3", fontSize: "14px", fontWeight: "600" },
+    { level: 4, label: labels.h4 ?? "Heading 4", fontSize: "13px", fontWeight: "600" },
+    { level: 5, label: labels.h5 ?? "Heading 5", fontSize: "13px", fontWeight: "500" },
+    { level: 6, label: labels.h6 ?? "Heading 6", fontSize: "12px", fontWeight: "500" },
+    { level: 0, label: labels["normal-text"] ?? "Normal text", fontSize: "13px", fontWeight: "400" },
   ];
 
   const itemCleanups: Array<() => void> = [];
@@ -445,6 +463,7 @@ const DROPDOWN_IDS = new Set(["heading-menu", "text-color", "highlight"]);
 
 export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): ToolbarUI {
   const groups = options?.groups ?? defaultGroups(options);
+  let labels = { ...options?.labels };
   const toolbar = document.createElement("div");
   toolbar.className = "nexus-toolbar";
   toolbar.setAttribute("role", "toolbar");
@@ -483,11 +502,12 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
     }
 
     for (const btn of group.buttons) {
+      const title = labels[btn.id] ?? btn.title;
       const button = document.createElement("button");
       button.className = "nexus-toolbar-btn";
       button.dataset.toolbarAction = btn.id;
-      button.dataset.toolbarTooltip = btn.title;
-      button.setAttribute("aria-label", btn.title);
+      button.dataset.toolbarTooltip = title;
+      button.setAttribute("aria-label", title);
       button.type = "button";
       button.tabIndex = -1;
       button.style.cssText = BUTTON_STYLES;
@@ -505,7 +525,7 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
           if (activeDropdown) { closeDropdown(); return; }
 
           if (btn.id === "heading-menu") {
-            activeDropdown = showHeadingDropdown(editor, button, closeDropdown);
+            activeDropdown = showHeadingDropdown(editor, button, closeDropdown, labels);
           } else if (btn.id === "text-color") {
             activeDropdown = showColorPicker(editor, button, COLOR_PALETTE, applyTextColor, closeDropdown);
           } else if (btn.id === "highlight") {
@@ -562,6 +582,17 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
 
   return {
     element: toolbar,
+    setLabels(next) {
+      labels = { ...next };
+      closeDropdown();
+      for (const button of Array.from(toolbar.querySelectorAll<HTMLButtonElement>("[data-toolbar-action]"))) {
+        const id = button.dataset.toolbarAction ?? "";
+        const fallback = groups.flatMap((group) => group.buttons).find((item) => item.id === id)?.title ?? id;
+        const title = labels[id] ?? fallback;
+        button.dataset.toolbarTooltip = title;
+        button.setAttribute("aria-label", title);
+      }
+    },
     destroy() {
       closeDropdown();
       for (const fn of cleanupFns) fn();

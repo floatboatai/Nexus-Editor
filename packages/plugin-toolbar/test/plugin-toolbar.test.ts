@@ -487,6 +487,9 @@ describe("createToolbarUI", () => {
     const tooltip = document.getElementById(button?.getAttribute("aria-describedby") ?? "");
     expect(tooltip?.getAttribute("role")).toBe("tooltip");
     expect(tooltip?.textContent).toBe("Unordered list");
+    expect(tooltip?.style.position).toBe("fixed");
+    expect(tooltip?.style.fontSize).toBe("12px");
+    expect(tooltip?.style.background).not.toBe("");
 
     button?.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }));
     expect(document.getElementById(button?.getAttribute("aria-describedby") ?? "")).toBeNull();

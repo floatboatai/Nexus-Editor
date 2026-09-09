@@ -15,10 +15,14 @@ import {
 
 import { countMarkdown, type WordCountOptions, type WordCountStats } from "./count";
 import type { Unsubscribe, WordCountState } from "./plugin";
+import { defaultStatusBarLabels, type WordCountLabels } from "./status-bar";
 
 export interface WordCountLifecyclePluginOptions extends WordCountOptions {
   /** Full-document recompute delay. Selection changes remain synchronous. */
   readonly debounceMs?: number;
+  readonly labels?: Partial<WordCountLabels>;
+  readonly locale?: string | string[];
+  readonly summaryLabel?: string;
 }
 
 export interface EditorWordCountState extends WordCountState {
@@ -173,6 +177,9 @@ export class WordCountLifecyclePlugin extends NexusPluginBase {
   private readonly countOptions: WordCountOptions;
   private editors: EditorHostService | null = null;
   private recentWindowId: WindowId | null = null;
+  private labels: WordCountLabels;
+  private formatter: Intl.NumberFormat;
+  private summaryLabel: string;
 
   constructor(
     app: NexusApp,
@@ -186,6 +193,20 @@ export class WordCountLifecyclePlugin extends NexusPluginBase {
       exclude: options.exclude,
       readingSpeed: options.readingSpeed,
     };
+    this.labels = { ...defaultStatusBarLabels, ...options.labels };
+    this.formatter = new Intl.NumberFormat(options.locale);
+    this.summaryLabel = options.summaryLabel ?? "Document statistics";
+  }
+
+  setLabels(
+    labels: Partial<WordCountLabels>,
+    locale?: string | string[],
+    summaryLabel = "Document statistics",
+  ): void {
+    this.labels = { ...defaultStatusBarLabels, ...labels };
+    this.formatter = new Intl.NumberFormat(locale);
+    this.summaryLabel = summaryLabel;
+    for (const [windowId] of this.statusRegistrations) this.refreshWindowStatus(windowId);
   }
 
   override async onload(): Promise<void> {
@@ -292,9 +313,9 @@ export class WordCountLifecyclePlugin extends NexusPluginBase {
     if (!ui) return;
     const result = ui.registerAction("status-bar", {
       id: "document-stats",
-      label: "0 words, 0 chars",
-      ariaLabel: "Document statistics: 0 words, 0 characters",
-      tooltip: "Document statistics",
+      label: `0 ${this.labels.words}, 0 ${this.labels.characters}`,
+      ariaLabel: `${this.summaryLabel}: 0 ${this.labels.words}, 0 ${this.labels.characters}`,
+      tooltip: this.summaryLabel,
       visible: () => this.hasBindingInWindow(window.id),
       action: () => undefined,
     });
@@ -325,13 +346,17 @@ export class WordCountLifecyclePlugin extends NexusPluginBase {
       return;
     }
     const state = target.state;
+    const selectedLabel = this.labels.selection === defaultStatusBarLabels.selection
+      ? "selected"
+      : this.labels.selection;
     const selection = state.isSelectionActive
-      ? `; selected ${state.selection.words} words, ${state.selection.characters} chars`
+      ? `; ${selectedLabel} ${this.formatter.format(state.selection.words)} ${this.labels.words}, ${this.formatter.format(state.selection.characters)} ${this.labels.characters}`
       : "";
-    const label = `${state.doc.words} words, ${state.doc.characters} chars${selection}`;
+    const label = `${this.formatter.format(state.doc.words)} ${this.labels.words}, ${this.formatter.format(state.doc.characters)} ${this.labels.characters}${selection}`;
     const result = registration.update({
       label,
-      ariaLabel: `Document statistics: ${label}`,
+      ariaLabel: `${this.summaryLabel}: ${label}`,
+      tooltip: this.summaryLabel,
     });
     if (!result.ok) this.app.diagnostics.report(result.diagnostic);
   }

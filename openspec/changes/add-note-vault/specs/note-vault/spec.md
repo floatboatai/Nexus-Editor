@@ -105,6 +105,20 @@ The electron demo SHALL send deleted vault items to the OS trash rather than har
 - **THEN** the error is surfaced in the status line
 - **AND** the file is NOT hard-deleted as a silent fallback
 
+### Requirement: Reveal in File Manager
+
+The electron demo SHALL provide a localized vault context-menu action that asks the operating system file manager to reveal the selected file or folder without changing the active editor document.
+
+#### Scenario: Reveal a vault file
+- **WHEN** the user selects "Show in File Explorer" from a vault file's context menu
+- **THEN** the host opens the file's containing folder and reveals the selected file
+- **AND** the editor document and dirty state remain unchanged
+
+#### Scenario: Reject a path outside the active vault
+- **WHEN** a reveal request targets a path outside the authorized vault session
+- **THEN** the host rejects the request
+- **AND** the operating system file manager is not opened
+
 ### Requirement: External Change Watching
 
 The electron demo SHALL watch the active vault directory and refresh the tree when files are added, renamed, or removed by external tools.

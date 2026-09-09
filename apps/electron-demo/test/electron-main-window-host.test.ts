@@ -6,6 +6,7 @@ const electronHarness = vi.hoisted(() => ({
   quit: vi.fn(),
   showOpenDialog: vi.fn(),
   showSaveDialog: vi.fn(),
+  openPath: vi.fn(async () => ""),
   sessions: [] as Array<{
     readonly partition: string;
     readonly handledSchemes: Set<string>;
@@ -140,6 +141,7 @@ vi.mock("electron", () => {
     },
     shell: {
       openExternal: vi.fn(),
+      openPath: electronHarness.openPath,
       trashItem: vi.fn(),
     },
   };
@@ -156,6 +158,7 @@ describe("Electron main window host", () => {
     electronHarness.quit.mockReset();
     electronHarness.showOpenDialog.mockReset();
     electronHarness.showSaveDialog.mockReset();
+    electronHarness.openPath.mockClear();
     process.env.VITE_DEV_SERVER_URL = "http://trusted.local";
   });
 

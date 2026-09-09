@@ -28,9 +28,11 @@
 - [x] 4.7 Subscribe to `vault:changed`, debounced re-list
 - [x] 4.8 On boot: restore last vault and re-open last active file if present
 - [x] 4.9 Integrate into `app.ts` layout (Vault button + panel placement)
+- [x] 4.10 Add a localized context-menu action that reveals a vault item in the OS file manager
 
 ## 5. Verify
 - [x] 5.1 `pnpm --filter @nexus/electron-demo build` passes
 - [x] 5.2 `pnpm -w run test` passes (135/135, no regressions)
 - [x] 5.3 `openspec validate add-note-vault --strict` passes
 - [ ] 5.4 Manual end-to-end smoke test covering all scenarios in the spec (to be performed by user in electron UI)
+- [x] 5.5 Add regression coverage for the reveal action and Ctrl/Cmd+S saving the current editor buffer

@@ -438,7 +438,7 @@ describe("live preview", () => {
     editor.destroy();
   });
 
-  it("renders thematic break as hr element", () => {
+  it("renders thematic break without replacing its editable source line", () => {
     const container = document.createElement("div");
     const editor = createEditor({
       container,
@@ -446,7 +446,8 @@ describe("live preview", () => {
       livePreview: true
     });
 
-    expect(container.querySelector("hr")).not.toBeNull();
+    expect(container.querySelector("[data-live-preview-hr='true']")?.getAttribute("role")).toBe("separator");
+    expect(container.querySelector("hr")).toBeNull();
     editor.destroy();
   });
 

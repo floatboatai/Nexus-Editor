@@ -163,6 +163,63 @@ describe("live preview regressions", () => {
     editor.destroy();
   });
 
+  it("keeps an empty bold auto-pair editable instead of rendering it as a thematic break", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "****",
+      livePreview: true,
+    });
+
+    editor.setSelection(2);
+    expect(container.querySelector("hr")).toBeNull();
+    expect(container.textContent).toContain("****");
+
+    editor.replaceSelection("bold");
+    expect(editor.getDocument()).toBe("**bold**");
+    expect(container.querySelector("hr")).toBeNull();
+    editor.destroy();
+  });
+
+  it("keeps the end of a thematic break editable so Enter can create text below it", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "---",
+      livePreview: true,
+    });
+
+    editor.setSelection(3);
+    expect(container.querySelector("hr")).toBeNull();
+
+    editor.replaceSelection("\n");
+    editor.replaceSelection("below");
+    expect(editor.getDocument()).toBe("---\nbelow");
+    expect(container.querySelector("[data-live-preview-hr='true']")).not.toBeNull();
+    expect(container.querySelector("hr")).toBeNull();
+    expect(container.textContent).toContain("below");
+    editor.destroy();
+  });
+
+  it("keeps thematic-break source navigable and deletable", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "above\n\n---\n\nbelow",
+      livePreview: true,
+    });
+
+    editor.setSelection(editor.getDocument().length);
+    expect(container.querySelector("[data-live-preview-hr='true']")).not.toBeNull();
+    expect(container.querySelector("hr")).toBeNull();
+
+    editor.setSelection(9, 10);
+    editor.replaceSelection("");
+    expect(editor.getDocument()).toBe("above\n\n--\n\nbelow");
+    expect(container.textContent).toContain("--");
+    editor.destroy();
+  });
+
   // Copy button must be present and stable on every fenced code block, regardless of
   // cursor position. Toggling it would re-create the heightmap instability that the
   // previous ::after-based language label caused (commit b2f1a31).

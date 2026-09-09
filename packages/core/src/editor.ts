@@ -704,6 +704,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
         // steps will switch the decoration handlers over to read from this
         // tree and remove the mdast worker round-trip.
         createMarkdownLanguageSupport(),
+        EditorView.lineWrapping,
         lineNumbers(),
         themeExt.extension,
         tabSizeExt,
@@ -775,6 +776,8 @@ export function createEditor(config: EditorConfig): EditorAPI {
   // / silent setDocument can read the live incremental Lezer tree.
   viewRef.current = view;
   lastMarkdownTransformRevision = getMarkdownTransformRevision(view.state);
+  const hasActiveComposition = () =>
+    view.hasFocus && (composing || view.composing || view.compositionStarted);
 
   api = {
     getDocument() {
@@ -861,13 +864,26 @@ export function createEditor(config: EditorConfig): EditorAPI {
 
       // 组合输入（IME）进行中：整文档替换会打断输入法、丢失合成中文字并把视口重置到顶部。
       // 推迟到 compositionend 再应用，只保留最后一次请求。
-      if (composing || view.composing || view.compositionStarted) {
+      if (hasActiveComposition()) {
         pendingDocumentLoad = { next, opts };
         debugNexus("setDocument-deferred-composing", {
           silent: opts?.silent === true,
           nextLength: next.length,
         });
         return;
+      }
+
+      // A native dialog or an outside click can take focus before Chromium
+      // delivers compositionend. Do not let that stale IME state block a
+      // confirmed file switch and its contribution reconfiguration.
+      if (composing || view.composing || view.compositionStarted) {
+        composing = false;
+        pendingCompositionMarkdown = null;
+        if (compositionFlushTimer) {
+          clearTimeout(compositionFlushTimer);
+          compositionFlushTimer = undefined;
+        }
+        view.contentDOM.dispatchEvent(new Event("compositionend", { bubbles: true }));
       }
 
       performSetDocument(next, opts);
@@ -945,7 +961,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
     },
     isComposing() {
       if (destroyed) return false;
-      return composing || view.composing || view.compositionStarted;
+      return hasActiveComposition();
     },
     on(event, handler) {
       emitter.on(event, handler);

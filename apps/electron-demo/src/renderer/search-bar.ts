@@ -1,5 +1,6 @@
 import type { EditorAPI } from "@floatboat/nexus-core";
 import { findSearchMatches, replaceAllMatches } from "@floatboat/nexus-plugin-search";
+import { createI18n, type I18n } from "./i18n";
 
 export interface SearchBar {
   element: HTMLElement;
@@ -62,7 +63,7 @@ const CLOSE_BTN_STYLES = `
   line-height: 1;
 `;
 
-export function createSearchBar(editor: EditorAPI): SearchBar {
+export function createSearchBar(editor: EditorAPI, i18n: I18n = createI18n()): SearchBar {
   const bar = document.createElement("div");
   bar.className = "nexus-search-bar";
   bar.style.cssText = BAR_STYLES;
@@ -70,34 +71,27 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   // Find input
   const findInput = document.createElement("input");
   findInput.type = "text";
-  findInput.placeholder = "Find...";
   findInput.style.cssText = INPUT_STYLES;
 
   // Replace input
   const replaceInput = document.createElement("input");
   replaceInput.type = "text";
-  replaceInput.placeholder = "Replace...";
   replaceInput.style.cssText = INPUT_STYLES;
   replaceInput.style.width = "160px";
 
   // Buttons
   const prevBtn = document.createElement("button");
   prevBtn.textContent = "\u2191"; // ↑
-  prevBtn.title = "Previous match";
   prevBtn.style.cssText = BTN_STYLES;
 
   const nextBtn = document.createElement("button");
   nextBtn.textContent = "\u2193"; // ↓
-  nextBtn.title = "Next match";
   nextBtn.style.cssText = BTN_STYLES;
 
   const replaceBtn = document.createElement("button");
-  replaceBtn.textContent = "Replace";
   replaceBtn.style.cssText = BTN_STYLES;
 
   const replaceAllBtn = document.createElement("button");
-  replaceAllBtn.textContent = "All";
-  replaceAllBtn.title = "Replace all";
   replaceAllBtn.style.cssText = BTN_STYLES;
 
   // Count label
@@ -107,7 +101,6 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
   // Close
   const closeBtn = document.createElement("button");
   closeBtn.innerHTML = "&times;";
-  closeBtn.title = "Close (Esc)";
   closeBtn.style.cssText = CLOSE_BTN_STYLES;
 
   const spacer = document.createElement("div");
@@ -132,7 +125,7 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     matches = findSearchMatches(doc, query);
     if (matches.length === 0) {
       currentIdx = -1;
-      countLabel.textContent = "0 results";
+      countLabel.textContent = i18n.t("search.noResults");
     } else {
       // Find nearest match to current cursor
       const { anchor } = editor.getSelection();
@@ -228,12 +221,30 @@ export function createSearchBar(editor: EditorAPI): SearchBar {
     editor.focus();
   }
 
+  const renderLabels = () => {
+    findInput.placeholder = i18n.t("search.find");
+    replaceInput.placeholder = i18n.t("search.replacePlaceholder");
+    prevBtn.title = i18n.t("search.previous");
+    prevBtn.setAttribute("aria-label", i18n.t("search.previous"));
+    nextBtn.title = i18n.t("search.next");
+    nextBtn.setAttribute("aria-label", i18n.t("search.next"));
+    replaceBtn.textContent = i18n.t("search.replace");
+    replaceAllBtn.textContent = i18n.t("search.all");
+    replaceAllBtn.title = i18n.t("search.replaceAll");
+    closeBtn.title = i18n.t("search.close");
+    closeBtn.setAttribute("aria-label", i18n.t("search.close"));
+    updateMatches();
+  };
+  renderLabels();
+  const unsubscribeLocale = i18n.subscribe(renderLabels);
+
   return {
     element: bar,
     open,
     close,
     isOpen: () => visible,
     destroy() {
+      unsubscribeLocale();
       close();
       bar.remove();
     },

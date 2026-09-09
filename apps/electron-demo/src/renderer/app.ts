@@ -36,11 +36,20 @@ import {
 import {
   ElectronRuntimeProductUiAdapter,
 } from "./runtime-product-ui-adapter";
+import {
+  createI18n,
+  normalizeLocale,
+  slashCommandLabels,
+  toolbarLabels,
+  wordCountLabels,
+  type MessageKey,
+} from "./i18n";
 
 installLongTaskWatch(50);
 
 const state: AppState = createState();
 let settings: EditorSettings = loadSettings();
+const i18n = createI18n(settings.locale);
 let shell: EditorShell;
 let outline: OutlinePanel;
 let searchBar: SearchBar;
@@ -59,6 +68,7 @@ let deferredRestoreTimeout: ReturnType<typeof setTimeout> | null = null;
 const deferredRestoreFrames = new Set<number>();
 const settingsPanels = new Set<{ destroy(): void }>();
 let removeRuntimeSettingsListeners: (() => void) | null = null;
+let removeAppLocaleListener: (() => void) | null = null;
 
 let linkIndex: LinkIndexReader | null = null;
 let legacyLinkIndex: LinkIndex | null = null;
@@ -155,55 +165,45 @@ function createAppToolbar(): HTMLElement {
   toolbar.className = "toolbar";
 
   const vaultBtn = document.createElement("button");
-  vaultBtn.textContent = "Vault";
-  vaultBtn.title = "Open a folder as a vault";
   vaultBtn.addEventListener("click", () => {
     void vault.promptPickVault();
   });
 
   const openBtn = document.createElement("button");
-  openBtn.textContent = "Open";
   openBtn.addEventListener("click", handleOpen);
 
   const saveBtn = document.createElement("button");
-  saveBtn.textContent = "Save";
   saveBtn.addEventListener("click", handleSave);
 
   const saveAsBtn = document.createElement("button");
-  saveAsBtn.textContent = "Save As";
   saveAsBtn.addEventListener("click", handleSaveAs);
 
   const spacer = document.createElement("div");
   spacer.style.flex = "1";
 
   const vaultToggleBtn = document.createElement("button");
+  vaultToggleBtn.className = "toolbar__icon-button";
   vaultToggleBtn.textContent = "\uD83D\uDCD1"; // 📑
-  vaultToggleBtn.title = "Toggle vault panel";
-  vaultToggleBtn.style.fontSize = "14px";
   vaultToggleBtn.addEventListener("click", toggleVault);
 
   const outlineBtn = document.createElement("button");
+  outlineBtn.className = "toolbar__icon-button";
   outlineBtn.textContent = "\u2630"; // ☰
-  outlineBtn.title = "Toggle outline";
-  outlineBtn.style.fontSize = "14px";
   outlineBtn.addEventListener("click", toggleOutline);
 
   const backlinksBtn = document.createElement("button");
+  backlinksBtn.className = "toolbar__icon-button";
   backlinksBtn.textContent = "\uD83D\uDD17"; // 🔗
-  backlinksBtn.title = "Toggle backlinks panel";
-  backlinksBtn.style.fontSize = "14px";
   backlinksBtn.addEventListener("click", toggleBacklinks);
 
   const searchBtn = document.createElement("button");
+  searchBtn.className = "toolbar__icon-button";
   searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
-  searchBtn.title = "Search (Ctrl+F)";
-  searchBtn.style.fontSize = "14px";
   searchBtn.addEventListener("click", () => searchBar.open());
 
   const settingsBtn = document.createElement("button");
+  settingsBtn.className = "toolbar__icon-button";
   settingsBtn.textContent = "\u2699"; // ⚙
-  settingsBtn.title = "Settings";
-  settingsBtn.style.fontSize = "16px";
   settingsBtn.addEventListener("click", handleSettings);
 
   toolbar.append(
@@ -218,6 +218,24 @@ function createAppToolbar(): HTMLElement {
     searchBtn,
     settingsBtn
   );
+  const renderLabels = () => {
+    vaultBtn.textContent = i18n.t("app.vault");
+    vaultBtn.title = i18n.t("app.openVault");
+    openBtn.textContent = i18n.t("app.open");
+    saveBtn.textContent = i18n.t("app.save");
+    saveAsBtn.textContent = i18n.t("app.saveAs");
+    vaultToggleBtn.title = i18n.t("app.toggleVault");
+    outlineBtn.title = i18n.t("app.toggleOutline");
+    backlinksBtn.title = i18n.t("app.toggleBacklinks");
+    searchBtn.title = i18n.t("app.search");
+    settingsBtn.title = i18n.t("app.settings");
+    for (const button of [vaultToggleBtn, outlineBtn, backlinksBtn, searchBtn, settingsBtn]) {
+      button.setAttribute("aria-label", button.title);
+    }
+  };
+  renderLabels();
+  removeAppLocaleListener?.();
+  removeAppLocaleListener = i18n.subscribe(renderLabels);
   return toolbar;
 }
 
@@ -252,21 +270,64 @@ function createStatusLine(statusBarSlot: HTMLElement): HTMLElement {
 function renderStatus(): void {
   if (!statusText?.isConnected) return;
 
-  const pathLabel = state.activeFile ?? state.filePath ?? "Untitled";
-  const dirtyMark = state.dirty ? " [modified]" : "";
+  const pathLabel = state.activeFile ?? state.filePath ?? i18n.t("status.untitled");
+  const dirtyMark = state.dirty ? ` [${i18n.t("status.modified")}]` : "";
   // Runtime word-count owns document statistics through the status-bar slot.
   const stats = pluginOwnsDocumentStats ? null : shell?.editor.getDocumentStats();
-  const statsText = stats ? ` | ${stats.words} words, ${stats.lines} lines` : "";
-  const vaultLabel = state.vaultPath
-    ? ` | Vault: ${state.vaultPath.split(/[\\/]/).pop()}`
+  const statsText = stats
+    ? ` | ${i18n.t("status.words", { count: stats.words })}, ${i18n.t("status.lines", { count: stats.lines })}`
     : "";
-  const errorText = state.error ? ` — Error: ${state.error}` : "";
+  const vaultLabel = state.vaultPath
+    ? ` | ${i18n.t("status.vault", { name: state.vaultPath.split(/[\\/]/).pop() ?? "" })}`
+    : "";
+  const errorText = state.error ? ` — ${i18n.t("status.error", { message: state.error })}` : "";
   statusText.textContent = `${pathLabel}${dirtyMark}${statsText}${vaultLabel}${errorText}`;
 }
 
 async function confirmDiscardIfDirty(): Promise<boolean> {
   if (!state.dirty) return true;
-  return window.confirm("You have unsaved changes. Discard them and switch files?");
+  return new Promise((resolve) => {
+    const dialog = document.createElement("dialog");
+    dialog.className = "nexus-confirm-dialog";
+    dialog.setAttribute("aria-labelledby", "nexus-confirm-title");
+    dialog.setAttribute("aria-describedby", "nexus-confirm-message");
+
+    const title = document.createElement("h2");
+    title.id = "nexus-confirm-title";
+    title.textContent = i18n.t("confirm.discardTitle");
+    const message = document.createElement("p");
+    message.id = "nexus-confirm-message";
+    message.textContent = i18n.t("confirm.unsaved");
+    const actions = document.createElement("div");
+    actions.className = "nexus-confirm-dialog__actions";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = i18n.t("confirm.cancel");
+    const discard = document.createElement("button");
+    discard.type = "button";
+    discard.dataset.action = "discard";
+    discard.textContent = i18n.t("confirm.discard");
+    actions.append(cancel, discard);
+    dialog.append(title, message, actions);
+
+    let settled = false;
+    const finish = (confirmed: boolean) => {
+      if (settled) return;
+      settled = true;
+      dialog.remove();
+      resolve(confirmed);
+    };
+    cancel.addEventListener("click", () => finish(false));
+    discard.addEventListener("click", () => finish(true));
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      finish(false);
+    });
+    document.body.append(dialog);
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else dialog.setAttribute("open", "");
+    cancel.focus();
+  });
 }
 
 async function handleOpen(): Promise<void> {
@@ -274,6 +335,7 @@ async function handleOpen(): Promise<void> {
   try {
     state.error = null;
     if (!(await confirmDiscardIfDirty())) return;
+    shell.editor.blur();
     const result = await requireLegacyBridge().openFile();
     if (!result) return;
 
@@ -285,22 +347,27 @@ async function handleOpen(): Promise<void> {
     backlinks.refresh();
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
+  } finally {
+    shell.editor.focus();
+    renderStatus();
   }
-  renderStatus();
 }
 
 async function handleSave(): Promise<void> {
   if (!appDispatching) return;
   try {
     state.error = null;
+    const content = shell.editor.getDocument();
     const targetPath = state.activeFile ?? state.filePath;
     if (targetPath) {
       if (toVaultRelativePath(state.vaultPath, targetPath) !== null) {
-        await vault.writeFile(targetPath, state.content);
+        await vault.writeFile(targetPath, content);
       } else {
-        await requireLegacyBridge().saveFile(targetPath, state.content);
+        await requireLegacyBridge().saveFile(targetPath, content);
       }
-      state.dirty = false;
+      state.savedContent = content;
+      state.content = shell.editor.getDocument();
+      state.dirty = state.content !== state.savedContent;
     } else {
       await handleSaveAs();
       return;
@@ -315,27 +382,32 @@ async function handleSaveAs(): Promise<void> {
   if (!appDispatching) return;
   try {
     state.error = null;
+    const content = shell.editor.getDocument();
     if (pluginRuntime) {
-      if (!state.vaultPath) throw new Error("Open a Vault before saving a runtime document");
-      const name = window.prompt("File name", "untitled.md")?.trim();
+      if (!state.vaultPath) throw new Error(i18n.t("error.openVaultBeforeSave"));
+      const name = window.prompt(i18n.t("prompt.fileName"), "untitled.md")?.trim();
       if (!name) return;
       const created = await vault.createFile(state.vaultPath, name);
-      await vault.writeFile(created.path, state.content);
+      await vault.writeFile(created.path, content);
       await vault.refresh();
       state.filePath = created.path;
       state.activeFile = created.path;
-      state.dirty = false;
+      state.savedContent = content;
+      state.content = shell.editor.getDocument();
+      state.dirty = state.content !== state.savedContent;
       vault.setActiveFile(created.path);
       await syncRuntimeActiveFile(created.path);
       renderStatus();
       return;
     }
-    const result = await requireLegacyBridge().saveFileAs(state.content);
+    const result = await requireLegacyBridge().saveFileAs(content);
     if (!result) return;
 
     state.filePath = result.path;
     state.activeFile = result.path;
-    state.dirty = false;
+    state.savedContent = content;
+    state.content = shell.editor.getDocument();
+    state.dirty = state.content !== state.savedContent;
     vault.setActiveFile(result.path);
     await syncRuntimeActiveFile(result.path);
   } catch (err) {
@@ -358,7 +430,8 @@ function handleSettings(): void {
   const panel = createSettingsPanel(settings, (next) => {
     settings = next;
     shell.applySettings(settings);
-  });
+    applyLocale();
+  }, i18n);
   settingsPanels.add(panel);
 }
 
@@ -405,6 +478,7 @@ function settingValue<T extends SettingValue>(
 
 function applyRuntimeEditorSettings(values: Readonly<Record<string, SettingValue>>): void {
   const next: EditorSettings = {
+    locale: normalizeLocale(settingValue(values, "locale", settings.locale)),
     colorScheme: settingValue(values, "colorScheme", settings.colorScheme) === "dark" ? "dark" : "light",
     fontSize: settingValue(values, "fontSize", settings.fontSize),
     fontFamily: settingValue(values, "fontFamily", settings.fontFamily),
@@ -419,6 +493,7 @@ function applyRuntimeEditorSettings(values: Readonly<Record<string, SettingValue
   settings = next;
   saveSettings(next);
   shell.applySettings(next);
+  applyLocale();
 }
 
 function applyRuntimeEditorSetting(key: keyof EditorSettings, value: SettingValue): void {
@@ -428,42 +503,63 @@ function applyRuntimeEditorSetting(key: keyof EditorSettings, value: SettingValu
 function createProductSettingTab(): SettingTabDefinition {
   return {
     id: "settings",
-    name: "Editor settings",
+    name: i18n.t("settings.title"),
     settings: [
+      {
+        id: "locale",
+        type: "select",
+        name: i18n.t("settings.language"),
+        description: i18n.t("settings.languageDescription"),
+        defaultValue: settings.locale,
+        options: [
+          { value: "en", label: i18n.t("settings.english") },
+          { value: "zh-CN", label: i18n.t("settings.chinese") },
+        ],
+      },
       {
         id: "colorScheme",
         type: "select",
-        name: "Color scheme",
-        description: "Light or dark theme",
+        name: i18n.t("settings.colorScheme"),
+        description: i18n.t("settings.colorSchemeDescription"),
         defaultValue: settings.colorScheme,
-        options: [{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }],
+        options: [
+          { value: "light", label: i18n.t("settings.light") },
+          { value: "dark", label: i18n.t("settings.dark") },
+        ],
       },
-      { id: "lineNumbers", type: "toggle", name: "Line numbers", defaultValue: settings.lineNumbers },
-      { id: "livePreview", type: "toggle", name: "Live preview", defaultValue: settings.livePreview },
-      { id: "indentGuides", type: "toggle", name: "Indent guides", defaultValue: settings.indentGuides },
+      { id: "lineNumbers", type: "toggle", name: i18n.t("settings.lineNumbers"), description: i18n.t("settings.lineNumbersDescription"), defaultValue: settings.lineNumbers },
+      { id: "livePreview", type: "toggle", name: i18n.t("settings.livePreview"), description: i18n.t("settings.livePreviewDescription"), defaultValue: settings.livePreview },
+      { id: "indentGuides", type: "toggle", name: i18n.t("settings.indentGuides"), description: i18n.t("settings.indentGuidesDescription"), defaultValue: settings.indentGuides },
       {
         id: "contentMaxWidth",
         type: "text",
-        name: "Content max width",
+        name: i18n.t("settings.contentMaxWidth"),
+        description: i18n.t("settings.contentMaxWidthDescription"),
         defaultValue: settings.contentMaxWidth,
-        placeholder: "e.g. 720px",
+        placeholder: i18n.t("settings.contentMaxWidthPlaceholder"),
       },
       {
         id: "direction",
         type: "select",
-        name: "Text direction",
+        name: i18n.t("settings.textDirection"),
+        description: i18n.t("settings.textDirectionDescription"),
         defaultValue: settings.direction,
-        options: [{ value: "ltr", label: "Left to right" }, { value: "rtl", label: "Right to left" }],
+        options: [
+          { value: "ltr", label: i18n.t("settings.leftToRight") },
+          { value: "rtl", label: i18n.t("settings.rightToLeft") },
+        ],
       },
-      { id: "fontSize", type: "number", name: "Font size", defaultValue: settings.fontSize, min: 10, max: 28, step: 1 },
-      { id: "fontFamily", type: "text", name: "Body font", defaultValue: settings.fontFamily },
-      { id: "fontFamilyMono", type: "text", name: "Code font", defaultValue: settings.fontFamilyMono },
-      { id: "tabSize", type: "number", name: "Tab size", defaultValue: settings.tabSize, min: 1, max: 8, step: 1 },
+      { id: "fontSize", type: "number", name: i18n.t("settings.fontSize"), description: i18n.t("settings.fontSizeDescription"), defaultValue: settings.fontSize, min: 10, max: 28, step: 1 },
+      { id: "fontFamily", type: "text", name: i18n.t("settings.bodyFont"), description: i18n.t("settings.bodyFontDescription"), defaultValue: settings.fontFamily },
+      { id: "fontFamilyMono", type: "text", name: i18n.t("settings.codeFont"), description: i18n.t("settings.codeFontDescription"), defaultValue: settings.fontFamilyMono },
+      { id: "tabSize", type: "number", name: i18n.t("settings.tabSize"), description: i18n.t("settings.tabSizeDescription"), defaultValue: settings.tabSize, min: 1, max: 8, step: 1 },
     ],
     display(context) {
       applyRuntimeEditorSettings(context.values);
       removeRuntimeSettingsListeners?.();
       const cleanups: Array<() => void> = [];
+      localizeRuntimeSettings(context.containerEl);
+      cleanups.push(i18n.subscribe(() => localizeRuntimeSettings(context.containerEl)));
       for (const row of Array.from(context.containerEl.querySelectorAll<HTMLElement>("[data-setting-id]"))) {
         const control = row.querySelector("input, select") as HTMLInputElement | HTMLSelectElement | null;
         const key = row.dataset.settingId as keyof EditorSettings | undefined;
@@ -493,6 +589,88 @@ function createProductSettingTab(): SettingTabDefinition {
   };
 }
 
+const runtimeSettingCopy: Readonly<Record<keyof EditorSettings, {
+  name: MessageKey;
+  description?: MessageKey;
+}>> = {
+  locale: { name: "settings.language", description: "settings.languageDescription" },
+  colorScheme: { name: "settings.colorScheme", description: "settings.colorSchemeDescription" },
+  lineNumbers: { name: "settings.lineNumbers", description: "settings.lineNumbersDescription" },
+  livePreview: { name: "settings.livePreview", description: "settings.livePreviewDescription" },
+  indentGuides: { name: "settings.indentGuides", description: "settings.indentGuidesDescription" },
+  contentMaxWidth: { name: "settings.contentMaxWidth", description: "settings.contentMaxWidthDescription" },
+  direction: { name: "settings.textDirection", description: "settings.textDirectionDescription" },
+  fontSize: { name: "settings.fontSize", description: "settings.fontSizeDescription" },
+  fontFamily: { name: "settings.bodyFont", description: "settings.bodyFontDescription" },
+  fontFamilyMono: { name: "settings.codeFont", description: "settings.codeFontDescription" },
+  tabSize: { name: "settings.tabSize", description: "settings.tabSizeDescription" },
+};
+
+function localizeRuntimeSettings(container: HTMLElement): void {
+  for (const row of Array.from(container.querySelectorAll<HTMLElement>("[data-setting-id]"))) {
+    const key = row.dataset.settingId as keyof EditorSettings;
+    const copy = runtimeSettingCopy[key];
+    if (!copy) continue;
+    const label = row.querySelector("label");
+    if (label) label.textContent = i18n.t(copy.name);
+    const description = Array.from(row.querySelectorAll<HTMLParagraphElement>("p"))
+      .find((candidate) => !candidate.hasAttribute("data-setting-error"));
+    if (description) {
+      description.textContent = copy.description ? i18n.t(copy.description) : "";
+      description.hidden = !copy.description;
+    }
+    const input = row.querySelector<HTMLInputElement>("input[type='text']");
+    if (input && key === "contentMaxWidth") {
+      input.placeholder = i18n.t("settings.contentMaxWidthPlaceholder");
+    }
+    const select = row.querySelector<HTMLSelectElement>("select");
+    if (!select) continue;
+    const optionLabels = key === "locale"
+      ? [i18n.t("settings.english"), i18n.t("settings.chinese")]
+      : key === "colorScheme"
+        ? [i18n.t("settings.light"), i18n.t("settings.dark")]
+        : key === "direction"
+          ? [i18n.t("settings.leftToRight"), i18n.t("settings.rightToLeft")]
+          : [];
+    Array.from(select.options).forEach((option, index) => {
+      if (optionLabels[index]) option.textContent = optionLabels[index];
+    });
+  }
+}
+
+function localizeRuntimePlugins(): void {
+  const toolbar = pluginRuntime?.pluginManager.getEnabled("toolbar") as
+    | { setLabels?(labels: Readonly<Record<string, string>>): void }
+    | undefined;
+  toolbar?.setLabels?.(toolbarLabels(i18n));
+
+  const slash = pluginRuntime?.pluginManager.getEnabled("slash-menu") as
+    | { setLabels?(labels: unknown): void }
+    | undefined;
+  slash?.setLabels?.({
+    ariaLabel: i18n.t("slash.commands"),
+    noMatches: i18n.t("slash.noMatches"),
+    commands: slashCommandLabels(i18n),
+  });
+
+  const wordcount = pluginRuntime?.pluginManager.getEnabled("wordcount") as
+    | { setLabels?(labels: unknown, locale?: string, summaryLabel?: string): void }
+    | undefined;
+  wordcount?.setLabels?.(
+    wordCountLabels(i18n),
+    i18n.locale,
+    i18n.t("wordcount.documentStatistics"),
+  );
+}
+
+function applyLocale(): void {
+  i18n.setLocale(settings.locale);
+  document.documentElement.lang = i18n.locale;
+  document.title = i18n.t("app.title");
+  localizeRuntimePlugins();
+  renderStatus();
+}
+
 async function syncRuntimeActiveFile(filePath: string | null): Promise<void> {
   if (!pluginRuntime) return;
   const relative = toVaultRelativePath(state.vaultPath, filePath);
@@ -512,6 +690,7 @@ async function handleVaultFileOpen(filePath: string): Promise<void> {
   try {
     state.error = null;
     if (!(await confirmDiscardIfDirty())) return;
+    shell.editor.blur();
 
     const ipc = perfStart("open-file.ipc-read");
     const result = await vault.readFile(filePath);
@@ -535,9 +714,11 @@ async function handleVaultFileOpen(filePath: string): Promise<void> {
     perfEnd(bl);
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
+  } finally {
+    shell.editor.focus();
+    renderStatus();
+    perfEnd(total);
   }
-  renderStatus();
-  perfEnd(total);
 }
 
 function dirname(p: string): string {
@@ -607,7 +788,7 @@ async function handleWikilinkNavigate(target: string, opts: { unresolved: boolea
       return;
     }
     if (!state.vaultPath) {
-      state.error = "Open a vault before following wiki links.";
+      state.error = i18n.t("error.openVaultBeforeLink");
       renderStatus();
       return;
     }
@@ -697,6 +878,8 @@ async function destroyShellAndPanels(): Promise<void> {
   };
   removeRuntimeSettingsListeners?.();
   removeRuntimeSettingsListeners = null;
+  removeAppLocaleListener?.();
+  removeAppLocaleListener = null;
   for (const panel of settingsPanels) await attempt(() => panel.destroy());
   settingsPanels.clear();
   if (runtimeProductUi) {
@@ -742,7 +925,14 @@ function shutdown(): Promise<void> {
 
 function handleGlobalKeydown(event: KeyboardEvent): void {
   if (!appDispatching) return;
-  if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "f") {
+  const primaryModifier = event.ctrlKey || event.metaKey;
+  const key = event.key.toLocaleLowerCase();
+  if (primaryModifier && !event.altKey && !event.shiftKey && key === "s") {
+    event.preventDefault();
+    void handleSave();
+    return;
+  }
+  if (primaryModifier && key === "f") {
     event.preventDefault();
     searchBar.open();
   }
@@ -770,6 +960,8 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
     };
     removeRuntimeSettingsListeners?.();
     removeRuntimeSettingsListeners = null;
+    removeAppLocaleListener?.();
+    removeAppLocaleListener = null;
     for (const panel of settingsPanels) await attempt(() => panel.destroy());
     settingsPanels.clear();
     if (runtimeProductUi) {
@@ -787,6 +979,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
   };
 
   try {
+  applyLocale();
   const bootPlan = createReferencePluginBootPlan(
     resolveReferencePluginFeatureFlags(options.featureFlags),
   );
@@ -861,6 +1054,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
     editorContributions: bootPlan.mode === "runtime"
       ? bootPlan.editorContributions
       : [],
+    i18n,
   });
   shellCreated = true;
 
@@ -915,6 +1109,16 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
       backlinks.refresh();
       renderStatus();
     },
+    onRevealInFileExplorer: async (itemPath) => {
+      if (!pluginRuntime) {
+        await window.nexusHost.showItemInFolder(itemPath);
+        return;
+      }
+      const session = pluginRuntime.session;
+      const relativePath = toVaultRelativePath(state.vaultPath, itemPath);
+      if (!session || !relativePath) throw new Error("No active Vault item to reveal");
+      await window.nexusHost.showItemInFolder(relativePath, session.sessionId);
+    },
     onContextMenu: bootPlan.mode === "runtime" ? async ({ event, node, items }) => {
       if (!runtimeProductUi || !pluginRuntime) return;
       const relativePath = toVaultRelativePath(state.vaultPath, node.path);
@@ -944,10 +1148,10 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
     onStatus: (_message) => {
       renderStatus();
     },
-  }, vaultBackend);
+  }, vaultBackend, i18n);
   vaultCreated = true;
 
-  searchBar = createSearchBar(shell.editor);
+  searchBar = createSearchBar(shell.editor, i18n);
   searchBarCreated = true;
 
   editorColumn.append(searchBar.element, editorContainer);
@@ -962,7 +1166,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
       primaryLeaf: pluginRuntime!.leaf,
       layoutContainer: mainArea,
       createOutline: () => {
-        outline = createOutlinePanel(shell.editor);
+        outline = createOutlinePanel(shell.editor, i18n);
         outlineCreated = true;
         return outline;
       },
@@ -973,17 +1177,20 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
           getActiveFile: () => state.activeFile,
           toIndexPath,
           fromIndexPath,
+          i18n,
         });
         backlinksCreated = true;
         return backlinks;
       },
       settingTab: createProductSettingTab(),
       contributeFileMenu: () => undefined,
+      i18n,
     });
     await runtimeProductUi.start();
     await enableRuntimePlugins(pluginRuntime!, bootPlan.runtimePlugins);
+    localizeRuntimePlugins();
   } else {
-    outline = createOutlinePanel(shell.editor);
+    outline = createOutlinePanel(shell.editor, i18n);
     outlineCreated = true;
     backlinks = createBacklinksPanel({
       index: linkIndex!,
@@ -991,6 +1198,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
       getActiveFile: () => state.activeFile,
       toIndexPath,
       fromIndexPath,
+      i18n,
     });
     backlinksCreated = true;
     mainArea.append(outline.element, backlinks.element);

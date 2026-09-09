@@ -9,6 +9,7 @@ import {
   type EditorHostService,
   type NexusApp,
   type NormalizedPluginManifest,
+  type UiSlotRegistration,
   type WindowId,
 } from "@floatboat/nexus-plugin-api";
 import type { EditorAPI } from "@floatboat/nexus-core";
@@ -37,6 +38,7 @@ import {
 export interface ToolbarLifecyclePluginOptions {
   /** When false, commands remain available but no toolbar slot is claimed. */
   readonly mountUi?: boolean;
+  readonly labels?: Readonly<Record<string, string>>;
 }
 
 interface ToolbarAction {
@@ -103,6 +105,8 @@ export function createToolbarRuntimeSlashContribution(
 export class ToolbarLifecyclePlugin extends NexusPluginBase {
   private readonly mountUi: boolean;
   private readonly uiWindows = new Set<WindowId>();
+  private readonly actionRegistrations: Array<{ id: string; registration: UiSlotRegistration }> = [];
+  private labels: Readonly<Record<string, string>>;
 
   constructor(
     app: NexusApp,
@@ -111,6 +115,7 @@ export class ToolbarLifecyclePlugin extends NexusPluginBase {
   ) {
     super(app, manifest);
     this.mountUi = options.mountUi ?? true;
+    this.labels = { ...options.labels };
   }
 
   override onload(): void {
@@ -142,6 +147,17 @@ export class ToolbarLifecyclePlugin extends NexusPluginBase {
 
   override onunload(): void {
     this.uiWindows.clear();
+    this.actionRegistrations.length = 0;
+  }
+
+  setLabels(labels: Readonly<Record<string, string>>): void {
+    this.labels = { ...labels };
+    for (const entry of this.actionRegistrations) {
+      const action = ACTIONS.find((candidate) => candidate.id === entry.id);
+      if (!action) continue;
+      const label = this.labels[action.id] ?? action.name;
+      this.reportFailure(entry.registration.update({ label, tooltip: label, ariaLabel: label }));
+    }
   }
 
   private mountWindowUi(
@@ -158,10 +174,11 @@ export class ToolbarLifecyclePlugin extends NexusPluginBase {
     this.uiWindows.add(context.window.id);
     for (const action of ACTIONS) {
       const commandId = `${this.identity.id}:${action.id}`;
+      const label = this.labels[action.id] ?? action.name;
       const result = ui.registerAction("editor-toolbar", {
         id: action.id,
-        label: action.name,
-        tooltip: action.name,
+        label,
+        tooltip: label,
         commandId,
         action: async (source) => {
           const editor = source.editor ?? editors.getRecent();
@@ -173,6 +190,7 @@ export class ToolbarLifecyclePlugin extends NexusPluginBase {
         },
       });
       this.reportFailure(result);
+      if (result.ok) this.actionRegistrations.push({ id: action.id, registration: result.registration });
     }
   }
 

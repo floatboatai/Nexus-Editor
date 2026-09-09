@@ -1,4 +1,4 @@
-import type { PluginHostBridge } from "../shared/plugin-ipc";
+import type { PluginHostBridge, VaultSessionId } from "../shared/plugin-ipc";
 import type { NexusHostMode } from "../shared/host-mode";
 
 declare global {
@@ -43,6 +43,7 @@ declare global {
 
   interface NexusHostLifecycleBridge {
     readonly mode: NexusHostMode;
+    showItemInFolder(path: string, sessionId?: VaultSessionId): Promise<{ readonly ok: true }>;
     onShutdown(
       callback: (event: { readonly reason: "window-close" | "app-quit" }) => void,
     ): () => void;

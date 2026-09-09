@@ -6,6 +6,7 @@ describe("createState", () => {
     const state = createState();
     expect(state.filePath).toBeNull();
     expect(state.content).toBe("");
+    expect(state.savedContent).toBe("");
     expect(state.dirty).toBe(false);
     expect(state.error).toBeNull();
   });

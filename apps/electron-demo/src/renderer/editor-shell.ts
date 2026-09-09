@@ -12,7 +12,7 @@ import {
   createToolbarUI,
   type ToolbarUI,
 } from "@floatboat/nexus-plugin-toolbar";
-import { createSearchPlugin } from "@floatboat/nexus-plugin-search";
+import { createSearchPlugin, type SearchPluginLabels } from "@floatboat/nexus-plugin-search";
 import { createSlashMenuUI, type SlashMenuUI } from "@floatboat/nexus-plugin-slash";
 import {
   attachWordCountPlugin,
@@ -21,6 +21,14 @@ import {
 } from "@floatboat/nexus-plugin-wordcount";
 import type { AppState } from "./state";
 import { type EditorSettings, settingsToTheme } from "./settings";
+import {
+  createI18n,
+  searchPluginLabels,
+  slashCommandLabels,
+  toolbarLabels,
+  wordCountLabels,
+  type I18n,
+} from "./i18n";
 
 // Parse Obsidian-style size specifier from the alt text: `alt|width` or
 // `alt|widthxheight`. Returns { alt, width, height } with the size stripped
@@ -69,6 +77,7 @@ export interface EditorShellOptions {
   }>;
   /** Extra static contributions selected by the host boot plan. */
   editorContributions?: readonly NexusPlugin[];
+  i18n?: I18n;
 }
 
 export interface EditorShell {
@@ -95,8 +104,10 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     contributionMode = "legacy",
     contributionFeatures = { toolbar: true, slashMenu: true, wordCount: true },
     editorContributions = [],
+    i18n = createI18n(settings.locale),
   } = options;
   const runtimeManaged = contributionMode === "runtime";
+  const searchLabels: SearchPluginLabels = searchPluginLabels(i18n);
 
   // Forward ref so the image renderer (built BEFORE createEditor returns)
   // can dispatch selection changes through the editor API after it exists.
@@ -115,7 +126,8 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   const wordcount = runtimeManaged || !contributionFeatures.wordCount
     ? null
     : createWordCountPlugin({
-        statusBar: { container, classPrefix: "nexus-wordcount" },
+        labels: wordCountLabels(i18n),
+        statusBar: { container, classPrefix: "nexus-wordcount", locale: i18n.locale },
       });
 
   // No more parser worker. Live-preview drives off `syntaxTree(state)` from
@@ -139,7 +151,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       createGfmPreset(),
       createHistoryPlugin(),
       ...(!runtimeManaged && contributionFeatures.toolbar ? [createToolbarPlugin()] : []),
-      createSearchPlugin(),
+      createSearchPlugin({ labels: searchLabels }),
       wikilinksPlugin,
       ...(wordcount ? [wordcount] : []),
       ...editorContributions,
@@ -180,9 +192,10 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
 
               // Top-right action: jump cursor to image source.
               const srcBtn = document.createElement("button");
+              srcBtn.className = "nexus-image__source";
               srcBtn.type = "button";
-              srcBtn.title = "View source";
-              srcBtn.setAttribute("aria-label", "View image markdown source");
+              srcBtn.title = i18n.t("editor.viewSource");
+              srcBtn.setAttribute("aria-label", i18n.t("editor.viewImageSource"));
               srcBtn.textContent = "</>";
               srcBtn.style.cssText = [
                 "position:absolute",
@@ -218,7 +231,8 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
               // Bottom-right resize handle — drag to resize; on mouseup writes
               // back `|width` into the image's alt in markdown.
               const resizeDot = document.createElement("span");
-              resizeDot.title = "Drag to resize";
+              resizeDot.className = "nexus-image__resize-handle";
+              resizeDot.title = i18n.t("editor.resizeImage");
               resizeDot.style.cssText = [
                 "position:absolute",
                 "bottom:2px",
@@ -299,7 +313,8 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
 
               img.addEventListener("error", () => {
                 const err = document.createElement("span");
-                err.textContent = `⚠ image not found: ${node.url}`;
+                err.dataset.imageErrorUrl = node.url;
+                err.textContent = i18n.t("editor.imageNotFound", { url: node.url });
                 err.style.cssText =
                   "display:block;padding:8px 12px;font-size:12px;color:var(--nexus-hl-deletion,#c33);" +
                   "font-family:monospace;background:var(--nexus-bg-subtle);border-radius:4px;";
@@ -320,7 +335,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     indentGuides: settings.indentGuides,
     onChange(doc) {
       state.content = doc;
-      state.dirty = true;
+      state.dirty = doc !== state.savedContent;
       // Keep the link index in sync with the buffer so the backlinks panel
       // reacts immediately when the user types `[[...]]`.
       if (state.linkIndex && state.activeFile) {
@@ -334,7 +349,15 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
 
   const toolbar = runtimeManaged || !contributionFeatures.toolbar
     ? null
-    : createToolbarUI(editor);
+    : createToolbarUI(editor, {
+        labels: toolbarLabels(i18n),
+        onFullscreen: () => {
+          const action = document.fullscreenElement
+            ? document.exitFullscreen()
+            : container.requestFullscreen();
+          void action.catch((error) => console.error("Failed to toggle fullscreen", error));
+        },
+      });
   if (toolbar) container.insertBefore(toolbar.element, container.firstChild);
 
   // The slash menu owns its own DOM root mounted on document.body so
@@ -342,13 +365,42 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   // ancestors). Its lifecycle is tied to the shell — destroyed below.
   const slashMenu = runtimeManaged || !contributionFeatures.slashMenu
     ? null
-    : createSlashMenuUI(editor);
+    : createSlashMenuUI(editor, {
+        labels: {
+          ariaLabel: i18n.t("slash.commands"),
+          noMatches: i18n.t("slash.noMatches"),
+          commands: slashCommandLabels(i18n),
+        },
+      });
 
   // Bind the wordcount plugin now that the editor is fully constructed.
   // The plugin's status-bar widget mounts on its first emission (next
   // microtask), so it's already wired by the time the user sees the
   // first paint.
   if (wordcount) attachWordCountPlugin(wordcount, editor);
+
+  const applyLocale = () => {
+    Object.assign(searchLabels, searchPluginLabels(i18n));
+    toolbar?.setLabels(toolbarLabels(i18n));
+    slashMenu?.setLabels({
+      ariaLabel: i18n.t("slash.commands"),
+      noMatches: i18n.t("slash.noMatches"),
+      commands: slashCommandLabels(i18n),
+    });
+    wordcount?.setLabels(wordCountLabels(i18n), i18n.locale);
+    localizeOpenSearchPanel(container, searchLabels);
+    for (const button of Array.from(container.querySelectorAll<HTMLButtonElement>(".nexus-image__source"))) {
+      button.title = i18n.t("editor.viewSource");
+      button.setAttribute("aria-label", i18n.t("editor.viewImageSource"));
+    }
+    for (const handle of Array.from(container.querySelectorAll<HTMLElement>(".nexus-image__resize-handle"))) {
+      handle.title = i18n.t("editor.resizeImage");
+    }
+    for (const error of Array.from(container.querySelectorAll<HTMLElement>("[data-image-error-url]"))) {
+      error.textContent = i18n.t("editor.imageNotFound", { url: error.dataset.imageErrorUrl ?? "" });
+    }
+  };
+  const unsubscribeLocale = i18n.subscribe(applyLocale);
 
   return {
     editor,
@@ -367,6 +419,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       editor.setDocument(content, { silent: true });
       const t1 = performance.now();
       state.content = content;
+      state.savedContent = content;
       state.dirty = false;
       onStateChange();
       // Surfaced here because editor.setDocument triggers the whole CM6
@@ -377,10 +430,53 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
         `${(t1 - t0).toFixed(1)}ms`, { bytes: content.length });
     },
     destroy() {
+      unsubscribeLocale();
       wordcount?.destroy();
       slashMenu?.destroy();
       toolbar?.destroy();
       editor.destroy();
     },
   };
+}
+
+function localizeOpenSearchPanel(container: HTMLElement, labels: SearchPluginLabels): void {
+  const setInput = (testId: string, label: string) => {
+    const input = container.querySelector<HTMLInputElement>(`[data-test-id="${testId}"]`);
+    if (!input) return;
+    input.placeholder = label;
+    input.setAttribute("aria-label", label);
+  };
+  const setButton = (testId: string, label: string) => {
+    const button = container.querySelector<HTMLButtonElement>(`[data-test-id="${testId}"]`);
+    if (button) {
+      button.title = label;
+      button.setAttribute("aria-label", label);
+      button.dataset.tooltipLabel = label;
+    }
+    const tooltip = container.querySelector<HTMLElement>(`[data-test-id="${testId}-tooltip"]`);
+    if (tooltip) {
+      tooltip.textContent = label;
+      tooltip.dataset.tooltip = label;
+      tooltip.setAttribute("aria-label", label);
+    }
+  };
+  const setCheckbox = (testId: string, label: string) => {
+    const input = container.querySelector<HTMLInputElement>(`[data-test-id="${testId}"]`);
+    const text = input?.parentElement?.lastChild;
+    if (text?.nodeType === Node.TEXT_NODE) text.textContent = label;
+  };
+  setInput("markdown-search-input", labels.find);
+  setInput("markdown-search-replace-input", labels.replace);
+  setButton("markdown-search-toggle-replace", container.querySelector<HTMLButtonElement>(
+    '[data-test-id="markdown-search-toggle-replace"]',
+  )?.getAttribute("aria-expanded") === "true" ? labels.hideReplace : labels.showReplace);
+  setButton("markdown-search-prev", labels.previous);
+  setButton("markdown-search-next", labels.next);
+  setButton("markdown-search-all", labels.all);
+  setButton("markdown-search-replace", labels.replaceNext);
+  setButton("markdown-search-replace-all", labels.replaceAll);
+  setButton("markdown-search-close", labels.close);
+  setCheckbox("markdown-search-case-toggle", labels.matchCase);
+  setCheckbox("markdown-search-regexp-toggle", labels.regexp);
+  setCheckbox("markdown-search-word-toggle", labels.byWord);
 }

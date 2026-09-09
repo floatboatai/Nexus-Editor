@@ -56,6 +56,7 @@ export interface DemoBridge {
 
 export interface NexusHostLifecycleBridge {
   readonly mode: NexusHostMode;
+  showItemInFolder(path: string, sessionId?: VaultSessionId): Promise<{ readonly ok: true }>;
   onShutdown(callback: (event: PluginIpcEventContract["nexus:host:shutdown"]) => void): () => void;
   shutdownComplete(): Promise<{ readonly ok: true }>;
 }
@@ -227,6 +228,8 @@ const pluginHostBridge: PluginHostBridge = Object.freeze({
 const hostMode = parseHostModeArgument(process.argv);
 const hostLifecycleBridge: NexusHostLifecycleBridge = Object.freeze({
   mode: hostMode,
+  showItemInFolder: (path: string, sessionId?: VaultSessionId) =>
+    ipcRenderer.invoke("nexus:host:show-item-in-folder", { path, sessionId }),
   onShutdown: (
     callback: (event: PluginIpcEventContract["nexus:host:shutdown"]) => void,
   ) => subscribePluginEvent("nexus:host:shutdown", callback),

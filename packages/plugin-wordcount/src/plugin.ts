@@ -73,6 +73,7 @@ export interface WordCountAPI {
 
 export type WordCountPlugin = NexusPlugin &
   WordCountAPI & {
+    setLabels(labels: Partial<WordCountLabels>, locale?: string | string[]): void;
     /**
      * Bind the plugin to an editor instance. Call once after
      * `createEditor` returns. Idempotent — subsequent calls are
@@ -120,7 +121,8 @@ export function createWordCountPlugin(options: WordCountPluginOptions = {}): Wor
     exclude: options.exclude,
     readingSpeed: options.readingSpeed
   };
-  const baselineLabels: WordCountLabels = { ...defaultStatusBarLabels, ...options.labels };
+  let baselineLabels: WordCountLabels = { ...defaultStatusBarLabels, ...options.labels };
+  let statusLocale = options.statusBar ? options.statusBar.locale : undefined;
 
   let editor: EditorAPI | null = null;
   let destroyed = false;
@@ -235,6 +237,13 @@ export function createWordCountPlugin(options: WordCountPluginOptions = {}): Wor
     name: "plugin-wordcount",
     cmExtensions: [],
     ...api,
+    setLabels(labels, locale) {
+      baselineLabels = { ...defaultStatusBarLabels, ...labels };
+      statusLocale = locale;
+      if (statusBar && options.statusBar) {
+        statusBar.setLabels({ ...baselineLabels, ...options.statusBar.labels }, statusLocale);
+      }
+    },
     attachEditor(target: EditorAPI) {
       if (editor || destroyed) return;
       editor = target;
@@ -255,7 +264,8 @@ export function createWordCountPlugin(options: WordCountPluginOptions = {}): Wor
           };
           statusBar = createStatusBar(api, {
             ...statusBarOptions,
-            labels: mergedLabels
+            labels: mergedLabels,
+            locale: statusLocale,
           });
         }
       });
