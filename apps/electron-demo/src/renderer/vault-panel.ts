@@ -1,4 +1,5 @@
 import type { MenuItemDefinition } from "@floatboat/nexus-plugin-api";
+import { createI18n, type I18n } from "./i18n";
 
 export interface VaultContextMenuRequest {
   readonly event: MouseEvent;
@@ -32,6 +33,7 @@ export interface VaultPanelCallbacks {
   onVaultOpen?(vaultPath: string): void | Promise<void>;
   onFileRenamed?(oldPath: string, newPath: string): void | Promise<void>;
   onFileDeleted?(path: string): void | Promise<void>;
+  onRevealInFileExplorer?(path: string): void | Promise<void>;
   onContextMenu?(request: VaultContextMenuRequest): void | Promise<void>;
   onError(message: string): void;
   onStatus(message: string): void;
@@ -95,7 +97,9 @@ const PANEL_STYLES = `
 `;
 
 const HEADER_STYLES = `
-  padding: 8px 10px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 8px;
   border-bottom: 1px solid var(--nexus-border, #eee);
   display: flex;
   align-items: center;
@@ -116,11 +120,13 @@ const HEADER_TITLE_STYLES = `
 `;
 
 const ICON_BTN_STYLES = `
+  width: 26px;
+  height: 26px;
   background: transparent;
   border: none;
   cursor: pointer;
-  padding: 3px 7px;
-  font-size: 14px;
+  padding: 0;
+  font-size: 13px;
   line-height: 1;
   color: var(--nexus-text-muted, #555);
   border-radius: 3px;
@@ -258,6 +264,7 @@ function fileIcon(): string {
 export function createVaultPanel(
   callbacks: VaultPanelCallbacks,
   backend: VaultPanelBackend = createLegacyVaultPanelBackend(),
+  i18n: I18n = createI18n(),
 ): VaultPanel {
   const panel = document.createElement("div");
   panel.className = "nexus-vault-panel";
@@ -268,26 +275,22 @@ export function createVaultPanel(
 
   const title = document.createElement("div");
   title.style.cssText = HEADER_TITLE_STYLES;
-  title.textContent = "Vault";
 
   const openBtn = document.createElement("button");
   openBtn.type = "button";
   openBtn.style.cssText = ICON_BTN_STYLES;
   openBtn.textContent = "\uD83D\uDCC1"; // 📁
-  openBtn.title = "Open vault…";
 
   const newFileBtn = document.createElement("button");
   newFileBtn.type = "button";
   newFileBtn.style.cssText = ICON_BTN_STYLES;
   newFileBtn.textContent = "\u002B"; // +
-  newFileBtn.title = "New file at root";
   newFileBtn.disabled = true;
 
   const newFolderBtn = document.createElement("button");
   newFolderBtn.type = "button";
   newFolderBtn.style.cssText = ICON_BTN_STYLES;
   newFolderBtn.textContent = "\uD83D\uDCC2"; // 📂
-  newFolderBtn.title = "New folder at root";
   newFolderBtn.disabled = true;
 
   header.append(title, newFileBtn, newFolderBtn, openBtn);
@@ -390,11 +393,11 @@ export function createVaultPanel(
   function renderTree(): void {
     tree.innerHTML = "";
     if (!vaultPath) {
-      renderEmpty("No vault opened. Click 📁 to choose a folder.");
+      renderEmpty(i18n.t("vault.notOpen"));
       return;
     }
     if (currentTree.length === 0) {
-      renderEmpty("Vault is empty. Click + to create a note.");
+      renderEmpty(i18n.t("vault.empty"));
       return;
     }
     for (const node of currentTree) renderNode(node, 0, tree);
@@ -461,30 +464,42 @@ export function createVaultPanel(
     if (node.kind === "directory") {
       items.push({
         id: "new-file",
-        label: "New file here",
+        label: i18n.t("vault.newFileHere"),
         action: () => createFilePrompt(node.path),
       });
       items.push({
         id: "new-folder",
-        label: "New folder here",
+        label: i18n.t("vault.newFolderHere"),
         action: () => createFolderPrompt(node.path),
       });
     } else {
       items.push({
         id: "open",
-        label: "Open",
+        label: i18n.t("vault.openFile"),
         action: () => callbacks.onOpenFile(node.path),
       });
       items.push({
         id: "new-file",
-        label: "New file in same folder",
+        label: i18n.t("vault.newFileSameFolder"),
         action: () => createFilePrompt(parentDir),
       });
     }
 
     items.push({
+      id: "show-in-file-explorer",
+      label: i18n.t("vault.showInFileExplorer"),
+      action: async () => {
+        try {
+          await callbacks.onRevealInFileExplorer?.(node.path);
+        } catch (error) {
+          callbacks.onError(error instanceof Error ? error.message : String(error));
+        }
+      },
+    });
+
+    items.push({
       id: "rename",
-      label: "Rename",
+      label: i18n.t("vault.rename"),
       action: () => {
         const row = tree.querySelector<HTMLElement>(`[data-path="${cssEscape(node.path)}"]`);
         const label = row?.querySelector<HTMLElement>("span:last-child");
@@ -494,7 +509,7 @@ export function createVaultPanel(
 
     items.push({
       id: "delete",
-      label: "Delete",
+      label: i18n.t("vault.delete"),
       dangerous: true,
       action: () => deleteNode(node),
     });
@@ -603,7 +618,7 @@ export function createVaultPanel(
     // destructive-styled and requires an explicit click, so we proceed directly.
     try {
       await backend.trash(node.path);
-      callbacks.onStatus(`Moved ${node.name} to Trash`);
+      callbacks.onStatus(i18n.t("vault.movedToTrash", { name: node.name }));
       if (node.kind === "file" && activeFile === node.path) {
         activeFile = null;
       }
@@ -665,6 +680,19 @@ export function createVaultPanel(
     if (vaultPath) createFolderPrompt(vaultPath);
   });
 
+  const renderLabels = () => {
+    if (!vaultPath) title.textContent = i18n.t("vault.title");
+    openBtn.title = i18n.t("vault.open");
+    openBtn.setAttribute("aria-label", i18n.t("vault.open"));
+    newFileBtn.title = i18n.t("vault.newFileRoot");
+    newFileBtn.setAttribute("aria-label", i18n.t("vault.newFileRoot"));
+    newFolderBtn.title = i18n.t("vault.newFolderRoot");
+    newFolderBtn.setAttribute("aria-label", i18n.t("vault.newFolderRoot"));
+    renderTree();
+  };
+  renderLabels();
+  const unsubscribeLocale = i18n.subscribe(renderLabels);
+
   syncButtonEnabled();
 
   return {
@@ -685,6 +713,7 @@ export function createVaultPanel(
       closeContextMenu = null;
       unsubscribeChanged?.();
       unsubscribeChanged = null;
+      unsubscribeLocale();
       panel.remove();
     },
   };

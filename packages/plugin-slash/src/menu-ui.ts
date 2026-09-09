@@ -12,6 +12,12 @@ export type {
   SlashCommandHistoryStorage,
 };
 
+export interface SlashMenuLabels {
+  ariaLabel: string;
+  noMatches: string;
+  commands: Readonly<Record<string, { readonly title: string; readonly description?: string }>>;
+}
+
 export interface SlashMenuCommandContext {
   /**
    * The `/query` trigger range as it existed in the document before the
@@ -65,11 +71,16 @@ export interface SlashMenuUIOptions {
    * false and route keys through the EditorHost root dispatcher instead.
    */
   manageKeyboard?: boolean;
+  labels?: Partial<Omit<SlashMenuLabels, "commands">> & {
+    commands?: SlashMenuLabels["commands"];
+  };
 }
 
 export interface SlashMenuUI {
   /** The menu root element. Already mounted in the configured container. */
   element: HTMLElement;
+  /** Update visible labels without recreating the menu or editor. */
+  setLabels(labels: SlashMenuUIOptions["labels"]): void;
   /** Handle one key through the menu state machine; true means consumed. */
   handleKeydown(event: KeyboardEvent): boolean;
   /**
@@ -82,6 +93,11 @@ export interface SlashMenuUI {
 const DEFAULT_PREFIX = "nexus-slash";
 const DEFAULT_OFFSET = 4;
 const VIEWPORT_MARGIN = 8;
+const DEFAULT_LABELS: SlashMenuLabels = {
+  ariaLabel: "Slash commands",
+  noMatches: "No matches",
+  commands: {},
+};
 
 let uniqueIdCounter = 0;
 function generateId(prefix: string): string {
@@ -101,13 +117,18 @@ export function createSlashMenuUI(
   if (!ownerWindow) throw new TypeError("Slash menu container must belong to a window");
   const menuId = generateId(prefix);
   const commandHistory = createSlashCommandHistory(options.history);
+  let labels: SlashMenuLabels = {
+    ...DEFAULT_LABELS,
+    ...options.labels,
+    commands: options.labels?.commands ?? {},
+  };
 
   // ── DOM scaffolding ──────────────────────────────────────────────
   const root = ownerDocument.createElement("div");
   root.className = `${prefix}-menu`;
   root.id = menuId;
   root.setAttribute("role", "listbox");
-  root.setAttribute("aria-label", "Slash commands");
+  root.setAttribute("aria-label", labels.ariaLabel);
   root.style.position = "fixed";
   root.style.display = "none";
   // The menu must not become a focus target — the editor stays focused
@@ -161,7 +182,7 @@ export function createSlashMenuUI(
       itemEls = [];
       const empty = ownerDocument.createElement("div");
       empty.className = `${prefix}-menu__empty`;
-      empty.textContent = "No matches";
+      empty.textContent = labels.noMatches;
       root.appendChild(empty);
       root.removeAttribute("aria-activedescendant");
       return;
@@ -218,9 +239,11 @@ export function createSlashMenuUI(
       const item = itemEls[i];
       item.dataset.slashCommandId = cmd.id;
       const [titleEl, descEl] = item.children as unknown as HTMLDivElement[];
-      titleEl.textContent = cmd.title;
-      if (cmd.description) {
-        descEl.textContent = cmd.description;
+      const commandLabels = labels.commands[cmd.id] ?? labels.commands[cmd.id.split(":").pop() ?? ""];
+      titleEl.textContent = commandLabels?.title ?? cmd.title;
+      const description = commandLabels?.description ?? cmd.description;
+      if (description) {
+        descEl.textContent = description;
         descEl.style.display = "";
       } else {
         descEl.textContent = "";
@@ -476,6 +499,11 @@ export function createSlashMenuUI(
 
   return {
     element: root,
+    setLabels(next) {
+      labels = { ...DEFAULT_LABELS, ...next, commands: next?.commands ?? {} };
+      root.setAttribute("aria-label", labels.ariaLabel);
+      renderItems(visibleCommands);
+    },
     handleKeydown: onKeyDown,
     destroy() {
       if (destroyed) return;

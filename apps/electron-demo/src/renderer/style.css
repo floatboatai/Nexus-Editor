@@ -18,16 +18,43 @@ body,
 
 .toolbar {
   display: flex;
-  gap: 8px;
-  padding: 8px 12px;
-  background: #f0f0f0;
-  border-bottom: 1px solid #ddd;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+  padding: 5px 10px;
+  background: var(--nexus-bg-subtle, #f6f8fa);
+  border-bottom: 1px solid var(--nexus-border, #d8dee4);
   flex-shrink: 0;
 }
 
-.toolbar button {
-  padding: 4px 12px;
+.toolbar button,
+.toolbar .plugin-slot button {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--nexus-text, #24292e);
+  font: 500 13px/1 system-ui, sans-serif;
   cursor: pointer;
+}
+
+.toolbar button:hover,
+.toolbar .plugin-slot button:hover {
+  border-color: var(--nexus-border-subtle, #d8dee4);
+  background: var(--nexus-bg-muted, #eaeef2);
+}
+
+.toolbar button:focus-visible,
+.toolbar .plugin-slot button:focus-visible {
+  outline: 2px solid var(--nexus-accent, #0969da);
+  outline-offset: 1px;
+}
+
+.toolbar .toolbar__icon-button {
+  width: 28px;
+  padding: 0;
+  font-size: 14px;
 }
 
 .plugin-slot {
@@ -47,7 +74,8 @@ body,
 
 .plugin-slot--editor-toolbar {
   flex-shrink: 0;
-  padding: 6px 10px;
+  height: 36px;
+  padding: 4px 8px;
   border-bottom: 1px solid var(--nexus-border, #ddd);
   background: var(--nexus-bg-subtle, #f6f8fa);
 }
@@ -68,6 +96,29 @@ body,
   overflow: hidden;
 }
 
+#app * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--nexus-scrollbar-thumb, #b8bec6) transparent;
+}
+
+#app *::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+#app *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#app *::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--nexus-scrollbar-thumb, #b8bec6);
+}
+
+#app *::-webkit-scrollbar-thumb:hover {
+  background: var(--nexus-scrollbar-thumb-hover, #8c959f);
+}
+
 .editor-column {
   flex: 1;
   display: flex;
@@ -81,6 +132,10 @@ body,
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.editor-container:fullscreen {
+  background: var(--nexus-bg, #fff);
 }
 
 .editor-container > .nexus-toolbar,
@@ -179,11 +234,15 @@ body,
 }
 
 .nexus-runtime-settings-dialog > header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 16px 24px;
   border-bottom: 1px solid var(--nexus-border, #eee);
+  background: var(--nexus-bg, #fff);
 }
 
 .nexus-runtime-settings-dialog > header h2 {
@@ -201,6 +260,55 @@ body,
 
 .nexus-runtime-settings-content {
   padding: 8px 24px 16px;
+}
+
+.nexus-confirm-dialog {
+  width: min(420px, calc(100vw - 32px));
+  margin: auto;
+  padding: 20px;
+  border: 1px solid var(--nexus-border, #d0d7de);
+  border-radius: 10px;
+  background: var(--nexus-bg, #fff);
+  color: var(--nexus-text, #24292e);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.24);
+}
+
+.nexus-confirm-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.nexus-confirm-dialog h2 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.nexus-confirm-dialog p {
+  margin: 0;
+  color: var(--nexus-text-muted, #666);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.nexus-confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.nexus-confirm-dialog__actions button {
+  padding: 6px 12px;
+  border: 1px solid var(--nexus-border, #d0d7de);
+  border-radius: 6px;
+  background: var(--nexus-bg, #fff);
+  color: inherit;
+  cursor: pointer;
+}
+
+.nexus-confirm-dialog__actions [data-action="discard"] {
+  border-color: #cf222e;
+  background: #cf222e;
+  color: #fff;
 }
 
 .nexus-plugin-setting {

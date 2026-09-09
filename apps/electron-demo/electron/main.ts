@@ -11,6 +11,7 @@ import {
   type PluginIpcRequest,
   type PluginIpcResponse,
   type PluginHostPermissionId,
+  type VaultSessionId,
 } from "../src/shared/plugin-ipc";
 import {
   hostModeArgument,
@@ -293,6 +294,13 @@ function requirePluginStorageBroker(): ElectronPluginStorageBroker {
   return pluginStorageBroker;
 }
 
+async function openContainingFolder(absolutePath: string): Promise<void> {
+  const info = await stat(absolutePath);
+  const folderPath = info.isDirectory() ? absolutePath : path.dirname(absolutePath);
+  const error = await shell.openPath(folderPath);
+  if (error) throw new Error(error);
+}
+
 function assertAuthorizedSender(sender: SenderIdentity): void {
   if (!isAuthorizedPluginSender(sender)) {
     throw new PluginHostBrokerError(
@@ -311,6 +319,7 @@ export function registerPluginHostIpc(): void {
   pluginVaultBroker = new ElectronVaultBroker({
     isSenderAuthorized: isAuthorizedPluginSender,
     trashItem: (absolutePath) => shell.trashItem(absolutePath),
+    showItemInFolder: openContainingFolder,
     onChange: (senderId, event) => {
       windowForSenderId(senderId)?.webContents.send("nexus:vault:changed", event);
     },
@@ -556,6 +565,25 @@ ipcMain.handle(
     await writeFile(result.filePath, content, "utf-8");
     return { path: result.filePath };
   }
+);
+
+ipcMain.handle(
+  "nexus:host:show-item-in-folder",
+  async (
+    event: Electron.IpcMainInvokeEvent,
+    request: { readonly path: string; readonly sessionId?: VaultSessionId },
+  ) => {
+    const sender = senderIdentity(event);
+    const registration = assertAuthorizedHostSender(sender);
+    if (!request || typeof request.path !== "string") throw new TypeError("Invalid file-manager reveal request");
+    if (registration.state.hostMode === "runtime") {
+      if (!request.sessionId) throw new Error("Runtime file-manager reveal requires a Vault session");
+      await requirePluginVaultBroker().showItemInFolder(sender, request.sessionId, request.path);
+    } else {
+      await openContainingFolder(assertInsideVault(registration.state, request.path));
+    }
+    return { ok: true as const };
+  },
 );
 
 // -- vault helpers ------------------------------------------------------------

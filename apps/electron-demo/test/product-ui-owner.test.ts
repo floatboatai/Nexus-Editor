@@ -93,6 +93,9 @@ describe("ElectronProductUiOwner", () => {
     expect(secondSettings.element).toBe(firstSettings.element);
     expect(createSettings).toHaveBeenCalledOnce();
     expect(document.querySelectorAll(".nexus-settings-panel")).toHaveLength(1);
+    const settingsHeader = firstSettings.element.firstElementChild?.firstElementChild as HTMLElement;
+    expect(settingsHeader.style.position).toBe("sticky");
+    expect(settingsHeader.style.top).toBe("0px");
     const settingsPanel = createSettings.mock.results[0]?.value;
     settingsPanel?.setCloseObserver(firstSettings.dispose);
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));

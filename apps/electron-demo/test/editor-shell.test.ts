@@ -23,6 +23,29 @@ describe("createEditorShell", () => {
     shell.destroy();
   });
 
+  it("toggles the editor container through the native fullscreen API", () => {
+    const container = document.createElement("div");
+    const requestFullscreen = vi.fn().mockResolvedValue(undefined);
+    const exitFullscreen = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(container, "requestFullscreen", { configurable: true, value: requestFullscreen });
+    Object.defineProperty(document, "exitFullscreen", { configurable: true, value: exitFullscreen });
+    Object.defineProperty(document, "fullscreenElement", { configurable: true, value: null });
+    const shell = createEditorShell({
+      container,
+      state: createState(),
+      settings: defaultSettings(),
+      onStateChange: vi.fn(),
+    });
+
+    container.querySelector<HTMLButtonElement>('[data-toolbar-action="fullscreen"]')?.click();
+    expect(requestFullscreen).toHaveBeenCalledOnce();
+
+    Object.defineProperty(document, "fullscreenElement", { configurable: true, value: container });
+    container.querySelector<HTMLButtonElement>('[data-toolbar-action="fullscreen"]')?.click();
+    expect(exitFullscreen).toHaveBeenCalledOnce();
+    shell.destroy();
+  });
+
   it("marks state dirty when the editor content changes", async () => {
     const container = document.createElement("div");
     const state = createState();

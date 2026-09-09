@@ -11,11 +11,14 @@ import {
   type NormalizedPluginManifest,
 } from "@floatboat/nexus-plugin-api";
 
-import { createSlashMenuUI, type SlashMenuUI } from "./menu-ui";
+import { createSlashMenuUI, type SlashMenuLabels, type SlashMenuUI } from "./menu-ui";
 
 export interface SlashLifecyclePluginOptions {
   /** Host feature flag. False means this owner registers nothing. */
   readonly enabled?: boolean;
+  readonly labels?: Partial<Omit<SlashMenuLabels, "commands">> & {
+    commands?: SlashMenuLabels["commands"];
+  };
 }
 
 export const slashLifecyclePluginManifest = Object.freeze({
@@ -38,6 +41,7 @@ export const slashLifecyclePluginManifest = Object.freeze({
  */
 export class SlashLifecyclePlugin extends NexusPluginBase {
   private readonly enabled: boolean;
+  private labels: SlashLifecyclePluginOptions["labels"];
   private readonly menus = new Map<string, {
     readonly menu: SlashMenuUI;
     dispose(): Promise<void>;
@@ -50,6 +54,7 @@ export class SlashLifecyclePlugin extends NexusPluginBase {
   ) {
     super(app, manifest);
     this.enabled = options.enabled ?? true;
+    this.labels = options.labels;
   }
 
   override onload(): void {
@@ -73,6 +78,11 @@ export class SlashLifecyclePlugin extends NexusPluginBase {
     return Object.freeze([...this.menus.keys()]);
   }
 
+  setLabels(labels: SlashLifecyclePluginOptions["labels"]): void {
+    this.labels = labels;
+    for (const entry of this.menus.values()) entry.menu.setLabels(labels);
+  }
+
   private attachMenu(
     commands: CommandService,
     editors: EditorHostService,
@@ -87,6 +97,7 @@ export class SlashLifecyclePlugin extends NexusPluginBase {
         menu = createSlashMenuUI(context.editor, {
           container: document.body,
           manageKeyboard: false,
+          labels: this.labels,
           onCommand: (command) => {
             const globalId = command.id.includes(":")
               ? command.id

@@ -24,6 +24,7 @@ import {
 } from "@floatboat/nexus-plugin-runtime";
 
 import type { ProductViewResource, ProductViewSurface } from "./product-ui-owner";
+import { createI18n, type I18n } from "./i18n";
 
 export const ELECTRON_PRODUCT_UI_OWNER: ResourceOwner = Object.freeze({
   pluginId: "electron-host-ui" as PluginId,
@@ -51,6 +52,7 @@ export interface ElectronRuntimeProductUiAdapterOptions {
   readonly createBacklinks: RuntimeProductViewFactory;
   readonly settingTab: SettingTabDefinition;
   readonly contributeFileMenu: (menu: Menu, context: MenuContext) => void;
+  readonly i18n?: I18n;
 }
 
 export interface ElectronRuntimeProductUiSnapshot {
@@ -148,8 +150,11 @@ export class ElectronRuntimeProductUiAdapter {
   private menuTail: Promise<void> = Promise.resolve();
   private settingsHost: HTMLElement | null = null;
   private removeSettingsListeners: (() => void) | null = null;
+  private removeLocaleListener: (() => void) | null = null;
+  private readonly i18n: I18n;
 
   constructor(private readonly options: ElectronRuntimeProductUiAdapterOptions) {
+    this.i18n = options.i18n ?? createI18n();
     const register = (resource: ManagedResource) => {
       if (this.destroyed) {
         void resource.dispose();
@@ -228,13 +233,14 @@ export class ElectronRuntimeProductUiAdapter {
     dialog.setAttribute("aria-modal", "true");
     dialog.setAttribute("aria-labelledby", "nexus-runtime-settings-title");
     const header = document.createElement("header");
+    header.style.cssText = "position: sticky; top: 0; z-index: 1; background: var(--nexus-bg, #fff);";
     const title = document.createElement("h2");
     title.id = "nexus-runtime-settings-title";
-    title.textContent = "Settings";
+    title.textContent = this.i18n.t("settings.title");
     const close = document.createElement("button");
     close.type = "button";
     close.textContent = "\u00d7";
-    close.setAttribute("aria-label", "Close settings");
+    close.setAttribute("aria-label", this.i18n.t("settings.close"));
     header.append(title, close);
     const content = document.createElement("div");
     content.className = "nexus-runtime-settings-content";
@@ -361,6 +367,8 @@ export class ElectronRuntimeProductUiAdapter {
       for (const resource of this.resources) await resource.activate?.();
       await this.mountView("outline");
       await this.mountView("backlinks");
+      this.renderLocale();
+      this.removeLocaleListener = this.i18n.subscribe(() => this.renderLocale());
       this.started = true;
     } catch (error) {
       await this.cleanup();
@@ -387,7 +395,9 @@ export class ElectronRuntimeProductUiAdapter {
     leaf.containerEl.dataset.nexusProductKind = "view";
     leaf.containerEl.dataset.nexusUiOwner = "electron-host-ui";
     leaf.containerEl.setAttribute("role", "complementary");
-    leaf.containerEl.setAttribute("aria-label", surface === "outline" ? "Outline" : "Backlinks");
+    leaf.containerEl.setAttribute("aria-label", this.i18n.t(
+      surface === "outline" ? "outline.title" : "backlinks.title",
+    ));
     this.options.layoutContainer.append(leaf.containerEl);
   }
 
@@ -413,6 +423,8 @@ export class ElectronRuntimeProductUiAdapter {
 
   private async cleanup(): Promise<void> {
     const errors: unknown[] = [];
+    this.removeLocaleListener?.();
+    this.removeLocaleListener = null;
     if (this.activeMenu) {
       try {
         await this.activeMenu.close();
@@ -454,5 +466,17 @@ export class ElectronRuntimeProductUiAdapter {
     this.removeSettingsListeners = null;
     this.settingsHost?.remove();
     this.settingsHost = null;
+  }
+
+  private renderLocale(): void {
+    for (const [surface, leaf] of this.leaves) {
+      leaf.containerEl.setAttribute("aria-label", this.i18n.t(
+        surface === "outline" ? "outline.title" : "backlinks.title",
+      ));
+    }
+    const title = this.settingsHost?.querySelector<HTMLElement>("#nexus-runtime-settings-title");
+    if (title) title.textContent = this.i18n.t("settings.title");
+    const close = this.settingsHost?.querySelector<HTMLButtonElement>("header button");
+    close?.setAttribute("aria-label", this.i18n.t("settings.close"));
   }
 }

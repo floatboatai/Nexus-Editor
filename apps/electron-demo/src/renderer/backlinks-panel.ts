@@ -1,4 +1,5 @@
 import type { BacklinkHit, LinkIndexReader } from "./link-index";
+import { createI18n, type I18n } from "./i18n";
 
 export interface BacklinksPanelOptions {
   index: LinkIndexReader;
@@ -8,6 +9,7 @@ export interface BacklinksPanelOptions {
   toIndexPath?(filePath: string): string | null;
   /** Maps an index hit back into the application's file path namespace. */
   fromIndexPath?(filePath: string): string | null;
+  i18n?: I18n;
 }
 
 export interface BacklinksPanel {
@@ -48,7 +50,11 @@ const PANEL_STYLES = `
 `;
 
 const HEADER_STYLES = `
-  padding: 8px 10px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
   border-bottom: 1px solid var(--nexus-border, #eee);
   font-size: 11px;
   font-weight: 600;
@@ -136,6 +142,7 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
     getActiveFile,
     toIndexPath = (path) => path,
     fromIndexPath = (path) => path,
+    i18n = createI18n(),
   } = options;
 
   const root = document.createElement("aside");
@@ -144,7 +151,6 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
 
   const header = document.createElement("div");
   header.style.cssText = HEADER_STYLES;
-  header.textContent = "Backlinks";
   root.appendChild(header);
 
   const list = document.createElement("div");
@@ -192,7 +198,7 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
 
     const snippet = document.createElement("div");
     snippet.style.cssText = ITEM_SNIPPET_STYLES;
-    snippet.textContent = hit.snippet || "(empty)";
+    snippet.textContent = hit.snippet || i18n.t("backlinks.emptySnippet");
     btn.appendChild(snippet);
 
     parent.appendChild(btn);
@@ -218,18 +224,18 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
     const activeFile = getActiveFile();
     const active = activeFile ? toIndexPath(activeFile) : null;
     if (!activeFile || !active) {
-      header.textContent = "Backlinks";
-      renderEmpty("No active file", list);
+      header.textContent = i18n.t("backlinks.title");
+      renderEmpty(i18n.t("backlinks.noActiveFile"), list);
       return;
     }
 
     // Fast path: linked mentions are O(1) (Map lookup) — render immediately.
     const linked = index.getBacklinks(active);
-    header.textContent = `Backlinks · ${linked.length} linked · … mentions`;
+    header.textContent = i18n.t("backlinks.summaryPending", { linked: linked.length });
 
-    renderSectionHeader("Linked mentions", linked.length, list);
+    renderSectionHeader(i18n.t("backlinks.linked"), linked.length, list);
     if (linked.length === 0) {
-      renderEmpty("No linked mentions", list);
+      renderEmpty(i18n.t("backlinks.noLinked"), list);
     } else {
       for (const hit of linked) renderItem(hit, list);
     }
@@ -237,8 +243,8 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
     // Placeholder for unlinked section — filled asynchronously so we don't
     // block the UI thread with the O(vault-size) regex scan in
     // getUnlinkedMentions.
-    const unlinkedHeader = renderSectionHeader("Unlinked mentions", 0, list);
-    unlinkedHeader.textContent = "Unlinked mentions — scanning…";
+    const unlinkedHeader = renderSectionHeader(i18n.t("backlinks.unlinked"), 0, list);
+    unlinkedHeader.textContent = i18n.t("backlinks.scanning");
     const unlinkedContainer = document.createElement("div");
     list.appendChild(unlinkedContainer);
 
@@ -255,11 +261,15 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
           "backlinks.unlinked-scan", `${(t1 - t0).toFixed(1)}ms`,
           { hits: unlinked.length });
       }
-      header.textContent = `Backlinks · ${linked.length} linked · ${unlinked.length} mention${unlinked.length === 1 ? "" : "s"}`;
+      header.textContent = i18n.t("backlinks.summary", {
+        linked: linked.length,
+        mentions: unlinked.length,
+        mentionLabel: i18n.t(unlinked.length === 1 ? "backlinks.mention" : "backlinks.mentions"),
+      });
       unlinkedHeader.textContent = "";
-      renderSectionHeaderInto(unlinkedHeader, "Unlinked mentions", unlinked.length);
+      renderSectionHeaderInto(unlinkedHeader, i18n.t("backlinks.unlinked"), unlinked.length);
       if (unlinked.length === 0) {
-        renderEmpty("No unlinked mentions", unlinkedContainer);
+        renderEmpty(i18n.t("backlinks.noUnlinked"), unlinkedContainer);
       } else {
         for (const hit of unlinked) renderItem(hit, unlinkedContainer);
       }
@@ -267,6 +277,7 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
   }
 
   const unsubscribe = index.subscribe(() => refresh());
+  const unsubscribeLocale = i18n.subscribe(refresh);
   refresh();
 
   return {
@@ -279,6 +290,7 @@ export function createBacklinksPanel(options: BacklinksPanelOptions): BacklinksP
         pendingUnlinkedCancel = null;
       }
       unsubscribe();
+      unsubscribeLocale();
       root.remove();
     },
   };

@@ -39,6 +39,7 @@ describe("Electron preload host surfaces", () => {
 
     expect([...preloadHarness.exposed.keys()].sort()).toEqual(["nexusDemo", "nexusHost"]);
     expect(preloadHarness.exposed.get("nexusHost")).toMatchObject({ mode: "legacy" });
+    expect(preloadHarness.exposed.get("nexusHost")).toHaveProperty("showItemInFolder", expect.any(Function));
     expect(preloadHarness.exposed.has("nexusPlugins")).toBe(false);
   });
 
@@ -48,6 +49,7 @@ describe("Electron preload host surfaces", () => {
 
     expect([...preloadHarness.exposed.keys()].sort()).toEqual(["nexusHost", "nexusPlugins"]);
     expect(preloadHarness.exposed.get("nexusHost")).toMatchObject({ mode: "runtime" });
+    expect(preloadHarness.exposed.get("nexusHost")).toHaveProperty("showItemInFolder", expect.any(Function));
     expect(preloadHarness.exposed.has("nexusDemo")).toBe(false);
   });
 });

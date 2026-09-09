@@ -41,6 +41,7 @@ export {
   createSlashMenuUI,
   type SlashMenuUI,
   type SlashMenuUIOptions,
+  type SlashMenuLabels,
   type SlashMenuCommandContext,
   type SlashCommandHistoryConfig,
   type SlashCommandHistoryOptions,

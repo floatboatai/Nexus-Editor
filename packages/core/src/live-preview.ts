@@ -1113,6 +1113,22 @@ function buildDecorations(
       }
     } else if (range.node.type === "code" && !config.renderers.code) {
       buildCodeBlockDecorations(range as { from: number; to: number; node: Code; source: string }, selection, decos, viewRef, codeTokens);
+    } else if (range.node.type === "thematicBreak" && !config.renderers.thematicBreak) {
+      // Keep the source in normal CM6 text DOM so arrows, Backspace/Delete,
+      // clicking and selections can cross the divider. Off-line, a height-neutral
+      // line decoration supplies the preview while the source stays navigable.
+      if (!selectionOnSameLine(range.from, range.to, doc, selection)) {
+        decos.push(Decoration.line({
+          attributes: {
+            "data-live-preview-hr": "true",
+            role: "separator",
+            style: "box-shadow:inset 0 -1px 0 var(--nexus-border)",
+          },
+        }).range(range.from));
+        decos.push(Decoration.mark({
+          attributes: { style: "color:transparent" },
+        }).range(range.from, range.to));
+      }
     } else if (range.node.type === "image") {
       // Cursor-aware + preview-alongside:
       //   * cursor OUT  → replace widget (source hidden).
@@ -1245,7 +1261,7 @@ function buildDecorations(
           decos.push(Decoration.mark({ attributes: { style, ...attrs } }).range(textFrom, textTo));
         }
       } else {
-        // Block fallback for thematicBreak: always render as widget.
+        // Custom thematicBreak renderers retain their block-widget contract.
         // Cursor-toggle between widget and raw caused block-height shifts
         // (widget margins differ from raw-line height), destabilizing click resolution.
         const isBlock = BLOCK_NODE_TYPES.has(range.node.type);
