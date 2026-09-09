@@ -61,6 +61,7 @@ interface StoredEnvelope {
 
 interface StorageRecord {
   cache: PluginDataSnapshot | null | undefined;
+  invalidationVersion: number;
   tail: Promise<void>;
   readonly events: TypedEventRegistry<PluginStorageEventMap>;
 }
@@ -262,6 +263,7 @@ export class PluginStorageRuntime implements ManagedResource {
     this.unsubscribeBackend = this.backend.subscribe?.((change) => {
       const record = this.records.get(change.pluginId);
       if (!record || this.disposed) return;
+      record.invalidationVersion += 1;
       record.cache = undefined;
       record.events.emit("externalChange", {
         version: change.version,
@@ -324,6 +326,7 @@ export class PluginStorageRuntime implements ManagedResource {
     if (!record) {
       record = {
         cache: undefined,
+        invalidationVersion: 0,
         tail: Promise.resolve(),
         events: new TypedEventRegistry<PluginStorageEventMap>({
           serviceId: `${pluginId}:storage-events`,
@@ -350,10 +353,11 @@ export class PluginStorageRuntime implements ManagedResource {
     if (!force && record.cache !== undefined) {
       return cloneSnapshot(record.cache as PluginDataSnapshot<TData>);
     }
+    const invalidationVersion = record.invalidationVersion;
     const loaded = await this.backend.read(pluginId);
     if (loaded.status === "missing") {
       const empty = Object.freeze({ data: null, version: null, schemaVersion: null });
-      record.cache = empty;
+      if (record.invalidationVersion === invalidationVersion) record.cache = empty;
       return empty as PluginDataSnapshot<TData>;
     }
     if (loaded.status === "corrupt") {
@@ -374,7 +378,7 @@ export class PluginStorageRuntime implements ManagedResource {
         version: loaded.version,
         schemaVersion: envelope.schemaVersion,
       });
-      record.cache = snapshot;
+      if (record.invalidationVersion === invalidationVersion) record.cache = snapshot;
       return cloneSnapshot(snapshot as PluginDataSnapshot<TData>);
     } catch (error) {
       const item = diagnostic(
@@ -395,6 +399,7 @@ export class PluginStorageRuntime implements ManagedResource {
     serialized: string,
     options: PluginDataSaveOptions | undefined,
   ): Promise<ServiceResult<PluginDataSaveResult>> {
+    const invalidationVersion = record.invalidationVersion;
     const result = await this.backend.write(
       pluginId,
       serialized,
@@ -411,11 +416,14 @@ export class PluginStorageRuntime implements ManagedResource {
       return { ok: false, diagnostic: item };
     }
     const envelope = parseEnvelope(serialized);
-    record.cache = Object.freeze({
-      data: cloneJson(envelope.data),
-      version: result.version,
-      schemaVersion: envelope.schemaVersion,
-    });
+    // External notifications can arrive before the backend acknowledges this write.
+    if (record.invalidationVersion === invalidationVersion) {
+      record.cache = Object.freeze({
+        data: cloneJson(envelope.data),
+        version: result.version,
+        schemaVersion: envelope.schemaVersion,
+      });
+    }
     return {
       ok: true,
       value: Object.freeze({
@@ -463,7 +471,11 @@ export class PluginStorageRuntime implements ManagedResource {
       if (!saved.ok) return saved;
       return {
         ok: true,
-        value: cloneSnapshot(record.cache as PluginDataSnapshot<TData>),
+        value: cloneSnapshot({
+          data: parseEnvelope(serialized).data as TData,
+          version: saved.value.version,
+          schemaVersion: saved.value.schemaVersion,
+        }),
       };
     } catch (error) {
       const existing = error && typeof error === "object" && "diagnostic" in error

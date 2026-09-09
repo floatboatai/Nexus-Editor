@@ -32,6 +32,12 @@ async function activate(resources: readonly ManagedResource[]): Promise<void> {
   for (const resource of resources) await resource.activate?.();
 }
 
+function deferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 describe("PluginStorageRuntime", () => {
   it("returns null for first load and isolates plugin namespaces", async () => {
     const runtime = new PluginStorageRuntime();
@@ -125,6 +131,165 @@ describe("PluginStorageRuntime", () => {
     backend.putExternal("external" as PluginId, { value: "outside" }, 2);
     expect(changed).toHaveBeenCalledWith(expect.objectContaining({ schemaVersion: 2 }));
     expect((await storage.loadData<{ value: string }>()).data).toEqual({ value: "outside" });
+  });
+
+  it.each(["missing", "available"] as const)(
+    "does not cache an in-flight %s read after an external change",
+    async (initialState) => {
+      const backend = new MemoryPluginStorageBackend();
+      const pluginId = "read-race" as PluginId;
+      if (initialState === "available") backend.putExternal(pluginId, { value: "old" }, 1);
+      const started = deferred();
+      const resume = deferred();
+      const read = backend.read.bind(backend);
+      const readSpy = vi.spyOn(backend, "read").mockImplementationOnce(async (id) => {
+        const snapshot = await read(id);
+        started.resolve();
+        await resume.promise;
+        return snapshot;
+      });
+      const runtime = new PluginStorageRuntime({ backend });
+      const storage = service(runtime, pluginId);
+
+      const loading = storage.loadData();
+      await started.promise;
+      const version = backend.putExternal(pluginId, { value: "new" }, 2);
+      const reloading = storage.loadData();
+      resume.resolve();
+
+      expect((await loading).data).toEqual(initialState === "missing" ? null : { value: "old" });
+      const expected = { data: { value: "new" }, version, schemaVersion: 2 };
+      expect(await reloading).toEqual(expected);
+      expect(await storage.loadData()).toEqual(expected);
+      expect(readSpy).toHaveBeenCalledTimes(2);
+      await runtime.dispose();
+    },
+  );
+
+  it.each(["save", "migrate"] as const)(
+    "keeps external invalidation when an in-flight %s completes",
+    async (operation) => {
+      const backend = new MemoryPluginStorageBackend();
+      const pluginId = "write-race" as PluginId;
+      backend.putExternal(pluginId, { value: "initial" }, 1);
+      const committed = deferred<string>();
+      const resume = deferred();
+      const write = backend.write.bind(backend);
+      vi.spyOn(backend, "write").mockImplementationOnce(async (...args) => {
+        const result = await write(...args);
+        if (!result.ok) throw new Error("Fixture write unexpectedly conflicted");
+        committed.resolve(result.version);
+        await resume.promise;
+        return result;
+      });
+      const runtime = new PluginStorageRuntime({ backend });
+      const resources: ManagedResource[] = [];
+      const storage = service(runtime, pluginId, resources);
+      const refreshed = deferred<Awaited<ReturnType<typeof storage.loadData>>>();
+      storage.events.on("externalChange", () => {
+        void storage.loadData().then(refreshed.resolve);
+      });
+      await activate(resources);
+
+      const localData = { value: "local" };
+      const saving = operation === "save"
+        ? storage.saveData(localData, { schemaVersion: 2 })
+        : storage.migrateData({
+          targetSchemaVersion: 2,
+          migrate: () => localData,
+        });
+      const localVersion = await committed.promise;
+      localData.value = "mutated after commit";
+      const externalVersion = backend.putExternal(pluginId, { value: "external" }, 3);
+      resume.resolve();
+
+      expect(await saving).toEqual({
+        ok: true,
+        value: {
+          ...(operation === "migrate" ? { data: { value: "local" } } : {}),
+          version: localVersion,
+          schemaVersion: 2,
+        },
+      });
+      const expected = { data: { value: "external" }, version: externalVersion, schemaVersion: 3 };
+      expect(await refreshed.promise).toEqual(expected);
+      expect(await storage.loadData()).toEqual(expected);
+      await runtime.dispose();
+    },
+  );
+
+  it("does not hide external corruption behind an in-flight read", async () => {
+    const backend = new MemoryPluginStorageBackend();
+    const pluginId = "corrupt-race" as PluginId;
+    backend.putExternal(pluginId, { value: "old" });
+    const started = deferred();
+    const resume = deferred();
+    const read = backend.read.bind(backend);
+    vi.spyOn(backend, "read").mockImplementationOnce(async (id) => {
+      const snapshot = await read(id);
+      started.resolve();
+      await resume.promise;
+      return snapshot;
+    });
+    const runtime = new PluginStorageRuntime({ backend });
+    const storage = service(runtime, pluginId);
+
+    const loading = storage.loadData();
+    await started.promise;
+    backend.putCorrupt(pluginId, "{not-json");
+    resume.resolve();
+    await loading;
+
+    await expect(storage.loadData()).rejects.toMatchObject({
+      diagnostic: { code: "storage-corrupt" },
+    });
+    expect(backend.getRaw(pluginId)).toBe("{not-json");
+    await runtime.dispose();
+  });
+
+  it("keeps other plugin caches valid when one plugin changes externally", async () => {
+    const backend = new MemoryPluginStorageBackend();
+    const runtime = new PluginStorageRuntime({ backend });
+    const storage = service(runtime, "unchanged");
+    await storage.saveData({ value: "cached" });
+    const read = vi.spyOn(backend, "read");
+
+    backend.putExternal("other" as PluginId, { value: "external" });
+
+    expect((await storage.loadData()).data).toEqual({ value: "cached" });
+    expect(read).not.toHaveBeenCalled();
+    await runtime.dispose();
+  });
+
+  it("rejects a migration when an external write wins before its commit", async () => {
+    const backend = new MemoryPluginStorageBackend();
+    const pluginId = "migration-conflict" as PluginId;
+    backend.putExternal(pluginId, { value: "initial" }, 1);
+    const runtime = new PluginStorageRuntime({ backend });
+    const storage = service(runtime, pluginId);
+    const started = deferred();
+    const resume = deferred();
+
+    const migrating = storage.migrateData({
+      targetSchemaVersion: 2,
+      migrate: async () => {
+        started.resolve();
+        await resume.promise;
+        return { value: "local" };
+      },
+    });
+    await started.promise;
+    const version = backend.putExternal(pluginId, { value: "external" }, 3);
+    resume.resolve();
+
+    expect(await migrating).toMatchObject({
+      ok: false,
+      diagnostic: { code: "file-version-conflict" },
+    });
+    expect(await storage.loadData()).toEqual({
+      data: { value: "external" }, version, schemaVersion: 3,
+    });
+    await runtime.dispose();
   });
 
   it("detects expected-version conflicts", async () => {
