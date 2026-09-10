@@ -4,6 +4,7 @@ import type {
   ManagedResource,
   PluginId,
   ResourceOwner,
+  VaultPath,
 } from "@floatboat/nexus-plugin-api";
 import type {
   EditorAPI,
@@ -22,7 +23,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   EditorContributionCommitError,
   EditorHostRegistry,
-} from "../src/editor-host-registry";
+  CommandRegistry,
+} from "../src/index";
 
 interface InstallPlan {
   readonly ready?: Promise<void>;
@@ -154,6 +156,80 @@ function attach(
 }
 
 describe("EditorHostRegistry", () => {
+  it("routes commands and disposes editors independently without a workspace or UI host", async () => {
+    const registry = new EditorHostRegistry();
+    const resources: ManagedResource[] = [];
+    const service = registry.createService(owner(), (resource) => resources.push(resource));
+    const events: string[] = [];
+    service.events.on("attached", (context) => events.push(`attached:${context.editorId}`));
+    service.events.on("contextChanged", (context) => events.push(`context:${context.sourcePath}`));
+    service.events.on("detached", ({ editorId }) => events.push(`detached:${editorId}`));
+    for (const resource of resources) await resource.activate?.();
+    const first = attach(registry, new FakeContributionSink(), "first");
+    const second = attach(registry, new FakeContributionSink(), "second");
+
+    try {
+      await Promise.all([first.attachment.ready, second.attachment.ready]);
+      await first.attachment.updateContext({ sourcePath: "notes/first.md" as VaultPath });
+      await second.attachment.updateContext({ sourcePath: "notes/second.md" as VaultPath });
+      const contribution = service.registerEditorExtension([], { id: "shared-extension" });
+      if (!contribution.ok) throw new Error(contribution.diagnostic.message);
+      const commands = new CommandRegistry({
+        resolveContext: (context) => ({
+          trigger: context.trigger ?? "api",
+          editor: context.editor ?? service.getRecent(),
+        }),
+      });
+      const received: Array<string | null> = [];
+      const commandService = commands.createService(owner(), (resource) => resources.push(resource));
+      const command = commandService.registerCommand({
+        id: "source-path",
+        name: "Read source path",
+        editorCallback: (context) => { received.push(context.sourcePath); },
+      });
+      if (!command.ok) throw new Error(command.diagnostic.message);
+      for (const resource of resources) await resource.activate?.();
+
+      expect(service.list()).toHaveLength(2);
+      for (const context of service.list()) {
+        expect(context).toMatchObject({ leaf: null, view: null, window: null });
+      }
+      second.attachment.markRecent();
+      await commandService.executeCommand("example.plugin:source-path", {
+        editor: first.attachment.context,
+      });
+      await commandService.executeCommand("example.plugin:source-path");
+      expect(received).toEqual(["notes/first.md", "notes/second.md"]);
+
+      await Promise.all([first.attachment.detach(), first.attachment.detach()]);
+      expect(service.get(first.attachment.editorId)).toBeUndefined();
+      expect(service.list()).toEqual([second.attachment.context]);
+      expect(first.sink.registrations[0].registration.disposed).toBe(true);
+      expect(second.sink.registrations[0].registration.disposed).toBe(false);
+      expect(second.attachment.context.sourcePath).toBe("notes/second.md");
+      await commandService.executeCommand("example.plugin:source-path");
+      expect(received).toEqual(["notes/first.md", "notes/second.md", "notes/second.md"]);
+      expect(events).toEqual([
+        "attached:first",
+        "attached:second",
+        "context:notes/first.md",
+        "context:notes/second.md",
+        "detached:first",
+      ]);
+
+      await second.attachment.detach();
+      expect(service.getRecent()).toBeNull();
+      expect(await commandService.checkCommand("example.plugin:source-path")).toEqual({
+        status: "no-editor",
+      });
+    } finally {
+      await Promise.all([first.attachment.detach(), second.attachment.detach()]);
+      for (const resource of resources.reverse()) await resource.dispose();
+      first.root.remove();
+      second.root.remove();
+    }
+  });
+
   it("assigns stable instance ids and preserves nullable per-editor context", async () => {
     const registry = new EditorHostRegistry({ editorIdPrefix: "test-editor" });
     const resources: ManagedResource[] = [];

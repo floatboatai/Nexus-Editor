@@ -72,6 +72,8 @@ export interface RuntimeWorkspaceSnapshot {
 
 export interface RuntimeWorkspaceOptions {
   readonly id?: string;
+  /** File-navigation view type; hosts register its factory separately. Defaults to "markdown". */
+  readonly markdownViewType?: string;
   readonly supportedContainers?: readonly WorkspaceContainerType[];
   readonly reportDiagnostic?: (diagnostic: NexusDiagnostic) => void;
   readonly saveLayout?: (snapshot: RuntimeWorkspaceSnapshot) => void | Promise<void>;
@@ -436,6 +438,7 @@ export class RuntimeWorkspace {
   private readonly reportDiagnostic: (diagnostic: NexusDiagnostic) => void;
   private readonly saveLayout?: RuntimeWorkspaceOptions["saveLayout"];
   private readonly defaultNavigationPlacement: Exclude<NavigationPlacement, "default">;
+  private readonly markdownViewType: string;
   private readonly defaultMissingViewPolicy: MissingViewPolicy;
   private windowSequence = 0;
   private leafSequence = 0;
@@ -452,6 +455,7 @@ export class RuntimeWorkspace {
     options: RuntimeWorkspaceOptions = {},
   ) {
     this.id = workspaceId(options.id ?? "runtime-workspace");
+    this.markdownViewType = options.markdownViewType ?? "markdown";
     this.supportedContainers = Object.freeze([
       ...(options.supportedContainers ?? ["root", "tab", "split", "sidebar", "window"]),
     ]);
@@ -737,6 +741,15 @@ export class RuntimeWorkspace {
     }
     for (const leaf of [...this.leaves.values()]) await this.closeLeaf(leaf);
     this.preservedUnknownState = snapshot.unknown ? cloneJson(snapshot.unknown) : undefined;
+    // Empty windows have no leaf record from which to recover their identity.
+    const restoreWindows = (node: WorkspaceLayoutNode): void => {
+      if (node.type === "window" && node.id.startsWith("window-node:")) {
+        const id = node.id.slice("window-node:".length);
+        if (!this.windows.has(id)) this.createWindow(this.defaultDocument, id);
+      }
+      for (const child of node.children) restoreWindows(child);
+    };
+    restoreWindows(snapshot.layout);
     for (const item of snapshot.leaves) {
       if (!this.windows.has(item.windowId)) this.createWindow(this.defaultDocument, item.windowId);
       const leaf = this.createLeaf({
@@ -899,7 +912,7 @@ export class RuntimeWorkspace {
             : { ephemeralState: options.ephemeralState }),
         }
       : {
-          type: "markdown",
+          type: this.markdownViewType,
           stateVersion: 1,
           state: { path: target.file.path },
           ...(options.ephemeralState === undefined
@@ -960,7 +973,9 @@ export class RuntimeWorkspace {
     const id = typeof leafOrId === "string" ? leafOrId : leafOrId.id;
     const leaf = this.leaves.get(id);
     if (!leaf) throw new RangeError(`Unknown runtime workspace leaf '${id}'`);
-    if (!this.windows.has(target.id)) throw new RangeError(`Unknown runtime workspace window '${target.id}'`);
+    if (this.windows.get(target.id) !== target) {
+      throw new RangeError(`Unknown runtime workspace window '${target.id}'`);
+    }
     const previous = leaf.setWindow(target);
     if (previous === target) return;
     target.ownerDocument.body.append(leaf.containerEl);

@@ -8,16 +8,44 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./fuzzy": {
+      "types": "./dist/fuzzy.d.ts",
+      "import": "./dist/fuzzy.js"
+    },
+    "./workspace": {
+      "types": "./dist/workspace.d.ts",
+      "import": "./dist/workspace.js"
+    },
+    "./browser-worker": {
+      "types": "./dist/browser-worker.d.ts",
+      "import": "./dist/browser-worker.js"
+    },
+    "./search-worker": {
+      "types": "./dist/search-worker.d.ts",
+      "import": "./dist/search-worker.js"
+    },
+    "./node-worker": {
+      "types": "./dist/node-worker.d.ts",
+      "import": "./dist/node-worker.js"
+    },
+    "./headless": {
+      "types": "./dist/headless.d.ts",
+      "import": "./dist/headless.js"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --clean"
+    "build": "tsup --config tsup.config.ts",
+    "test": "vitest run --config vitest.config.ts test",
+    "typecheck": "tsc --noEmit",
+    "check:api": "tsc --noEmit -p tsconfig.api.json && node scripts/check-api.mjs"
   },
   "dependencies": {
     "@codemirror/search": "^6.6.0",
+    "@codemirror/state": "^6.6.0",
     "@codemirror/view": "^6.41.0",
     "@floatboat/nexus-core": "workspace:*"
   },
