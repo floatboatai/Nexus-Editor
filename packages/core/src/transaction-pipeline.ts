@@ -73,10 +73,15 @@ function normalizePriority(priority: number | undefined): number {
 }
 
 function selectionSnapshot(selection: EditorSelection): SelectionState {
-  return {
-    ranges: selection.ranges.map((range) => ({ anchor: range.anchor, head: range.head })),
+  const ranges = selection.ranges.map((range) => Object.freeze({
+    anchor: range.anchor,
+    head: range.head,
+  }));
+  Object.freeze(ranges);
+  return Object.freeze({
+    ranges,
     mainIndex: selection.mainIndex,
-  };
+  });
 }
 
 function selectionFromSnapshot(selection: SelectionState): EditorSelection {
@@ -92,17 +97,17 @@ function selectionFromSnapshot(selection: SelectionState): EditorSelection {
 function changesFromTransaction(transaction: Transaction): readonly CoreEditorChange[] {
   const changes: CoreEditorChange[] = [];
   transaction.changes.iterChanges((from, to, _fromAfter, _toAfter, inserted) => {
-    changes.push({ from, to, insert: inserted.toString() });
+    changes.push(Object.freeze({ from, to, insert: inserted.toString() }));
   }, true);
-  return changes;
+  return Object.freeze(changes);
 }
 
 function makeContext(editor: EditorAPI, transaction: Transaction): CoreEditorTransactionContext {
   return Object.freeze({
     editor,
-    changes: Object.freeze(changesFromTransaction(transaction)),
-    selectionBefore: Object.freeze(selectionSnapshot(transaction.startState.selection)),
-    selectionAfter: Object.freeze(selectionSnapshot(transaction.newSelection)),
+    changes: changesFromTransaction(transaction),
+    selectionBefore: selectionSnapshot(transaction.startState.selection),
+    selectionAfter: selectionSnapshot(transaction.newSelection),
     origin: Object.freeze([...(transaction.annotation(editorTransactionOrigin) ?? [])]),
     userEvent: transaction.annotation(Transaction.userEvent),
   });

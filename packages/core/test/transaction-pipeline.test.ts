@@ -40,6 +40,106 @@ function transaction(
 }
 
 describe("core editor transaction pipeline", () => {
+  it("prevents a filter from corrupting changes seen by later filters", () => {
+    const { editor } = createTestEditor();
+    const sink = editor.getContributionSink();
+    const mutations: boolean[] = [];
+    sink.registerTransactionFilter("mutator", (context) => {
+      mutations.push(Reflect.set(context.changes[0], "insert", "corrupted"));
+      mutations.push(Reflect.set(context.changes[0], "from", 1));
+      return { action: "accept" };
+    }, { priority: 10 });
+    sink.registerTransactionFilter("transformer", (context) => ({
+      action: "replace",
+      transaction: {
+        changes: context.changes.map((change) => ({
+          ...change,
+          insert: change.insert.toUpperCase(),
+        })),
+        origin: [...context.origin, "transformer"],
+      },
+    }));
+
+    try {
+      const result = editor.dispatchTransaction(transaction([{ from: 0, to: 1, insert: "x" }]));
+      expect(mutations).toEqual([false, false]);
+      expect(result.status).toBe("success");
+      expect(editor.getDocument()).toBe("Xbcd");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("isolates all selection ranges from mutations by update listeners", () => {
+    const { editor } = createTestEditor();
+    editor.setSelections([{ anchor: 1, head: 0 }, { anchor: 3, head: 4 }], 1);
+    const sink = editor.getContributionSink();
+    const mutations: boolean[] = [];
+    const observer = vi.fn();
+    sink.registerUpdateListener("mutator", (update) => {
+      for (const selection of [update.selectionBefore, update.selectionAfter]) {
+        for (const range of selection.ranges) {
+          mutations.push(Reflect.set(range, "anchor", 2));
+          mutations.push(Reflect.set(range, "head", 2));
+        }
+        mutations.push(Reflect.set(selection.ranges, "length", 0));
+      }
+      mutations.push(Reflect.set(update.changes[0], "insert", "corrupted"));
+    }, { priority: 10 });
+    sink.registerUpdateListener("observer", observer);
+
+    try {
+      const result = editor.dispatchTransaction(transaction([{ from: 1, to: 1, insert: "X" }]));
+      expect(mutations).toEqual(Array(11).fill(false));
+      expect(observer).toHaveBeenCalledTimes(1);
+      expect(observer.mock.calls[0][0]).toMatchObject({
+        changes: [{ from: 1, to: 1, insert: "X" }],
+        selectionBefore: {
+          ranges: [{ anchor: 1, head: 0 }, { anchor: 3, head: 4 }],
+          mainIndex: 1,
+        },
+        selectionAfter: editor.getSelections(),
+        documentAfter: editor.getDocument(),
+      });
+      expect(result).toEqual({ status: "success", update: observer.mock.calls[0][0] });
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("freezes replacement snapshots without freezing caller-owned transactions", () => {
+    const { editor } = createTestEditor();
+    const replacement: CoreEditorTransaction = {
+      changes: [{ from: 0, to: 1, insert: "X" }],
+      selection: { ranges: [{ anchor: 1, head: 1 }], mainIndex: 0 },
+      origin: ["replacement"],
+    };
+    const sink = editor.getContributionSink();
+    const mutations: boolean[] = [];
+    sink.registerTransactionFilter("replace", () => ({ action: "replace", transaction: replacement }),
+      { priority: 10 });
+    sink.registerTransactionFilter("observer", (context) => {
+      mutations.push(Reflect.set(context.changes[0], "insert", "corrupted"));
+      mutations.push(Reflect.set(context.selectionAfter.ranges[0], "head", 0));
+      mutations.push(Reflect.set(context.selectionBefore.ranges, "length", 0));
+      return { action: "accept" };
+    });
+
+    try {
+      editor.dispatchTransaction(transaction([{ from: 0, to: 0, insert: "ignored" }]));
+      expect(mutations).toEqual([false, false, false]);
+      expect(editor.getDocument()).toBe("Xbcd");
+      expect(editor.getSelections()).toEqual(replacement.selection);
+      expect(Reflect.set(replacement.changes[0], "insert", "reusable")).toBe(true);
+      expect(Reflect.set(replacement.selection!.ranges[0], "head", 0)).toBe(true);
+      expect(Reflect.set(replacement.origin, "length", 0)).toBe(true);
+      expect(editor.getDocument()).toBe("Xbcd");
+      expect(editor.getSelection()).toMatchObject({ anchor: 1, head: 1 });
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("filters before commit and only notifies listeners with the final update", () => {
     const { editor } = createTestEditor();
     const sink = editor.getContributionSink();
