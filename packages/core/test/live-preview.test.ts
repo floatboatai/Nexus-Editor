@@ -456,14 +456,30 @@ describe("live preview", () => {
     const container = document.createElement("div");
     const editor = createEditor({
       container,
-      initialValue: "Text\n\n```js\nconsole.log(1)\n```",
+      initialValue: "Text\n\n```js\nconst x = 1;\nconsole.log(x)\n```",
       livePreview: true
     });
 
-    expect(container.textContent).toContain("console.log(1)");
+    expect(container.textContent).toContain("const x = 1;");
     // Code block has role=code and aria-label with language
     const codeLine = container.querySelector("[role='code']");
     expect(codeLine?.getAttribute("aria-label")).toBe("Code block: js");
+
+    // hljs walker must produce class spans for keywords / numbers / strings —
+    // guards against the walkNode being written against the wrong hljs shape
+    // (see live-preview-highlight.ts: scope vs kind). Without this assertion
+    // a dead-code walk would pass every other test in this file.
+    const hljsSpans = container.querySelectorAll("span[class*='hljs-']");
+    expect(hljsSpans.length).toBeGreaterThan(0);
+    const seenScopes = new Set<string>();
+    for (const span of Array.from(hljsSpans)) {
+      for (const cls of (span as HTMLElement).className.split(/\s+/u)) {
+        if (cls.startsWith("hljs-")) seenScopes.add(cls.slice("hljs-".length));
+      }
+    }
+    // js source has at least a keyword (const) and a number (1).
+    expect(seenScopes.has("keyword")).toBe(true);
+    expect(seenScopes.has("number")).toBe(true);
     editor.destroy();
   });
 
