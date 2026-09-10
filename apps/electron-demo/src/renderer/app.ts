@@ -80,6 +80,7 @@ export interface BootOptions {
   readonly root?: HTMLElement;
   readonly featureFlags?: Partial<ReferencePluginFeatureFlags>;
   readonly deferVaultRestore?: boolean;
+  readonly publicCapabilitiesManaged?: boolean;
 }
 
 export function resolveReferencePluginFeatureFlags(
@@ -206,6 +207,16 @@ function createAppToolbar(): HTMLElement {
   settingsBtn.style.fontSize = "16px";
   settingsBtn.addEventListener("click", handleSettings);
 
+  const capabilitiesBtn = document.createElement("button");
+  capabilitiesBtn.textContent = "🧩";
+  capabilitiesBtn.title = "公共能力";
+  capabilitiesBtn.setAttribute("aria-label", "公共能力");
+  capabilitiesBtn.setAttribute("aria-expanded", "false");
+  capabilitiesBtn.style.fontSize = "14px";
+  capabilitiesBtn.addEventListener("click", () => {
+    window.dispatchEvent(new Event("nexus:toggle-public-capabilities"));
+  });
+
   toolbar.append(
     vaultBtn,
     openBtn,
@@ -215,6 +226,7 @@ function createAppToolbar(): HTMLElement {
     vaultToggleBtn,
     outlineBtn,
     backlinksBtn,
+    ...(window.nexusPublicCapabilities ? [capabilitiesBtn] : []),
     searchBtn,
     settingsBtn
   );
@@ -803,7 +815,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
       slots,
       confirmDangerousAction: ({ title, message, window: targetWindow }) =>
         targetWindow.ownerWindow.confirm(`${title}\n\n${message}`),
-      onShutdownRequested: () => shutdown(),
+      onShutdownRequested: () => options.publicCapabilitiesManaged ? undefined : shutdown(),
     });
     linkIndex = pluginRuntime.linkIndex;
     legacyLinkIndex = null;

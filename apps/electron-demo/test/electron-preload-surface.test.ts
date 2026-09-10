@@ -46,8 +46,22 @@ describe("Electron preload host surfaces", () => {
     process.argv.splice(0, process.argv.length, "electron", "--nexus-host-mode=runtime");
     await import("../electron/preload");
 
-    expect([...preloadHarness.exposed.keys()].sort()).toEqual(["nexusHost", "nexusPlugins"]);
+    expect([...preloadHarness.exposed.keys()].sort()).toEqual(["nexusHost", "nexusPlugins", "nexusPublicCapabilities"]);
     expect(preloadHarness.exposed.get("nexusHost")).toMatchObject({ mode: "runtime" });
     expect(preloadHarness.exposed.has("nexusDemo")).toBe(false);
+  });
+
+  it("exposes the bounded public capability bridge in runtime mode", async () => {
+    process.argv.splice(0, process.argv.length, "electron", "--nexus-host-mode=runtime");
+    await import("../electron/preload");
+    expect([...preloadHarness.exposed.keys()].sort()).toEqual(["nexusHost", "nexusPlugins", "nexusPublicCapabilities"]);
+    const bridge = preloadHarness.exposed.get("nexusPublicCapabilities") as import("../src/shared/public-capabilities-ipc").PublicCapabilitiesBridge;
+    const { ipcRenderer } = await import("electron");
+    await bridge.cancelShutdown();
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith("nexus:public-capabilities", { operation: "cancel-shutdown" });
+    await bridge.inspectSearchDocument?.({ kind: "selected", id: "fixture" }, { includeContent: false });
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith("nexus:public-capabilities", {
+      operation: "inspect-search-document", source: { kind: "selected", id: "fixture" }, includeContent: false,
+    });
   });
 });

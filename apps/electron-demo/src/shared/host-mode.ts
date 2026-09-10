@@ -17,7 +17,7 @@ export function parseHostModeArgument(argv: readonly string[]): NexusHostMode {
 export function resolveMainHostMode(
   env: Readonly<Record<string, string | undefined>>,
 ): NexusHostMode {
-  return env.NEXUS_PLUGIN_PLATFORM === "1" || env.VITE_NEXUS_PLUGIN_PLATFORM === "1"
-    ? "runtime"
-    : "legacy";
+  return env.NEXUS_PLUGIN_PLATFORM === "0" || env.VITE_NEXUS_PLUGIN_PLATFORM === "0"
+    ? "legacy"
+    : "runtime";
 }

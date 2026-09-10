@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { constants, existsSync, watch, type FSWatcher } from "node:fs";
+import { constants, existsSync, watch, type BigIntStats, type FSWatcher } from "node:fs";
 import {
   lstat,
   mkdir,
@@ -13,6 +13,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { withFileWriteLock } from "./file-write-lock";
 
 import {
   PLUGIN_HOST_PERMISSIONS,
@@ -248,6 +249,18 @@ export interface VaultBrokerOptions {
   readonly lstatPath?: typeof lstat;
   readonly realpathPath?: typeof realpath;
   readonly openPath?: typeof open;
+  /** Optional demo codec policy; the default host still reads/writes UTF-8. */
+  readonly decodeText?: (sender: SenderIdentity, sessionId: VaultSessionId, path: string, bytes: Uint8Array) => string | Promise<string>;
+  readonly encodeText?: (sender: SenderIdentity, sessionId: VaultSessionId, path: string, text: string, previous: Uint8Array | null) => Uint8Array | Promise<Uint8Array>;
+}
+
+export interface VaultBrokerWriteOptions {
+  readonly expectedVersion?: IpcContentVersion;
+  readonly operationId?: string;
+  readonly requireAbsent?: boolean;
+  /** Privileged hooks, never accepted through plugin IPC. They run inside the path lock. */
+  readonly beforeCommit?: (previous: Uint8Array | null, next: Uint8Array) => Promise<void>;
+  readonly afterCommit?: (mutation: PluginVaultMutation, bytes: Uint8Array) => Promise<void>;
 }
 
 interface FileIdentity {
@@ -256,6 +269,20 @@ interface FileIdentity {
 }
 
 type VaultFileHandle = Awaited<ReturnType<typeof open>>;
+
+export interface VaultFileMetadata {
+  readonly size: number;
+  readonly metadataVersion: string;
+}
+
+function fileMetadata(info: BigIntStats): VaultFileMetadata {
+  if (info.size > BigInt(Number.MAX_SAFE_INTEGER)) throw new RangeError("File metadata size exceeds the supported range");
+  const fingerprint = [info.dev, info.ino, info.mode, info.size, info.mtimeNs, info.ctimeNs].map(String).join(":");
+  return {
+    size: Number(info.size),
+    metadataVersion: `metadata:${createHash("sha256").update(fingerprint).digest("hex")}`,
+  };
+}
 
 interface AuthorizedPathLease {
   readonly session: VaultSessionRecord;
@@ -360,7 +387,7 @@ function relativeFromRoot(root: string, absolutePath: string): string {
   return path.relative(root, absolutePath).split(path.sep).join("/");
 }
 
-function contentVersion(content: Uint8Array): IpcContentVersion {
+export function contentVersion(content: Uint8Array): IpcContentVersion {
   return asVersion(`sha256:${createHash("sha256").update(content).digest("hex")}`);
 }
 
@@ -415,6 +442,8 @@ export class ElectronVaultBroker {
   private readonly lstatPath: typeof lstat;
   private readonly realpathPath: typeof realpath;
   private readonly openPath: typeof open;
+  private readonly decodeText: VaultBrokerOptions["decodeText"];
+  private readonly encodeText: VaultBrokerOptions["encodeText"];
   private readonly senderGenerations = new Map<number, number>();
   private readonly closedSenders = new Set<number>();
   private allGeneration = 0;
@@ -432,9 +461,11 @@ export class ElectronVaultBroker {
     this.lstatPath = options.lstatPath ?? lstat;
     this.realpathPath = options.realpathPath ?? realpath;
     this.openPath = options.openPath ?? open;
+    this.decodeText = options.decodeText;
+    this.encodeText = options.encodeText;
   }
 
-  async openSession(sender: SenderIdentity, root: string): Promise<PluginVaultSession> {
+  async openSession(sender: SenderIdentity, root: string, options: { readonly watch?: boolean } = {}): Promise<PluginVaultSession> {
     this.assertSender(sender);
     const senderGeneration = this.senderGenerations.get(sender.id) ?? 0;
     const allGeneration = this.allGeneration;
@@ -466,16 +497,16 @@ export class ElectronVaultBroker {
       watcherVersions: new Map(),
       resourceTokens: new Set(),
       resourceCapability: randomUUID(),
-      watcherSnapshot: await this.captureWatcherSnapshot(absoluteRoot),
+      watcherSnapshot: options.watch === false ? new Map() : await this.captureWatcherSnapshot(absoluteRoot),
       committed: false,
       closed: false,
     };
     this.assertOpenStillCurrent(sender, senderGeneration, allGeneration);
-    const watcher = this.watchFactory(absoluteRoot, (eventType, filename) => {
+    const watcher = options.watch === false ? null : this.watchFactory(absoluteRoot, (eventType, filename) => {
       void this.handleWatcherEvent(record, eventType, filename);
     });
     if (!this.openIsCurrent(sender, senderGeneration, allGeneration)) {
-      try { watcher.close(); } catch { /* Nothing else was published yet. */ }
+      try { watcher?.close(); } catch { /* Nothing else was published yet. */ }
       throw new PluginHostBrokerError("vault-session-invalid", "Vault session open was canceled by host shutdown.");
     }
     Object.assign(record, { watcher });
@@ -495,6 +526,20 @@ export class ElectronVaultBroker {
     const session = this.requireSession(sender, sessionId);
     session.committed = true;
     return Object.freeze({ root: session.root });
+  }
+
+  async documentStorageKey(sender: SenderIdentity, sessionId: VaultSessionId, vaultPath: string): Promise<string> {
+    const session = this.requireSession(sender, sessionId);
+    const normalized = normalizeVaultRelativePath(vaultPath);
+    const parent = await this.realpathPath(path.dirname(path.join(session.canonicalRoot, normalized)));
+    if (!isInside(session.canonicalRoot, parent)) throw new PluginHostBrokerError("vault-path-escape", "Document parent is outside the authorized Vault");
+    this.requireSession(sender, sessionId);
+    return createHash("sha256").update(path.join(parent, path.basename(normalized))).digest("hex");
+  }
+
+  notifyRescan(sender: SenderIdentity, sessionId: VaultSessionId): void {
+    const session = this.requireSession(sender, sessionId);
+    this.emitChange(session, { kind: "rescan", path: "", origin: "host" });
   }
 
   closeSender(senderId: number): void {
@@ -526,7 +571,7 @@ export class ElectronVaultBroker {
     const data = await this.readAuthorizedBytes(session, vaultPath);
     return Object.freeze({
       path: normalizeVaultRelativePath(vaultPath),
-      content: data.toString("utf8"),
+      content: await this.decodeText?.(sender, sessionId, vaultPath, data) ?? data.toString("utf8"),
       version: contentVersion(data),
     });
   }
@@ -535,14 +580,36 @@ export class ElectronVaultBroker {
     sender: SenderIdentity,
     sessionId: VaultSessionId,
     vaultPath: string,
-  ): Promise<{ readonly path: string; readonly content: Uint8Array; readonly version: IpcContentVersion }> {
+    options: { readonly maxBytes?: number } = {},
+  ): Promise<{ readonly path: string; readonly content: Uint8Array; readonly version: IpcContentVersion; readonly metadataVersion?: string; readonly size?: number }> {
     const session = this.requireSession(sender, sessionId);
-    const data = await this.readAuthorizedBytes(session, vaultPath);
+    const snapshot = await this.readAuthorizedSnapshot(session, vaultPath, options.maxBytes);
     return Object.freeze({
       path: normalizeVaultRelativePath(vaultPath),
-      content: new Uint8Array(data),
-      version: contentVersion(data),
+      content: new Uint8Array(snapshot.content),
+      version: contentVersion(snapshot.content),
+      ...snapshot.metadata,
     });
+  }
+
+  async inspectFile(sender: SenderIdentity, sessionId: VaultSessionId, vaultPath: string): Promise<VaultFileMetadata> {
+    const lease = await this.acquireAuthorizedPathLease(this.requireSession(sender, sessionId), vaultPath, false);
+    try {
+      const info = await this.lstatPath(lease.operationPath, { bigint: true });
+      if (!info.isFile() || !lease.leafIdentity || !sameFileIdentity(fileIdentity(info), lease.leafIdentity)) {
+        throw new PluginHostBrokerError("vault-path-escape", "Vault metadata target changed during authorization");
+      }
+      await this.assertLeaseCurrent(lease);
+      return Object.freeze(fileMetadata(info));
+    } finally {
+      await lease.parentHandle.close();
+    }
+  }
+
+  async fileExists(sender: SenderIdentity, sessionId: VaultSessionId, vaultPath: string): Promise<boolean> {
+    const lease = await this.acquireAuthorizedPathLease(this.requireSession(sender, sessionId), vaultPath, true);
+    try { return lease.leafIdentity !== null; }
+    finally { await lease.parentHandle.close(); }
   }
 
   async readAll(sender: SenderIdentity, sessionId: VaultSessionId): Promise<readonly PluginVaultFile[]> {
@@ -570,28 +637,57 @@ export class ElectronVaultBroker {
     sessionId: VaultSessionId,
     vaultPath: string,
     data: string | Uint8Array,
-    options: { readonly expectedVersion?: IpcContentVersion; readonly operationId?: string } = {},
+    options: VaultBrokerWriteOptions = {},
   ): Promise<PluginVaultMutation> {
     const session = this.requireSession(sender, sessionId);
     const normalized = normalizeVaultRelativePath(vaultPath);
+    const captured = typeof data === "string" ? data : new Uint8Array(data);
+    const canonicalParent = await this.realpathPath(path.dirname(path.join(session.canonicalRoot, normalized)));
+    if (!isInside(session.canonicalRoot, canonicalParent)) throw new PluginHostBrokerError("vault-path-escape", "Write parent is outside the authorized Vault");
+    return withFileWriteLock(path.join(canonicalParent, path.basename(normalized)), () =>
+      this.writeLocked(sender, sessionId, normalized, captured, options));
+  }
+
+  private async writeLocked(
+    sender: SenderIdentity,
+    sessionId: VaultSessionId,
+    normalized: string,
+    data: string | Uint8Array,
+    options: VaultBrokerWriteOptions,
+  ): Promise<PluginVaultMutation> {
+    // Waiting for a different window must not preserve a revoked authorization.
+    const session = this.requireSession(sender, sessionId);
     const lease = await this.acquireAuthorizedPathLease(session, normalized, true);
     try {
       const existed = lease.leafIdentity !== null;
+      if (options.requireAbsent && existed) throw new PluginHostBrokerError("vault-version-conflict", "Destination already exists");
+      const previous = existed && (options.expectedVersion !== undefined || options.beforeCommit || (typeof data === "string" && this.encodeText))
+        ? await this.readAuthorizedBytes(session, normalized)
+        : null;
       if (options.expectedVersion !== undefined) {
         if (!existed) {
           throw new PluginHostBrokerError("vault-version-conflict", "Expected version does not exist.");
         }
-        const current = contentVersion(await this.readAuthorizedBytes(session, normalized));
+        if (previous === null) throw new PluginHostBrokerError("vault-version-conflict", "Original bytes are unavailable");
+        const current = contentVersion(previous);
         if (current !== options.expectedVersion) {
           throw new PluginHostBrokerError("vault-version-conflict", "Vault file version changed before write.");
         }
       }
       const nextOperationId = operationId(this.createOperationId, options.operationId);
-      const bytes = typeof data === "string" ? Buffer.from(data) : data;
+      const bytes = typeof data === "string"
+        ? await this.encodeText?.(sender, sessionId, normalized, data, previous) ?? Buffer.from(data)
+        : data;
       const nextVersion = contentVersion(bytes);
+      await options.beforeCommit?.(previous === null ? null : new Uint8Array(previous), new Uint8Array(bytes));
+      this.requireSession(sender, sessionId);
+      if (options.expectedVersion !== undefined &&
+        contentVersion(await this.readAuthorizedBytes(session, normalized)) !== options.expectedVersion) {
+        throw new PluginHostBrokerError("vault-version-conflict", "File bytes changed while preparing the write");
+      }
       this.expectWatcherEcho(session, normalized, nextOperationId, nextVersion);
       try {
-        await this.atomicWriteAuthorized(lease, data);
+        await this.atomicWriteAuthorized(lease, bytes);
       } catch (error) {
         session.pendingEchoes.delete(normalized);
         throw error;
@@ -609,6 +705,7 @@ export class ElectronVaultBroker {
         operationId: nextOperationId,
         origin: "host",
       });
+      await options.afterCommit?.(mutation, new Uint8Array(bytes));
       return mutation;
     } finally {
       await lease.parentHandle.close().catch(() => undefined);
@@ -1013,7 +1110,15 @@ export class ElectronVaultBroker {
     }
   }
 
-  private async readAuthorizedBytes(session: VaultSessionRecord, vaultPath: string): Promise<Buffer> {
+  private async readAuthorizedBytes(session: VaultSessionRecord, vaultPath: string, maxBytes?: number): Promise<Buffer> {
+    return (await this.readAuthorizedSnapshot(session, vaultPath, maxBytes)).content;
+  }
+
+  private async readAuthorizedSnapshot(
+    session: VaultSessionRecord,
+    vaultPath: string,
+    maxBytes?: number,
+  ): Promise<{ readonly content: Buffer; readonly metadata: VaultFileMetadata }> {
     const lease = await this.acquireAuthorizedPathLease(session, vaultPath, false);
     let handle: VaultFileHandle | null = null;
     try {
@@ -1032,13 +1137,22 @@ export class ElectronVaultBroker {
       if (!opened.isFile() || !sameFileIdentity(fileIdentity(opened), lease.leafIdentity!)) {
         throw new PluginHostBrokerError("vault-path-escape", "Vault read target changed while it was being opened.");
       }
+      if (maxBytes !== undefined && opened.size > BigInt(maxBytes)) throw new RangeError("File exceeds the byte limit");
       await this.assertLeaseCurrent(lease);
       const content = await handle.readFile();
-      const finalIdentity = fileIdentity(await handle.stat({ bigint: true }));
+      if (maxBytes !== undefined && content.byteLength > maxBytes) throw new RangeError("File exceeds the byte limit");
+      const finalInfo = await handle.stat({ bigint: true });
+      const finalIdentity = fileIdentity(finalInfo);
       if (!sameFileIdentity(finalIdentity, lease.leafIdentity!)) {
         throw new PluginHostBrokerError("vault-path-escape", "Vault read target changed while it was being read.");
       }
-      return content;
+      const before = fileMetadata(opened);
+      const after = fileMetadata(finalInfo);
+      if (before.metadataVersion !== after.metadataVersion || after.size !== content.byteLength) {
+        throw new PluginHostBrokerError("vault-version-conflict", "Vault file changed while reading its snapshot");
+      }
+      await this.assertLeaseCurrent(lease);
+      return { content, metadata: after };
     } finally {
       await handle?.close().catch(() => undefined);
       await lease.parentHandle.close().catch(() => undefined);

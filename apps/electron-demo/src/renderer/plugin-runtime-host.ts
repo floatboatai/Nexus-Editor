@@ -1044,7 +1044,18 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
       getFileByPath: (path) => this.currentVault.getFileByPath(path),
       getFolderByPath: (path) => this.currentVault.getFolderByPath(path),
       read: (file, options) => this.currentVault.read(file, options),
-      readBinary: (file, options) => this.currentVault.readBinary(file, options),
+      readBinary: async (file) => {
+        const session = this.requireSession();
+        const vault = this.currentVault;
+        if (!vault.ownsFile(file)) throw new Error("Invalid Vault file reference");
+        const path = file.path;
+        const result = await this.bridge.vault.readBinary(session.sessionId, path);
+        if (this.currentSession !== session || this.currentVault !== vault || !vault.ownsFile(file) || file.path !== path) {
+          throw new Error("Vault file changed while reading its bytes");
+        }
+        // Binary reads must not re-encode the Unicode mirror or advance its CAS base.
+        return new Uint8Array(result.content).buffer;
+      },
       create: (path, data, options) =>
         this.writeDurably(owner, path, data, "create", options?.expectedVersion),
       createBinary: (path, data, options) =>
@@ -1222,6 +1233,9 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
     this.pendingPluginOperations.add(requested);
     try {
       const ipcExpected = expectedVersion === undefined ? undefined : this.ipcVersions.get(normalized);
+      if (expectedVersion !== undefined && ipcExpected === undefined) {
+        return { ok: false, diagnostic: failure("file-version-conflict", "The mirror has no byte version for this file") };
+      }
       const mutation = typeof data === "string"
         ? await this.bridge.vault.write(context.session.sessionId, normalized, data, {
             ...(ipcExpected ? { expectedVersion: ipcExpected } : {}),
@@ -1608,9 +1622,9 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
       operationId: asOperationId(event.operationId ?? `watch:${++this.operationSequence}`),
     });
     let change: HostVaultChange;
+    let nextVersion: IpcContentVersion | undefined;
     if (event.kind === "delete") {
       change = { type: "delete", path: event.path, operationId: origin.operationId };
-      this.ipcVersions.delete(event.path);
     } else if (event.kind === "rename") {
       if (!event.oldPath) return;
       change = {
@@ -1620,8 +1634,7 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
         operationId: origin.operationId,
       };
       const previous = this.ipcVersions.get(event.oldPath);
-      this.ipcVersions.delete(event.oldPath);
-      if (event.version ?? previous) this.ipcVersions.set(event.path, event.version ?? previous!);
+      nextVersion = event.version ?? previous;
     } else {
       const file = await this.bridge.vault.read(event.sessionId, event.path);
       change = {
@@ -1630,10 +1643,15 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
         data: file.content,
         operationId: origin.operationId,
       };
-      this.ipcVersions.set(event.path, file.version);
+      nextVersion = file.version;
     }
     const result = await this.currentVault.confirmHostChange(change, origin);
     if (!result.ok) this.diagnostics.report(result.diagnostic);
+    else {
+      if (event.kind === "delete") this.ipcVersions.delete(event.path);
+      if (event.kind === "rename" && event.oldPath) this.ipcVersions.delete(event.oldPath);
+      if (nextVersion !== undefined) this.ipcVersions.set(event.path, nextVersion);
+    }
   }
 
   private async rescan(): Promise<void> {
@@ -1685,8 +1703,8 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
     for (const file of files) {
       const existing = this.currentVault.getFileByPath(file.path);
       const current = existing ? await this.currentVault.read(existing) : null;
-      this.ipcVersions.set(file.path, file.version);
-      if (current === file.content) continue;
+      const previousByteVersion = this.ipcVersions.get(file.path);
+      if (current === file.content && previousByteVersion === file.version) continue;
       const operationId = asOperationId(`rescan:${++this.operationSequence}`);
       const result = await this.currentVault.confirmHostChange(
         {
@@ -1698,6 +1716,7 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
         { kind: "external", operationId },
       );
       if (!result.ok) this.diagnostics.report(result.diagnostic);
+      else this.ipcVersions.set(file.path, file.version);
     }
   }
 

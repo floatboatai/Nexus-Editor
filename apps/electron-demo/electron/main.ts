@@ -25,6 +25,8 @@ import {
   type SenderIdentity,
 } from "./plugin-host-broker";
 import { SenderWindowRegistry } from "./window-registry";
+import { PUBLIC_CAPABILITIES_CHANNEL } from "../src/shared/public-capabilities-ipc";
+import type { PublicCapabilitiesServices } from "./public-capabilities-services";
 
 // Must be called before app ready — declares our custom scheme as privileged
 // so images served via nexus-vault:// pass fetch/<img> with credentials / CORS.
@@ -42,6 +44,7 @@ let appIsQuitting = false;
 let forceQuit = false;
 let quitFallbackTimer: NodeJS.Timeout | null = null;
 let quitDrainPromise: Promise<void> | null = null;
+let publicServicesPromise: Promise<PublicCapabilitiesServices> | null = null;
 
 interface WindowRuntimeState {
   readonly windowSession: Electron.Session;
@@ -171,9 +174,10 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
     window.webContents.send("nexus:host:shutdown", {
       reason: appIsQuitting ? "app-quit" : "window-close",
     });
+    const shutdownDeadline = registration.state.hostMode === "legacy" ? 2_000 : 15_000;
     registration.state.shutdownTimer = setTimeout(() => {
       void finalizeWindowShutdown(senderId);
-    }, 2_000);
+    }, shutdownDeadline);
   });
 
   return window;
@@ -283,6 +287,50 @@ function requirePluginVaultBroker(): ElectronVaultBroker {
   return pluginVaultBroker;
 }
 
+function isPublicCapabilitiesSender(sender: SenderIdentity): boolean {
+  const registration = windowRegistry.registrationForSenderId(sender.id);
+  return Boolean(registration?.state.hostMode === "runtime" && isTrustedRendererLocation(sender.url));
+}
+
+function getPublicCapabilitiesServices(): Promise<PublicCapabilitiesServices> {
+  publicServicesPromise ??= Promise.all([
+    import("./public-capabilities-services"), import("./public-document-history"),
+  ]).then(([{ PublicCapabilitiesServices }, { PublicDocumentHistory }]) => {
+    const requireWindow = (sender: SenderIdentity) => {
+      if (!isPublicCapabilitiesSender(sender)) throw new Error("Public capability demo is disabled");
+      const window = windowForSenderId(sender.id);
+      if (!window) throw new Error("The owning window has closed");
+      return window;
+    };
+    return new PublicCapabilitiesServices({
+      broker: requirePluginVaultBroker(),
+      history: new PublicDocumentHistory(path.join(app.getPath("userData"), "public-document-history")),
+      isEnabled: isPublicCapabilitiesSender,
+      chooseImport: async (sender) => {
+        const result = await dialog.showOpenDialog(requireWindow(sender), {
+          properties: ["openFile"],
+          filters: [{ name: "Documents", extensions: ["md", "markdown", "txt", "html", "htm", "csv", "docx", "pdf"] }],
+        });
+        return result.canceled ? null : result.filePaths[0] ?? null;
+      },
+      chooseSave: async (sender, name, html) => {
+        const result = await dialog.showSaveDialog(requireWindow(sender), {
+          defaultPath: name,
+          filters: [{ name: html ? "Offline HTML" : "Markdown", extensions: html ? ["html"] : ["md", "markdown", "txt"] }],
+        });
+        return result.canceled ? null : result.filePath ?? null;
+      },
+      chooseResourceDirectory: async (sender) => {
+        const result = await dialog.showOpenDialog(requireWindow(sender), {
+          title: "Authorize local image resources (read only)", properties: ["openDirectory"],
+        });
+        return result.canceled ? null : result.filePaths[0] ?? null;
+      },
+    });
+  });
+  return publicServicesPromise;
+}
+
 function requireExternalNavigationBroker(): ElectronExternalNavigationBroker {
   if (!externalNavigationBroker) throw new Error("External navigation broker is not ready.");
   return externalNavigationBroker;
@@ -311,6 +359,12 @@ export function registerPluginHostIpc(): void {
   pluginVaultBroker = new ElectronVaultBroker({
     isSenderAuthorized: isAuthorizedPluginSender,
     trashItem: (absolutePath) => shell.trashItem(absolutePath),
+    decodeText: (sender, sessionId, vaultPath, bytes) => isPublicCapabilitiesSender(sender)
+      ? getPublicCapabilitiesServices().then((service) => service.decodeVaultText(sender, sessionId, vaultPath, bytes))
+      : Buffer.from(bytes).toString("utf8"),
+    encodeText: (sender, sessionId, vaultPath, value, previous) => isPublicCapabilitiesSender(sender)
+      ? getPublicCapabilitiesServices().then((service) => service.encodeVaultText(sender, sessionId, vaultPath, value, previous))
+      : Buffer.from(value),
     onChange: (senderId, event) => {
       windowForSenderId(senderId)?.webContents.send("nexus:vault:changed", event);
     },
@@ -318,6 +372,25 @@ export function registerPluginHostIpc(): void {
   pluginStorageBroker = new ElectronPluginStorageBroker(
     path.join(app.getPath("userData"), "plugin-data"),
   );
+  ipcMain.handle(PUBLIC_CAPABILITIES_CHANNEL, async (event, payload: unknown) => {
+    const sender = senderIdentity(event);
+    if (!isPublicCapabilitiesSender(sender)) throw new Error("Public capability demo is disabled for this sender");
+    if (payload && typeof payload === "object" && !Array.isArray(payload) &&
+      "operation" in payload && payload.operation === "cancel-shutdown") {
+      const registration = assertAuthorizedHostSender(sender);
+      if (!registration.state.shutdownInProgress) throw new Error("This window has no pending shutdown");
+      for (const other of windowRegistry.liveRegistrations) {
+        other.state.shutdownInProgress = false;
+        if (other.state.shutdownTimer) clearTimeout(other.state.shutdownTimer);
+        other.state.shutdownTimer = null;
+      }
+      appIsQuitting = false;
+      if (quitFallbackTimer) clearTimeout(quitFallbackTimer);
+      quitFallbackTimer = null;
+      return;
+    }
+    return (await getPublicCapabilitiesServices()).invoke(sender, payload);
+  });
 
   registerPluginIpcHandler("nexus:vault:pick", async (sender) => {
     assertAuthorizedSender(sender);
@@ -451,6 +524,7 @@ function releaseWindowResources(senderId: number): void {
   stopWatcher(state);
   externalNavigationBroker?.closeSender(senderId);
   pluginVaultBroker?.closeSender(senderId);
+  void publicServicesPromise?.then((service) => service.closeSender(senderId)).catch(() => undefined);
   try {
     state.windowSession.protocol.unhandle("nexus-vault");
   } catch {
@@ -873,9 +947,8 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   if (appIsQuitting) return;
   appIsQuitting = true;
-  quitFallbackTimer = setTimeout(() => {
-    forceFinishAppQuit();
-  }, 2_100);
+  // Runtime windows finish their explicit dirty confirmation before shutdown.
+  quitFallbackTimer = setTimeout(() => { forceFinishAppQuit(); }, 15_000);
   if (registrations.length === 0) {
     finishAppQuitIfReady();
     return;

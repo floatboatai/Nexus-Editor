@@ -152,6 +152,34 @@ function bridgeHarness() {
 describe("createPluginRuntimeHost", () => {
   beforeEach(() => document.body.replaceChildren());
 
+  it("reads original bytes and invalidates memory versions for encoding-only rescans", async () => {
+    const harness = bridgeHarness();
+    let vault!: VaultService;
+    class FixturePlugin extends NexusPluginBase {
+      override onload(): void {
+        vault = this.app.capabilities.require(VAULT_CAPABILITY, "^1.0.0", { workspaceId: "runtime-workspace" as never });
+      }
+    }
+    const host = createPluginRuntimeHost({ bridge: harness.bridge, document });
+    await host.restoreSession();
+    const enabled = await host.enableBundledPlugin(
+      manifest([{ id: VAULT_CAPABILITY.id, version: "^1.0.0", scope: "workspace" }]), FixturePlugin,
+    );
+    expect(enabled.ok).toBe(true);
+    const file = vault.getFileByPath("note.md" as never)!;
+    const oldVersion = file.version;
+    const originalBytes = new Uint8Array([0xff, 0xfe, 0x61, 0, 0x6c, 0, 0x70, 0, 0x68, 0, 0x61, 0]);
+    vi.mocked(harness.bridge.vault.readBinary).mockResolvedValueOnce({ path: "note.md", content: originalBytes, version: "ipc:2" as never });
+    expect(new Uint8Array(await vault.readBinary(file))).toEqual(originalBytes);
+    vi.mocked(harness.bridge.vault.readAll).mockResolvedValueOnce([{ path: "note.md", content: "alpha", version: "ipc:2" as never }]);
+    harness.emit({ sessionId, kind: "rescan", path: "", origin: "external" });
+    await vi.waitFor(() => expect(file.version).not.toBe(oldVersion));
+    const result = await vault.modify(file, "stale edit", { expectedVersion: oldVersion });
+    expect(result.ok).toBe(false);
+    expect(harness.bridge.vault.write).not.toHaveBeenCalled();
+    await host.shutdown();
+  });
+
   it("commits plugin writes only after durable IPC succeeds and coalesces its echo", async () => {
     const harness = bridgeHarness();
     let vault!: VaultService;

@@ -6,6 +6,12 @@
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
     "paths": {
+      "@floatboat/nexus-text-codec": ["packages/text-codec/src/index.ts"],
+      "@floatboat/nexus-text-codec/*": ["packages/text-codec/src/*"],
+      "@floatboat/nexus-document-history": ["packages/document-history/src/index.ts"],
+      "@floatboat/nexus-document": ["packages/document/src/index.ts"],
+      "@floatboat/nexus-document/*": ["packages/document/src/*"],
+      "@floatboat/nexus-plugin-search/*": ["packages/plugin-search/src/*"],
       "@floatboat/nexus-core": ["packages/core/src/index.ts"],
       "@floatboat/nexus-plugin-api": ["packages/plugin-api/src/index.ts"],
       "@floatboat/nexus-plugin-runtime": ["packages/plugin-runtime/src/index.ts"],

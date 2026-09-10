@@ -1,7 +1,9 @@
 import {
   createEditor,
   createWikilinksPlugin,
+  type AssetProvider,
   type EditorAPI,
+  type EditorConfig,
   type LivePreviewRenderContext,
   type NexusPlugin,
 } from "@floatboat/nexus-core";
@@ -69,6 +71,11 @@ export interface EditorShellOptions {
   }>;
   /** Extra static contributions selected by the host boot plan. */
   editorContributions?: readonly NexusPlugin[];
+  /** Explicit capabilities demo options; omitted values retain the legacy shell behavior. */
+  searchUI?: "default" | "headless";
+  assetProvider?: AssetProvider;
+  assetInput?: EditorConfig["assetInput"];
+  onAssetUpload?: EditorConfig["onAssetUpload"];
 }
 
 export interface EditorShell {
@@ -139,15 +146,19 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       createGfmPreset(),
       createHistoryPlugin(),
       ...(!runtimeManaged && contributionFeatures.toolbar ? [createToolbarPlugin()] : []),
-      createSearchPlugin(),
+      createSearchPlugin(options.searchUI ? { ui: options.searchUI } : undefined),
       wikilinksPlugin,
       ...(wordcount ? [wordcount] : []),
       ...editorContributions,
     ],
+    assetInput: options.assetInput,
+    onAssetUpload: options.onAssetUpload,
     livePreview: settings.livePreview
       ? {
           enabled: true,
-          renderers: {
+          assetProvider: options.assetProvider,
+          // The built-in provider-aware renderer owns URL loading and cleanup.
+          renderers: options.assetProvider ? undefined : {
             image: (ctx: LivePreviewRenderContext) => {
               const node = ctx.node as {
                 type: "image";

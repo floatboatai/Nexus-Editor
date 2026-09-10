@@ -1,5 +1,6 @@
 import type { PluginHostBridge } from "../shared/plugin-ipc";
 import type { NexusHostMode } from "../shared/host-mode";
+import type { PublicCapabilitiesBridge } from "../shared/public-capabilities-ipc";
 
 declare global {
   interface DemoFileHandle {
@@ -53,6 +54,7 @@ declare global {
     nexusHost: NexusHostLifecycleBridge;
     nexusDemo?: DemoBridge;
     nexusPlugins?: PluginHostBridge;
+    nexusPublicCapabilities?: PublicCapabilitiesBridge;
   }
 }
 
