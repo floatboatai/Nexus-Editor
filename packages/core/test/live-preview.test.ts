@@ -726,6 +726,65 @@ describe("live preview", () => {
     container.remove();
   });
 
+  it("deletes a column without corrupting escaped pipes in other cells", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| x \\| y | 2 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const headerCell = container.querySelectorAll<HTMLElement>("tr")[1]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    headerCell?.dispatchEvent(new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 16,
+      clientY: 24
+    }));
+
+    const deleteColumn = Array.from(document.body.querySelectorAll<HTMLButtonElement>(".nexus-table-ctx button"))
+      .find((button) => button.textContent === "Delete column");
+    expect(deleteColumn).not.toBeUndefined();
+    deleteColumn?.click();
+
+    // 转义管道 \| 是单元格内容的一部分：删除第 0 列时应整体移除该单元格，
+    // 而不是把 `x \| y` 错拆成两个单元格再删掉一半。
+    expect(editor.getDocument()).toBe("| B |\n| --- |\n| 2 |");
+    editor.destroy();
+    container.remove();
+  });
+
+  it("deletes a column on tables written without outer pipes", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "A | B\n--- | ---\n1 | 2",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const headerCell = container.querySelectorAll<HTMLElement>("tr")[1]?.querySelectorAll<HTMLElement>(".nexus-cell")[1];
+    headerCell?.dispatchEvent(new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 16,
+      clientY: 24
+    }));
+
+    const deleteColumn = Array.from(document.body.querySelectorAll<HTMLButtonElement>(".nexus-table-ctx button"))
+      .find((button) => button.textContent === "Delete column");
+    expect(deleteColumn).not.toBeUndefined();
+    deleteColumn?.click();
+
+    // 不带外层管道的行首尾单元格不能再被当作分隔符丢弃（旧行为：删除列静默失效）。
+    expect(editor.getDocument()).toBe("| A |\n| --- |\n| 1 |");
+    editor.destroy();
+    container.remove();
+  });
+
   it("keeps the focused table cell DOM stable while typing and commits on blur", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
