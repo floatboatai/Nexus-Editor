@@ -129,9 +129,8 @@ function lineStartOffset(lines: string[], lineIdx: number, tableFrom: number): n
   return offset;
 }
 
-function sourceOffsetForCell(lines: string[], lineIdx: number, colIdx: number, tableFrom: number): number {
-  const line = lines[lineIdx] ?? "";
-  const lineStart = lineStartOffset(lines, lineIdx, tableFrom);
+/** Indices of `|` characters in `line` that are not escaped as `\|`. */
+function unescapedPipeIndices(line: string): number[] {
   const separators: number[] = [];
   for (let i = 0; i < line.length; i++) {
     if (line[i] !== "|") continue;
@@ -139,6 +138,49 @@ function sourceOffsetForCell(lines: string[], lineIdx: number, colIdx: number, t
     for (let j = i - 1; j >= 0 && line[j] === "\\"; j--) backslashes++;
     if (backslashes % 2 === 0) separators.push(i);
   }
+  return separators;
+}
+
+/**
+ * Split a GFM table row into raw cell sources. Unlike a naive `split("|")`,
+ * escaped pipes (`\|`) stay inside their cell, and rows written without
+ * outer pipes (`a | b`) keep their first/last cells instead of dropping
+ * them. Returns null when the line contains no unescaped pipe.
+ */
+function splitTableRowCells(line: string): string[] | null {
+  const separators = unescapedPipeIndices(line);
+  if (separators.length === 0) return null;
+
+  const cells: string[] = [];
+  const leadingPipe = line.slice(0, separators[0]).trim() === "";
+  let from = 0;
+  let separatorIdx = 0;
+  if (leadingPipe) {
+    from = separators[0] + 1;
+    separatorIdx = 1;
+  }
+  for (; separatorIdx < separators.length; separatorIdx++) {
+    cells.push(line.slice(from, separators[separatorIdx]));
+    from = separators[separatorIdx] + 1;
+  }
+  if (line.slice(from).trim() !== "") cells.push(line.slice(from));
+  return cells;
+}
+
+/**
+ * Rebuild a table row from raw cell sources. Every write path of the table
+ * widget emits pipe-enclosed rows with single-space padding (`| a | b |`),
+ * so structural edits stay valid GFM even when the table was originally
+ * written without outer pipes or padding.
+ */
+function joinTableRowCells(cells: string[]): string {
+  return "|" + cells.map((cell) => ` ${cell.trim()} |`).join("");
+}
+
+function sourceOffsetForCell(lines: string[], lineIdx: number, colIdx: number, tableFrom: number): number {
+  const line = lines[lineIdx] ?? "";
+  const lineStart = lineStartOffset(lines, lineIdx, tableFrom);
+  const separators = unescapedPipeIndices(line);
 
   const cells: Array<{ from: number; to: number }> = [];
   let from = 0;
@@ -605,10 +647,10 @@ export class EditableTableWidget extends WidgetType {
   private deleteColumn(colIdx: number): void {
     const lines = this.source.split("\n");
     const newLines = lines.map((line) => {
-      const cells = line.split("|").filter((_, i, a) => i > 0 && i < a.length - 1);
-      if (cells.length === 0) return line;
+      const cells = splitTableRowCells(line);
+      if (!cells || cells.length === 0) return line;
       cells.splice(colIdx, 1);
-      return "|" + cells.join("|") + "|";
+      return joinTableRowCells(cells);
     });
     this.dispatch(newLines.join("\n"));
   }
@@ -640,11 +682,11 @@ export class EditableTableWidget extends WidgetType {
   private moveColumn(from: number, to: number, source = this.source): void {
     const lines = source.split("\n");
     const nl = lines.map((line) => {
-      const p = line.split("|"), cells = p.slice(1, -1);
-      if (from >= cells.length || to >= cells.length) return line;
+      const cells = splitTableRowCells(line);
+      if (!cells || from >= cells.length || to >= cells.length) return line;
       const [m] = cells.splice(from, 1);
       cells.splice(to, 0, m);
-      return "|" + cells.join("|") + "|";
+      return joinTableRowCells(cells);
     });
     this.dispatch(nl.join("\n"));
   }
@@ -1382,14 +1424,15 @@ export class EditableTableWidget extends WidgetType {
       for (let row = range.r1; row <= range.r2; row++) {
         const lineIndex = dataLines[row];
         if (lineIndex === undefined) continue;
-        const cells = lines[lineIndex].split("|").slice(1, -1);
+        const cells = splitTableRowCells(lines[lineIndex]);
+        if (!cells || cells.length === 0) continue;
         for (let col = range.c1; col <= range.c2; col++) {
           if (col >= cells.length) continue;
           const sourceRow = inputRows[Math.min(row - range.r1, inputRows.length - 1)] ?? [""];
           const value = sourceRow[Math.min(col - range.c1, sourceRow.length - 1)] ?? "";
           cells[col] = ` ${value} `;
         }
-        lines[lineIndex] = `|${cells.join("|")}|`;
+        lines[lineIndex] = joinTableRowCells(cells);
       }
       self.dispatch(lines.join("\n"));
       clearRangeSelection();
@@ -2387,11 +2430,12 @@ export class EditableTableWidget extends WidgetType {
           for (let r = range.r1; r <= range.r2; r++) {
             const lineIdx = dl[r];
             if (lineIdx === undefined) continue;
-            const cells = lines[lineIdx].split("|").filter((_, i, a) => i > 0 && i < a.length - 1);
+            const cells = splitTableRowCells(lines[lineIdx]);
+            if (!cells || cells.length === 0) continue;
             for (let c = range.c1; c <= range.c2; c++) {
               if (c < cells.length) cells[c] = "  ";
             }
-            lines[lineIdx] = "|" + cells.join("|") + "|";
+            lines[lineIdx] = joinTableRowCells(cells);
           }
           self.dispatch(lines.join("\n"));
           clearRangeSelection();
