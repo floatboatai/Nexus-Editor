@@ -127,10 +127,12 @@ export function highlightCodeBlock(
   return tokens.map((t) => ({ from: t.from + contentStart, to: t.to + contentStart, className: t.className }));
 }
 
-// hljs's internal token stream walker. `_emitter.rootNode` is a TokenTree
-// whose leaves are strings (untagged spans) and whose branches carry a
-// `kind` (e.g. "string" or "string.regexp"). We accumulate position offsets
-// and emit one CodeHighlightToken per leaf string with non-empty scope.
+// hljs's internal token stream walker. `_emitter.rootNode` is a tree whose
+// children are an interleaved mix of bare strings (untagged text, e.g. " x ")
+// and `{ children: string[], scope: string }` nodes. The `scope` is the
+// hljs 11 token name (e.g. "keyword", "string", "number", "title.function").
+// We accumulate position offsets and emit one CodeHighlightToken per leaf
+// string with non-empty scope.
 function emit(emitter: unknown, offset: number, out: CodeHighlightToken[]): void {
   const root = emitter as { rootNode?: { children?: unknown[] } } | null;
   if (!root || !root.rootNode) return;
@@ -154,9 +156,9 @@ function walkNode(
       pos += c.length;
       continue;
     }
-    const child = c as { kind?: string; children?: unknown[] };
-    if (child && child.kind) {
-      pos = walkNode(child, pos, [...scope, child.kind], out);
+    const child = c as { scope?: string; children?: unknown[] };
+    if (child && child.scope) {
+      pos = walkNode(child, pos, [...scope, child.scope], out);
     } else if (child && child.children) {
       pos = walkNode(child, pos, scope, out);
     }
