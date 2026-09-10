@@ -1,4 +1,5 @@
 export { createEditor } from "./editor";
+export { loadAssetImage, releaseAssetResources, type AssetImageHandle } from "./asset-resources";
 export {
   DynamicEditorContributionSink,
   EDITOR_PLUGIN_PRIORITY_MAX,
@@ -52,6 +53,9 @@ export {
   type WikiLinkNavigateOptions,
 } from "./wikilinks";
 export type {
+  CaptureDocumentSnapshotOptions,
+  RestoreDocumentBufferOptions,
+  RestoreDocumentBufferResult,
   CodeHighlightToken,
   CoreEditorChange,
   CoreEditorTransaction,
@@ -65,6 +69,7 @@ export type {
   EditorAPI,
   EditorCommand,
   EditorConfig,
+  EditorDocumentSnapshot,
   EditorContributionRegistration,
   EditorContributionSink,
   EditorExtensionContributionSink,
@@ -103,3 +108,13 @@ export type {
   WidgetDefinitionSnapshot,
   WidgetRenderContext
 } from "./types";
+export type {
+  AssetResource,
+  AssetReadOptions,
+  AssetProvider,
+  AssetUploadContext,
+  AssetInputEvent,
+  AssetInputStatus,
+  ManagedAssetInputOptions,
+  EditorInputBookmark,
+} from "./assets";

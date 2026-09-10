@@ -67,6 +67,7 @@ interface InputTargetEntry {
   root: HTMLElement;
   target: Omit<EditorInputTarget, "element">;
   disposed: boolean;
+  readonly lifetime: AbortController;
 }
 
 export interface DynamicContributionHost {
@@ -124,6 +125,7 @@ function asElement(target: EventTarget | null): HTMLElement | null {
 }
 
 export class DynamicEditorContributionSink implements EditorExtensionContributionSink {
+  private readonly dispatchedBubbleEvents = new WeakSet<Event>();
   private readonly ownerExtensions = new Map<string, OwnerExtensionState>();
   private readonly domHooks = new Map<string, DomHookEntry>();
   private readonly inputTargets = new Map<string, InputTargetEntry>();
@@ -240,10 +242,11 @@ export class DynamicEditorContributionSink implements EditorExtensionContributio
       throw new RangeError("Editor input target root must be inside the editor DOM");
     }
     const id = this.nextId("target");
-    const entry: InputTargetEntry = { id, ownerId, root, target, disposed: false };
+    const entry: InputTargetEntry = { id, ownerId, root, target, disposed: false, lifetime: new AbortController() };
     this.inputTargets.set(id, entry);
     return this.immediateRegistration(id, ownerId, () => {
       entry.disposed = true;
+      entry.lifetime.abort();
       this.inputTargets.delete(id);
     });
   }
@@ -293,6 +296,7 @@ export class DynamicEditorContributionSink implements EditorExtensionContributio
     }
     this.listeners.length = 0;
     this.domHooks.clear();
+    for (const entry of this.inputTargets.values()) entry.lifetime.abort();
     this.inputTargets.clear();
     for (const state of this.ownerExtensions.values()) {
       for (const waiter of state.waiters) waiter.deferred.resolve();
@@ -412,6 +416,10 @@ export class DynamicEditorContributionSink implements EditorExtensionContributio
     rawEvent: Event
   ): void {
     if (this.destroyed) return;
+    if (phase === "bubble") {
+      if (this.dispatchedBubbleEvents.has(rawEvent)) return;
+      this.dispatchedBubbleEvents.add(rawEvent);
+    }
     const event = rawEvent as EditorDomEventMap[typeof eventType];
     const element = asElement(event.target);
     const inputTarget = this.resolveInputTarget(element);
@@ -478,7 +486,35 @@ export class DynamicEditorContributionSink implements EditorExtensionContributio
       if (entry.disposed || !entry.root.contains(element)) continue;
       if (!best || best.root.contains(entry.root)) best = entry;
     }
-    if (best) return { ...best.target, element: best.root };
+    if (best) {
+      const entry = best;
+      return {
+        ...entry.target,
+        element: entry.root,
+        captureSelection: (point) => {
+          const captured = entry.target.captureSelection?.(point);
+          if (!captured) return null;
+          const lifetime = new AbortController();
+          const abort = () => lifetime.abort();
+          entry.lifetime.signal.addEventListener("abort", abort, { once: true });
+          captured.signal?.addEventListener("abort", abort, { once: true });
+          if (entry.disposed || captured.signal?.aborted) abort();
+          const valid = () => !lifetime.signal.aborted && !entry.disposed &&
+            this.host.view.dom.contains(entry.root) && captured.isValid();
+          return {
+            signal: lifetime.signal,
+            isValid: valid,
+            replaceSelection: (text) => valid() && captured.replaceSelection(text),
+            dispose() {
+              entry.lifetime.signal.removeEventListener("abort", abort);
+              captured.signal?.removeEventListener("abort", abort);
+              try { captured.dispose(); }
+              finally { lifetime.abort(); }
+            },
+          };
+        },
+      };
+    }
     if (element.closest(".nexus-table-wrapper, [data-nexus-widget]")) return null;
     if (this.host.view.contentDOM.contains(element)) {
       return {
@@ -492,6 +528,12 @@ export class DynamicEditorContributionSink implements EditorExtensionContributio
       };
     }
     return null;
+  }
+
+  /** CM6 handles defaults before root bubbling; give Nexus hooks first refusal exactly once. */
+  dispatchBubbleBeforeDefault(type: "paste" | "drop", event: ClipboardEvent | DragEvent): boolean {
+    this.dispatchDomEvent(type, "bubble", event);
+    return event.defaultPrevented;
   }
 
   private resolveSurface(element: HTMLElement | null): EditorInputSurface {

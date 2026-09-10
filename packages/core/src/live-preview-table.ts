@@ -1,10 +1,32 @@
 import { EditorView, WidgetType, runScopeHandlers } from "@codemirror/view";
+import { StateEffect, type Text as EditorText } from "@codemirror/state";
+import { isolateHistory } from "@codemirror/commands";
 import type { Table } from "mdast";
 
 import type { LivePreviewLabels } from "./types";
+import type { AssetProvider } from "./assets";
+import { loadAssetImage, releaseAssetResources } from "./asset-resources";
 import { setInputTargetProvider } from "./input-target-provider";
 
 const tableEditingCounts = new WeakMap<EditorView, number>();
+
+/** Retire a widget after a filter changes the structure or source of its own commit. */
+export const reconcileFilteredTable = StateEffect.define<EditableTableWidget>();
+
+function changedTextSpan(before: string, after: string) {
+  let from = 0;
+  while (from < before.length && from < after.length && before[from] === after[from]) {
+    from++;
+  }
+  let suffix = 0;
+  while (
+    suffix < before.length - from && suffix < after.length - from &&
+    before[before.length - suffix - 1] === after[after.length - suffix - 1]
+  ) {
+    suffix++;
+  }
+  return { from, beforeTo: before.length - suffix, afterTo: after.length - suffix };
+}
 
 export function isTableEditing(view: EditorView | null | undefined): boolean {
   return !!view && (tableEditingCounts.get(view) ?? 0) > 0;
@@ -21,11 +43,38 @@ function decrementTableEditing(view: EditorView): void {
 }
 
 interface TableEditSession {
-  flush(): boolean;
+  flush(preserveOnFailure?: boolean): boolean;
   finish(): void;
+  isInputPending(): boolean;
+  snapshot(): { from: number; to: number; original: string; source: string } | null;
 }
 
 const tableEditSessions = new WeakMap<EditorView, Set<TableEditSession>>();
+
+export function isTableInputPending(view: EditorView): boolean {
+  return Array.from(tableEditSessions.get(view) ?? []).some((session) => session.isInputPending());
+}
+
+/** Overlay local cell edits without committing a transaction or consuming the dirty rows. */
+export function capturePendingTableMarkdown(view: EditorView): string {
+  let markdown = view.state.doc.toString();
+  const replacements = Array.from(tableEditSessions.get(view) ?? [])
+    .flatMap((session) => {
+      const snapshot = session.snapshot();
+      return snapshot ? [snapshot] : [];
+    })
+    .sort((left, right) => right.from - left.from);
+  let boundary = markdown.length;
+  for (const replacement of replacements) {
+    if (replacement.from < 0 || replacement.to > boundary ||
+      markdown.slice(replacement.from, replacement.to) !== replacement.original) {
+      throw new Error("Cannot capture document: a pending table edit no longer matches its source");
+    }
+    markdown = markdown.slice(0, replacement.from) + replacement.source + markdown.slice(replacement.to);
+    boundary = replacement.from;
+  }
+  return markdown;
+}
 
 function registerTableEditSession(view: EditorView, session: TableEditSession): void {
   let sessions = tableEditSessions.get(view);
@@ -43,14 +92,14 @@ function unregisterTableEditSession(view: EditorView, session: TableEditSession)
   if (sessions.size === 0) tableEditSessions.delete(view);
 }
 
-export function flushPendingTableEdits(view: EditorView, finishEditing = false): boolean {
+export function flushPendingTableEdits(view: EditorView, finishEditing = false, preserveOnFailure = false): boolean {
   const sessions = Array.from(tableEditSessions.get(view) ?? []);
   let changed = false;
   let firstError: unknown;
   let hasError = false;
   for (const session of sessions) {
     try {
-      changed = session.flush() || changed;
+      changed = session.flush(preserveOnFailure) || changed;
     } catch (error) {
       if (!hasError) {
         firstError = error;
@@ -58,7 +107,7 @@ export function flushPendingTableEdits(view: EditorView, finishEditing = false):
       }
     }
   }
-  if (finishEditing) {
+  if (finishEditing && !(preserveOnFailure && hasError)) {
     for (const session of sessions) {
       try {
         session.finish();
@@ -226,7 +275,7 @@ function rawSourceOffsetFromCaret(container: Node, offset: number): number | nul
   return null;
 }
 
-function rawSourceOffsetFromPoint(td: HTMLElement, event: MouseEvent): number | null {
+function rawSourceOffsetFromPoint(td: HTMLElement, event: { clientX: number; clientY: number }): number | null {
   const doc = td.ownerDocument as Document & {
     caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
     caretRangeFromPoint?: (x: number, y: number) => Range | null;
@@ -422,7 +471,7 @@ function isCellMediaOnly(astCell: any): boolean {
   return false;
 }
 
-function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourceStart = 0): Node {
+function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourceStart = 0, assetProvider?: AssetProvider, document = globalThis.document): Node {
   if (!node) return document.createTextNode("");
   switch (node.type) {
     case "text": {
@@ -448,22 +497,22 @@ function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourc
         a.style.display = "block";
         a.style.lineHeight = "0";
       }
-      for (const child of node.children ?? []) a.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart));
+      for (const child of node.children ?? []) a.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart, assetProvider, document));
       return a;
     }
     case "strong": {
       const el = document.createElement("strong");
-      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart, assetProvider, document));
       return el;
     }
     case "emphasis": {
       const el = document.createElement("em");
-      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart, assetProvider, document));
       return el;
     }
     case "delete": {
       const el = document.createElement("del");
-      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart));
+      for (const child of node.children ?? []) el.appendChild(renderInlineMdast(child, false, tableFrom, rawSourceStart, assetProvider, document));
       return el;
     }
     case "inlineCode": {
@@ -479,7 +528,9 @@ function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourc
     }
     case "image": {
       const img = document.createElement("img");
-      img.src = typeof node.url === "string" ? node.url : "";
+      const source = typeof node.url === "string" ? node.url : "";
+      if (assetProvider) loadAssetImage(img, source, assetProvider);
+      else img.src = source;
       if (typeof node.alt === "string") img.alt = node.alt;
       if (typeof node.title === "string") img.title = node.title;
       // Two sizing modes:
@@ -533,14 +584,15 @@ function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourc
   }
 }
 
-function renderCellRich(td: HTMLElement, astCell: any, tableFrom = 0, rawSourceStart = 0): void {
+function renderCellRich(td: HTMLElement, astCell: any, tableFrom = 0, rawSourceStart = 0, assetProvider?: AssetProvider): void {
+  releaseAssetResources(td);
   td.textContent = "";
   if (!astCell || !Array.isArray(astCell.children)) {
     writeRenderedSourceMap(td);
     return;
   }
   const mediaOnly = isCellMediaOnly(astCell);
-  for (const child of astCell.children) td.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart));
+  for (const child of astCell.children) td.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart, assetProvider, td.ownerDocument));
   writeRenderedSourceMap(td);
 }
 
@@ -570,10 +622,13 @@ export class EditableTableWidget extends WidgetType {
     private tableFrom: number,
     private source: string,
     private viewRef: { current: EditorView | null },
-    private labels: Required<LivePreviewLabels>
+    private labels: Required<LivePreviewLabels>,
+    private assetProvider?: AssetProvider,
+    private assetRevision = 0,
   ) { super(); }
 
   eq(other: EditableTableWidget): boolean {
+    if (this.assetRevision !== other.assetRevision) return false;
     if (this.editing) return true;
     if (!this.reusable) return false;
     return this.tableFrom === other.tableFrom && this.source === other.source;
@@ -581,7 +636,8 @@ export class EditableTableWidget extends WidgetType {
 
   ignoreEvent(): boolean { return true; }
 
-  destroy(): void {
+  destroy(dom: HTMLElement): void {
+    releaseAssetResources(dom);
     this.cleanupEditingLocks?.();
     this.cleanupEditingLocks = null;
   }
@@ -661,6 +717,7 @@ export class EditableTableWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
+    const document = this.viewRef.current?.dom.ownerDocument ?? globalThis.document;
     const self = this;
     const rows = this.node.children ?? [];
     // Normalise irregular markdown tables: if some rows have more cells than
@@ -708,12 +765,22 @@ export class EditableTableWidget extends WidgetType {
     let registeredSessionView: EditorView | null = null;
     let sessionClosed = false;
     let removeInputTargetProvider: (() => void) | null = null;
+    const composingCells = new Set<HTMLElement>();
 
     const tableEditSession: TableEditSession = {
-      flush: () => syncDirtyRowsToDocument(),
+      flush: (preserveOnFailure) => syncDirtyRowsToDocument(preserveOnFailure),
       finish: () => {
         self.reusable = false;
         self.cleanupEditingLocks?.();
+      },
+      isInputPending: () => composingCells.size > 0 || isRangeSelecting || cellMouseDown ||
+        draggingCol >= 0 || draggingRow >= 0,
+      snapshot: () => {
+        if (dirtyRows.size === 0) return null;
+        const snapshot = dirtySourceSnapshot(true);
+        return snapshot.changed
+          ? { from: self.tableFrom, to: self.tableFrom + self.source.length, original: self.source, source: snapshot.source }
+          : null;
       },
     };
 
@@ -738,7 +805,7 @@ export class EditableTableWidget extends WidgetType {
     }
 
     function acquireEditingLock(lock: keyof typeof editingLocks): void {
-      if (editingLocks[lock]) return;
+      if (sessionClosed || editingLocks[lock]) return;
       editingLocks[lock] = true;
       self.editing = true;
       const view = self.viewRef.current;
@@ -761,6 +828,7 @@ export class EditableTableWidget extends WidgetType {
 
     this.cleanupEditingLocks = () => {
       sessionClosed = true;
+      composingCells.clear();
       dirtyRows.clear();
       releaseEditingLock("focus");
       releaseEditingLock("range");
@@ -831,17 +899,19 @@ export class EditableTableWidget extends WidgetType {
       }
     };
 
-    const buildSourceLineFromRow = (row: HTMLElement): string => {
+    const buildSourceLineFromRow = (row: HTMLElement, readActiveDOM = false): string => {
       const vals: string[] = [];
       row.querySelectorAll<HTMLElement>(".nexus-cell").forEach((el) => {
         // dataset.source 是单元格 Markdown 源文本的权威值；未触碰的富文本单元格
         // 仍可能显示链接/加粗 DOM，不能用 textContent 反推源码。
-        vals.push(el.dataset.source ?? el.textContent ?? "");
+        vals.push(readActiveDOM && el === row.ownerDocument.activeElement && el.contentEditable === "true"
+          ? el.textContent ?? ""
+          : el.dataset.source ?? el.textContent ?? "");
       });
       return "| " + vals.join(" | ") + " |";
     };
 
-    function dirtySourceSnapshot(): {
+    function dirtySourceSnapshot(readActiveDOM = false): {
       source: string;
       changed: boolean;
       firstChangedLineIdx: number | null;
@@ -852,7 +922,7 @@ export class EditableTableWidget extends WidgetType {
       let firstChangedLineIdx: number | null = null;
       let firstChangedRow: HTMLElement | null = null;
       dirtyRows.forEach((row, lineIdx) => {
-        const newLine = buildSourceLineFromRow(row);
+        const newLine = buildSourceLineFromRow(row, readActiveDOM);
         if (newLine === nextSourceLines[lineIdx]) return;
         nextSourceLines[lineIdx] = newLine;
         firstChangedLineIdx ??= lineIdx;
@@ -878,6 +948,78 @@ export class EditableTableWidget extends WidgetType {
         v.state.doc.sliceString(self.tableFrom, tableEnd) === self.source;
     }
 
+    function rebuildAfterFilteredCommit(
+      v: EditorView,
+      before: EditorText,
+      focus?: { cell: HTMLElement; expectedText: string; offset: number },
+    ): boolean {
+      if (v.state.doc.eq(before)) return false;
+      const active = wrapper.ownerDocument.activeElement;
+      const activeCell = active && wrapper.contains(active) && active.classList.contains("nexus-cell")
+        ? active as HTMLElement
+        : null;
+      const oldRows = tableDataRows();
+      const rowIndex = activeCell ? oldRows.indexOf(activeCell.closest("tr") as HTMLElement) : -1;
+      const columnIndex = activeCell && rowIndex >= 0
+        ? Array.from(oldRows[rowIndex].querySelectorAll(".nexus-cell")).indexOf(activeCell)
+        : -1;
+      const shape = oldRows.map((row) => row.querySelectorAll(".nexus-cell").length);
+      const headers = Array.from(getHeaderCells(), (cell) => cell.getAttribute("data-source") ?? "");
+      const requestedFocus = activeCell && focus?.cell === activeCell ? focus : null;
+      const expectedText = requestedFocus?.expectedText ?? activeCell?.textContent ?? "";
+      const offset = requestedFocus?.offset ??
+        (activeCell ? caretOffsetInCell(activeCell) ?? expectedText.length : 0);
+      const changed = changedTextSpan(before.toString(), v.state.doc.toString());
+
+      // The replacement is already authoritative. Close this session before
+      // removing its DOM so a queued blur cannot write the old source back.
+      self.reusable = false;
+      self.cleanupEditingLocks?.();
+      table.querySelectorAll<HTMLElement>(".nexus-cell").forEach((cell) => {
+        cell.contentEditable = "false";
+      });
+      activeCell?.blur();
+      v.dispatch({ effects: reconcileFilteredTable.of(self), filter: false });
+      if (!activeCell || rowIndex < 0 || columnIndex < 0 || v.state.readOnly) return true;
+
+      // Filters can move a table as well as normalize its content. Only restore
+      // a cell when the changed span identifies one same-shaped replacement.
+      const candidates = Array.from(v.dom.querySelectorAll<HTMLElement>(".nexus-table-wrapper")).filter((candidate) => {
+        const from = Number(candidate.dataset.tableFrom);
+        const to = Number(candidate.dataset.tableTo);
+        if (!Number.isFinite(from) || !Number.isFinite(to) || to < changed.from || from > changed.afterTo) {
+          return false;
+        }
+        const nextRows = Array.from(candidate.querySelectorAll<HTMLElement>("tr")).filter((row) => row.querySelector(".nexus-cell"));
+        if (nextRows.length !== shape.length || !nextRows.every((row, index) => row.querySelectorAll(".nexus-cell").length === shape[index])) {
+          return false;
+        }
+        return Array.from(nextRows[0].querySelectorAll<HTMLElement>(".nexus-cell"))
+          .every((cell, index) => cell.dataset.source === headers[index]);
+      });
+      if (candidates.length !== 1) {
+        v.focus();
+        return true;
+      }
+      const nextRows = Array.from(candidates[0].querySelectorAll<HTMLElement>("tr")).filter((row) => row.querySelector(".nexus-cell"));
+      const nextCell = nextRows[rowIndex]?.querySelectorAll<HTMLElement>(".nexus-cell")[columnIndex];
+      if (!nextCell) {
+        v.focus();
+        return true;
+      }
+      const actualText = nextCell.dataset.source ?? "";
+      const cellChange = changedTextSpan(expectedText, actualText);
+      const mappedOffset = offset <= cellChange.from ? offset : offset >= cellChange.beforeTo
+        ? offset + cellChange.afterTo - cellChange.beforeTo
+        : cellChange.afterTo;
+      nextCell.contentEditable = "true";
+      nextCell.tabIndex = -1;
+      nextCell.focus({ preventScroll: true });
+      placeRawSourceCaret(nextCell, Math.max(0, Math.min(actualText.length, mappedOffset)));
+      v.requestMeasure();
+      return true;
+    }
+
     function takeDirtySourceForStructuralEdit(): { source: string; changed: boolean; valid: boolean } {
       const v = self.viewRef.current;
       if (!v || !currentDocumentContainsOriginalTable(v)) {
@@ -889,10 +1031,11 @@ export class EditableTableWidget extends WidgetType {
       return { source: snapshot.source, changed: snapshot.changed, valid: true };
     }
 
-    function syncDirtyRowsToDocument(): boolean {
+    function syncDirtyRowsToDocument(preserveOnFailure = false): boolean {
       const v = self.viewRef.current;
       if (!v || dirtyRows.size === 0) return false;
       if (!currentDocumentContainsOriginalTable(v)) {
+        if (preserveOnFailure) throw new Error("Pending table input no longer matches its document");
         clearDirtyRows();
         return false;
       }
@@ -906,7 +1049,9 @@ export class EditableTableWidget extends WidgetType {
       const anchorLineIdx = snapshot.firstChangedLineIdx ?? 0;
       const anchor = lineStartOffset(sourceLines, anchorLineIdx, self.tableFrom);
       if (snapshot.firstChangedRow) restoreRowScrollPosition(anchorLineIdx, snapshot.firstChangedRow);
-      clearDirtyRows();
+      if (!preserveOnFailure) clearDirtyRows();
+      const from = self.tableFrom;
+      const documentBefore = v.state.doc;
       v.dispatch({
         changes: {
           from: self.tableFrom,
@@ -915,6 +1060,17 @@ export class EditableTableWidget extends WidgetType {
         },
         selection: { anchor, head: anchor }
       });
+      if (preserveOnFailure) {
+        if (v.state.doc.sliceString(from, from + snapshot.source.length) !== snapshot.source) {
+          if (rebuildAfterFilteredCommit(v, documentBefore)) return true;
+          throw new Error("Pending table input was rejected by a transaction filter");
+        }
+        // Strict callers can retain the editing session after this commit.
+        self.source = snapshot.source;
+        sourceLines.splice(0, sourceLines.length, ...snapshot.source.split("\n"));
+        self.reusable = false;
+        clearDirtyRows();
+      }
       v.requestMeasure();
       return true;
     }
@@ -935,6 +1091,8 @@ export class EditableTableWidget extends WidgetType {
     // ── Root wrapper ──
     const wrapper = document.createElement("div");
     wrapper.className = "nexus-table-wrapper";
+    wrapper.dataset.tableFrom = String(self.tableFrom);
+    wrapper.dataset.tableTo = String(self.tableFrom + self.source.length);
     // CRITICAL: use padding, not margin. CM6 measures block widget height via
     // getBoundingClientRect which EXCLUDES margin. margin:8px caused 16px of
     // untracked height per table → cumulative click-drift below every table.
@@ -1851,7 +2009,7 @@ export class EditableTableWidget extends WidgetType {
         td.dataset.sourceFrom = String(self.tableFrom + rawSourceStart);
         td.dataset.sourceTo = String(self.tableFrom + rawSourceStart + rawSource.length);
         if (astCell && Array.isArray(astCell.children) && astCell.children.length > 0) {
-          renderCellRich(td, astCell, self.tableFrom, rawSourceStart);
+          renderCellRich(td, astCell, self.tableFrom, rawSourceStart, self.assetProvider);
         } else {
           td.textContent = rawSource;
           writePlainSourceMap(td, rawSource.length);
@@ -1908,6 +2066,7 @@ export class EditableTableWidget extends WidgetType {
         let compositionSourceQueued = false;
 
         const enterRawEditingMode = (): void => {
+          releaseAssetResources(td);
           // Pin THIS cell to its currently rendered width before swapping
           // to raw markdown. The column width in table-layout:auto is
           // `max(cellWidth_i)` over all cells in the column — so if one
@@ -1931,6 +2090,7 @@ export class EditableTableWidget extends WidgetType {
         };
 
         const activateCellEditing = (): void => {
+          if (sessionClosed) return;
           acquireEditingLock("focus");
           syncEditorSelectionToCell(sourceLineIdx, cellCol);
           if (td.contentEditable !== "true") {
@@ -2094,6 +2254,10 @@ export class EditableTableWidget extends WidgetType {
           enterRawEditingMode();
         });
         td.addEventListener("blur", () => {
+          if (sessionClosed) {
+            td.contentEditable = "false";
+            return;
+          }
           // input/compositionend can be followed immediately by blur. Snapshot
           // before swapping raw DOM back to rich rendering so the final IME
           // candidate (or last ordinary keystroke) cannot be overwritten.
@@ -2128,7 +2292,7 @@ export class EditableTableWidget extends WidgetType {
             td.textContent = td.dataset.source ?? "";
             writePlainSourceMap(td, td.textContent?.length ?? 0);
           } else if (astCell && Array.isArray(astCell.children) && astCell.children.length > 0) {
-            renderCellRich(td, astCell, self.tableFrom, rawSourceStart);
+            renderCellRich(td, astCell, self.tableFrom, rawSourceStart, self.assetProvider);
           } else {
             td.textContent = td.dataset.source ?? "";
             writePlainSourceMap(td, td.textContent?.length ?? 0);
@@ -2139,6 +2303,7 @@ export class EditableTableWidget extends WidgetType {
           // with the up-to-date AST. `queueMicrotask` lets the blur
           // settle before we re-enter CM6.
           queueMicrotask(() => {
+            if (sessionClosed) return;
             // 方向键在单元格间导航时，跳过这个 selection 派发：它会把焦点/光标抢回
             // CM 文档选区（常是第 0 行），让光标"飞到第一行"而非落在目标单元格。
             if (navigatingBetweenCells) {
@@ -2175,7 +2340,7 @@ export class EditableTableWidget extends WidgetType {
         });
 
         function rememberCellSourceEdit(): void {
-          if (sourceLineIdx === undefined) return;
+          if (sessionClosed || sourceLineIdx === undefined) return;
           td.dataset.source = td.textContent ?? "";
           rememberDirtyRow(sourceLineIdx, tr);
         }
@@ -2198,6 +2363,7 @@ export class EditableTableWidget extends WidgetType {
         td.addEventListener("compositionstart", (event) => {
           event.stopPropagation();
           cellComposing = true;
+          composingCells.add(td);
           acquireEditingLock("focus");
         }, true);
 
@@ -2208,6 +2374,7 @@ export class EditableTableWidget extends WidgetType {
         td.addEventListener("compositionend", (event) => {
           event.stopPropagation();
           cellComposing = false;
+          composingCells.delete(td);
           rememberCellSourceEdit();
           // 浏览器会在 compositionend 前后把候选词提交进 contentEditable。
           // 延后一拍读取 TD，只更新待提交源码，避免输入阶段重绘长表格导致失焦。
@@ -2435,6 +2602,115 @@ export class EditableTableWidget extends WidgetType {
             if (selectedCopyRange()) return replaceSelectedTableRange(text);
             const cell = nativeSelectionCell();
             return cell ? replaceNativeCellSelection(cell, text) : false;
+          },
+          captureSelection(point) {
+            const cell = eventTarget.closest<HTMLElement>(".nexus-cell");
+            const v = self.viewRef.current;
+            if (!cell || !wrapper.contains(cell) || !v || v.state.readOnly || selectedCopyRange()) return null;
+            const textOfCell = () => cell.contentEditable === "true"
+              ? cell.textContent ?? "" : cell.dataset.source ?? cell.textContent ?? "";
+            const original = textOfCell();
+            let from: number | null = null;
+            let to: number | null = null;
+            const native = cell.ownerDocument.getSelection();
+            if (point) {
+              from = rawSourceOffsetFromPoint(cell, { clientX: point.x, clientY: point.y });
+              if (cell.contentEditable === "true") {
+                const doc = cell.ownerDocument as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null };
+                const caret = doc.caretRangeFromPoint?.(point.x, point.y);
+                if (caret && cell.contains(caret.startContainer)) {
+                  const prefix = cell.ownerDocument.createRange();
+                  prefix.selectNodeContents(cell);
+                  prefix.setEnd(caret.startContainer, caret.startOffset);
+                  from = prefix.toString().length;
+                }
+              }
+              to = from;
+            } else if (native?.rangeCount) {
+              const range = native.getRangeAt(0);
+              if (!cell.contains(range.commonAncestorContainer)) return null;
+              if (cell.contentEditable === "true") {
+                const prefix = cell.ownerDocument.createRange();
+                prefix.selectNodeContents(cell);
+                prefix.setEnd(range.startContainer, range.startOffset);
+                from = prefix.toString().length;
+                prefix.setEnd(range.endContainer, range.endOffset);
+                to = prefix.toString().length;
+              } else {
+                from = rawSourceOffsetFromCaret(range.startContainer, range.startOffset);
+                to = rawSourceOffsetFromCaret(range.endContainer, range.endOffset);
+              }
+            }
+            if (from === null || to === null) {
+              if (original) return null;
+              from = to = 0;
+            }
+            const start = Math.min(from, to);
+            const end = Math.max(from, to);
+            let disposed = false;
+            const valid = () => !disposed && !sessionClosed && cell.isConnected &&
+              !v.state.readOnly && !v.composing && !v.compositionStarted &&
+              composingCells.size === 0 && !isRangeSelecting && !cellMouseDown &&
+              draggingCol < 0 && draggingRow < 0 &&
+              (!isTableEditing(v) || self.editing) &&
+              textOfCell() === original && currentDocumentContainsOriginalTable(v);
+            return {
+              isValid: valid,
+              replaceSelection(text) {
+                if (!valid()) return false;
+                const insertion = text.replace(/(\\*)\|/g, (match, slashes: string) =>
+                  slashes.length % 2 ? match : `${slashes}\\|`).replace(/\r?\n/g, "<br>");
+                const nextCell = original.slice(0, start) + insertion + original.slice(end);
+                const row = cell.closest<HTMLElement>("tr");
+                const lineIdx = Number(row?.dataset.sourceLineIdx);
+                if (!row || !Number.isInteger(lineIdx)) return false;
+                const before = dirtySourceSnapshot(true).source;
+                if (before !== self.source) {
+                  const documentBefore = v.state.doc;
+                  v.dispatch({
+                    changes: { from: self.tableFrom, to: self.tableFrom + self.source.length, insert: before },
+                    annotations: isolateHistory.of("full"),
+                  });
+                  if (v.state.doc.sliceString(self.tableFrom, self.tableFrom + before.length) !== before) {
+                    rebuildAfterFilteredCommit(v, documentBefore);
+                    return false;
+                  }
+                  self.source = before;
+                  sourceLines.splice(0, sourceLines.length, ...before.split("\n"));
+                  clearDirtyRows();
+                }
+                const nextLines = before.split("\n");
+                const values = Array.from(row.querySelectorAll<HTMLElement>(".nexus-cell"), (item) =>
+                  item === cell ? nextCell : item.dataset.source ?? item.textContent ?? "");
+                nextLines[lineIdx] = `| ${values.join(" | ")} |`;
+                const next = nextLines.join("\n");
+                const documentBefore = v.state.doc;
+                v.dispatch({
+                  changes: { from: self.tableFrom, to: self.tableFrom + before.length, insert: next },
+                  userEvent: "input.paste",
+                  annotations: isolateHistory.of("full"),
+                });
+                if (v.state.doc.sliceString(self.tableFrom, self.tableFrom + next.length) !== next) {
+                  return rebuildAfterFilteredCommit(v, documentBefore, {
+                    cell,
+                    expectedText: nextCell,
+                    offset: start + insertion.length,
+                  });
+                }
+                self.source = next;
+                sourceLines.splice(0, sourceLines.length, ...nextLines);
+                clearDirtyRows();
+                cell.dataset.source = nextCell;
+                cell.textContent = nextCell;
+                writePlainSourceMap(cell, nextCell.length);
+                self.reusable = false;
+                if (cell.ownerDocument.activeElement === cell) placeRawSourceCaret(cell, start + insertion.length);
+                if (!self.editing) v.dispatch({ selection: v.state.selection });
+                v.requestMeasure();
+                return true;
+              },
+              dispose() { disposed = true; },
+            };
           },
         };
       },

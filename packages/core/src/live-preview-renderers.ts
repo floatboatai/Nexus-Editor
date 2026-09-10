@@ -10,6 +10,8 @@ import type {
   LivePreviewRenderContext,
   LivePreviewRenderer
 } from "./types";
+import type { AssetProvider } from "./assets";
+import { loadAssetImage } from "./asset-resources";
 
 function getText(node: LivePreviewNode): string {
   if ("value" in node && typeof node.value === "string") {
@@ -41,7 +43,7 @@ function getText(node: LivePreviewNode): string {
   return "";
 }
 
-export function createDefaultRenderer(context: LivePreviewRenderContext): HTMLElement {
+export function createDefaultRenderer(context: LivePreviewRenderContext, assetProvider?: AssetProvider, document = globalThis.document): HTMLElement {
   switch (context.node.type) {
     case "strong": {
       const element = document.createElement("strong");
@@ -195,7 +197,8 @@ export function createDefaultRenderer(context: LivePreviewRenderContext): HTMLEl
       const label = document.createElement("span");
       const element = document.createElement("img");
       wrapper.setAttribute("data-live-preview-image", context.node.url);
-      element.src = context.node.url;
+      if (assetProvider) loadAssetImage(element, context.node.url, assetProvider);
+      else element.src = context.node.url;
       element.alt = context.node.alt ?? "";
       element.referrerPolicy = "no-referrer";
       label.textContent = context.node.alt ?? context.node.url;
@@ -215,7 +218,9 @@ export function renderLivePreviewNode(
   source: string,
   renderers: Partial<Record<LivePreviewNodeType, LivePreviewRenderer>>,
   from = 0,
-  to = 0
+  to = 0,
+  assetProvider?: AssetProvider,
+  ownerDocument?: Document,
 ): HTMLElement {
   const context: LivePreviewRenderContext = {
     node,
@@ -226,5 +231,5 @@ export function renderLivePreviewNode(
     to
   };
 
-  return renderers[node.type]?.(context) ?? createDefaultRenderer(context);
+  return renderers[node.type]?.(context) ?? createDefaultRenderer(context, assetProvider, ownerDocument);
 }

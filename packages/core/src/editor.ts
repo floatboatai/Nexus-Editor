@@ -5,7 +5,7 @@ import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
 // no onChange emission, no AST reparse for the onChange pipeline.
 const silentDocChange = Annotation.define<boolean>();
 import { EditorView, keymap, dropCursor, lineNumbers, type Direction } from "@codemirror/view";
-import { indentWithTab, undo as cmUndo, redo as cmRedo } from "@codemirror/commands";
+import { historyField, isolateHistory, indentWithTab, undo as cmUndo, redo as cmRedo } from "@codemirror/commands";
 import { closeBrackets } from "@codemirror/autocomplete";
 import type { Root } from "mdast";
 import type { Heading } from "mdast";
@@ -16,14 +16,17 @@ import { unified } from "unified";
 
 import { EventEmitter } from "./event-emitter";
 import { DynamicEditorContributionSink } from "./dynamic-contributions";
-import { CoreEditorTransactionPipeline } from "./transaction-pipeline";
+import { CoreEditorTransactionPipeline, editorTransactionOrigin } from "./transaction-pipeline";
 import {
   applyMarkdownTransformSnapshots,
   dynamicWidgetDefinitionExtension,
   getMarkdownTransformRevision,
 } from "./markdown-contributions";
 import { createLivePreviewExtension } from "./live-preview";
-import { flushPendingTableEdits } from "./live-preview-table";
+import { capturePendingTableMarkdown, flushPendingTableEdits } from "./live-preview-table";
+import { waitForSnapshotInput } from "./document-snapshot";
+import { ManagedAssetInput } from "./managed-asset-input";
+import { resetAssetContext } from "./asset-resources";
 import { createMarkdownLanguageSupport } from "./lezer-markdown";
 import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
 import { markdownFoldService } from "./markdown-fold";
@@ -53,6 +56,7 @@ import { createWidgetExtension } from "./widget-extension";
 
 const FLOATBOAT_MARKDOWN_DEBUG_STORAGE_KEY = "floatboat:markdown-debug";
 const COMPOSITION_FLUSH_DELAY_MS = 60;
+let editorInstanceSequence = 0;
 
 interface NexusDebugGlobal {
   __FLOATBOAT_MARKDOWN_DEBUG__?: boolean;
@@ -139,11 +143,10 @@ function lezerAstFromAnywhere(
   return lezerStringToMdast(fallbackMarkdown);
 }
 
-function markdownToHtml(
-  markdown: string,
+function createMarkdownRenderProcessor(
   plugins: NexusPlugin[],
   applyDynamicTransforms: (tree: Root) => Root,
-): string {
+) {
   const processor = unified().use(remarkParse);
   for (const plugin of plugins) {
     for (const rp of plugin.remarkPlugins ?? []) {
@@ -151,6 +154,15 @@ function markdownToHtml(
     }
   }
   processor.use(() => (tree) => applyDynamicTransforms(tree as Root));
+  return processor;
+}
+
+function markdownToHtml(
+  markdown: string,
+  plugins: NexusPlugin[],
+  applyDynamicTransforms: (tree: Root) => Root,
+): string {
+  const processor = createMarkdownRenderProcessor(plugins, applyDynamicTransforms);
   processor.use(remarkRehype).use(rehypeStringify);
   return String(processor.processSync(markdown));
 }
@@ -244,6 +256,12 @@ function createTransformProcessor(plugins: NexusPlugin[]): { runSync(tree: Root)
 }
 
 export function createEditor(config: EditorConfig): EditorAPI {
+  const snapshotLifetime = new AbortController();
+  const revisionScope = ++editorInstanceSequence;
+  let revision = 0;
+  let apiAssetSequence = 0;
+  let managedAssets: ManagedAssetInput | null = null;
+  const currentRevision = () => `${revisionScope}:${revision}`;
   const plugins = config.plugins ?? [];
   debugNexus("create", {
     initialLength: (config.initialValue ?? "").length,
@@ -450,6 +468,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
     });
 
     const dispatchSpec = {
+      effects: resetAssetContext.of(null),
       changes: {
         from: 0,
         to: view.state.doc.length,
@@ -644,6 +663,8 @@ export function createEditor(config: EditorConfig): EditorAPI {
           }
 
           if (update.docChanged) {
+            revision += 1;
+            managedAssets?.mapChanges(update.changes);
             // Skip onChange/onParse work for transactions explicitly flagged as
             // "silent" (e.g. setDocument({ silent: true }) used when loading a
             // file from disk — that's not a user edit).
@@ -696,6 +717,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
               emitter.emit("slashMenuChange", { ...state, coords });
             }
           }
+          managedAssets?.validateTargets();
         }),
         // Lezer-based markdown language support. Drives `syntaxTree(state)` and
         // gives us an incremental, viewport-aware parse tree intrinsic to the
@@ -719,6 +741,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
         dropCursor(),
         EditorView.domEventHandlers({
           paste(event) {
+            if (config.assetInput?.managed && collectFilesFromDataTransfer(event.clipboardData).length) {
+              return dynamicContributionSink.dispatchBubbleBeforeDefault("paste", event);
+            }
             // 先派发插件 paste 钩子；任一消费则阻止默认行为。
             if (runEventHandlers(pasteHandlers, event)) {
               event.preventDefault();
@@ -734,6 +759,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
             return true;
           },
           drop(event) {
+            if (config.assetInput?.managed && collectFilesFromDataTransfer(event.dataTransfer).length) {
+              return dynamicContributionSink.dispatchBubbleBeforeDefault("drop", event);
+            }
             if (runEventHandlers(dropHandlers, event)) {
               event.preventDefault();
               return true;
@@ -761,7 +789,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
           deleteRow: locale.deleteRow,
           insertColumnAfter: locale.insertColumnAfter,
           insertRowBelow: locale.insertRowBelow,
-        }),
+        }, config.container.ownerDocument),
         dynamicWidgetDefinitionExtension,
         ...createWidgetExtension(widgetParser, widgetDefs),
         ...shortcutExtensions,
@@ -779,6 +807,70 @@ export function createEditor(config: EditorConfig): EditorAPI {
   api = {
     getDocument() {
       return view.state.doc.toString();
+    },
+    isReadOnly() {
+      return view.state.readOnly;
+    },
+    getDocumentRevision: currentRevision,
+    cancelAssetInput: (operationId) => managedAssets?.cancel(operationId),
+    async restoreDocumentBuffer(markdown, options) {
+      const snapshot = await api.captureDocumentSnapshot({ signal: options.signal });
+      const result = (status: import("./types").RestoreDocumentBufferResult["status"]) => ({
+        status, revision: currentRevision(),
+      });
+      if (currentRevision() !== options.expectedRevision) return result("conflict");
+      if (view.state.readOnly) return result("read-only");
+      if (!view.state.field(historyField, false)) return result("history-unavailable");
+      const selected = options.selection ?? view.state.selection.main;
+      try {
+        // A rejected restore must leave the current table session usable.
+        flushPendingTableEdits(view, false, true);
+      } catch {
+        return result("transaction-rejected");
+      }
+      if (view.state.doc.toString() !== snapshot.markdown) return result("conflict");
+      if (snapshotLifetime.signal.aborted || options.signal?.aborted) {
+        throw new DOMException("Document restore cancelled", "AbortError");
+      }
+      const anchor = Math.max(0, Math.min(markdown.length, selected.anchor));
+      const head = Math.max(0, Math.min(markdown.length, selected.head ?? selected.anchor));
+      const transaction = view.state.update({
+        changes: { from: 0, to: view.state.doc.length, insert: markdown },
+        selection: { anchor, head },
+        userEvent: "input.restore",
+        annotations: [isolateHistory.of("full"), editorTransactionOrigin.of(["document-history"])],
+      });
+      const committed = transactionPipeline.dispatchCodeMirrorTransactions([transaction], view);
+      if (committed?.status === "success") {
+        managedAssets?.cancel();
+        flushPendingTableEdits(view, true, true);
+        // Effects-only refresh is not a second, filterable content transaction.
+        view.dispatch({ effects: resetAssetContext.of(null) });
+      }
+      return result(committed?.status === "success" ? "applied" : "transaction-rejected");
+    },
+    async captureDocumentSnapshot(options = {}) {
+      await waitForSnapshotInput(
+        view,
+        () => composing || view.composing || view.compositionStarted,
+        snapshotLifetime.signal,
+        options.signal,
+      );
+      if (snapshotLifetime.signal.aborted || options.signal?.aborted) {
+        throw new DOMException("Document snapshot cancelled", "AbortError");
+      }
+      const state = view.state;
+      const markdown = capturePendingTableMarkdown(view);
+      const capturedRevision = currentRevision();
+      if (!options.includeRenderAst) return Object.freeze({ markdown, revision: capturedRevision });
+      const processor = createMarkdownRenderProcessor(
+        plugins,
+        (tree) => applyMarkdownTransformSnapshots(state, tree),
+      );
+      // Plugins may return shared nodes, so detach after every transform has run.
+      const transformed = processor.runSync(processor.parse(markdown), markdown) as Root;
+      const renderAst = structuredClone(transformed);
+      return Object.freeze({ markdown, renderAst, revision: capturedRevision });
     },
     getAst() {
       return currentAst;
@@ -822,7 +914,12 @@ export function createEditor(config: EditorConfig): EditorAPI {
         return Promise.resolve(null);
       }
 
-      return config.onAssetUpload(file);
+      if (!config.assetInput?.managed) return config.onAssetUpload(file);
+      return config.onAssetUpload(file, {
+        signal: snapshotLifetime.signal,
+        operation: "api",
+        operationId: `asset-api:${revisionScope}:${++apiAssetSequence}`,
+      });
     },
     setSelection(anchor, head = anchor) {
       if (destroyed) {
@@ -855,6 +952,8 @@ export function createEditor(config: EditorConfig): EditorAPI {
       });
     },
     setDocument(next, opts) {
+      revision += 1;
+      managedAssets?.cancel();
       if (destroyed) {
         return;
       }
@@ -993,6 +1092,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
     },
     destroy() {
       if (destroyed || destroying) return;
+      snapshotLifetime.abort();
+      managedAssets?.cancel();
+      view.dom.removeEventListener("input", trackInputRevision, true);
       destroying = true;
       // A focused table cell may not have blurred yet. Flush its local DOM
       // value while the view and change pipeline are still alive.
@@ -1078,6 +1180,28 @@ export function createEditor(config: EditorConfig): EditorAPI {
     registerTransactionFilter: transactionPipeline.registerTransactionFilter.bind(transactionPipeline),
     registerUpdateListener: transactionPipeline.registerUpdateListener.bind(transactionPipeline),
   };
+
+  function trackInputRevision(): void {
+    revision += 1;
+    managedAssets?.validateTargets();
+  }
+  view.dom.addEventListener("input", trackInputRevision, true);
+
+  if (config.assetInput?.managed) {
+    managedAssets = new ManagedAssetInput(view, api, config);
+    contributionSink.registerDomEvent("nexus:asset-input", "paste", (event, context) => {
+      const files = collectFilesFromDataTransfer(event.clipboardData);
+      if (!files.length) return false;
+      if (runEventHandlers(pasteHandlers, event)) return true;
+      return managedAssets?.handle(files, "paste", context) ?? false;
+    }, { phase: "bubble", priority: -10_000 });
+    contributionSink.registerDomEvent("nexus:asset-input", "drop", (event, context) => {
+      const files = collectFilesFromDataTransfer(event.dataTransfer);
+      if (!files.length) return false;
+      if (runEventHandlers(dropHandlers, event)) return true;
+      return managedAssets?.handle(files, "drop", context, { x: event.clientX, y: event.clientY }) ?? false;
+    }, { phase: "bubble", priority: -10_000 });
+  }
 
   return api;
 }

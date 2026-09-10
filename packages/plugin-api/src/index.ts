@@ -127,6 +127,7 @@ export type {
   EditorHostEventMap,
   EditorHostService,
   EditorInputSurface,
+  EditorInputBookmark,
   EditorInputTarget,
   EditorInputTargetAdapter,
   EditorSurfaceContext,

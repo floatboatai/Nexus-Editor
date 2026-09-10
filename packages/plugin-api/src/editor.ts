@@ -6,6 +6,7 @@ import type {
   EditorDomEventMap,
   EditorDomEventType,
   EditorInputSurface,
+  EditorInputBookmark,
   EditorInputTarget,
   SelectionState,
 } from "@floatboat/nexus-core";
@@ -32,6 +33,7 @@ export type {
   EditorDomEventMap,
   EditorDomEventType,
   EditorInputSurface,
+  EditorInputBookmark,
   EditorInputTarget,
 } from "@floatboat/nexus-core";
 
@@ -46,6 +48,7 @@ export interface EditorInputTargetAdapter {
   readonly kind: EditorInputSurface;
   getSelectedText(): string;
   replaceSelection(text: string): ServiceResult<void>;
+  captureSelection?(point?: { readonly x: number; readonly y: number }): EditorInputBookmark | null;
   copySelection?(): ClipboardPayload;
 }
 

@@ -98,7 +98,26 @@ const { containerRef, editor } = useEditor(() => ({
 </template>
 ```
 
-`editor` stays `null` until the first mount completes; prefer `onReady` when you need the instance right after creation.
+`editor.value` is `null` until the first mount completes; prefer `onReady` when you need the instance right after creation.
+
+## Document snapshots
+
+In a save or backup handler, capture the actual instance in the composable's `editor.value`, or the same `EditorAPI` received by `onReady`:
+
+```ts
+async function save(signal?: AbortSignal) {
+  const instance = editor.value;
+  if (!instance) return;
+  const { markdown } = await instance.captureDocumentSnapshot({ signal });
+  await persistMarkdown(markdown); // Supplied by your application.
+}
+```
+
+Do not substitute `modelValue` or the parent's `v-model` value: either can lag behind debounced changes or table-cell input that has not blurred. The snapshot includes settled pending input without changing focus, selection, or undo history. File access, persistence, and handling save failures remain the host's responsibility.
+
+Snapshots wait for composition and active table gestures to finish. There is no implicit timeout; pass an `AbortSignal` to bound a request. Handle `AbortError` when the signal is aborted or the component unmounts and destroys its editor.
+
+Pass `includeRenderAst: true` only when a detached rendering AST is needed. It uses the remark rendering pipeline and installed transforms, not a custom `parser` or a copy of `getAst()`. Uncloneable transform output rejects the request; source-only snapshots skip this extra rendering parse.
 
 ## How external sync works
 

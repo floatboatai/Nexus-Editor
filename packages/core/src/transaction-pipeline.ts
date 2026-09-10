@@ -6,6 +6,7 @@ import {
   type TransactionSpec,
 } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
+import { isolateHistory } from "@codemirror/commands";
 
 import type {
   CoreEditorChange,
@@ -105,6 +106,7 @@ function makeContext(editor: EditorAPI, transaction: Transaction): CoreEditorTra
     selectionAfter: Object.freeze(selectionSnapshot(transaction.newSelection)),
     origin: Object.freeze([...(transaction.annotation(editorTransactionOrigin) ?? [])]),
     userEvent: transaction.annotation(Transaction.userEvent),
+    ...(transaction.annotation(isolateHistory) ? { history: "isolate" as const } : {}),
   });
 }
 
@@ -115,9 +117,10 @@ function stableHookOrder<T>(entries: Iterable<HookEntry<T>>): HookEntry<T>[] {
 }
 
 function toTransactionSpec(transaction: CoreEditorTransaction): TransactionSpec {
-  const annotations = transaction.origin.length > 0
+  const annotations: Annotation<unknown>[] = transaction.origin.length > 0
     ? [editorTransactionOrigin.of(Object.freeze([...transaction.origin]))]
-    : undefined;
+    : [];
+  if (transaction.history === "isolate") annotations.push(isolateHistory.of("full"));
   return {
     changes: transaction.changes.map((change) => ({
       from: change.from,
@@ -136,6 +139,7 @@ function publicTransaction(context: CoreEditorTransactionContext): CoreEditorTra
     selection: context.selectionAfter,
     origin: context.origin,
     userEvent: context.userEvent,
+    ...(context.history ? { history: context.history } : {}),
   };
 }
 
@@ -152,6 +156,7 @@ function inheritReplacement(
     selection: replacement.selection,
     origin,
     userEvent: replacement.userEvent ?? previous.userEvent,
+    ...(replacement.history ?? previous.history ? { history: "isolate" as const } : {}),
   };
 }
 
@@ -239,9 +244,10 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
     });
     specs[0] = {
       ...specs[0],
-      annotations: origins.length > 0
-        ? editorTransactionOrigin.of(Object.freeze(origins))
-        : undefined,
+      annotations: [
+        ...(origins.length > 0 ? [editorTransactionOrigin.of(Object.freeze(origins))] : []),
+        ...(transactions.some((item) => item.history === "isolate") ? [isolateHistory.of("full")] : []),
+      ],
     };
     return state.update(...specs);
   }
@@ -257,9 +263,11 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
         changes: transaction.changes,
         selection: transaction.selection,
         effects: transaction.effects,
-        annotations: index === transactions.length - 1 && origins.length > 0
-          ? editorTransactionOrigin.of(Object.freeze(origins))
-          : undefined,
+        annotations: [
+          ...(index === transactions.length - 1 && origins.length > 0
+            ? [editorTransactionOrigin.of(Object.freeze(origins))] : []),
+          ...(transaction.annotation(isolateHistory) ? [isolateHistory.of("full")] : []),
+        ],
         scrollIntoView: transaction.scrollIntoView,
         userEvent: transaction.annotation(Transaction.userEvent),
         sequential: index > 0,

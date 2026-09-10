@@ -1,6 +1,7 @@
 import type { Extension } from "@codemirror/state";
 import type { Blockquote, Code, Definition, Delete, Emphasis, FootnoteDefinition, FootnoteReference, Heading, Html, Image, InlineCode, Link, List, Root, Strong, Table, ThematicBreak } from "mdast";
 import type { Plugin } from "unified";
+import type { AssetProvider, AssetUploadContext, ManagedAssetInputOptions, EditorInputBookmark } from "./assets";
 
 export interface CodeHighlightToken {
   /** Absolute offset in the source markdown (beginning of the highlighted span). */
@@ -74,6 +75,8 @@ export interface LivePreviewConfig {
   enabled?: boolean;
   renderers?: Partial<Record<LivePreviewNodeType, LivePreviewRenderer>>;
   labels?: LivePreviewLabels;
+  /** Optional authorized byte resolver; no network fallback is used when supplied. */
+  assetProvider?: AssetProvider;
 }
 
 export interface EditorConfig {
@@ -117,7 +120,9 @@ export interface EditorConfig {
    * 资源上传钩子：粘贴 / 拖拽进来的图片或文件交给宿主落盘 / 上传，返回可供 markdown
    * 引用的 URL（相对路径或远程地址）。返回 null 表示放弃，编辑器不会插入坏链接。
    */
-  onAssetUpload?: (file: File) => Promise<string | null>;
+  onAssetUpload?: (file: File, context?: AssetUploadContext) => Promise<string | null>;
+  /** Opt-in asynchronous input with source bookmarks and observable outcomes. */
+  assetInput?: ManagedAssetInputOptions;
 }
 
 export interface SlashMenuState {
@@ -189,6 +194,8 @@ export interface EditorInputTarget {
   readonly id?: string;
   getSelectedText(): string;
   replaceSelection(text: string): boolean;
+  /** Capture a target that remains safe across an asynchronous operation. */
+  captureSelection?(point?: { readonly x: number; readonly y: number }): EditorInputBookmark | null;
   copySelection?(): {
     readonly text: string | null;
     readonly html: string | null;
@@ -291,6 +298,8 @@ export interface CoreEditorTransaction {
   /** Ordered identifiers describing who initiated or transformed the transaction. */
   readonly origin: readonly string[];
   readonly userEvent?: string;
+  /** Keep this command separate from adjacent undo entries when history is installed. */
+  readonly history?: "isolate";
 }
 
 export interface CoreEditorTransactionContext {
@@ -300,6 +309,7 @@ export interface CoreEditorTransactionContext {
   readonly selectionAfter: SelectionState;
   readonly origin: readonly string[];
   readonly userEvent?: string;
+  readonly history?: "isolate";
 }
 
 export interface CoreEditorUpdateContext extends CoreEditorTransactionContext {
@@ -366,8 +376,40 @@ export interface SetDocumentOptions {
   };
 }
 
+export interface EditorDocumentSnapshot {
+  readonly markdown: string;
+  /** Opaque effective-content revision, valid only for this editor's lifetime. */
+  readonly revision?: string;
+  /** A structured-cloned rendering AST, created only when explicitly requested. */
+  readonly renderAst?: Root;
+}
+
+export interface CaptureDocumentSnapshotOptions {
+  readonly signal?: AbortSignal;
+  readonly includeRenderAst?: boolean;
+}
+
+export interface RestoreDocumentBufferOptions {
+  readonly expectedRevision: string;
+  readonly signal?: AbortSignal;
+  readonly selection?: { readonly anchor: number; readonly head?: number };
+}
+
+export interface RestoreDocumentBufferResult {
+  readonly status: "applied" | "conflict" | "read-only" | "history-unavailable" | "transaction-rejected";
+  readonly revision: string;
+}
+
 export interface EditorAPI {
   getDocument(): string;
+  isReadOnly?(): boolean;
+  getDocumentRevision?(): string;
+  /** Cancel one managed upload operation, or all pending operations on this editor. */
+  cancelAssetInput?(operationId?: string): void;
+  /** Restore content, not file metadata; requires undo support and a current revision. */
+  restoreDocumentBuffer?(markdown: string, options: RestoreDocumentBufferOptions): Promise<RestoreDocumentBufferResult>;
+  /** Read settled input and pending table edits without changing editor state or undo history. */
+  captureDocumentSnapshot(options?: CaptureDocumentSnapshotOptions): Promise<EditorDocumentSnapshot>;
   getAst(): Root;
   getTableOfContents(): TocEntry[];
   exportHTML(): string;
