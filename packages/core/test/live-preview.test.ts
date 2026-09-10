@@ -2306,6 +2306,79 @@ describe("live preview", () => {
     editor.destroy();
   });
 
+  it("renders a custom title after the alert tag (Obsidian style)", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Intro\n\n> [!NOTE] Deploy checklist\n> body line.\n\nend",
+      livePreview: true,
+    });
+
+    editor.setSelection(editor.getDocument().length);
+    const badge = container.querySelector(".nexus-alert-label");
+    expect(badge?.textContent).toContain("Deploy checklist");
+    // The raw tag + title source on the head line is replaced by the badge,
+    // so the title must not show up twice.
+    expect(badge?.textContent).not.toContain("[!NOTE]");
+    editor.destroy();
+  });
+
+  it("collapses `-` marked alerts by default and expands on chevron click", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Intro\n\n> [!TIP]- Quick recap\n> hidden body line.\n\nend",
+      livePreview: true,
+    });
+
+    editor.setSelection(editor.getDocument().length);
+    const badge = container.querySelector(".nexus-alert-label") as HTMLElement | null;
+    expect(badge).not.toBeNull();
+    expect(badge?.textContent).toContain("Quick recap");
+    // Collapsed: the body source is replaced by the fold placeholder block.
+    expect(container.textContent).not.toContain("hidden body line.");
+
+    // The chevron is the badge's first child span.
+    const chevron = badge?.querySelector("span") as HTMLElement | null;
+    expect(chevron?.textContent).toBe("▸");
+    chevron?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    expect(container.textContent).toContain("hidden body line.");
+    editor.destroy();
+  });
+
+  it("renders `+` marked alerts expanded and collapses on chevron click", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Intro\n\n> [!WARNING]+ Details\n> visible body line.\n\nend",
+      livePreview: true,
+    });
+
+    editor.setSelection(editor.getDocument().length);
+    expect(container.textContent).toContain("visible body line.");
+    const badge = container.querySelector(".nexus-alert-label") as HTMLElement | null;
+    const chevron = badge?.querySelector("span") as HTMLElement | null;
+    expect(chevron?.textContent).toBe("▾");
+    chevron?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    expect(container.textContent).not.toContain("visible body line.");
+    editor.destroy();
+  });
+
+  it("static alerts (no fold marker) have no chevron and never fold", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Intro\n\n> [!CAUTION]\n> always visible.\n\nend",
+      livePreview: true,
+    });
+
+    editor.setSelection(editor.getDocument().length);
+    const badge = container.querySelector(".nexus-alert-label");
+    expect(badge?.children.length).toBe(2); // icon + label, no chevron
+    expect(container.textContent).toContain("always visible.");
+    editor.destroy();
+  });
+
   it("renders Docusaurus/VitePress `:::type` fenced callouts", () => {
     const container = document.createElement("div");
     const editor = createEditor({
@@ -2333,6 +2406,120 @@ describe("live preview", () => {
     editor.setSelection(0);
     const title = container.querySelector(".nexus-callout-title");
     expect(title?.textContent ?? "").toContain("Custom Title");
+    editor.destroy();
+  });
+
+  it("renders multi-paragraph callout bodies (blank line splits lezer nodes)", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue:
+        "Intro\n\n:::info Multi\nFirst paragraph.\n\nSecond paragraph.\n:::\n\nend",
+      livePreview: true,
+    });
+
+    editor.setSelection(0);
+    const callout = container.querySelector(".nexus-callout");
+    expect(callout).not.toBeNull();
+    expect(callout?.getAttribute("data-callout-type")).toBe("info");
+    const paragraphs = callout?.querySelectorAll(".nexus-callout-body p") ?? [];
+    expect(paragraphs.length).toBe(2);
+    expect(paragraphs[0]?.textContent).toContain("First paragraph.");
+    expect(paragraphs[1]?.textContent).toContain("Second paragraph.");
+    // Blocks consumed by the merged callout must not leak as top-level text.
+    expect(container.textContent).not.toContain(":::");
+    editor.destroy();
+  });
+
+  it("renders inline markdown inside callout bodies", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue:
+        "Intro\n\n:::note\n**bold** and `code` and [link](https://example.com)\n:::",
+      livePreview: true,
+    });
+
+    editor.setSelection(0);
+    const body = container.querySelector(".nexus-callout-body");
+    expect(body?.querySelector("strong")?.textContent).toBe("bold");
+    expect(body?.querySelector("code")?.textContent).toBe("code");
+    const link = body?.querySelector("a");
+    expect(link?.getAttribute("href")).toBe("https://example.com");
+    expect(link?.textContent).toBe("link");
+    editor.destroy();
+  });
+
+  it("renders block markdown (lists, code) inside callout bodies", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue:
+        "Intro\n\n:::tip Tasks\n- one\n- two\n\n```js\nconst x = 1;\n```\n:::",
+      livePreview: true,
+    });
+
+    editor.setSelection(0);
+    const body = container.querySelector(".nexus-callout-body");
+    const items = body?.querySelectorAll("li") ?? [];
+    expect(items.length).toBe(2);
+    expect(items[0]?.textContent).toContain("one");
+    const code = body?.querySelector("pre code");
+    expect(code?.textContent).toContain("const x = 1;");
+    expect(code?.className).toContain("language-js");
+    editor.destroy();
+  });
+
+  it("renders nested fenced callouts", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue:
+        "Intro\n\n:::warning Outer\n\ntext\n\n:::info Inner\nnested body\n:::\n:::",
+      livePreview: true,
+    });
+
+    editor.setSelection(0);
+    const callouts = container.querySelectorAll(".nexus-callout");
+    expect(callouts.length).toBe(2);
+    const outer = callouts[0];
+    const inner = outer?.querySelector(".nexus-callout .nexus-callout");
+    expect(inner?.getAttribute("data-callout-type")).toBe("info");
+    expect(inner?.textContent).toContain("nested body");
+    expect(container.textContent).not.toContain(":::");
+    editor.destroy();
+  });
+
+  it("does not let `:::` inside a fenced code block close the outer callout", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue:
+        "Intro\n\n:::info\nbody\n\n```text\n:::\n```\n\nafter code\n:::\n\nend",
+      livePreview: true,
+    });
+
+    editor.setSelection(0);
+    const callout = container.querySelector(".nexus-callout");
+    expect(callout).not.toBeNull();
+    expect(callout?.querySelector("pre code")?.textContent).toContain(":::");
+    expect(callout?.textContent).toContain("after code");
+    // The trailing paragraph after the merged callout still renders.
+    expect(container.textContent).toContain("end");
+    editor.destroy();
+  });
+
+  it("leaves an unclosed callout fence as plain paragraph text", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Intro\n\n:::info\nno closing fence\n\nend",
+      livePreview: true,
+    });
+
+    editor.setSelection(0);
+    expect(container.querySelector(".nexus-callout")).toBeNull();
+    expect(container.textContent).toContain(":::info");
     editor.destroy();
   });
 
