@@ -1,16 +1,14 @@
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { build } from "tsup";
+import { prepareConversionWorker } from "./build-conversion-worker.mjs";
 
 const require = createRequire(import.meta.url);
 
+await prepareConversionWorker();
+
 await build({
-  entry: ["electron/main.ts", "electron/preload.ts"],
-  outDir: "dist-electron",
-  format: "cjs",
-  platform: "node",
-  external: ["electron"],
-  clean: true,
+  config: "tsup.config.ts",
   silent: true,
 });
 

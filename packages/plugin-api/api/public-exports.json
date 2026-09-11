@@ -81,6 +81,7 @@
   "EditorHostEventMap",
   "EditorHostService",
   "EditorId",
+  "EditorInputBookmark",
   "EditorInputSurface",
   "EditorInputTarget",
   "EditorInputTargetAdapter",

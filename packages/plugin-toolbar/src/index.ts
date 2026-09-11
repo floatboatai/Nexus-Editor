@@ -13,6 +13,7 @@ import {
 export { toggleBlockquote, toggleOrderedList, toggleUnorderedList, insertCodeBlock, insertImage, insertHorizontalRule, applyTextColor, applyHighlight } from "./formatting";
 export { createToolbarUI } from "./toolbar-ui";
 export { colorDecorationExtension } from "./color-decoration";
+export { createTemplateCommandsPlugin, insertTable, insertMathBlock, insertInlineMath, insertMermaid } from "./template-commands";
 export type { ToolbarUI, ToolbarUIOptions, ToolbarButton, ToolbarGroup } from "./toolbar-ui";
 export {
   insertLink,

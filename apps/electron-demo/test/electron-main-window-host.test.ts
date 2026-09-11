@@ -163,6 +163,7 @@ describe("Electron main window host", () => {
     delete process.env.VITE_DEV_SERVER_URL;
     vi.restoreAllMocks();
     vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
   function eventFor(window: typeof electronHarness.windows[number]) {
@@ -221,7 +222,31 @@ describe("Electron main window host", () => {
     expect(window.isDestroyed()).toBe(true);
   });
 
-  it("forces app exit at 2.1 seconds when storage drain never settles", async () => {
+  it("starts the public capability demo by default and keeps explicit legacy windows isolated", async () => {
+    const { createWindow, registerPluginHostIpc } = await import("../electron/main");
+    registerPluginHostIpc();
+    const demo = createWindow({ windowId: "public-demo" });
+    expect(electronHarness.windows[0].options.webPreferences.additionalArguments).toEqual(["--nexus-host-mode=runtime"]);
+    const legacy = createWindow({ hostMode: "legacy", windowId: "legacy" });
+    expect(electronHarness.windows[1].options.webPreferences.additionalArguments).toEqual(["--nexus-host-mode=legacy"]);
+    const operation = electronHarness.ipcHandlers.get("nexus:public-capabilities")!;
+    electronHarness.showOpenDialog.mockResolvedValue({ canceled: true, filePaths: [] });
+    await expect(operation(eventFor(electronHarness.windows[0]), { operation: "pick-import" })).resolves.toBeNull();
+    await expect(operation(eventFor(electronHarness.windows[1]), { operation: "pick-import" })).rejects.toThrow("disabled");
+    demo.close();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(demo.isDestroyed()).toBe(false);
+    expect(legacy.isDestroyed()).toBe(false);
+    await operation(eventFor(electronHarness.windows[0]), { operation: "cancel-shutdown" });
+    const completion = electronHarness.ipcHandlers.get("nexus:host:shutdown-complete")!;
+    await expect(completion(eventFor(electronHarness.windows[0]), {})).rejects.toThrow("not requested");
+    demo.close();
+    await completion(eventFor(electronHarness.windows[0]), {});
+    expect(demo.isDestroyed()).toBe(true);
+    expect(legacy.isDestroyed()).toBe(false);
+  });
+
+  it("forces app exit at the bounded runtime quit deadline when storage drain never settles", async () => {
     const { ElectronPluginStorageBroker } = await import("../electron/plugin-host-broker");
     const drain = vi.spyOn(ElectronPluginStorageBroker.prototype, "drain")
       .mockReturnValue(new Promise<void>(() => undefined));
@@ -231,19 +256,20 @@ describe("Electron main window host", () => {
     const beforeQuit = electronHarness.appListeners.get("before-quit")?.[0];
 
     beforeQuit?.({ preventDefault: vi.fn() });
-    await vi.advanceTimersByTimeAsync(2_099);
-    expect(window.isDestroyed()).toBe(true);
-    expect(drain).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(window.isDestroyed()).toBe(false);
     expect(electronHarness.quit).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1);
+    expect(window.isDestroyed()).toBe(true);
+    expect(drain).not.toHaveBeenCalled();
     expect(electronHarness.quit).toHaveBeenCalledOnce();
   });
 
   it("creates and routes two live BrowserWindows and shuts them down independently", async () => {
     const { createWindow, windowForSenderId } = await import("../electron/main");
-    const first = createWindow();
-    const second = createWindow();
+    const first = createWindow({ hostMode: "legacy" });
+    const second = createWindow({ hostMode: "legacy" });
     const firstFake = electronHarness.windows[0];
     const secondFake = electronHarness.windows[1];
 

@@ -17,6 +17,7 @@ import {
   type ViewId,
   type ViewState,
   type WindowContext,
+  type WorkspaceLeaf,
 } from "@floatboat/nexus-plugin-api";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -29,8 +30,9 @@ import {
 import {
   RuntimeWorkspace,
   RuntimeWorkspaceLeaf,
+  type RuntimeWorkspaceOptions,
   type RuntimeWorkspaceSnapshot,
-} from "../src/workspace/runtime-workspace";
+} from "../src/index";
 
 function owner(plugin = "sample-plugin"): ResourceOwner {
   return {
@@ -173,6 +175,96 @@ afterEach(() => {
 });
 
 describe("RuntimeWorkspace", () => {
+  it("routes file navigation through the configured Markdown view without changing placement or context", async () => {
+    const resources: ManagedResource[] = [];
+    const options: RuntimeWorkspaceOptions = {
+      markdownViewType: "sample-plugin:markdown",
+      supportedContainers: ["root", "tab"],
+    };
+    const workspace = new RuntimeWorkspace(document, options);
+    const window = workspace.createWindow(document, "main");
+    const focused = workspace.createLeaf({ windowId: window.id });
+    workspace.focusLeaf(focused.id);
+    const service = workspace.createService(owner(), (resource) => resources.push(resource));
+    const factory = vi.fn((leaf: WorkspaceLeaf) =>
+      new TestView(leaf as RuntimeWorkspaceLeaf, "sample-plugin:markdown", 1),
+    );
+    const registration = service.registerView("sample-plugin:markdown", factory);
+    expect(registration.ok).toBe(true);
+    await activate(resources);
+    const target = file("notes/custom.md");
+    const result = await service.navigate(
+      { kind: "file", file: target },
+      { placement: "new-tab", active: false, focus: false, ephemeralState: { cursor: 3 } },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("file navigation failed");
+    expect(factory).toHaveBeenCalledWith(result.value.leaf, {
+      type: "sample-plugin:markdown",
+      stateVersion: 1,
+      state: { path: target.path },
+      ephemeralState: { cursor: 3 },
+    });
+    expect(result.value.placement).toBe("new-tab");
+    expect(result.value.leaf.active).toBe(false);
+    expect(service.getFocusedLeaf()).toBe(focused);
+    expect((result.value.leaf as RuntimeWorkspaceLeaf).resourceFile).toBe(target);
+    expect(result.value.leaf.view?.getEphemeralState()).toEqual({ cursor: 3 });
+    expect(workspace.createSnapshot().schemaVersion).toBe(1);
+    await dispose(resources);
+  });
+
+  it("keeps the default Markdown view type when no host override is provided", async () => {
+    const workspace = new RuntimeWorkspace(document);
+    const target = file("notes/default.md");
+    const result = await workspace.navigate({ kind: "file", file: target });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("file navigation failed");
+    expect(result.value.leaf.getViewState()).toMatchObject({
+      type: "markdown",
+      stateVersion: 1,
+      state: { path: target.path },
+    });
+    await workspace.closeLeaf(result.value.leaf);
+  });
+
+  it("restores empty window identities from schema v1 without a document layout model", async () => {
+    const original = new RuntimeWorkspace(document);
+    original.createWindow(document, "empty");
+    original.createWindow(document, "occupied");
+    original.createLeaf({ windowId: "occupied" });
+    const snapshot = original.createSnapshot();
+    const restored = new RuntimeWorkspace(document);
+
+    await restored.restoreSnapshot(snapshot);
+
+    expect(restored.getLayout()).toEqual(snapshot.layout);
+    expect(restored.createSnapshot()).toEqual(snapshot);
+    expect(restored.createSnapshot().schemaVersion).toBe(1);
+    expect(restored.createSnapshot()).not.toHaveProperty("documentLayouts");
+  });
+
+  it("rejects a foreign window object with a registered ID before changing the leaf", async () => {
+    const workspace = new RuntimeWorkspace(document);
+    const main = workspace.createWindow(document, "main");
+    const target = workspace.createWindow(document, "target");
+    const leaf = workspace.createLeaf({ windowId: main.id });
+    const previousParent = leaf.containerEl.parentElement;
+    const previousLayout = workspace.getLayout();
+
+    await expect(workspace.moveLeafToWindow(leaf, { ...target })).rejects.toThrow(
+      "Unknown runtime workspace window 'target'",
+    );
+    expect(leaf.window).toBe(main);
+    expect(leaf.containerEl.parentElement).toBe(previousParent);
+    expect(workspace.getLayout()).toEqual(previousLayout);
+
+    await workspace.moveLeafToWindow(leaf, target);
+    expect(leaf.window).toBe(target);
+  });
+
   it("creates independent view instances and persists only durable view state", async () => {
     const resources: ManagedResource[] = [];
     const instances: TestView[] = [];

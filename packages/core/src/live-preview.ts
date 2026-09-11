@@ -14,7 +14,9 @@ import {
 import { createLivePreviewDiagnostics } from "./live-preview-diag";
 import { collectLivePreviewRanges, selectionIntersects, selectionOnSameLine } from "./live-preview-ranges";
 import { renderLivePreviewNode } from "./live-preview-renderers";
-import { EditableTableWidget, isTableEditing } from "./live-preview-table";
+import { assetContextRevision, releaseAssetResources, resetAssetContext } from "./asset-resources";
+import type { AssetProvider } from "./assets";
+import { EditableTableWidget, isTableEditing, reconcileFilteredTable } from "./live-preview-table";
 import type {
   LivePreviewConfig,
   LivePreviewLabels,
@@ -28,6 +30,8 @@ interface NormalizedLivePreviewConfig {
   enabled: boolean;
   renderers: Partial<Record<LivePreviewNodeType, LivePreviewRenderer>>;
   labels: Required<LivePreviewLabels>;
+  assetProvider?: AssetProvider;
+  document?: Document;
 }
 
 const DEFAULT_LABELS: Required<LivePreviewLabels> = {
@@ -96,7 +100,8 @@ function normalizeConfig(
   return {
     enabled: config.enabled ?? true,
     renderers: config.renderers ?? {},
-    labels: { ...DEFAULT_LABELS, ...config.labels }
+    labels: { ...DEFAULT_LABELS, ...config.labels },
+    assetProvider: config.assetProvider,
   };
 }
 
@@ -128,6 +133,7 @@ function createWidget(
       return otherKey === this._eqKey;
     }
     ignoreEvent() { return swallowEvents; }
+    destroy(dom: HTMLElement): void { releaseAssetResources(dom); }
     // For block widgets, giving CM6 a pre-measure height prevents the heightmap
     // from assigning 0 and then jumping to the real height on first measure.
     // That jump shifts every click resolution below the widget until remeasured.
@@ -1083,7 +1089,8 @@ function buildDecorations(
       decos.push(
         Decoration.replace({
           widget: new EditableTableWidget(
-            range.node as Table, range.from, range.source, viewRef, config.labels
+            range.node as Table, range.from, range.source, viewRef, config.labels, config.assetProvider,
+            state.field(assetContextRevision, false) ?? 0,
           ),
           block: true
         }).range(range.from, range.to)
@@ -1127,9 +1134,9 @@ function buildDecorations(
       // DOM across cursor-only updates and unrelated edits — image renderers
       // are heavy (50+ DOM nodes with inline styles), so skipping the rebuild
       // is the bulk of the buildWidgets win on documents with many images.
-      const imgKey = `image:${range.from}:${range.to}:${cursorOnImage ? "in" : "out"}:${range.source}`;
+      const imgKey = `image:${state.field(assetContextRevision, false) ?? 0}:${range.from}:${range.to}:${cursorOnImage ? "in" : "out"}:${range.source}`;
       const buildImg = (): HTMLElement =>
-        renderLivePreviewNode(range.node, range.source, config.renderers, range.from, range.to);
+        renderLivePreviewNode(range.node, range.source, config.renderers, range.from, range.to, config.assetProvider, viewRef.current?.dom.ownerDocument ?? config.document);
       if (!cursorOnImage) {
         decos.push(
           Decoration.replace({
@@ -1260,7 +1267,7 @@ function buildDecorations(
         decos.push(
           Decoration.replace({
             widget: createWidget(
-              () => renderLivePreviewNode(range.node, range.source, config.renderers, range.from, range.to),
+              () => renderLivePreviewNode(range.node, range.source, config.renderers, range.from, range.to, config.assetProvider, viewRef.current?.dom.ownerDocument ?? config.document),
               isBlock,
               heightHint,
               blockKey,
@@ -1304,9 +1311,11 @@ function buildDecorations(
 
 export function createLivePreviewExtension(
   config: boolean | LivePreviewConfig | undefined,
-  localeLabels?: LivePreviewLabels
+  localeLabels?: LivePreviewLabels,
+  ownerDocument?: Document,
 ): Extension[] {
   const normalized = normalizeConfig(config);
+  normalized.document = ownerDocument;
   if (!normalized.enabled) return [];
   // Locale labels override config labels
   if (localeLabels) {
@@ -1354,8 +1363,20 @@ export function createLivePreviewExtension(
       return build(state, state.selection.ranges, false);
     },
     update(decos: DecorationSet, tr: Transaction) {
+      const retired = tr.effects.find((effect) => effect.is(reconcileFilteredTable));
+      if (retired) {
+        if (isTableEditing(viewRef.current)) {
+          // Another table still owns an interaction: remove only the retired
+          // widget instead of rebuilding and disturbing the active table DOM.
+          return decos.update({ filter: (_from, _to, value) => value.spec.widget !== retired.value });
+        }
+        return build(tr.state, tr.state.selection.ranges, false);
+      }
       if (isTableEditing(viewRef.current)) {
         return tr.docChanged ? decos.map(tr.changes) : decos;
+      }
+      if (tr.effects.some((effect) => effect.is(resetAssetContext))) {
+        return build(tr.state, tr.state.selection.ranges, false);
       }
       if (tr.effects.some((effect) => effect.is(rebuildForCompositionStart))) {
         compositionActive = true;
@@ -1499,5 +1520,8 @@ export function createLivePreviewExtension(
     return builder.finish();
   });
 
-  return [field, viewCapture, compositionHandler, linkHandler, tableAtomicRanges, createLivePreviewDiagnostics()];
+  return [
+    ...(normalized.assetProvider ? [assetContextRevision] : []),
+    field, viewCapture, compositionHandler, linkHandler, tableAtomicRanges, createLivePreviewDiagnostics(),
+  ];
 }

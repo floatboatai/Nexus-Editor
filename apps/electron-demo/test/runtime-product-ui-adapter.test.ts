@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   type ComponentId,
   type JsonValue,
@@ -14,7 +16,7 @@ import {
   RuntimeWorkspace,
   createWindowContext,
 } from "@floatboat/nexus-plugin-runtime";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   ELECTRON_PRODUCT_SETTING_TAB_ID,
@@ -67,12 +69,22 @@ function memoryStorage(): PluginStorageService {
   };
 }
 
+const productStyles = readFileSync(path.resolve(__dirname, "../src/renderer/style.css"), "utf8");
+let stylesheet: HTMLStyleElement;
+
+beforeEach(() => {
+  stylesheet = document.createElement("style");
+  stylesheet.textContent = productStyles;
+  document.head.append(stylesheet);
+});
+
 afterEach(() => {
+  stylesheet.remove();
   document.body.replaceChildren();
 });
 
 describe("ElectronRuntimeProductUiAdapter", () => {
-  it("owns product views through sidebar leaves without replacing the primary Markdown leaf", async () => {
+  it.each(["outline", "backlinks"] as const)("owns sidebar views and toggles %s without replacing the primary Markdown leaf", async (surface) => {
     const workspace = new RuntimeWorkspace(document, {
       supportedContainers: ["root", "tab", "sidebar"],
     });
@@ -136,10 +148,25 @@ describe("ElectronRuntimeProductUiAdapter", () => {
     expect(layout.querySelectorAll(".backlinks-panel")).toHaveLength(1);
     expect(layout.querySelector("[data-plugin-slot], [data-ui-action-id]")).toBeNull();
 
-    adapter.toggleView("outline");
-    expect(outlineLeaf.containerEl.hidden).toBe(true);
-    adapter.toggleView("outline");
-    expect(outlineLeaf.containerEl.hidden).toBe(false);
+    const target = surface === "outline" ? outlineLeaf : backlinksLeaf;
+    const other = surface === "outline" ? backlinksLeaf : outlineLeaf;
+    const view = target.view;
+    expect(getComputedStyle(target.containerEl).display).toBe("flex");
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      adapter.toggleView(surface);
+      expect(target.containerEl.hidden).toBe(true);
+      expect(getComputedStyle(target.containerEl).display).toBe("none");
+      expect(adapter.getSnapshot().views[surface].visible).toBe(false);
+      expect(getComputedStyle(other.containerEl).display).toBe("flex");
+      expect(workspace.getFocusedLeaf()).toBe(primary);
+      adapter.toggleView(surface);
+      expect(target.containerEl.hidden).toBe(false);
+      expect(getComputedStyle(target.containerEl).display).toBe("flex");
+      expect(adapter.getSnapshot().views[surface].visible).toBe(true);
+      expect(target.view).toBe(view);
+    }
+    expect(destroys.outline).not.toHaveBeenCalled();
+    expect(destroys.backlinks).not.toHaveBeenCalled();
 
     await adapter.destroy();
     expect(workspace.getLeaves()).toEqual([primary]);

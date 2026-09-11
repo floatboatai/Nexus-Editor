@@ -14,7 +14,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --clean"
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "check:api": "pnpm build && tsc --noEmit -p tsconfig.api.json"
   },
   "dependencies": {
     "@floatboat/nexus-core": "workspace:*",

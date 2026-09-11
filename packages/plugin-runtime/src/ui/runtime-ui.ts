@@ -68,6 +68,18 @@ export interface UiSlotContext {
 
 export interface RuntimeUiHostOptions {
   readonly slots?: Partial<Record<UiSlot, UiSlotContext>>;
+  /**
+   * Optional artwork for editor-toolbar actions only. Return a fresh decorative
+   * element for the destination document, or null to keep the text label.
+   * Omission or a thrown error also keeps the label; errors produce diagnostics.
+   * The runtime adopts, replaces and removes returned nodes. This is not a
+   * component-mount hook: do not attach interactive content, external listeners
+   * or resources that require a separate unmount callback.
+   */
+  readonly renderIcon?: (
+    icon: NonNullable<UiActionDefinition["icon"]>,
+    ownerDocument: Document,
+  ) => HTMLElement | null;
   readonly commandRegistry?: CommandPaletteRegistry;
   readonly defaultWindow?: WindowContext;
   readonly resolveStorage?: (owner: ResourceOwner) => PluginStorageService | null;
@@ -923,6 +935,7 @@ export class RuntimeUiHost {
   readonly dangerousActionConfirmer: RuntimeUiHostOptions["confirmDangerousAction"];
 
   private readonly slots: Partial<Record<UiSlot, UiSlotContext>>;
+  private readonly renderIcon: RuntimeUiHostOptions["renderIcon"];
   private readonly commandRegistry?: CommandPaletteRegistry;
   private readonly resolveStorage: (owner: ResourceOwner) => PluginStorageService | null;
   private readonly diagnosticReporter: (diagnostic: NexusDiagnostic) => void;
@@ -946,6 +959,7 @@ export class RuntimeUiHost {
 
   constructor(options: RuntimeUiHostOptions = {}) {
     this.slots = options.slots ?? {};
+    this.renderIcon = options.renderIcon;
     this.commandRegistry = options.commandRegistry;
     this.defaultWindow = options.defaultWindow;
     this.resolveStorage = options.resolveStorage ?? (() => null);
@@ -1582,6 +1596,18 @@ export class RuntimeUiHost {
     }
     const name = accessibleName(definition) ?? definition.id;
     element.textContent = definition.label ?? name;
+    if (entry.slot === "editor-toolbar" && definition.icon && this.renderIcon) {
+      try {
+        const icon = this.renderIcon(definition.icon, document);
+        if (icon) {
+          icon.setAttribute("aria-hidden", "true");
+          icon.querySelectorAll("svg").forEach((svg) => svg.setAttribute("focusable", "false"));
+          element.replaceChildren(document.adoptNode(icon));
+        }
+      } catch (error) {
+        this.reportUiDiagnostic("callback-failed", `UI action '${entry.globalId}' icon could not be rendered`, entry.owner, entry.globalId, error);
+      }
+    }
     element.setAttribute("aria-label", name);
     element.title = definition.tooltip ?? "";
     const disabled = this.evaluateSlotPredicate(entry, definition, "disabled", false);

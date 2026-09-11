@@ -14,6 +14,11 @@ import {
   parseHostModeArgument,
   type NexusHostMode,
 } from "../src/shared/host-mode";
+import {
+  PUBLIC_CAPABILITIES_CHANNEL,
+  type PublicCapabilitiesBridge,
+  type PublicCapabilitiesRequest,
+} from "../src/shared/public-capabilities-ipc";
 
 export interface DemoFileHandle {
   path: string;
@@ -234,6 +239,22 @@ const hostLifecycleBridge: NexusHostLifecycleBridge = Object.freeze({
 });
 
 contextBridge.exposeInMainWorld("nexusHost", hostLifecycleBridge);
+if (hostMode === "runtime") {
+  const invoke = <T>(request: PublicCapabilitiesRequest): Promise<T> => ipcRenderer.invoke(PUBLIC_CAPABILITIES_CHANNEL, request);
+  const publicBridge = Object.freeze<PublicCapabilitiesBridge>({
+    pickImport: () => invoke({ operation: "pick-import" }),
+    readDocument: (source, encoding) => invoke({ operation: "read", source, encoding }),
+    inspectSearchDocument: (source, options) => invoke({ operation: "inspect-search-document", source, ...options }),
+    readAsset: (source, reference) => invoke({ operation: "asset", source, reference }),
+    grantResourceDirectory: (source) => invoke({ operation: "grant-resource-directory", source }),
+    saveDocument: (request) => invoke({ operation: "save", request }),
+    history: (source) => invoke({ operation: "history", source }),
+    appendHistory: (source, record, expectedHead) => invoke({ operation: "append-history", source, record, expectedHead }),
+    exportHtml: ({ bytes, name }) => invoke({ operation: "export-html", bytes, name }),
+    cancelShutdown: () => invoke({ operation: "cancel-shutdown" }),
+  });
+  contextBridge.exposeInMainWorld("nexusPublicCapabilities", publicBridge);
+}
 if (hostMode === "runtime") {
   contextBridge.exposeInMainWorld("nexusPlugins", pluginHostBridge);
 } else {

@@ -86,4 +86,20 @@ describe("createEditorShell", () => {
     shell.destroy();
     container.remove();
   });
+
+  it("opts into headless search and delegates image loading to the asset provider", async () => {
+    const container = document.createElement("div"); document.body.append(container);
+    const state = createState(); state.content = "![image](nexus-asset:local/one)";
+    const read = vi.fn(async () => null);
+    const shell = createEditorShell({
+      container, state, settings: defaultSettings(), onStateChange: vi.fn(), searchUI: "headless",
+      assetProvider: { read }, assetInput: { managed: true },
+      contributionFeatures: { toolbar: false, slashMenu: false, wordCount: false },
+    });
+    await vi.waitFor(() => expect(read).toHaveBeenCalled());
+    expect(container.querySelector("img[src^='nexus-asset:']")).toBeNull();
+    shell.editor.runShortcut("Mod-f");
+    expect(container.querySelector(".cm-search")).toBeNull();
+    shell.destroy(); container.remove();
+  });
 });

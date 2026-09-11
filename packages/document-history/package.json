@@ -1,0 +1,24 @@
+{
+  "name": "@floatboat/nexus-document-history",
+  "version": "0.0.14",
+  "description": "Host-owned document checkpoints, bounded text differences and safe buffer restoration.",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --platform browser --dts --clean",
+    "check:api": "pnpm build && tsc --noEmit -p tsconfig.api.json && node scripts/check-runtime.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run test"
+  },
+  "dependencies": {
+    "@floatboat/nexus-core": "workspace:*",
+    "diff": "^9.0.0"
+  },
+  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" }
+}

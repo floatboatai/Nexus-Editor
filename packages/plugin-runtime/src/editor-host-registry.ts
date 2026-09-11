@@ -479,6 +479,9 @@ export class EditorHostRegistry {
                     id: coreContext.inputTarget.id ?? "anonymous",
                     kind: coreContext.inputTarget.kind,
                     getSelectedText: () => coreContext.inputTarget!.getSelectedText(),
+                    ...(coreContext.inputTarget.captureSelection
+                      ? { captureSelection: coreContext.inputTarget.captureSelection.bind(coreContext.inputTarget) }
+                      : {}),
                     replaceSelection: (text) =>
                       coreContext.replaceTargetSelection(text)
                         ? { ok: true, value: undefined }
@@ -547,6 +550,7 @@ export class EditorHostRegistry {
           kind: target.kind,
           getSelectedText: () => target.getSelectedText(),
           replaceSelection: (text) => target.replaceSelection(text).ok,
+          ...(target.captureSelection ? { captureSelection: target.captureSelection.bind(target) } : {}),
           ...(target.copySelection
             ? { copySelection: () => target.copySelection!() }
             : {}),

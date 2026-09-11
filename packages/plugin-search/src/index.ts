@@ -24,6 +24,7 @@ import {
 } from "@codemirror/view";
 
 import type { NexusPlugin } from "@floatboat/nexus-core";
+import { headlessSearchExtensions } from "./headless-extension";
 
 export interface SearchMatch {
   from: number;
@@ -50,6 +51,8 @@ export interface SearchHistoryOptions {
 }
 
 export interface SearchPluginOptions {
+  /** Explicitly opt out of panel DOM; bind a controller from the headless entry. */
+  ui?: "default" | "headless";
   /**
    * Render the search panel above the editor content. Defaults to true.
    */
@@ -1141,6 +1144,9 @@ class NexusSearchPanel implements Panel {
 }
 
 export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlugin {
+  if (options.ui === "headless") {
+    return { name: "plugin-search", cmExtensions: headlessSearchExtensions() };
+  }
   const history = new SearchHistoryController(options.history);
   const cmExtensions = [
     search({
