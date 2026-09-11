@@ -20,7 +20,10 @@
     "dist:mac-x64": "pnpm run build && electron-builder --mac --x64",
     "dist:win": "pnpm run build && electron-builder --win",
     "dist:linux": "pnpm run build && electron-builder --linux",
-    "dist:dir": "pnpm run build && electron-builder --dir"
+    "dist:dir": "pnpm run build && electron-builder --dir",
+    "dist:dir:linux": "pnpm run build && electron-builder --linux --dir",
+    "measure:startup": "node scripts/measure-startup.mjs",
+    "report:package-size": "node scripts/report-package-size.mjs"
   },
   "dependencies": {
     "@floatboat/nexus-core": "workspace:*",
@@ -52,7 +55,8 @@
     "files": [
       "dist-electron/**/*",
       "dist/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules"
     ],
     "extraMetadata": {
       "name": "nexus-editor",
