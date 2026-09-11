@@ -25,6 +25,15 @@ import {
 
 import type { NexusPlugin } from "@floatboat/nexus-core";
 
+export {
+  FuzzySearchQuery,
+  fuzzyFindMatches,
+  type FuzzyMatch,
+  type FuzzySearchOptions
+} from "./fuzzy.js";
+
+import { FuzzySearchQuery } from "./fuzzy.js";
+
 export interface SearchMatch {
   from: number;
   to: number;
@@ -80,6 +89,7 @@ export interface SearchPluginLabels {
   matchCase: string;
   regexp: string;
   byWord: string;
+  fuzzy: string;
   replaceNext: string;
   replaceAll: string;
   close: string;
@@ -96,6 +106,7 @@ const DEFAULT_LABELS: SearchPluginLabels = {
   matchCase: "Match case",
   regexp: "Regexp",
   byWord: "By word",
+  fuzzy: "Fuzzy",
   replaceNext: "Replace",
   replaceAll: "Replace all",
   close: "Close"
@@ -712,6 +723,7 @@ function resolveLabels(view: EditorView, labels: Partial<SearchPluginLabels> | u
     matchCase: resolveLabel(view, labels, "matchCase", DEFAULT_LABELS.matchCase),
     regexp: resolveLabel(view, labels, "regexp", DEFAULT_LABELS.regexp),
     byWord: resolveLabel(view, labels, "byWord", DEFAULT_LABELS.byWord),
+    fuzzy: resolveLabel(view, labels, "fuzzy", DEFAULT_LABELS.fuzzy),
     replaceNext: resolveLabel(view, labels, "replaceNext", DEFAULT_LABELS.replaceNext),
     replaceAll: resolveLabel(view, labels, "replaceAll", DEFAULT_LABELS.replaceAll),
     close: resolveLabel(view, labels, "close", DEFAULT_LABELS.close)
@@ -891,6 +903,7 @@ class NexusSearchPanel implements Panel {
   private readonly caseField: HTMLInputElement;
   private readonly regexpField: HTMLInputElement;
   private readonly wholeWordField: HTMLInputElement;
+  private readonly fuzzyField: HTMLInputElement;
   private readonly labels: SearchPluginLabels;
   private readonly history: SearchHistoryController;
   private readonly replaceRow?: HTMLDivElement;
@@ -925,6 +938,11 @@ class NexusSearchPanel implements Panel {
     this.caseField = this.createCheckbox("markdown-search-case-toggle", "case", this.query.caseSensitive);
     this.regexpField = this.createCheckbox("markdown-search-regexp-toggle", "re", this.query.regexp);
     this.wholeWordField = this.createCheckbox("markdown-search-word-toggle", "word", this.query.wholeWord);
+    this.fuzzyField = this.createCheckbox(
+      "markdown-search-fuzzy-toggle",
+      "fuzzy",
+      isFuzzyQuery(this.query)
+    );
 
     this.dom = document.createElement("div");
     this.dom.className = "cm-search nexus-search-panel";
@@ -961,6 +979,7 @@ class NexusSearchPanel implements Panel {
       createLabel(this.caseField, resolvedLabels.matchCase),
       createLabel(this.regexpField, resolvedLabels.regexp),
       createLabel(this.wholeWordField, resolvedLabels.byWord),
+      createLabel(this.fuzzyField, resolvedLabels.fuzzy),
       navigationGroup
     ];
     if (this.replaceToggle) {
@@ -1055,15 +1074,30 @@ class NexusSearchPanel implements Panel {
   }
 
   private commit(): void {
-    const query = new SearchQuery({
-      search: this.searchField.value,
-      caseSensitive: this.caseField.checked,
-      regexp: this.regexpField.checked,
-      wholeWord: this.wholeWordField.checked,
-      replace: this.replaceField.value
-    });
+    const fuzzy = this.fuzzyField.checked;
+    const query = fuzzy
+      ? new FuzzySearchQuery({
+          search: this.searchField.value,
+          caseSensitive: this.caseField.checked,
+          // Fuzzy matching owns the cursor, so regexp/wholeWord are
+          // intentionally not honored in fuzzy mode — keep the panel
+          // checkboxes intact for when the user toggles fuzzy back off.
+          replace: this.replaceField.value
+        })
+      : new SearchQuery({
+          search: this.searchField.value,
+          caseSensitive: this.caseField.checked,
+          regexp: this.regexpField.checked,
+          wholeWord: this.wholeWordField.checked,
+          replace: this.replaceField.value
+        });
 
-    if (!query.eq(this.query)) {
+    // The base `SearchQuery.eq` doesn't know about the `fuzzy` flag, so a
+    // toggle between literal and fuzzy looks identical to it. Compare the
+    // fuzzy flag ourselves before short-circuiting; otherwise the panel
+    // would silently stop dispatching updates when only the mode changed.
+    const fuzzyChanged = isFuzzyQuery(query) !== isFuzzyQuery(this.query);
+    if (fuzzyChanged || !query.eq(this.query)) {
       this.query = query;
       this.view.dispatch({ effects: setSearchQuery.of(query) });
     }
@@ -1137,7 +1171,12 @@ class NexusSearchPanel implements Panel {
     this.caseField.checked = query.caseSensitive;
     this.regexpField.checked = query.regexp;
     this.wholeWordField.checked = query.wholeWord;
+    this.fuzzyField.checked = isFuzzyQuery(query);
   }
+}
+
+function isFuzzyQuery(query: SearchQuery): boolean {
+  return query instanceof FuzzySearchQuery && query.fuzzy;
 }
 
 export function createSearchPlugin(options: SearchPluginOptions = {}): NexusPlugin {
