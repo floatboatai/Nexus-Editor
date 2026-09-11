@@ -66,7 +66,7 @@
 
 | # | 功能 | 归属包 | 优先级 | 状态 | 需要 OpenSpec | 备注 |
 |---|---|---|---|---|---|---|
-| 18 | 实时协作（OT / CRDT） | 新包 `plugin-collab` | P3 | planned | 是 | 大特性，先做技术选型 design doc |
+| 18 | 实时协作（Yjs CRDT） | `plugin-collab` | P1 | beta | 是 | Provider-neutral 绑定、本地撤销、Presence、确定性测试及 Electron 双窗口冒烟已完成；仍需人工表格交互 QA |
 | 19 | 版本历史 / 快照 | `core` + 宿主存储 | P2 | planned | 是 | electron-demo 先落地参考实现 |
 | 20 | 共享注释 / @mention | 新包 `plugin-annotation` | P3 | planned | 是 | 依赖 #18 完成 |
 

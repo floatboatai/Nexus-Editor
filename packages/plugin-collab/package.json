@@ -1,0 +1,38 @@
+{
+  "name": "@floatboat/nexus-plugin-collab",
+  "version": "0.0.14",
+  "description": "Provider-neutral Yjs collaboration for Nexus Editor.",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --platform browser --dts --clean",
+    "test": "vitest run --root ../.. packages/plugin-collab/test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.41.0",
+    "@floatboat/nexus-core": "workspace:*",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.32"
+  },
+  "devDependencies": {
+    "@floatboat/nexus-plugin-history": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

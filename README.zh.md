@@ -20,9 +20,9 @@
 | 优先级 | 主题 | 关键项 |
 |---|---|---|
 | **P0 — 当前** | 核心 API 完善 | `getSelectedText()`、斜杠命令排序、`<Editor />` `onReady`、TS 严格类型覆盖 |
-| **P1 — 下一阶段** | 进阶功能 | 多光标、正则搜索、撤销/重做分组、Widget API 标准化、Electron 打包优化 |
+| **P1 — 下一阶段** | 进阶功能 | Provider-neutral Yjs 协作（beta）、多光标、正则搜索、Widget API 标准化 |
 | **P2 — 中期** | 体验与生态 | 高级工具栏（emoji / 表格 / 颜色）、模糊搜索、滚动同步预览、Web Component 包装 |
-| **P3 — 长期** | 协作能力 | 实时 CRDT 协作、共享评论 / @提醒、插件热重载 |
+| **P3 — 长期** | 协作能力 | 共享评论 / @提醒、版本历史、插件热重载 |
 
 👉 **完整路线图（含包归属、状态、OpenSpec 关联）：** [`docs/ROADMAP.zh.md`](./docs/ROADMAP.zh.md)
 
@@ -165,7 +165,7 @@ pnpm dev:electron-demo
 ## 📦 包列表
 
 <details>
-<summary><b>完整包列表（11 个包）</b> —— 点击展开</summary>
+<summary><b>完整包列表（12 个包）</b> —— 点击展开</summary>
 
 | 包名 | 说明 |
 |---|---|
@@ -174,6 +174,7 @@ pnpm dev:electron-demo
 | `@floatboat/nexus-vue` | Vue 3 绑定 —— `useEditor` 组合式函数 |
 | `@floatboat/nexus-preset-gfm` | GitHub Flavored Markdown 预设（表格、删除线、任务列表） |
 | `@floatboat/nexus-plugin-history` | 撤销/重做，支持 `Ctrl+Z` / `Ctrl+Shift+Z` |
+| `@floatboat/nexus-plugin-collab` | Provider-neutral 的 Yjs 实时协作、本地操作撤销与可选在线状态 |
 | `@floatboat/nexus-plugin-search` | 搜索替换辅助函数 |
 | `@floatboat/nexus-plugin-slash` | 斜杠命令检测、排序与 vanilla DOM 浮层菜单 UI |
 | `@floatboat/nexus-plugin-toolbar` | 工具栏基础组件与格式化命令 |
