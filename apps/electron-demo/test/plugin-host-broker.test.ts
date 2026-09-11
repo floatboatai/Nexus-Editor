@@ -664,7 +664,11 @@ describe("ElectronVaultBroker", () => {
     const [, sessionCapability, token] = new URL(resource.url).pathname.split("/");
 
     await expect(broker.readResource(sender.id, sessionCapability, token)).resolves.not.toBeNull();
-    expect(openedFlags & constants.O_NONBLOCK).toBe(constants.O_NONBLOCK);
+    // O_NONBLOCK / O_NOFOLLOW are POSIX-only: Node leaves them undefined on
+    // Windows, so the broker cannot be expected to observe those bits there.
+    if (constants.O_NONBLOCK !== undefined) {
+      expect(openedFlags & constants.O_NONBLOCK).toBe(constants.O_NONBLOCK);
+    }
     if (constants.O_NOFOLLOW !== undefined) {
       expect(openedFlags & constants.O_NOFOLLOW).toBe(constants.O_NOFOLLOW);
     }
