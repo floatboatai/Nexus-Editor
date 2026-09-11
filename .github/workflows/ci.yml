@@ -65,6 +65,46 @@ jobs:
       - name: Smoke test Electron multi-window runtime
         run: pnpm --filter @floatboat/nexus-electron-demo smoke:multi-window
 
+  package-size:
+    name: Electron Package Size Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Package demo app (linux, unpacked)
+        run: pnpm --filter @floatboat/nexus-electron-demo dist:dir:linux
+
+      - name: Report package size
+        # Thresholds carry ~20% headroom over the current 285 MB app / 6.2 MB
+        # asar so Electron bumps don't flake the gate, while a regression
+        # like shipping node_modules inside the asar (129 MB last time) fails.
+        run: >-
+          pnpm --filter @floatboat/nexus-electron-demo report:package-size --
+          --json --out apps/electron-demo/release/package-size-report.json
+          --max-app-mb 340 --max-asar-mb 12
+
+      - name: Upload size report
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-size-report
+          path: apps/electron-demo/release/package-size-report.json
+          if-no-files-found: error
+
   publish:
     name: Publish Packages
     runs-on: ubuntu-latest
