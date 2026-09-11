@@ -14,7 +14,7 @@
     "cycles": 6,
     "remarkCommitsPerCycle": 2,
     "widgetCommitsPerCycle": 2,
-    "maximumElapsedMs": 5000
+    "maximumElapsedMs": 8000
   },
-  "notes": "The time limit is a coarse regression guard, not a microbenchmark. It is intentionally much higher than the local baseline so shared CI remains stable. Exact resource counts are deterministic."
+  "notes": "The time limit is a coarse regression guard, not a microbenchmark. It is intentionally much higher than the local baseline so shared CI remains stable. Exact resource counts are deterministic. Measured 2026-09-11 on a Windows dev machine (Node 22): ~4.95s isolated and 5.03s under the full parallel vitest suite - the previous 5.0s limit left under 1% headroom and flaked on scheduler noise; 8.0s restores ~60% headroom while still tripping on gross reconfiguration regressions."
 }
