@@ -25,6 +25,7 @@ import {
   type SenderIdentity,
 } from "./plugin-host-broker";
 import { SenderWindowRegistry } from "./window-registry";
+import { perfLog, perfMark } from "./perf";
 
 // Must be called before app ready — declares our custom scheme as privileged
 // so images served via nexus-vault:// pass fetch/<img> with credentials / CORS.
@@ -140,7 +141,11 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
   });
 
   window.once("ready-to-show", () => {
+    perfLog(perfMark("window-ready-to-show"), "window-ready-to-show");
     if (!window.isDestroyed()) window.show();
+  });
+  window.webContents.once("did-finish-load", () => {
+    perfLog(perfMark("did-finish-load"), "did-finish-load");
   });
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;
@@ -861,6 +866,7 @@ ipcMain.handle("vault:set-last", async (event, vaultPath: string) => {
 });
 
 app.whenReady().then(() => {
+  perfLog(perfMark("app-ready"), "app-ready");
   registerPluginHostIpc();
   createWindow();
 });
