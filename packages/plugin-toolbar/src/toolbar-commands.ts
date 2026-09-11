@@ -9,6 +9,121 @@ import {
   toggleUnorderedList,
 } from "./formatting";
 
+enum MarkerType {
+  Star = "*",
+  DoubleStar = "**",
+}
+
+function getFrom(fromStr: string, marker: string) {
+  const result = { count: 0, index: 0 };
+  const lastIndex = fromStr.lastIndexOf(marker[0]);
+  const lastSpaceIndex = fromStr.lastIndexOf(" ");
+
+  if (lastIndex == -1 || lastSpaceIndex > lastIndex) {
+    result.index = lastSpaceIndex + 1;
+    return result;
+  }
+
+  for (let i = lastIndex; i >= 0; i--) {
+    if (fromStr[i] == marker[0]) {
+      result.count += 1;
+    } else break;
+  }
+  result.index = lastIndex + 1;
+  return result;
+}
+
+function getTo(toStr: string, marker: string) {
+  const result = { count: 0, index: 0 };
+  const index = toStr.indexOf(marker[0]);
+  const spaceIndex = toStr.indexOf(" ");
+
+  if (index == -1 || (spaceIndex != -1 && spaceIndex < index)) {
+    result.index = spaceIndex == -1 ? toStr.length : spaceIndex;
+    return result;
+  }
+
+  for (let i = index; i < toStr.length; i++) {
+    if (toStr[i] == marker[0]) {
+      result.count += 1;
+    } else break;
+  }
+
+  result.index = index;
+  return result;
+}
+
+function star(editor: EditorAPI, from: number, to: number, marker: string) {
+  const doc = editor.getDocument();
+  const fromStr = doc.substring(0, from);
+  const toStr = doc.substring(to, doc.length);
+
+  const start = getFrom(fromStr, marker);
+  const end = getTo(toStr, marker);
+
+  if (start.count == end.count) {
+    if (from == to) {
+      from = start.index;
+      to += end.index;
+    }
+    const selected = doc.slice(from, to);
+    if (start.count == 0 || start.count == 2) {
+      editor.setDocument(
+        doc.slice(0, from) + marker + selected + marker + doc.slice(to),
+      );
+      editor.setSelection(from + marker.length, to + marker.length);
+    } else if (start.count == 1 || start.count == 3) {
+      editor.setDocument(
+        doc.slice(0, from - marker.length) +
+          selected +
+          doc.slice(to + marker.length),
+      );
+      editor.setSelection(from - marker.length, to - marker.length);
+    }
+  }
+}
+
+function doubleStar(editor: EditorAPI, from: number, to: number, marker: string) {
+  const doc = editor.getDocument();
+  const fromStr = doc.substring(0, from);
+  const toStr = doc.substring(to, doc.length);
+
+  const start = getFrom(fromStr, marker);
+  const end = getTo(toStr, marker);
+
+  if (start.count == end.count) {
+    if (start.count == 0 || start.count == 1) {
+      if (from == to) {
+        from = start.index;
+        to += end.index;
+      }
+      const selected = doc.slice(from, to);
+      editor.setDocument(
+        doc.slice(0, from) + marker + selected + marker + doc.slice(to),
+      );
+      editor.setSelection(from + marker.length, to + marker.length);
+    } else if (start.count == 2 || start.count == 3) {
+      if (from == to) {
+        from = start.index;
+        to += end.index;
+      }
+      const selected = doc.slice(from, to);
+      editor.setDocument(
+        doc.slice(0, from - marker.length) +
+          selected +
+          doc.slice(to + marker.length),
+      );
+      editor.setSelection(from - marker.length, to - marker.length);
+    }
+  }
+}
+
+const map = {
+  "*": star,
+  "**": doubleStar,
+  key: [MarkerType.Star, MarkerType.DoubleStar],
+};
+
 export function toggleWrap(editor: EditorAPI, marker: string): boolean {
   const doc = editor.getDocument();
   const { anchor, head } = editor.getSelection();
@@ -17,6 +132,12 @@ export function toggleWrap(editor: EditorAPI, marker: string): boolean {
   const selected = doc.slice(from, to);
   const before = doc.slice(Math.max(0, from - marker.length), from);
   const after = doc.slice(to, to + marker.length);
+
+  // Judging the cases of * and ** separately
+  if (map.key.includes(marker as MarkerType)) {
+    map[marker as MarkerType](editor, from, to, marker);
+    return true;
+  }
 
   if (before === marker && after === marker) {
     editor.setDocument(
