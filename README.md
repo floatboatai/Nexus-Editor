@@ -20,9 +20,9 @@ We ship in priority tiers — **P0 is what we're working on right now**.
 | Tier | Theme | Highlights |
 |---|---|---|
 | **P0 — Now** | Core API completeness | `getSelectedText()`, slash command sorting, `<Editor />` `onReady`, TS strict coverage |
-| **P1 — Next** | Power-user features | Multi-cursor, regex search, undo/redo grouping, widget API standardization, Electron packaging |
+| **P1 — Next** | Power-user features | Provider-neutral Yjs collaboration (beta), multi-cursor, regex search, widget API standardization |
 | **P2 — Mid-term** | UX & ecosystem | Advanced toolbar (emoji / table / color), fuzzy search, sync-scroll preview, web-component wrapper |
-| **P3 — Long-term** | Collaboration | Realtime CRDT collab, shared comments / @mention, plugin hot-reload |
+| **P3 — Long-term** | Collaboration | Shared comments / @mention, version history, plugin hot-reload |
 
 👉 **Full roadmap with package ownership, status, and OpenSpec linkage:** [`docs/ROADMAP.md`](./docs/ROADMAP.md)
 
@@ -165,7 +165,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 ## 📦 Packages
 
 <details>
-<summary><b>Full package list (11 packages)</b> — click to expand</summary>
+<summary><b>Full package list (12 packages)</b> — click to expand</summary>
 
 | Package | Description |
 |---|---|
@@ -174,6 +174,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 | `@floatboat/nexus-vue` | Vue 3 binding — `useEditor` composable |
 | `@floatboat/nexus-preset-gfm` | GitHub Flavored Markdown preset (tables, strikethrough, task lists) |
 | `@floatboat/nexus-plugin-history` | Undo/redo with `Ctrl+Z` / `Ctrl+Shift+Z` |
+| `@floatboat/nexus-plugin-collab` | Provider-neutral Yjs realtime collaboration, local-only undo, and optional presence |
 | `@floatboat/nexus-plugin-search` | Search and replace helpers |
 | `@floatboat/nexus-plugin-slash` | Slash command detection, ranking, and a vanilla-DOM floating menu UI |
 | `@floatboat/nexus-plugin-toolbar` | Toolbar primitives for formatting commands |

@@ -14,6 +14,7 @@
     "start": "electron dist-electron/main.js",
     "test": "vitest run --config ../../vitest.config.ts",
     "smoke:multi-window": "node scripts/electron-multi-window-smoke-run.mjs",
+    "smoke:collab": "node scripts/electron-collab-smoke-run.mjs",
     "dist": "pnpm run build && electron-builder",
     "dist:mac": "pnpm run build && electron-builder --mac",
     "dist:mac-arm64": "pnpm run build && electron-builder --mac --arm64",
@@ -25,6 +26,7 @@
   "dependencies": {
     "@floatboat/nexus-core": "workspace:*",
     "@floatboat/nexus-plugin-api": "workspace:*",
+    "@floatboat/nexus-plugin-collab": "workspace:*",
     "@floatboat/nexus-plugin-history": "workspace:*",
     "@floatboat/nexus-plugin-runtime": "workspace:*",
     "@floatboat/nexus-plugin-search": "workspace:*",
@@ -33,7 +35,9 @@
     "@floatboat/nexus-plugin-wordcount": "workspace:*",
     "@floatboat/nexus-reference-plugins": "workspace:*",
     "@floatboat/nexus-preset-gfm": "workspace:*",
-    "highlight.js": "^11.11.0"
+    "highlight.js": "^11.11.0",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.32"
   },
   "devDependencies": {
     "electron": "^35.0.0",
