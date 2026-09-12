@@ -52,4 +52,43 @@ describe("accessibility", () => {
     expect(table?.getAttribute("aria-label")).toBe("Editable table");
     editor.destroy();
   });
+
+  it("exposes table rows, cells, and keyboard reorder grips to assistive technology", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "| Name | Status |\n| --- | --- |\n| Alpha | Done |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const table = container.querySelector("table[role='grid']");
+    expect(table?.getAttribute("aria-multiselectable")).toBe("true");
+    expect(table?.getAttribute("aria-rowcount")).toBe("3");
+    expect(table?.getAttribute("aria-colcount")).toBe("3");
+
+    const rows = Array.from(table?.querySelectorAll<HTMLElement>("[role='row']") ?? []);
+    expect(rows).toHaveLength(3);
+    expect(rows.map((row) => row.getAttribute("aria-rowindex"))).toEqual(["1", "2", "3"]);
+
+    const headerCells = rows[1].querySelectorAll<HTMLElement>("[role='columnheader'].nexus-cell");
+    expect(Array.from(headerCells).map((cell) => cell.textContent)).toEqual(["Name", "Status"]);
+    expect(Array.from(headerCells).map((cell) => cell.getAttribute("aria-colindex"))).toEqual(["2", "3"]);
+
+    const bodyCells = rows[2].querySelectorAll<HTMLElement>("[role='gridcell']");
+    expect(Array.from(bodyCells).map((cell) => cell.textContent)).toEqual(["Alpha", "Done"]);
+
+    const columnGrip = table?.querySelector<HTMLButtonElement>(".nexus-col-grip .nexus-grip-button");
+    const rowGrip = table?.querySelector<HTMLButtonElement>(".nexus-row-grip .nexus-grip-button");
+    expect(columnGrip?.getAttribute("aria-label")).toBe(
+      "Column 1 grip. Use Left and Right Arrow keys to reorder."
+    );
+    expect(columnGrip?.getAttribute("aria-keyshortcuts")).toBe("ArrowLeft ArrowRight");
+    expect(rowGrip?.getAttribute("aria-label")).toBe(
+      "Row 1 grip. Use Up and Down Arrow keys to reorder."
+    );
+    expect(rowGrip?.getAttribute("aria-keyshortcuts")).toBe("ArrowUp ArrowDown");
+
+    editor.destroy();
+  });
 });

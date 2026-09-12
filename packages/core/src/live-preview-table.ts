@@ -947,6 +947,9 @@ export class EditableTableWidget extends WidgetType {
     const table = document.createElement("table");
     table.setAttribute("role", "grid");
     table.setAttribute("aria-label", "Editable table");
+    table.setAttribute("aria-multiselectable", "true");
+    table.setAttribute("aria-rowcount", String(rows.length + 1));
+    table.setAttribute("aria-colcount", String(colCount + 1));
     table.style.cssText = "border-collapse:collapse;display:table;";
     if (rows.length === 0) { wrapper.appendChild(table); return wrapper; }
 
@@ -1407,8 +1410,10 @@ export class EditableTableWidget extends WidgetType {
           const h = cell as HTMLElement;
           if (rowIdx >= range.r1 && rowIdx <= range.r2 && colIdx >= range.c1 && colIdx <= range.c2) {
             h.style.background = SELECT_BG;
+            h.setAttribute("aria-selected", "true");
           } else {
             h.style.background = h.tagName === "TH" ? "var(--nexus-bg-subtle)" : "";
+            h.removeAttribute("aria-selected");
           }
         });
       });
@@ -1467,9 +1472,11 @@ export class EditableTableWidget extends WidgetType {
       });
       table.querySelectorAll(".nexus-col-grip").forEach((el) => {
         (el as HTMLElement).style.background = "";
+        el.querySelector(".nexus-grip-button")?.removeAttribute("aria-pressed");
       });
       table.querySelectorAll(".nexus-row-grip").forEach((el) => {
         (el as HTMLElement).style.background = "";
+        el.querySelector(".nexus-grip-button")?.removeAttribute("aria-pressed");
       });
     }
 
@@ -1477,8 +1484,15 @@ export class EditableTableWidget extends WidgetType {
       clearSelection();
       selectedCol = colIdx;
       const gripCells = table.querySelectorAll(".nexus-col-grip");
-      if (gripCells[colIdx]) (gripCells[colIdx] as HTMLElement).style.background = SELECT_BORDER;
-      getColumnCells(colIdx).forEach((el) => { el.style.background = SELECT_BG; });
+      if (gripCells[colIdx]) {
+        const grip = gripCells[colIdx] as HTMLElement;
+        grip.style.background = SELECT_BORDER;
+        grip.querySelector<HTMLElement>(".nexus-grip-button")?.setAttribute("aria-pressed", "true");
+      }
+      getColumnCells(colIdx).forEach((el) => {
+        el.style.background = SELECT_BG;
+        el.setAttribute("aria-selected", "true");
+      });
     }
 
     function highlightRow(rowIdx: number): void {
@@ -1487,19 +1501,52 @@ export class EditableTableWidget extends WidgetType {
       const trs = Array.from(table.querySelectorAll("tr")).filter((_, i) => i > 0);
       if (trs[rowIdx]) {
         trs[rowIdx].querySelectorAll(".nexus-cell").forEach((el) => {
-          (el as HTMLElement).style.background = SELECT_BG;
+          const cell = el as HTMLElement;
+          cell.style.background = SELECT_BG;
+          cell.setAttribute("aria-selected", "true");
         });
         const grip = trs[rowIdx].querySelector(".nexus-row-grip");
-        if (grip) (grip as HTMLElement).style.background = SELECT_BORDER;
+        if (grip) {
+          const gripCell = grip as HTMLElement;
+          gripCell.style.background = SELECT_BORDER;
+          gripCell.querySelector<HTMLElement>(".nexus-grip-button")?.setAttribute("aria-pressed", "true");
+        }
       }
     }
 
-    function createGripPill(): HTMLElement {
-      const pill = document.createElement("div");
+    function createGripPill(label: string, shortcuts: string): HTMLButtonElement {
+      const pill = document.createElement("button");
+      pill.type = "button";
+      pill.className = "nexus-grip-button";
+      pill.setAttribute("aria-label", label);
+      pill.setAttribute("aria-keyshortcuts", shortcuts);
       pill.style.cssText =
-        "width:16px;height:6px;border-radius:3px;background:" + GRIP_BG + ";" +
-        "margin:0 auto;transition:background .15s;";
+        "display:block;appearance:none;width:16px;height:6px;padding:0;border:0;" +
+        "border-radius:3px;background:" + GRIP_BG + ";margin:0 auto;transition:background .15s;" +
+        "cursor:inherit;";
       return pill;
+    }
+
+    function moveColumnFromKeyboard(colIdx: number, direction: -1 | 1): boolean {
+      const target = colIdx + direction;
+      if (target < 0 || target >= colCount) return false;
+
+      const pendingSource = takeDirtySourceForStructuralEdit();
+      if (!pendingSource.valid) return false;
+      clearSelection();
+      self.moveColumn(colIdx, target, pendingSource.source);
+      return true;
+    }
+
+    function moveRowFromKeyboard(rowIdx: number, direction: -1 | 1): boolean {
+      const target = rowIdx + direction;
+      if (target < 0 || target >= rows.length) return false;
+
+      const pendingSource = takeDirtySourceForStructuralEdit();
+      if (!pendingSource.valid) return false;
+      clearSelection();
+      self.moveRow(rowIdx, target, pendingSource.source);
+      return true;
     }
 
     // ── Custom drag handlers (mousedown/mousemove/mouseup, no HTML5 drag) ──
@@ -1637,22 +1684,34 @@ export class EditableTableWidget extends WidgetType {
 
     // ── Column grip row ──
     const gripRow = document.createElement("tr");
+    gripRow.setAttribute("role", "row");
+    gripRow.setAttribute("aria-rowindex", "1");
     gripRow.style.cssText = "opacity:0;transition:opacity .15s;";
 
     const gripSpacer = document.createElement("td");
+    gripSpacer.setAttribute("role", "presentation");
     gripSpacer.style.cssText = "width:16px;min-width:16px;padding:0;border:none;";
     gripRow.appendChild(gripSpacer);
 
     for (let c = 0; c < colCount; c++) {
       const gripCell = document.createElement("td");
       gripCell.className = "nexus-col-grip";
+      gripCell.setAttribute("role", "columnheader");
+      gripCell.setAttribute("aria-colindex", String(c + 2));
       gripCell.style.cssText =
         "padding:4px 0;text-align:center;cursor:grab;user-select:none;border:none;";
-      const pill = createGripPill();
+      const pill = createGripPill(
+        `Column ${c + 1} grip. Use Left and Right Arrow keys to reorder.`,
+        "ArrowLeft ArrowRight"
+      );
       gripCell.appendChild(pill);
 
       gripCell.addEventListener("mouseenter", () => { if (draggingCol < 0) pill.style.background = GRIP_BG_HOVER; });
       gripCell.addEventListener("mouseleave", () => { if (draggingCol < 0) pill.style.background = GRIP_BG; });
+      pill.addEventListener("focus", () => { gripRow.style.opacity = "1"; });
+      pill.addEventListener("blur", () => {
+        if (!gripRow.contains(gripRow.ownerDocument.activeElement)) gripRow.style.opacity = "0";
+      });
 
       const colIdx = c;
 
@@ -1665,7 +1724,14 @@ export class EditableTableWidget extends WidgetType {
       gripCell.addEventListener("click", (e) => {
         e.stopPropagation();
         highlightColumn(colIdx);
-        wrapper.focus({ preventScroll: true });
+        pill.focus({ preventScroll: true });
+      });
+
+      gripCell.addEventListener("keydown", (e) => {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        e.preventDefault();
+        e.stopPropagation();
+        moveColumnFromKeyboard(colIdx, e.key === "ArrowLeft" ? -1 : 1);
       });
 
       gripRow.appendChild(gripCell);
@@ -1779,15 +1845,20 @@ export class EditableTableWidget extends WidgetType {
     let rowIdx = 0;
     for (const astRow of rows) {
       const isHeader = rowIdx === 0;
+      const curRowIdx = rowIdx;
       const tr = document.createElement("tr");
+      tr.setAttribute("role", "row");
+      tr.setAttribute("aria-rowindex", String(curRowIdx + 2));
       const astCells = "children" in astRow && Array.isArray(astRow.children) ? astRow.children : [];
       const sourceLineIdx = dataLineIndices[rowIdx];
       if (sourceLineIdx !== undefined) tr.dataset.sourceLineIdx = String(sourceLineIdx);
-      const curRowIdx = rowIdx;
 
       // Row grip
       const rowGrip = document.createElement(isHeader ? "th" : "td");
       rowGrip.className = "nexus-row-grip";
+      rowGrip.setAttribute("role", isHeader ? "columnheader" : "rowheader");
+      rowGrip.setAttribute("aria-colindex", "1");
+      rowGrip.setAttribute("aria-rowindex", String(curRowIdx + 2));
       rowGrip.style.cssText =
         "width:16px;min-width:16px;max-width:16px;padding:6px 2px;text-align:center;" +
         "cursor:" + (isHeader ? "default" : "grab") + ";user-select:none;border:none;" +
@@ -1795,7 +1866,10 @@ export class EditableTableWidget extends WidgetType {
         "opacity:0;transition:opacity .15s;";
 
       if (!isHeader) {
-        const rowPill = createGripPill();
+        const rowPill = createGripPill(
+          `Row ${curRowIdx} grip. Use Up and Down Arrow keys to reorder.`,
+          "ArrowUp ArrowDown"
+        );
         rowPill.style.width = "6px";
         rowPill.style.height = "16px";
         rowPill.style.borderRadius = "3px";
@@ -1803,6 +1877,10 @@ export class EditableTableWidget extends WidgetType {
 
         rowGrip.addEventListener("mouseenter", () => { if (draggingRow < 0) rowPill.style.background = GRIP_BG_HOVER; });
         rowGrip.addEventListener("mouseleave", () => { if (draggingRow < 0) rowPill.style.background = GRIP_BG; });
+        rowPill.addEventListener("focus", () => { rowGrip.style.opacity = "1"; });
+        rowPill.addEventListener("blur", () => {
+          if (rowGrip.ownerDocument.activeElement !== rowPill) rowGrip.style.opacity = "0";
+        });
 
         rowGrip.addEventListener("mousedown", (e) => {
           e.preventDefault();
@@ -1813,7 +1891,14 @@ export class EditableTableWidget extends WidgetType {
         rowGrip.addEventListener("click", (e) => {
           e.stopPropagation();
           highlightRow(curRowIdx);
-          wrapper.focus({ preventScroll: true });
+          rowPill.focus({ preventScroll: true });
+        });
+
+        rowGrip.addEventListener("keydown", (e) => {
+          if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+          e.preventDefault();
+          e.stopPropagation();
+          moveRowFromKeyboard(curRowIdx, e.key === "ArrowUp" ? -1 : 1);
         });
       }
 
@@ -1828,6 +1913,8 @@ export class EditableTableWidget extends WidgetType {
         const astCell = colIdx < astCells.length ? astCells[colIdx] : undefined;
         const td = document.createElement(isHeader ? "th" : "td");
         td.className = "nexus-cell";
+        td.setAttribute("role", isHeader ? "columnheader" : "gridcell");
+        td.setAttribute("aria-colindex", String(colIdx + 2));
         // Stash the raw markdown source for this cell so we can (a) render
         // it as rich DOM by default — links, bold, code, etc. — and (b)
         // swap back to the raw text when the cell is focused for editing.

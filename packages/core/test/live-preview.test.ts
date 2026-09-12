@@ -1160,6 +1160,93 @@ describe("live preview", () => {
     container.remove();
   });
 
+  it("reorders a table column with the keyboard from its grip button", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const grip = container.querySelector<HTMLButtonElement>(".nexus-col-grip .nexus-grip-button");
+    expect(grip).not.toBeNull();
+    const event = new KeyboardEvent("keydown", {
+      key: "ArrowRight",
+      bubbles: true,
+      cancelable: true
+    });
+    grip!.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(editor.getDocument()).toBe("| B | A |\n| --- | --- |\n| 2 | 1 |");
+
+    editor.destroy();
+    container.remove();
+  });
+
+  it("reorders a table row with the keyboard from its grip button", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const grip = container.querySelector<HTMLButtonElement>(".nexus-row-grip .nexus-grip-button");
+    expect(grip).not.toBeNull();
+    const event = new KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      bubbles: true,
+      cancelable: true
+    });
+    grip!.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(editor.getDocument()).toBe("| A | B |\n| --- | --- |\n| 3 | 4 |\n| 1 | 2 |");
+
+    editor.destroy();
+    container.remove();
+  });
+
+  it("keeps focus on a selected grip and exposes the selected cell state", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |",
+      livePreview: true,
+      plugins: [createGfmPreset()]
+    });
+
+    const gripCell = container.querySelector<HTMLElement>(".nexus-col-grip");
+    const grip = gripCell?.querySelector<HTMLButtonElement>(".nexus-grip-button");
+    expect(grip).not.toBeNull();
+    grip!.click();
+
+    expect(document.activeElement).toBe(grip);
+    expect(grip!.getAttribute("aria-pressed")).toBe("true");
+
+    const selectedColumn = Array.from(container.querySelectorAll<HTMLElement>(".nexus-cell"))
+      .filter((cell) => cell.getAttribute("aria-selected") === "true");
+    expect(selectedColumn.map((cell) => cell.textContent)).toEqual(["A", "1"]);
+
+    const deleteEvent = new KeyboardEvent("keydown", {
+      key: "Delete",
+      bubbles: true,
+      cancelable: true
+    });
+    grip!.dispatchEvent(deleteEvent);
+    expect(deleteEvent.defaultPrevented).toBe(true);
+    expect(editor.getDocument()).not.toContain(" A ");
+
+    editor.destroy();
+    container.remove();
+  });
+
   it("does not let a blurred table cell steal focus from the next active cell", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -1365,6 +1452,8 @@ describe("live preview", () => {
     expect(firstCell?.contentEditable).not.toBe("true");
     expect(firstCell?.style.background).toContain("124, 108, 250");
     expect(secondCell?.style.background).toContain("124, 108, 250");
+    expect(firstCell?.getAttribute("aria-selected")).toBe("true");
+    expect(secondCell?.getAttribute("aria-selected")).toBe("true");
 
     const copied: Record<string, string> = {};
     const copyEvent = new Event("copy", { bubbles: true, cancelable: true });
