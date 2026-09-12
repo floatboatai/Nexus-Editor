@@ -1,10 +1,14 @@
+import { FormattingLifecyclePlugin, formattingLifecyclePluginManifest, createFormattingRuntimeSlashContribution, formattingCommands } from "@floatboat/nexus-plugin-formatting";
+import { SelectionToolbarLifecyclePlugin, selectionToolbarLifecyclePluginManifest } from "@floatboat/nexus-plugin-selection-toolbar";
+import { EditorView } from "@codemirror/view";
 import {
   COMMANDS_CAPABILITY,
   EDITOR_HOST_CAPABILITY,
+  HOTKEYS_CAPABILITY,
   UI_CAPABILITY,
   type AuthorPluginManifest,
   type NexusApp,
-  type NexusPluginBase,
+  NexusPluginBase,
   type NormalizedPluginManifest,
   type WindowContext,
 } from "@floatboat/nexus-plugin-api";
@@ -35,6 +39,7 @@ import {
   createWindowContext,
   DiagnosticBus,
   EditorHostRegistry,
+  HotkeyRegistry,
   normalizeAuthorManifest,
   RuntimeCapabilityRegistry,
   RuntimeUiHost,
@@ -230,6 +235,92 @@ function content(fixture: EditorFixture): HTMLElement {
 }
 
 describe("reference plugin lifecycle", () => {
+  it("provides formatting without UI and migrates shortcut preferences once", async () => {
+    const capabilities = new RuntimeCapabilityRegistry();
+    const commands = new CommandRegistry();
+    const editors = new EditorHostRegistry();
+    installBaseCapabilities(capabilities, commands, editors);
+    const hotkeys = new HotkeyRegistry(commands, { platform: "macos" });
+    capabilities.register(HOTKEYS_CAPABILITY, hotkeys.createService());
+    const custom = { mode: "custom" as const, bindings: [{ key: "b", modifiers: ["Mod", "Shift"] as const }] };
+    await hotkeys.setPreference("toolbar:bold", custom);
+    await hotkeys.setPreference("toolbar:italic", { mode: "cleared" });
+    await hotkeys.setPreference("toolbar:link", custom);
+    await hotkeys.setPreference("formatting:link", { mode: "cleared" });
+    const editor = await attachEditor(editors, createWindowContext("formatting-only", document), "alpha");
+
+    for (let cycle = 0; cycle < 2; cycle++) {
+      const formatting = managePlugin(capabilities, formattingLifecyclePluginManifest,
+        (app, manifest) => new FormattingLifecyclePlugin(app, manifest));
+      await formatting.load();
+      expect(commands.listCommands()).toHaveLength(formattingCommands.length);
+      expect(document.querySelector(".nexus-toolbar, .nexus-selection-toolbar")).toBeNull();
+      expect(hotkeys.getPreference("toolbar:bold")).toEqual({ mode: "default" });
+      expect(hotkeys.getPreference("formatting:link")).toEqual({ mode: "cleared" });
+      expect(hotkeys.getBindings("formatting:italic")).toEqual([]);
+      expect(hotkeys.getBindings("formatting:bold")).toEqual(cycle === 0 ? custom.bindings : [{ key: "b", modifiers: ["Mod"] }]);
+      expect(hotkeys.findConflicts()).toEqual([]);
+      editor.editor.setDocument("alpha");
+      editor.editor.setSelection(0, 5);
+      const key = new KeyboardEvent("keydown", { key: "b", metaKey: true, shiftKey: cycle === 0, cancelable: true });
+      const dispatch = hotkeys.dispatchKeyboardEvent(key, { editor: editor.attachment.context });
+      expect(dispatch.status).toBe("handled");
+      if (dispatch.status === "handled") expect((await dispatch.completion).ok).toBe(true);
+      expect(editor.editor.getDocument()).toBe("**alpha**");
+      // Restoring defaults must survive a subsequent provider load.
+      await hotkeys.setPreference("formatting:bold", { mode: "default" });
+      await formatting.unload();
+      expect(commands.listCommands()).toEqual([]);
+    }
+  });
+
+  it("executes a custom selection command without either toolbar or formatting provider", async () => {
+    const capabilities = new RuntimeCapabilityRegistry();
+    const commands = new CommandRegistry();
+    const editors = new EditorHostRegistry();
+    installBaseCapabilities(capabilities, commands, editors);
+    const fixture = await attachEditor(editors, createWindowContext("custom-selection", document), "alpha");
+    const view = EditorView.findFromDOM(content(fixture))!;
+    vi.spyOn(fixture.container, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 700, 500));
+    vi.spyOn(view.scrollDOM, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 700, 500));
+    vi.spyOn(view, "coordsAtPos").mockImplementation((pos) => new DOMRect(50 + pos * 8, 100, 0, 20));
+    const invoked = vi.fn();
+    class CustomCommands extends NexusPluginBase {
+      override onload(): void {
+        this.app.capabilities.require(COMMANDS_CAPABILITY).registerCommand({
+          id: "inspect", name: "Inspect selection", editorCallback: (context) => { invoked(context.editor.getSelectedText()); },
+        });
+      }
+    }
+    const custom = managePlugin(capabilities,
+      { ...selectionToolbarLifecyclePluginManifest, id: "custom", entrypoint: "custom.js" },
+      (app, manifest) => new CustomCommands(app, manifest));
+    const selection = managePlugin(capabilities, selectionToolbarLifecyclePluginManifest,
+      (app, manifest) => new SelectionToolbarLifecyclePlugin(app, manifest, {
+        groups: [{ buttons: [{ id: "inspect", title: "Inspect", icon: () => document.createElement("span"), commandId: "custom:inspect" }] }],
+      }));
+    await custom.load();
+    await selection.load();
+    fixture.editor.focus();
+    content(fixture).dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+    fixture.editor.setSelection(0, 5);
+    document.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+    await vi.waitFor(() => expect(document.querySelector(".nexus-selection-toolbar:not([hidden])")).not.toBeNull());
+    const button = document.querySelector<HTMLButtonElement>(".nexus-selection-toolbar button")!;
+    button.click();
+    await vi.waitFor(() => expect(invoked).toHaveBeenCalledWith("alpha"));
+    expect(commands.listCommands().map((command) => command.id)).toEqual(["custom:inspect"]);
+    // Invalidate after dispatch but before the command callback's queued invocation.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    button.click();
+    await selection.unload();
+    await Promise.resolve();
+    expect(invoked).toHaveBeenCalledTimes(1);
+    expect(commands.getCommand("custom:inspect")).toBeDefined();
+    expect(document.querySelector(".nexus-selection-toolbar")).toBeNull();
+    await custom.unload();
+  });
+
   it("keeps word-count state isolated across current and future editors", async () => {
     const capabilities = new RuntimeCapabilityRegistry();
     const commands = new CommandRegistry();
@@ -416,6 +507,9 @@ describe("reference plugin lifecycle", () => {
       toolbarLifecyclePluginManifest,
       (app, manifest) => new ToolbarLifecyclePlugin(app, manifest, { mountUi: false }),
     );
+    const formatting = managePlugin(capabilities, formattingLifecyclePluginManifest,
+      (app, manifest) => new FormattingLifecyclePlugin(app, manifest));
+    await formatting.load();
     await wordCount.load();
     await toolbar.load();
 
@@ -432,6 +526,7 @@ describe("reference plugin lifecycle", () => {
     expect(runtime.editor.getDocument()).toBe(legacyEditor.getDocument());
 
     await toolbar.unload();
+    await formatting.unload();
     await wordCount.unload();
     legacyWordCount.destroy();
     legacyEditor.destroy();
@@ -450,7 +545,7 @@ describe("reference plugin lifecycle", () => {
     document.body.append(mainToolbar, secondToolbar);
     installWindowUi(capabilities, mainWindow, mainToolbar);
     installWindowUi(capabilities, secondWindow, secondToolbar);
-    const catalogue = createToolbarRuntimeSlashContribution();
+    const catalogue = createFormattingRuntimeSlashContribution();
     const first = await attachEditor(editors, mainWindow, "alpha", [catalogue]);
     const sameWindow = await attachEditor(editors, mainWindow, "bravo", [catalogue]);
     const otherWindow = await attachEditor(editors, secondWindow, "charlie", [catalogue]);
@@ -466,10 +561,13 @@ describe("reference plugin lifecycle", () => {
         slashLifecyclePluginManifest,
         (app, manifest) => new SlashLifecyclePlugin(app, manifest),
       );
+      const formatting = managePlugin(capabilities, formattingLifecyclePluginManifest,
+        (app, manifest) => new FormattingLifecyclePlugin(app, manifest));
+      await formatting.load();
       await toolbar.load();
       await slash.load();
 
-      expect(commands.listCommands()).toHaveLength(17);
+      expect(commands.listCommands()).toHaveLength(17 + formattingCommands.length);
       expect(commands.listCommands().map((command) => command.id)).toContain("toolbar:bold");
       expect(mainToolbar.children).toHaveLength(17);
       expect(secondToolbar.children).toHaveLength(17);
@@ -510,6 +608,8 @@ describe("reference plugin lifecycle", () => {
 
       await slash.unload();
       await toolbar.unload();
+      expect(commands.getCommand("formatting:bold")).toBeDefined();
+      await formatting.unload();
       expect(commands.listCommands()).toEqual([]);
       expect(mainToolbar.children).toHaveLength(0);
       expect(secondToolbar.children).toHaveLength(0);
@@ -530,6 +630,111 @@ describe("reference plugin lifecycle", () => {
       sameWindow.editor.setDocument("bravo");
       otherWindow.editor.setDocument("charlie");
     }
+  });
+
+  it("owns selection UI per editor, routes to its source and rejects a replaced pending document", async () => {
+    const capabilities = new RuntimeCapabilityRegistry();
+    const commands = new CommandRegistry();
+    const editors = new EditorHostRegistry();
+    installBaseCapabilities(capabilities, commands, editors);
+    const window = createWindowContext("selection", document);
+    const globalToolbar = document.createElement("div");
+    document.body.append(globalToolbar);
+    installWindowUi(capabilities, window, globalToolbar);
+    const first = await attachEditor(editors, window, "alpha");
+    const second = await attachEditor(editors, window, "bravo");
+    for (const fixture of [first, second]) {
+      const view = EditorView.findFromDOM(content(fixture))!;
+      vi.spyOn(fixture.container, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 700, 500));
+      vi.spyOn(view.scrollDOM, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 700, 500));
+      vi.spyOn(view, "coordsAtPos").mockImplementation((pos) => new DOMRect(50 + pos * 8, 100, 0, 20));
+    }
+    async function select(fixture: EditorFixture) {
+      fixture.editor.focus();
+      content(fixture).dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+      fixture.editor.setSelection(0, fixture.editor.getDocument().length);
+      document.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+      await vi.waitFor(() => expect(document.querySelector<HTMLElement>(".nexus-selection-toolbar:not([hidden])")).not.toBeNull());
+    }
+    const formatting = managePlugin(capabilities, formattingLifecyclePluginManifest,
+      (app, manifest) => new FormattingLifecyclePlugin(app, manifest));
+    await formatting.load();
+    const directAction = vi.fn((_editor: EditorAPI, signal: AbortSignal, anchor: HTMLButtonElement) => new Promise<void>((resolve) => {
+      const panel = document.createElement("div");
+      panel.className = "test-host-panel";
+      anchor.parentElement!.append(panel);
+      signal.addEventListener("abort", () => { panel.remove(); resolve(); }, { once: true });
+    }));
+    const groups = [
+      { buttons: [
+        { id: "inline-code", title: "Inline code", icon: () => document.createElement("span"), commandId: "formatting:inline-code" },
+        { id: "link", title: "Insert link", icon: () => document.createElement("span"), commandId: "formatting:link" },
+      ] },
+      { buttons: [{ id: "custom", title: "Custom action", icon: () => document.createElement("span"), action: directAction }] },
+    ];
+    for (let cycle = 0; cycle < 2; cycle++) {
+      const plugin = managePlugin(capabilities, selectionToolbarLifecyclePluginManifest,
+        (app, manifest) => new SelectionToolbarLifecyclePlugin(app, manifest, { groups, focusShortcut: true }));
+      const global = managePlugin(capabilities, toolbarLifecyclePluginManifest,
+        (app, manifest) => new ToolbarLifecyclePlugin(app, manifest));
+      await global.load();
+      await plugin.load();
+      await vi.waitFor(() => expect(document.querySelectorAll(".nexus-selection-toolbar")).toHaveLength(2));
+      expect(globalToolbar.children.length).toBeGreaterThan(0);
+      if (cycle === 0) {
+        await global.unload();
+        expect(globalToolbar.children).toHaveLength(0);
+      }
+      await select(first);
+      second.attachment.markRecent();
+      document.querySelector<HTMLButtonElement>(".nexus-selection-toolbar:not([hidden]) button")!.click();
+      await vi.waitFor(() => expect(first.editor.getDocument()).toBe("`alpha`"));
+      expect(second.editor.getDocument()).toBe("bravo");
+      expect(document.querySelector(".nexus-selection-toolbar:not([hidden])")).not.toBeNull();
+      first.editor.setDocument("alpha");
+      await select(first);
+      document.querySelector<HTMLButtonElement>('.nexus-selection-toolbar:not([hidden]) [data-toolbar-action="link"]')!.click();
+      await vi.waitFor(() => expect(first.editor.getDocument()).toBe("[alpha](url)"));
+      expect(first.editor.getSelection()).toEqual({ anchor: 8, head: 11 });
+      expect(document.querySelector(".nexus-selection-toolbar:not([hidden])")).not.toBeNull();
+      first.editor.setDocument("alpha");
+      await select(first);
+      second.attachment.markRecent();
+      const custom = document.querySelector<HTMLButtonElement>('.nexus-selection-toolbar:not([hidden]) [data-toolbar-action="custom"]')!;
+      custom.click();
+      expect(directAction).toHaveBeenLastCalledWith(first.editor, expect.any(AbortSignal), custom);
+      expect(document.querySelector(".test-host-panel")).not.toBeNull();
+      first.editor.setDocument("changed during panel");
+      expect(document.querySelector(".test-host-panel")).toBeNull();
+      expect(second.editor.getDocument()).toBe("bravo");
+      first.editor.setDocument("alpha");
+      await select(first);
+      document.querySelector<HTMLButtonElement>(".nexus-selection-toolbar:not([hidden]) button")!.click();
+      first.editor.setDocument("replacement", { silent: true });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(first.editor.getDocument()).toBe("replacement");
+      expect(document.querySelector(".nexus-selection-toolbar:not([hidden])")).toBeNull();
+      const future = await attachEditor(editors, window, "future");
+      await vi.waitFor(() => expect(document.querySelectorAll(".nexus-selection-toolbar")).toHaveLength(3));
+      await future.destroy();
+      await vi.waitFor(() => expect(document.querySelectorAll(".nexus-selection-toolbar")).toHaveLength(2));
+      await plugin.unload();
+      if (cycle === 1) {
+        expect(globalToolbar.children.length).toBeGreaterThan(0);
+        await global.unload();
+      }
+      expect(document.querySelectorAll(".nexus-selection-toolbar")).toHaveLength(0);
+      expect(commands.getCommand("formatting:inline-code")).toBeDefined();
+      first.editor.setDocument("alpha");
+    }
+    const disabled = managePlugin(capabilities, selectionToolbarLifecyclePluginManifest,
+      (app, manifest) => new SelectionToolbarLifecyclePlugin(app, manifest, { groups: [] }));
+    await disabled.load();
+    expect(document.querySelectorAll(".nexus-selection-toolbar")).toHaveLength(0);
+    expect(commands.getCommand("formatting:inline-code")).toBeDefined();
+    expect(commands.getCommand("toolbar:inline-code")).toBeUndefined();
+    await disabled.unload();
+    await formatting.unload();
   });
 
   it("loads all lifecycle plugins without optional UI capabilities", async () => {
@@ -559,16 +764,20 @@ describe("reference plugin lifecycle", () => {
       (app, manifest) => new WordCountLifecyclePlugin(app, manifest, { debounceMs: 0 }),
     );
 
+    const formatting = managePlugin(capabilities, formattingLifecyclePluginManifest,
+      (app, manifest) => new FormattingLifecyclePlugin(app, manifest));
+    await formatting.load();
     await expect(toolbar.load()).resolves.toBeUndefined();
     await expect(slash.load()).resolves.toBeUndefined();
     await expect(wordCount.load()).resolves.toBeUndefined();
-    expect(commands.listCommands()).toHaveLength(17);
+    expect(commands.listCommands()).toHaveLength(17 + formattingCommands.length);
     expect(slash.instance.mountedEditorIds).toEqual([editor.attachment.editorId]);
     expect(wordCount.instance.getState(editor.attachment.editorId)?.doc.words).toBe(1);
 
     await wordCount.unload();
     await slash.unload();
     await toolbar.unload();
+    await formatting.unload();
     expect(commands.listCommands()).toEqual([]);
     expect(document.querySelectorAll(".nexus-slash-menu")).toHaveLength(0);
   });

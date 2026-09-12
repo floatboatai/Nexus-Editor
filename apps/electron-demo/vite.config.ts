@@ -52,6 +52,8 @@ export default defineConfig({
         __dirname,
         "../../packages/plugin-history/src/index.ts"
       ),
+      "@floatboat/nexus-plugin-formatting": path.resolve(__dirname, "../../packages/plugin-formatting/src/index.ts"),
+      "@floatboat/nexus-plugin-selection-toolbar": path.resolve(__dirname, "../../packages/plugin-selection-toolbar/src/index.ts"),
       "@floatboat/nexus-plugin-toolbar": path.resolve(
         __dirname,
         "../../packages/plugin-toolbar/src/index.ts"

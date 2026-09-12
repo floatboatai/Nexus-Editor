@@ -1,6 +1,7 @@
 import type {
   AuthorPluginManifest,
   CapabilityRegistry,
+  CommandService,
   NexusApp,
   NexusPluginConstructor,
 } from "../dist/index";
@@ -21,3 +22,6 @@ const app = {
 } as NexusApp;
 
 void new Plugin(app, manifest as never);
+
+declare const commands: CommandService;
+void commands.executeCommand("formatting:inline-code", { signal: new AbortController().signal });

@@ -2,6 +2,7 @@ import {
   COMMANDS_CAPABILITY,
   EDITOR_HOST_CAPABILITY,
   NexusPluginBase,
+  NexusPluginError,
   UI_CAPABILITY,
   type AuthorPluginManifest,
   type CommandService,
@@ -11,60 +12,19 @@ import {
   type NormalizedPluginManifest,
   type WindowId,
 } from "@floatboat/nexus-plugin-api";
-import type { EditorAPI } from "@floatboat/nexus-core";
 import type { NexusPlugin } from "@floatboat/nexus-core";
-
-import { colorDecorationExtension } from "./color-decoration";
-import {
-  insertCodeBlock,
-  insertHorizontalRule,
-  insertImage,
-  toggleBlockquote,
-  toggleOrderedList,
-  toggleUnorderedList,
-} from "./formatting";
-import {
-  insertLink,
-  toggleBold,
-  toggleHeading,
-  toggleInlineCode,
-  toggleItalic,
-  toggleStrikethrough,
-  toggleWrap,
-  toolbarSlashCommands,
-} from "./toolbar-commands";
+import { createFormattingRuntimeSlashContribution, formattingCommands, type FormattingCommand } from "@floatboat/nexus-plugin-formatting";
 
 export interface ToolbarLifecyclePluginOptions {
-  /** When false, commands remain available but no toolbar slot is claimed. */
+  /** Keep compatibility command entrypoints available without claiming a UI slot. */
   readonly mountUi?: boolean;
 }
 
-interface ToolbarAction {
-  readonly id: string;
-  readonly name: string;
-  readonly run: (editor: EditorAPI) => boolean | void;
-  readonly hotkey?: { readonly key: string; readonly modifiers?: readonly ("Mod" | "Shift")[] };
-}
-
-const ACTIONS: readonly ToolbarAction[] = Object.freeze([
+const TOOLBAR_COMMANDS: readonly FormattingCommand[] = [
   { id: "undo", name: "Undo", run: (editor) => editor.undo() },
   { id: "redo", name: "Redo", run: (editor) => editor.redo() },
-  { id: "link", name: "Insert link", run: (editor) => insertLink(editor), hotkey: { key: "k", modifiers: ["Mod"] } },
-  { id: "h1", name: "Heading 1", run: (editor) => toggleHeading(editor, 1), hotkey: { key: "1", modifiers: ["Mod"] } },
-  { id: "h2", name: "Heading 2", run: (editor) => toggleHeading(editor, 2), hotkey: { key: "2", modifiers: ["Mod"] } },
-  { id: "h3", name: "Heading 3", run: (editor) => toggleHeading(editor, 3), hotkey: { key: "3", modifiers: ["Mod"] } },
-  { id: "bold", name: "Bold", run: (editor) => toggleBold(editor), hotkey: { key: "b", modifiers: ["Mod"] } },
-  { id: "italic", name: "Italic", run: (editor) => toggleItalic(editor), hotkey: { key: "i", modifiers: ["Mod"] } },
-  { id: "strikethrough", name: "Strikethrough", run: (editor) => toggleStrikethrough(editor), hotkey: { key: "s", modifiers: ["Mod", "Shift"] } },
-  { id: "underline", name: "Underline", run: (editor) => toggleWrap(editor, "<u>") },
-  { id: "inline-code", name: "Inline code", run: (editor) => toggleInlineCode(editor), hotkey: { key: "e", modifiers: ["Mod"] } },
-  { id: "blockquote", name: "Blockquote", run: (editor) => toggleBlockquote(editor) },
-  { id: "code-block", name: "Code block", run: (editor) => insertCodeBlock(editor) },
-  { id: "olist", name: "Ordered list", run: (editor) => toggleOrderedList(editor) },
-  { id: "ulist", name: "Unordered list", run: (editor) => toggleUnorderedList(editor) },
-  { id: "image", name: "Insert image", run: (editor) => insertImage(editor) },
-  { id: "hr", name: "Divider", run: (editor) => insertHorizontalRule(editor) },
-]);
+  ...formattingCommands,
+];
 
 export const toolbarLifecyclePluginManifest = Object.freeze({
   schemaVersion: 1,
@@ -82,24 +42,14 @@ export const toolbarLifecyclePluginManifest = Object.freeze({
   ],
 } satisfies AuthorPluginManifest);
 
-/**
- * Static parser catalogue for the runtime slash menu. It owns no commands,
- * hotkeys, DOM or editor extension; IDs point at the runtime command owner.
- */
+/** Compatibility catalogue for hosts that still use toolbar command IDs. */
 export function createToolbarRuntimeSlashContribution(
   commandOwner = toolbarLifecyclePluginManifest.id,
 ): NexusPlugin {
-  return {
-    name: "plugin-toolbar-runtime-slash-catalogue",
-    slashCommands: toolbarSlashCommands.map((command) => ({
-      ...command,
-      id: `${commandOwner}:${command.id}`,
-      run: undefined,
-    })),
-  };
+  return { ...createFormattingRuntimeSlashContribution(commandOwner), name: "plugin-toolbar-runtime-slash-catalogue" };
 }
 
-/** Runtime-native toolbar. The old `createToolbarPlugin()` factory stays intact. */
+/** Global toolbar UI. Shared formatting is supplied by FormattingLifecyclePlugin. */
 export class ToolbarLifecyclePlugin extends NexusPluginBase {
   private readonly mountUi: boolean;
   private readonly uiWindows = new Set<WindowId>();
@@ -117,21 +67,27 @@ export class ToolbarLifecyclePlugin extends NexusPluginBase {
     const commands = this.app.capabilities.require(COMMANDS_CAPABILITY, "^1.0.0");
     const editors = this.app.capabilities.require(EDITOR_HOST_CAPABILITY, "^1.0.0");
 
-    for (const action of ACTIONS) {
+    for (const command of TOOLBAR_COMMANDS) {
+      const isHistory = command.id === "undo" || command.id === "redo";
       const result = commands.registerCommand({
-        id: action.id,
-        name: action.name,
-        editorCallback: ({ editor }) => {
-          action.run(editor);
+        id: command.id,
+        name: command.name,
+        ...(isHistory ? {} : { showInCommandPalette: false }),
+        editorCheckCallback: async (checking, context, source) => {
+          if (isHistory) {
+            if (!checking) command.run(context.editor);
+            return true;
+          }
+          const commandId = `formatting:${command.id}`;
+          const invocation = { ...source, editor: context };
+          if (checking) return (await commands.checkCommand(commandId, invocation)).status === "available";
+          const result = await commands.executeCommand(commandId, invocation);
+          if (!result.ok) throw new NexusPluginError(result.diagnostic);
+          return true;
         },
-        ...(action.hotkey ? { defaultHotkeys: [action.hotkey] } : {}),
       });
       this.reportFailure(result);
     }
-
-    this.reportFailure(editors.registerEditorExtension(colorDecorationExtension(), {
-      id: "color-decorations",
-    }));
 
     if (!this.mountUi) return;
     for (const context of editors.list()) {
@@ -156,8 +112,10 @@ export class ToolbarLifecyclePlugin extends NexusPluginBase {
     if (!ui) return;
 
     this.uiWindows.add(context.window.id);
-    for (const action of ACTIONS) {
-      const commandId = `${this.identity.id}:${action.id}`;
+    for (const action of TOOLBAR_COMMANDS) {
+      const commandId = action.id === "undo" || action.id === "redo"
+        ? `${this.identity.id}:${action.id}`
+        : `formatting:${action.id}`;
       const result = ui.registerAction("editor-toolbar", {
         id: action.id,
         label: action.name,

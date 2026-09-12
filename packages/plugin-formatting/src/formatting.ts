@@ -172,11 +172,13 @@ export function applyTextColor(editor: EditorAPI, color: string): boolean {
   if (from === to) return false;
 
   const wrapped = `<span style="color:${color}">${selected}</span>`;
-  const newDoc = doc.slice(0, from) + wrapped + doc.slice(to);
-  editor.setDocument(newDoc);
   const innerStart = from + `<span style="color:${color}">`.length;
-  editor.setSelection(innerStart, innerStart + selected.length);
-  return true;
+  return editor.dispatchTransaction({
+    changes: [{ from, to, insert: wrapped }],
+    selection: { ranges: [{ anchor: innerStart, head: innerStart + selected.length }], mainIndex: 0 },
+    origin: ["formatting"],
+    userEvent: "input.format",
+  }).status === "success";
 }
 
 export function applyHighlight(editor: EditorAPI, color: string): boolean {

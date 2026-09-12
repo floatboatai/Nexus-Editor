@@ -165,7 +165,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 ## 📦 Packages
 
 <details>
-<summary><b>Full package list (11 packages)</b> — click to expand</summary>
+<summary><b>Full package list (13 packages)</b> — click to expand</summary>
 
 | Package | Description |
 |---|---|
@@ -176,7 +176,9 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 | `@floatboat/nexus-plugin-history` | Undo/redo with `Ctrl+Z` / `Ctrl+Shift+Z` |
 | `@floatboat/nexus-plugin-search` | Search and replace helpers |
 | `@floatboat/nexus-plugin-slash` | Slash command detection, ranking, and a vanilla-DOM floating menu UI |
-| `@floatboat/nexus-plugin-toolbar` | Toolbar primitives for formatting commands |
+| `@floatboat/nexus-plugin-formatting` | Shared formatting operations, runtime commands, shortcuts, and color decorations |
+| `@floatboat/nexus-plugin-toolbar` | Global toolbar UI with compatibility exports for shared formatting |
+| `@floatboat/nexus-plugin-selection-toolbar` | Independent selection toolbar with host-configured actions and command IDs |
 | `@floatboat/nexus-plugin-math` | Inline / block math rendering (KaTeX) |
 | `@floatboat/nexus-plugin-vim` | Vim keybindings powered by `@replit/codemirror-vim` |
 | `@floatboat/nexus-plugin-wordcount` | Markdown-aware word / character / CJK / reading-time stats + ARIA-live status bar |

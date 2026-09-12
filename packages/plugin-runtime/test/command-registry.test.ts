@@ -22,6 +22,64 @@ function activate(resources: readonly ManagedResource[]): void {
 }
 
 describe("CommandRegistry", () => {
+  it("cancels an invocation while its editor context is resolving", async () => {
+    let finishResolution!: () => void;
+    const pendingContext = new Promise<void>((resolve) => { finishResolution = resolve; });
+    const callback = vi.fn();
+    const registry = new CommandRegistry({
+      resolveContext: async () => {
+        await pendingContext;
+        return { trigger: "ui", editor: null };
+      },
+    });
+    const registered = registry.registerCommand(owner(), { id: "pending", name: "Pending", callback });
+    if (!registered.ok) throw new Error("Fixture command failed to register");
+    registered.registration.activate?.();
+    const controller = new AbortController();
+    const context = { trigger: "ui" as const, signal: controller.signal };
+    const completion = registry.executeCommand("sample-tools:pending", context);
+    controller.abort();
+    finishResolution();
+
+    expect(await completion).toMatchObject({ ok: false, diagnostic: { code: "command-unavailable" } });
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it("does not invoke a registration removed during context resolution", async () => {
+    let finishResolution!: () => void;
+    const pendingContext = new Promise<void>((resolve) => { finishResolution = resolve; });
+    const callback = vi.fn();
+    const registry = new CommandRegistry({
+      resolveContext: async () => {
+        await pendingContext;
+        return { trigger: "api", editor: null };
+      },
+    });
+    const registered = registry.registerCommand(owner(), { id: "pending", name: "Pending", callback });
+    if (!registered.ok) throw new Error("Fixture command failed to register");
+    registered.registration.activate?.();
+    const completion = registry.executeCommand("sample-tools:pending");
+    await registered.registration.dispose();
+    finishResolution();
+
+    expect(await completion).toMatchObject({ ok: false, diagnostic: { code: "command-unavailable" } });
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it("preserves a live caller signal even when the host resolves only editor context", async () => {
+    const callback = vi.fn();
+    const registry = new CommandRegistry({
+      resolveContext: () => ({ trigger: "api", editor: null }),
+    });
+    const registered = registry.registerCommand(owner(), { id: "signal", name: "Signal", callback });
+    if (!registered.ok) throw new Error("Fixture command failed to register");
+    registered.registration.activate?.();
+    const context = { trigger: "api" as const, signal: new AbortController().signal };
+
+    expect((await registry.executeCommand("sample-tools:signal", context)).ok).toBe(true);
+    expect(callback).toHaveBeenCalledWith(expect.objectContaining({ signal: context.signal }));
+  });
+
   it("publishes one atomic namespaced snapshot and preserves other plugins", async () => {
     const resources: ManagedResource[] = [];
     const registry = new CommandRegistry();

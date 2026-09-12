@@ -20,6 +20,7 @@ describe("createEditorShell", () => {
     });
 
     expect(container.querySelector(".cm-editor")).not.toBeNull();
+    expect(shell.selectionToolbar).not.toBeNull();
     shell.destroy();
   });
 
@@ -65,6 +66,32 @@ describe("createEditorShell", () => {
     shell.destroy();
   });
 
+  it("omits UI features that are explicitly disabled", () => {
+    const container = document.createElement("div");
+    const shell = createEditorShell({
+      container, state: createState(), settings: defaultSettings(), onStateChange: vi.fn(),
+      contributionFeatures: { toolbar: false, slashMenu: false, wordCount: false },
+    });
+    expect(shell.toolbar).toBeNull();
+    expect(shell.selectionToolbar).toBeNull();
+    shell.destroy();
+  });
+
+  it.each([false, true])("keeps selection UI and formatting independent of the global toolbar: toolbar=%s", (toolbar) => {
+    const container = document.createElement("div");
+    const shell = createEditorShell({
+      container, state: createState(), settings: defaultSettings(), onStateChange: vi.fn(),
+      contributionFeatures: { formatting: true, toolbar, selectionToolbar: !toolbar, slashMenu: false, wordCount: false },
+    });
+    expect(Boolean(shell.toolbar)).toBe(toolbar);
+    expect(Boolean(shell.selectionToolbar)).toBe(!toolbar);
+    shell.editor.setDocument("alpha");
+    shell.editor.setSelection(0, 5);
+    expect(shell.editor.runShortcut("Mod-b")).toBe(true);
+    expect(shell.editor.getDocument()).toBe("**alpha**");
+    shell.destroy();
+  });
+
   it("leaves migrated UI to the runtime owner in runtime mode", () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -77,6 +104,7 @@ describe("createEditorShell", () => {
     });
 
     expect(shell.toolbar).toBeNull();
+    expect(shell.selectionToolbar).toBeNull();
     expect(shell.slashMenu).toBeNull();
     expect(shell.wordcount).toBeNull();
     expect(container.querySelectorAll(".nexus-toolbar")).toHaveLength(0);

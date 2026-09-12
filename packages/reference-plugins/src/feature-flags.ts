@@ -1,9 +1,9 @@
 import type { NexusPlugin } from "@floatboat/nexus-core";
 import type { NexusPluginConstructor } from "@floatboat/nexus-plugin-api";
+import { createFormattingPlugin, createFormattingRuntimeSlashContribution, FormattingLifecyclePlugin } from "@floatboat/nexus-plugin-formatting";
+import { SelectionToolbarLifecyclePlugin } from "@floatboat/nexus-plugin-selection-toolbar";
 import { SlashLifecyclePlugin } from "@floatboat/nexus-plugin-slash";
 import {
-  createToolbarPlugin,
-  createToolbarRuntimeSlashContribution,
   ToolbarLifecyclePlugin,
 } from "@floatboat/nexus-plugin-toolbar";
 import {
@@ -15,6 +15,10 @@ import {
 export interface ReferencePluginFeatureFlags {
   readonly pluginPlatform: boolean;
   readonly toolbar: boolean;
+  /** Defaults to toolbar for compatibility with existing flag objects. */
+  readonly formatting?: boolean;
+  /** Independent opt-in for the selection UI. */
+  readonly selectionToolbar?: boolean;
   readonly slashMenu: boolean;
   readonly wordCount: boolean;
 }
@@ -24,8 +28,10 @@ export interface ReferencePluginBootPlan {
   readonly editorContributions: readonly NexusPlugin[];
   readonly runtimePlugins: readonly NexusPluginConstructor[];
   readonly legacyWordCount: WordCountPlugin | null;
+  readonly legacyFormatting: boolean;
   readonly legacyUi: Readonly<{
     toolbar: boolean;
+    selectionToolbar: boolean;
     slashMenu: boolean;
     wordCount: boolean;
   }>;
@@ -38,18 +44,22 @@ export interface ReferencePluginBootPlan {
 export function createReferencePluginBootPlan(
   flags: ReferencePluginFeatureFlags,
 ): ReferencePluginBootPlan {
+  const formatting = flags.formatting ?? flags.toolbar;
+  const selectionToolbar = flags.selectionToolbar ?? false;
   if (!flags.pluginPlatform) {
     const legacyWordCount = flags.wordCount ? createWordCountPlugin() : null;
     return Object.freeze({
       mode: "legacy" as const,
       editorContributions: Object.freeze([
-        ...(flags.toolbar ? [createToolbarPlugin()] : []),
+        ...(formatting ? [createFormattingPlugin()] : []),
         ...(legacyWordCount ? [legacyWordCount] : []),
       ]),
       runtimePlugins: Object.freeze([]),
       legacyWordCount,
+      legacyFormatting: formatting,
       legacyUi: Object.freeze({
         toolbar: flags.toolbar,
+        selectionToolbar,
         slashMenu: flags.slashMenu,
         wordCount: Boolean(legacyWordCount),
       }),
@@ -59,14 +69,17 @@ export function createReferencePluginBootPlan(
   return Object.freeze({
     mode: "runtime" as const,
     editorContributions: Object.freeze([
-      ...(flags.toolbar && flags.slashMenu ? [createToolbarRuntimeSlashContribution()] : []),
+      ...(formatting && flags.slashMenu ? [createFormattingRuntimeSlashContribution()] : []),
     ]),
     runtimePlugins: Object.freeze([
+      ...(formatting ? [FormattingLifecyclePlugin] : []),
       ...(flags.toolbar ? [ToolbarLifecyclePlugin] : []),
+      ...(selectionToolbar ? [SelectionToolbarLifecyclePlugin] : []),
       ...(flags.slashMenu ? [SlashLifecyclePlugin] : []),
       ...(flags.wordCount ? [WordCountLifecyclePlugin] : []),
     ] as NexusPluginConstructor[]),
     legacyWordCount: null,
-    legacyUi: Object.freeze({ toolbar: false, slashMenu: false, wordCount: false }),
+    legacyFormatting: false,
+    legacyUi: Object.freeze({ toolbar: false, selectionToolbar: false, slashMenu: false, wordCount: false }),
   });
 }

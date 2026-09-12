@@ -1,0 +1,32 @@
+{
+  "name": "@floatboat/nexus-plugin-formatting",
+  "version": "0.0.14",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean"
+  },
+  "dependencies": {
+    "@floatboat/nexus-core": "workspace:*",
+    "@floatboat/nexus-plugin-api": "workspace:*",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.36.1"
+  },
+  "devDependencies": {
+    "@floatboat/nexus-plugin-history": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

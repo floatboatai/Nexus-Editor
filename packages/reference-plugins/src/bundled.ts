@@ -1,3 +1,5 @@
+import { FormattingLifecyclePlugin, formattingLifecyclePluginManifest } from "@floatboat/nexus-plugin-formatting";
+import { SelectionToolbarLifecyclePlugin, selectionToolbarLifecyclePluginManifest } from "@floatboat/nexus-plugin-selection-toolbar";
 import type {
   AuthorPluginManifest,
   NexusPluginConstructor,
@@ -28,7 +30,9 @@ export interface BundledReferencePlugin {
 /** Host-controlled manifest/constructor pairs for bundled entrypoint resolvers. */
 export const bundledReferencePlugins: readonly BundledReferencePlugin[] = Object.freeze([
   { manifest: wordCountLifecyclePluginManifest, Plugin: WordCountLifecyclePlugin },
+  { manifest: formattingLifecyclePluginManifest, Plugin: FormattingLifecyclePlugin },
   { manifest: toolbarLifecyclePluginManifest, Plugin: ToolbarLifecyclePlugin },
+  { manifest: selectionToolbarLifecyclePluginManifest, Plugin: SelectionToolbarLifecyclePlugin },
   { manifest: slashLifecyclePluginManifest, Plugin: SlashLifecyclePlugin },
   { manifest: obsidianSamplePortManifest, Plugin: ObsidianSamplePortPlugin },
 ]);

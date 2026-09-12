@@ -1357,7 +1357,8 @@ export class RuntimeUiHost {
     if (!this.commandRegistry) return [];
     const normalized = query.trim().toLocaleLowerCase();
     const commands = this.commandRegistry.listCommands().filter((command) =>
-      !normalized || `${command.name} ${command.description ?? ""} ${command.id}`.toLocaleLowerCase().includes(normalized),
+      command.showInCommandPalette !== false &&
+      (!normalized || `${command.name} ${command.description ?? ""} ${command.id}`.toLocaleLowerCase().includes(normalized)),
     );
     return Promise.all(commands.map(async (command) => ({
       command,
