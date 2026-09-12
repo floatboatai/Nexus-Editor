@@ -1,3 +1,6 @@
+import { createFormattingPlugin } from "@floatboat/nexus-plugin-formatting";
+import { createSelectionToolbarUI, type SelectionToolbarUI } from "@floatboat/nexus-plugin-selection-toolbar";
+import { createSelectionToolbarGroups } from "./selection-toolbar";
 import {
   createEditor,
   createWikilinksPlugin,
@@ -8,7 +11,6 @@ import {
 import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
 import {
-  createToolbarPlugin,
   createToolbarUI,
   type ToolbarUI,
 } from "@floatboat/nexus-plugin-toolbar";
@@ -64,6 +66,8 @@ export interface EditorShellOptions {
   /** Per-feature flags supplied by the reference-plugin boot plan. */
   contributionFeatures?: Readonly<{
     toolbar: boolean;
+    formatting?: boolean;
+    selectionToolbar?: boolean;
     slashMenu: boolean;
     wordCount: boolean;
   }>;
@@ -74,6 +78,7 @@ export interface EditorShellOptions {
 export interface EditorShell {
   editor: EditorAPI;
   toolbar: ToolbarUI | null;
+  selectionToolbar: SelectionToolbarUI | null;
   /** The floating slash-command menu mounted on document.body. */
   slashMenu: SlashMenuUI | null;
   /** Markdown-aware word-count plugin (handle + status bar). */
@@ -93,7 +98,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     resolveWikilink,
     suggestWikilinks,
     contributionMode = "legacy",
-    contributionFeatures = { toolbar: true, slashMenu: true, wordCount: true },
+    contributionFeatures = { formatting: true, toolbar: true, selectionToolbar: true, slashMenu: true, wordCount: true },
     editorContributions = [],
   } = options;
   const runtimeManaged = contributionMode === "runtime";
@@ -138,7 +143,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     plugins: [
       createGfmPreset(),
       createHistoryPlugin(),
-      ...(!runtimeManaged && contributionFeatures.toolbar ? [createToolbarPlugin()] : []),
+      ...(!runtimeManaged && (contributionFeatures.formatting ?? contributionFeatures.toolbar) ? [createFormattingPlugin()] : []),
       createSearchPlugin(),
       wikilinksPlugin,
       ...(wordcount ? [wordcount] : []),
@@ -336,6 +341,9 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     ? null
     : createToolbarUI(editor);
   if (toolbar) container.insertBefore(toolbar.element, container.firstChild);
+  const selectionToolbar = !runtimeManaged && contributionFeatures.selectionToolbar
+    ? createSelectionToolbarUI(editor, { editorRoot: container, groups: createSelectionToolbarGroups(), focusShortcut: true })
+    : null;
 
   // The slash menu owns its own DOM root mounted on document.body so
   // it can overflow the editor's clipping context (panels, scroll
@@ -353,12 +361,14 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   return {
     editor,
     toolbar,
+    selectionToolbar,
     slashMenu,
     wordcount,
     applySettings(next: EditorSettings) {
       editor.setTheme(settingsToTheme(next));
     },
     loadDocument(content: string) {
+      selectionToolbar?.dismiss();
       // Load from disk is NOT a user edit — use silent mode to skip the
       // onChange pipeline (avoids redundant parse + link-index rebuild on
       // every file open). Caller owns state.content / dirty below and the
@@ -379,6 +389,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     destroy() {
       wordcount?.destroy();
       slashMenu?.destroy();
+      selectionToolbar?.destroy();
       toolbar?.destroy();
       editor.destroy();
     },

@@ -56,6 +56,9 @@ importers:
       '@floatboat/nexus-plugin-api':
         specifier: workspace:*
         version: link:../../packages/plugin-api
+      '@floatboat/nexus-plugin-formatting':
+        specifier: workspace:*
+        version: link:../../packages/plugin-formatting
       '@floatboat/nexus-plugin-history':
         specifier: workspace:*
         version: link:../../packages/plugin-history
@@ -65,6 +68,9 @@ importers:
       '@floatboat/nexus-plugin-search':
         specifier: workspace:*
         version: link:../../packages/plugin-search
+      '@floatboat/nexus-plugin-selection-toolbar':
+        specifier: workspace:*
+        version: link:../../packages/plugin-selection-toolbar
       '@floatboat/nexus-plugin-slash':
         specifier: workspace:*
         version: link:../../packages/plugin-slash
@@ -84,6 +90,9 @@ importers:
         specifier: ^11.11.0
         version: 11.11.1
     devDependencies:
+      '@codemirror/view':
+        specifier: ^6.36.1
+        version: 6.41.0
       electron:
         specifier: ^35.0.0
         version: 35.7.5
@@ -154,6 +163,25 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/plugin-formatting:
+    dependencies:
+      '@codemirror/state':
+        specifier: ^6.5.2
+        version: 6.6.0
+      '@codemirror/view':
+        specifier: ^6.36.1
+        version: 6.41.0
+      '@floatboat/nexus-core':
+        specifier: workspace:*
+        version: link:../core
+      '@floatboat/nexus-plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
+    devDependencies:
+      '@floatboat/nexus-plugin-history':
+        specifier: workspace:*
+        version: link:../plugin-history
+
   packages/plugin-history:
     dependencies:
       '@codemirror/commands':
@@ -221,6 +249,28 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/plugin-selection-toolbar:
+    dependencies:
+      '@codemirror/language':
+        specifier: ^6.12.3
+        version: 6.12.3
+      '@codemirror/view':
+        specifier: ^6.36.1
+        version: 6.41.0
+      '@floatboat/nexus-core':
+        specifier: workspace:*
+        version: link:../core
+      '@floatboat/nexus-plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
+    devDependencies:
+      '@floatboat/nexus-plugin-formatting':
+        specifier: workspace:*
+        version: link:../plugin-formatting
+      '@floatboat/nexus-plugin-history':
+        specifier: workspace:*
+        version: link:../plugin-history
+
   packages/plugin-slash:
     dependencies:
       '@floatboat/nexus-core':
@@ -232,22 +282,15 @@ importers:
 
   packages/plugin-toolbar:
     dependencies:
-      '@codemirror/state':
-        specifier: ^6.5.2
-        version: 6.6.0
-      '@codemirror/view':
-        specifier: ^6.36.1
-        version: 6.41.0
       '@floatboat/nexus-core':
         specifier: workspace:*
         version: link:../core
       '@floatboat/nexus-plugin-api':
         specifier: workspace:*
         version: link:../plugin-api
-    devDependencies:
-      '@floatboat/nexus-plugin-history':
+      '@floatboat/nexus-plugin-formatting':
         specifier: workspace:*
-        version: link:../plugin-history
+        version: link:../plugin-formatting
 
   packages/plugin-vim:
     dependencies:
@@ -308,6 +351,9 @@ importers:
       '@floatboat/nexus-plugin-api':
         specifier: workspace:*
         version: link:../plugin-api
+      '@floatboat/nexus-plugin-formatting':
+        specifier: workspace:*
+        version: link:../plugin-formatting
       '@floatboat/nexus-plugin-history':
         specifier: workspace:*
         version: link:../plugin-history
@@ -320,6 +366,9 @@ importers:
       '@floatboat/nexus-plugin-search':
         specifier: workspace:*
         version: link:../plugin-search
+      '@floatboat/nexus-plugin-selection-toolbar':
+        specifier: workspace:*
+        version: link:../plugin-selection-toolbar
       '@floatboat/nexus-plugin-slash':
         specifier: workspace:*
         version: link:../plugin-slash
@@ -335,6 +384,10 @@ importers:
       '@floatboat/nexus-preset-gfm':
         specifier: workspace:*
         version: link:../preset-gfm
+    devDependencies:
+      '@codemirror/view':
+        specifier: ^6.36.1
+        version: 6.41.0
 
   packages/vue:
     dependencies:

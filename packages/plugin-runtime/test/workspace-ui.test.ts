@@ -978,6 +978,12 @@ describe("RuntimeUiHost", () => {
       name: "Inspect source",
       editorCallback: (target) => void executed.push(target),
     });
+    commandService.registerCommand({
+      id: "legacy-inspect",
+      name: "Inspect source",
+      showInCommandPalette: false,
+      editorCallback: (target) => void executed.push(target),
+    });
     await activate(commandResources);
 
     const context = createWindowContext("main", document);
@@ -1013,6 +1019,9 @@ describe("RuntimeUiHost", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(executed).toEqual([sourceEditor]);
+    expect(commandService.getCommand("sample-plugin:legacy-inspect")).toBeDefined();
+    expect((await commandService.executeCommand("sample-plugin:legacy-inspect", { editor: sourceEditor })).ok).toBe(true);
+    expect(executed).toEqual([sourceEditor, sourceEditor]);
   });
 
   it("keeps a user-hidden ribbon action hidden while its command remains available", async () => {

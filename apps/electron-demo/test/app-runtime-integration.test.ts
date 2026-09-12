@@ -216,11 +216,15 @@ describe("Electron renderer plugin runtime integration", () => {
     expect(app.shell.slashMenu).toBeNull();
     expect(app.shell.wordcount).toBeNull();
     expect(app.runtime?.pluginManager.list().filter((plugin) => plugin.state === "enabled").map((plugin) => plugin.id)).toEqual([
+      "formatting",
       "toolbar",
+      "selection-toolbar",
       "slash-menu",
       "wordcount",
     ]);
     expect(app.slots["editor-toolbar"].querySelectorAll("[data-ui-action-id]")).toHaveLength(17);
+    expect(Array.from(document.querySelectorAll<HTMLElement>(".nexus-selection-toolbar [data-toolbar-action]"))
+      .map((button) => button.dataset.toolbarAction)).toEqual(["link", "inline-code", "text-color"]);
     const slashCommandIds = app.shell.editor.getSlashCommands().map((command) => command.id);
     expect(slashCommandIds).toHaveLength(new Set(slashCommandIds).size);
     expect(document.body.querySelectorAll(".nexus-slash-menu")).toHaveLength(1);

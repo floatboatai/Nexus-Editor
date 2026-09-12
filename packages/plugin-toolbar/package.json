@@ -19,11 +19,7 @@
   "dependencies": {
     "@floatboat/nexus-core": "workspace:*",
     "@floatboat/nexus-plugin-api": "workspace:*",
-    "@codemirror/state": "^6.5.2",
-    "@codemirror/view": "^6.36.1"
-  },
-  "devDependencies": {
-    "@floatboat/nexus-plugin-history": "workspace:*"
+    "@floatboat/nexus-plugin-formatting": "workspace:*"
   },
   "publishConfig": {
     "access": "public",

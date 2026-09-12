@@ -122,6 +122,7 @@ function defaultContext(context: Partial<CommandContext>): CommandContext {
     trigger: context.trigger ?? "api",
     editor: context.editor ?? null,
     ...(context.sourceId === undefined ? {} : { sourceId: context.sourceId }),
+    ...(context.signal === undefined ? {} : { signal: context.signal }),
   });
 }
 
@@ -291,6 +292,7 @@ export class CommandRegistry {
           : { description: cloned.description }),
         ...(cloned.icon === undefined ? {} : { icon: cloned.icon }),
         defaultHotkeys: cloned.defaultHotkeys ?? Object.freeze([]),
+        ...(cloned.showInCommandPalette === undefined ? {} : { showInCommandPalette: cloned.showInCommandPalette }),
       }),
       state: "staged",
     };
@@ -379,6 +381,12 @@ export class CommandRegistry {
 
     const resolved = await this.resolveCommandContext(entry, context);
     if (!resolved.ok) return resolved;
+    if (resolved.value.signal?.aborted || entry.state !== "active" || this.activeEntries.get(id) !== entry) {
+      return {
+        ok: false,
+        diagnostic: this.unavailable(entry, "The command was cancelled or unregistered before execution"),
+      };
+    }
     const mode = commandMode(entry.definition);
     if (
       (mode === "editorCallback" || mode === "editorCheckCallback") &&
@@ -435,7 +443,13 @@ export class CommandRegistry {
       const resolved = await this.resolveContext(context, {
         allowEditorFallback: entry.definition.allowEditorFallback ?? false,
       });
-      return { ok: true, value: defaultContext(resolved) };
+      return {
+        ok: true,
+        value: defaultContext({
+          ...resolved,
+          ...(context.signal === undefined ? {} : { signal: context.signal }),
+        }),
+      };
     } catch (error) {
       return {
         ok: false,

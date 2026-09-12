@@ -6,6 +6,8 @@ export interface CommandContext {
   readonly trigger: "api" | "command-palette" | "hotkey" | "menu" | "ui";
   readonly editor: EditorContext | null;
   readonly sourceId?: string;
+  /** Cancels pending invocation; callbacks that await work may also observe this signal. */
+  readonly signal?: AbortSignal;
 }
 
 export type CommandCallback = (context: CommandContext) => void | Promise<void>;
@@ -29,6 +31,8 @@ export interface CommandDefinitionBase {
   readonly description?: string;
   readonly icon?: string;
   readonly defaultHotkeys?: readonly HotkeyBinding[];
+  /** Defaults to true. Compatibility entrypoints may remain callable without duplicate palette entries. */
+  readonly showInCommandPalette?: boolean;
   readonly allowEditorFallback?: boolean;
 }
 
@@ -74,6 +78,7 @@ export interface RegisteredCommand {
   readonly description?: string;
   readonly icon?: string;
   readonly defaultHotkeys: readonly HotkeyBinding[];
+  readonly showInCommandPalette?: boolean;
 }
 
 export type CommandAvailability =

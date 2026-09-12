@@ -11,6 +11,8 @@
       "@floatboat/nexus-plugin-math": ["packages/plugin-math/src/index.ts"],
       "@floatboat/nexus-plugin-search": ["packages/plugin-search/src/index.ts"],
       "@floatboat/nexus-plugin-slash": ["packages/plugin-slash/src/index.ts"],
+      "@floatboat/nexus-plugin-formatting": ["packages/plugin-formatting/src/index.ts"],
+      "@floatboat/nexus-plugin-selection-toolbar": ["packages/plugin-selection-toolbar/src/index.ts"],
       "@floatboat/nexus-plugin-toolbar": ["packages/plugin-toolbar/src/index.ts"],
       "@floatboat/nexus-plugin-vim": ["packages/plugin-vim/src/index.ts"],
       "@floatboat/nexus-plugin-wordcount": ["packages/plugin-wordcount/src/index.ts"],

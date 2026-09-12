@@ -1,3 +1,5 @@
+import { SelectionToolbarLifecyclePlugin } from "@floatboat/nexus-plugin-selection-toolbar";
+import { createSelectionToolbarRuntimeGroups } from "./selection-toolbar";
 import type {
   MenuContext,
   SettingTabDefinition,
@@ -88,7 +90,9 @@ export function resolveReferencePluginFeatureFlags(
   const { pluginPlatform: _rendererOverride, ...rendererFeatures } = overrides;
   return Object.freeze({
     pluginPlatform: window.nexusHost?.mode === "runtime",
+    formatting: true,
     toolbar: true,
+    selectionToolbar: true,
     slashMenu: true,
     wordCount: true,
     ...rendererFeatures,
@@ -656,7 +660,14 @@ async function enableRuntimePlugins(
     if (matches.length !== 1) {
       throw new Error(`Bundled plugin constructor has ${matches.length} matching manifests`);
     }
-    const result = await runtime.enableBundledPlugin(matches[0].manifest, Plugin);
+    const Entrypoint = Plugin === SelectionToolbarLifecyclePlugin
+      ? class extends SelectionToolbarLifecyclePlugin {
+          constructor(...args: ConstructorParameters<typeof SelectionToolbarLifecyclePlugin>) {
+            super(args[0], args[1], { groups: createSelectionToolbarRuntimeGroups(), focusShortcut: true });
+          }
+        }
+      : Plugin;
+    const result = await runtime.enableBundledPlugin(matches[0].manifest, Entrypoint);
     if (!result.ok) {
       throw new AggregateError(
         result.diagnostics.map((diagnostic) => new Error(diagnostic.message)),
@@ -845,6 +856,8 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
     },
     contributionMode: bootPlan.mode,
     contributionFeatures: {
+      formatting: bootPlan.legacyFormatting,
+      selectionToolbar: bootPlan.legacyUi.selectionToolbar,
       toolbar: bootPlan.mode === "runtime"
         ? bootPlan.runtimePlugins.some((Plugin) =>
             bundledReferencePlugins.some((entry) => entry.Plugin === Plugin && entry.manifest.id === "toolbar"))

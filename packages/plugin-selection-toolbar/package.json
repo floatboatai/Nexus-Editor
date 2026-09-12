@@ -1,0 +1,33 @@
+{
+  "name": "@floatboat/nexus-plugin-selection-toolbar",
+  "version": "0.0.14",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean"
+  },
+  "dependencies": {
+    "@floatboat/nexus-core": "workspace:*",
+    "@floatboat/nexus-plugin-api": "workspace:*",
+    "@codemirror/view": "^6.36.1",
+    "@codemirror/language": "^6.12.3"
+  },
+  "devDependencies": {
+    "@floatboat/nexus-plugin-history": "workspace:*",
+    "@floatboat/nexus-plugin-formatting": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

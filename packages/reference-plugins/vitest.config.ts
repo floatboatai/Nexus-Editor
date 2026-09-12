@@ -16,6 +16,8 @@ export default defineConfig({
       "@floatboat/nexus-plugin-vim": resolveFromPackage("../plugin-vim/src/index.ts"),
       "@floatboat/nexus-preset-gfm": resolveFromPackage("../preset-gfm/src/index.ts"),
       "@floatboat/nexus-plugin-math": resolveFromPackage("../plugin-math/src/index.ts"),
+      "@floatboat/nexus-plugin-formatting": resolveFromPackage("../plugin-formatting/src/index.ts"),
+      "@floatboat/nexus-plugin-selection-toolbar": resolveFromPackage("../plugin-selection-toolbar/src/index.ts"),
       "@floatboat/nexus-plugin-toolbar": resolveFromPackage("../plugin-toolbar/src/index.ts"),
       "@floatboat/nexus-plugin-slash": resolveFromPackage("../plugin-slash/src/index.ts"),
       "@floatboat/nexus-plugin-wordcount": resolveFromPackage("../plugin-wordcount/src/index.ts"),

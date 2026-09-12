@@ -35,7 +35,12 @@
     "@floatboat/nexus-plugin-toolbar": "workspace:*",
     "@floatboat/nexus-plugin-vim": "workspace:*",
     "@floatboat/nexus-plugin-wordcount": "workspace:*",
-    "@floatboat/nexus-preset-gfm": "workspace:*"
+    "@floatboat/nexus-preset-gfm": "workspace:*",
+    "@floatboat/nexus-plugin-formatting": "workspace:*",
+    "@floatboat/nexus-plugin-selection-toolbar": "workspace:*"
+  },
+  "devDependencies": {
+    "@codemirror/view": "^6.36.1"
   },
   "publishConfig": {
     "access": "public",

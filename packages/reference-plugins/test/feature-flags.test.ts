@@ -1,3 +1,5 @@
+import { FormattingLifecyclePlugin } from "@floatboat/nexus-plugin-formatting";
+import { SelectionToolbarLifecyclePlugin } from "@floatboat/nexus-plugin-selection-toolbar";
 import {
   SlashLifecyclePlugin,
 } from "@floatboat/nexus-plugin-slash";
@@ -18,7 +20,7 @@ import {
 
 const BOOLEAN_VALUES = [false, true] as const;
 
-const FEATURE_FLAG_CASES = BOOLEAN_VALUES.flatMap((pluginPlatform) =>
+const LEGACY_FLAG_CASES = BOOLEAN_VALUES.flatMap((pluginPlatform) =>
   BOOLEAN_VALUES.flatMap((toolbar) =>
     BOOLEAN_VALUES.flatMap((slashMenu) =>
       BOOLEAN_VALUES.map((wordCount) => ({
@@ -37,6 +39,13 @@ const FEATURE_FLAG_CASES = BOOLEAN_VALUES.flatMap((pluginPlatform) =>
       })),
     ),
   ),
+);
+
+const FEATURE_FLAG_CASES = LEGACY_FLAG_CASES.flatMap(({ label, flags }) =>
+  BOOLEAN_VALUES.flatMap((formatting) => BOOLEAN_VALUES.map((selectionToolbar) => ({
+    label: `${label}, formatting=${formatting}, selectionToolbar=${selectionToolbar}`,
+    flags: { ...flags, formatting, selectionToolbar },
+  }))),
 );
 
 function countOwners(
@@ -61,6 +70,7 @@ describe("createReferencePluginBootPlan feature flags", () => {
     );
     expect(pairs.every((matches) => matches.length === 1)).toBe(true);
     expect(pairs.map(([entry]) => entry?.manifest.id)).toEqual([
+      "formatting",
       "toolbar",
       "slash-menu",
       "wordcount",
@@ -83,14 +93,20 @@ describe("createReferencePluginBootPlan feature flags", () => {
         countOwners(plan, plan.legacyUi.wordCount, WordCountLifecyclePlugin),
       ).toBe(Number(flags.wordCount));
 
+      expect(countOwners(plan, plan.legacyFormatting, FormattingLifecyclePlugin)).toBe(Number(flags.formatting));
+      expect(countOwners(plan, plan.legacyUi.selectionToolbar, SelectionToolbarLifecyclePlugin)).toBe(Number(flags.selectionToolbar));
+
       if (flags.pluginPlatform) {
         expect(plan.runtimePlugins).toEqual([
+          ...(flags.formatting ? [FormattingLifecyclePlugin] : []),
           ...(flags.toolbar ? [ToolbarLifecyclePlugin] : []),
+          ...(flags.selectionToolbar ? [SelectionToolbarLifecyclePlugin] : []),
           ...(flags.slashMenu ? [SlashLifecyclePlugin] : []),
           ...(flags.wordCount ? [WordCountLifecyclePlugin] : []),
         ]);
         expect(plan.legacyUi).toEqual({
           toolbar: false,
+          selectionToolbar: false,
           slashMenu: false,
           wordCount: false,
         });
@@ -101,6 +117,7 @@ describe("createReferencePluginBootPlan feature flags", () => {
       expect(plan.runtimePlugins).toEqual([]);
       expect(plan.legacyUi).toEqual({
         toolbar: flags.toolbar,
+        selectionToolbar: flags.selectionToolbar,
         slashMenu: flags.slashMenu,
         wordCount: flags.wordCount,
       });
@@ -109,33 +126,33 @@ describe("createReferencePluginBootPlan feature flags", () => {
         expect(plan.editorContributions).toContain(plan.legacyWordCount);
       }
       expect(plan.editorContributions.map((plugin) => plugin.name)).toEqual([
-        ...(flags.toolbar ? ["plugin-toolbar"] : []),
+        ...(flags.formatting ? ["plugin-formatting"] : []),
         ...(flags.wordCount ? ["plugin-wordcount"] : []),
       ]);
     },
   );
 
   it.each(FEATURE_FLAG_CASES)(
-    "$label only exposes the runtime slash catalogue when toolbar and slash menu are enabled",
+    "$label only exposes the runtime slash catalogue when formatting and slash menu are enabled",
     ({ flags }) => {
       const plan = createReferencePluginBootPlan(flags);
       const shouldExposeCatalogue =
-        flags.pluginPlatform && flags.toolbar && flags.slashMenu;
+        flags.pluginPlatform && flags.formatting && flags.slashMenu;
 
       expect(plan.editorContributions).toHaveLength(
         flags.pluginPlatform
           ? Number(shouldExposeCatalogue)
-          : Number(flags.toolbar) + Number(flags.wordCount),
+          : Number(flags.formatting) + Number(flags.wordCount),
       );
 
       if (!flags.pluginPlatform || !shouldExposeCatalogue) return;
 
       const [catalogue] = plan.editorContributions;
-      expect(catalogue?.name).toBe("plugin-toolbar-runtime-slash-catalogue");
+      expect(catalogue?.name).toBe("plugin-formatting-runtime-slash-catalogue");
       expect(catalogue?.slashCommands?.length).toBeGreaterThan(0);
       expect(
         catalogue?.slashCommands?.every((command) =>
-          command.id.startsWith("toolbar:"),
+          command.id.startsWith("formatting:"),
         ),
       ).toBe(true);
       expect(

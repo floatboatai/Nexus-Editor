@@ -33,9 +33,12 @@
     "@floatboat/nexus-plugin-wordcount": "workspace:*",
     "@floatboat/nexus-reference-plugins": "workspace:*",
     "@floatboat/nexus-preset-gfm": "workspace:*",
-    "highlight.js": "^11.11.0"
+    "highlight.js": "^11.11.0",
+    "@floatboat/nexus-plugin-formatting": "workspace:*",
+    "@floatboat/nexus-plugin-selection-toolbar": "workspace:*"
   },
   "devDependencies": {
+    "@codemirror/view": "^6.36.1",
     "electron": "^35.0.0",
     "electron-builder": "^25.1.8",
     "npm-run-all2": "^7.0.0",

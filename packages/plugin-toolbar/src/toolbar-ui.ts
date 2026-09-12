@@ -8,8 +8,6 @@ import {
   insertLink,
   toggleHeading,
   toggleWrap,
-} from "./toolbar-commands";
-import {
   toggleBlockquote,
   toggleOrderedList,
   toggleUnorderedList,
@@ -17,7 +15,7 @@ import {
   insertImage,
   applyTextColor,
   applyHighlight,
-} from "./formatting";
+} from "@floatboat/nexus-plugin-formatting";
 import {
   iconUndo,
   iconRedo,
