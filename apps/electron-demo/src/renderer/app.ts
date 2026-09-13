@@ -91,6 +91,7 @@ export function resolveReferencePluginFeatureFlags(
     toolbar: true,
     slashMenu: true,
     wordCount: true,
+    blockDrag: true,
     ...rendererFeatures,
   });
 }
@@ -843,24 +844,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
     onWikilinkNavigate: (target, opts) => {
       void handleWikilinkNavigate(target, opts);
     },
-    contributionMode: bootPlan.mode,
-    contributionFeatures: {
-      toolbar: bootPlan.mode === "runtime"
-        ? bootPlan.runtimePlugins.some((Plugin) =>
-            bundledReferencePlugins.some((entry) => entry.Plugin === Plugin && entry.manifest.id === "toolbar"))
-        : bootPlan.legacyUi.toolbar,
-      slashMenu: bootPlan.mode === "runtime"
-        ? bootPlan.runtimePlugins.some((Plugin) =>
-            bundledReferencePlugins.some((entry) => entry.Plugin === Plugin && entry.manifest.id === "slash-menu"))
-        : bootPlan.legacyUi.slashMenu,
-      wordCount: bootPlan.mode === "runtime"
-        ? bootPlan.runtimePlugins.some((Plugin) =>
-            bundledReferencePlugins.some((entry) => entry.Plugin === Plugin && entry.manifest.id === "wordcount"))
-        : bootPlan.legacyUi.wordCount,
-    },
-    editorContributions: bootPlan.mode === "runtime"
-      ? bootPlan.editorContributions
-      : [],
+    pluginPlan: bootPlan,
   });
   shellCreated = true;
 

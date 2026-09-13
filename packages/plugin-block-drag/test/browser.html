@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>Nexus · 块拖拽验收</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 28px; font: 15px/1.6 system-ui; color: #30343b; background: #f5f6f8; }
+  main { max-width: 1040px; margin: auto; }
+  h1 { font-size: 24px; margin: 0 0 16px; }
+  nav { display: flex; gap: 20px; align-items: center; margin-bottom: 16px; }
+  button, select { font: inherit; }
+  #editor { background: white; border: 1px solid #d9dde3; border-radius: 10px; overflow: hidden; }
+  .cm-editor { height: 440px; }
+  .cm-scroller { overflow: auto; }
+  pre { white-space: pre-wrap; background: white; padding: 18px; border-radius: 8px; }
+</style>
+<main>
+  <h1>块拖拽验收</h1>
+  <nav>
+    <label><input id="live" type="checkbox" checked> 实时预览</label>
+    <label><input id="enabled" type="checkbox" checked> 启用拖拽</label>
+    <label><input id="readonly" type="checkbox"> 只读</label>
+    <select id="sample" aria-label="示例文档">
+      <option value="basic">基础块</option>
+      <option value="long">长文档</option>
+      <option value="lists">列表边界</option>
+    </select>
+    <button id="undo">撤销</button><button id="redo">重做</button>
+  </nav>
+  <div id="editor"></div>
+  <h2>Markdown</h2>
+  <pre id="output" aria-label="当前 Markdown"></pre>
+</main>
+<script type="module" src="./browser.ts"></script>
+</html>

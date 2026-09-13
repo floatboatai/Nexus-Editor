@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createReferencePluginBootPlan } from "@floatboat/nexus-reference-plugins";
 import { createEditorShell, resolveImageSrc } from "../src/renderer/editor-shell";
 import { createState } from "../src/renderer/state";
 import { defaultSettings } from "../src/renderer/settings";
@@ -72,7 +73,9 @@ describe("createEditorShell", () => {
       container,
       state: createState(),
       settings: defaultSettings(),
-      contributionMode: "runtime",
+      pluginPlan: createReferencePluginBootPlan({
+        pluginPlatform: true, toolbar: true, slashMenu: true, wordCount: true, blockDrag: true,
+      }),
       onStateChange: vi.fn(),
     });
 
@@ -81,9 +84,38 @@ describe("createEditorShell", () => {
     expect(shell.wordcount).toBeNull();
     expect(container.querySelectorAll(".nexus-toolbar")).toHaveLength(0);
     expect(document.body.querySelectorAll(".nexus-slash-menu")).toHaveLength(0);
-    expect(container.querySelectorAll("[data-testid='nexus-wordcount-bar']")).toHaveLength(0);
+    expect(container.querySelectorAll(".nexus-wordcount__bar")).toHaveLength(0);
+    expect(container.querySelectorAll(".nexus-block-drag-layer")).toHaveLength(0);
 
     shell.destroy();
+    container.remove();
+  });
+
+  it.each([false, true])("uses the supplied legacy plugin instances (blockDrag=%s)", async (blockDrag) => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const pluginPlan = createReferencePluginBootPlan({
+      pluginPlatform: false, toolbar: true, slashMenu: false, wordCount: true, blockDrag,
+    });
+    const state = createState();
+    state.content = "Alpha beta";
+    const shell = createEditorShell({
+      container, state, settings: defaultSettings(), pluginPlan, onStateChange: vi.fn(),
+    });
+    await Promise.resolve();
+
+    expect(shell.wordcount).toBe(pluginPlan.legacyWordCount);
+    expect(shell.wordcount?.getStats().words).toBe(2);
+    expect(container.querySelectorAll(".nexus-toolbar")).toHaveLength(1);
+    expect(container.querySelectorAll(".nexus-wordcount__bar")).toHaveLength(1);
+    expect(container.querySelectorAll(".nexus-block-drag-layer")).toHaveLength(Number(blockDrag));
+    expect(shell.slashMenu).toBeNull();
+    const commandIds = shell.editor.getSlashCommands().map((command) => command.id);
+    expect(commandIds.length).toBeGreaterThan(0);
+    expect(commandIds).toHaveLength(new Set(commandIds).size);
+
+    shell.destroy();
+    expect(container.querySelectorAll(".nexus-wordcount__bar, .nexus-toolbar, .nexus-block-drag-layer")).toHaveLength(0);
     container.remove();
   });
 });

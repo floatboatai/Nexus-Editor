@@ -219,6 +219,7 @@ describe("Electron renderer plugin runtime integration", () => {
       "toolbar",
       "slash-menu",
       "wordcount",
+      "block-drag",
     ]);
     expect(app.slots["editor-toolbar"].querySelectorAll("[data-ui-action-id]")).toHaveLength(17);
     const slashCommandIds = app.shell.editor.getSlashCommands().map((command) => command.id);

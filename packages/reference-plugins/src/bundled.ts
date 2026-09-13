@@ -6,6 +6,7 @@ import {
   SlashLifecyclePlugin,
   slashLifecyclePluginManifest,
 } from "@floatboat/nexus-plugin-slash";
+import { BlockDragLifecyclePlugin, blockDragLifecyclePluginManifest } from "@floatboat/nexus-plugin-block-drag";
 import {
   ToolbarLifecyclePlugin,
   toolbarLifecyclePluginManifest,
@@ -30,6 +31,7 @@ export const bundledReferencePlugins: readonly BundledReferencePlugin[] = Object
   { manifest: wordCountLifecyclePluginManifest, Plugin: WordCountLifecyclePlugin },
   { manifest: toolbarLifecyclePluginManifest, Plugin: ToolbarLifecyclePlugin },
   { manifest: slashLifecyclePluginManifest, Plugin: SlashLifecyclePlugin },
+  { manifest: blockDragLifecyclePluginManifest, Plugin: BlockDragLifecyclePlugin },
   { manifest: obsidianSamplePortManifest, Plugin: ObsidianSamplePortPlugin },
 ]);
 
