@@ -1,6 +1,6 @@
 import { EditorSelection, Transaction } from "@codemirror/state";
 import { EditorView, ViewPlugin } from "@codemirror/view";
-import { history } from "@codemirror/commands";
+import { history, isolateHistory } from "@codemirror/commands";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -40,6 +40,34 @@ function transaction(
 }
 
 describe("core editor transaction pipeline", () => {
+  it("keeps native history isolation when a filter replaces a transaction", async () => {
+    const { editor, view } = createTestEditor("ab");
+    await editor.getContributionSink().registerExtension("history-test", history()).ready;
+    editor.getContributionSink().registerTransactionFilter("formatter", (context) => {
+      if (!context.origin.includes("isolated-command")) return { action: "accept" };
+      return { action: "replace", transaction: {
+        changes: context.changes,
+        selection: context.selectionAfter,
+        origin: ["formatter"],
+        userEvent: "input.type",
+      } };
+    });
+    view.dispatch({ changes: { from: 1, insert: "X" }, selection: { anchor: 2 }, userEvent: "input.type" });
+    view.dispatch({
+      changes: { from: 2, insert: "Y" }, selection: { anchor: 3 }, userEvent: "input.paste",
+      annotations: [editorTransactionOrigin.of(["isolated-command"]), isolateHistory.of("full")],
+    });
+    view.dispatch({ changes: { from: 3, insert: "Z" }, selection: { anchor: 4 }, userEvent: "input.type" });
+    expect(editor.getDocument()).toBe("aXYZb");
+    editor.undo();
+    expect(editor.getDocument()).toBe("aXYb");
+    editor.undo();
+    expect(editor.getDocument()).toBe("aXb");
+    editor.undo();
+    expect(editor.getDocument()).toBe("ab");
+    editor.destroy();
+  });
+
   it("filters before commit and only notifies listeners with the final update", () => {
     const { editor } = createTestEditor();
     const sink = editor.getContributionSink();
