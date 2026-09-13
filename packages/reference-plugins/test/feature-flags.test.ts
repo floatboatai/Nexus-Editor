@@ -7,6 +7,7 @@ import {
 import {
   WordCountLifecyclePlugin,
 } from "@floatboat/nexus-plugin-wordcount";
+import { BlockDragLifecyclePlugin } from "@floatboat/nexus-plugin-block-drag";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -48,6 +49,16 @@ function countOwners(
 }
 
 describe("createReferencePluginBootPlan feature flags", () => {
+  it.each([false, true])("assigns exactly one block-drag owner (runtime=%s)", (pluginPlatform) => {
+    const flags = { pluginPlatform, toolbar: false, slashMenu: false, wordCount: false, blockDrag: true };
+    const plan = createReferencePluginBootPlan(flags);
+    expect(Number(plan.runtimePlugins.includes(BlockDragLifecyclePlugin)) +
+      plan.editorContributions.filter((plugin) => plugin.name === "plugin-block-drag").length).toBe(1);
+    const disabled = createReferencePluginBootPlan({ ...flags, blockDrag: false });
+    expect(disabled.runtimePlugins).not.toContain(BlockDragLifecyclePlugin);
+    expect(disabled.editorContributions.some((plugin) => plugin.name === "plugin-block-drag")).toBe(false);
+  });
+
   it("pairs every runtime constructor with exactly one bundled manifest id", () => {
     const plan = createReferencePluginBootPlan({
       pluginPlatform: true,
@@ -93,6 +104,7 @@ describe("createReferencePluginBootPlan feature flags", () => {
           toolbar: false,
           slashMenu: false,
           wordCount: false,
+          blockDrag: false,
         });
         expect(plan.legacyWordCount).toBeNull();
         return;
@@ -103,6 +115,7 @@ describe("createReferencePluginBootPlan feature flags", () => {
         toolbar: flags.toolbar,
         slashMenu: flags.slashMenu,
         wordCount: flags.wordCount,
+        blockDrag: false,
       });
       expect(Boolean(plan.legacyWordCount)).toBe(flags.wordCount);
       if (plan.legacyWordCount) {

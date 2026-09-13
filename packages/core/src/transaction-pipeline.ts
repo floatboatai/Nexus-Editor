@@ -6,6 +6,7 @@ import {
   type TransactionSpec,
 } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
+import { isolateHistory } from "@codemirror/commands";
 
 import type {
   CoreEditorChange,
@@ -306,9 +307,13 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
         return { status: "rejected", ownerId: entry.ownerId, reason: result.reason };
       }
       if (result.action === "replace") {
+        const isolation = transaction.annotation(isolateHistory);
         transaction = transaction.startState.update({
           ...toTransactionSpec(inheritReplacement(context, result.transaction)),
           filter: false,
+        }, {
+          // A filter rewrite must preserve the caller's undo boundaries.
+          annotations: isolation ? isolateHistory.of(isolation) : [],
         });
         context = makeContext(this.host.editor, transaction);
       }

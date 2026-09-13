@@ -154,6 +154,27 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/plugin-block-drag:
+    dependencies:
+      '@codemirror/commands':
+        specifier: ^6.10.3
+        version: 6.10.3
+      '@codemirror/language':
+        specifier: ^6.12.3
+        version: 6.12.3
+      '@codemirror/state':
+        specifier: ^6.6.0
+        version: 6.6.0
+      '@codemirror/view':
+        specifier: ^6.41.0
+        version: 6.41.0
+      '@floatboat/nexus-core':
+        specifier: workspace:*
+        version: link:../core
+      '@floatboat/nexus-plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
+
   packages/plugin-history:
     dependencies:
       '@codemirror/commands':
@@ -308,6 +329,9 @@ importers:
       '@floatboat/nexus-plugin-api':
         specifier: workspace:*
         version: link:../plugin-api
+      '@floatboat/nexus-plugin-block-drag':
+        specifier: workspace:*
+        version: link:../plugin-block-drag
       '@floatboat/nexus-plugin-history':
         specifier: workspace:*
         version: link:../plugin-history

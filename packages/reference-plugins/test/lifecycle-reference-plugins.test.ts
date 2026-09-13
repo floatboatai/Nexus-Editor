@@ -42,6 +42,7 @@ import {
   type EditorHostAttachment,
 } from "@floatboat/nexus-plugin-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { BlockDragLifecyclePlugin, blockDragLifecyclePluginManifest } from "@floatboat/nexus-plugin-block-drag";
 
 interface EditorFixture {
   readonly editor: EditorAPI;
@@ -230,6 +231,30 @@ function content(fixture: EditorFixture): HTMLElement {
 }
 
 describe("reference plugin lifecycle", () => {
+  it("installs block dragging in current/future editors and unloads every instance", async () => {
+    const capabilities = new RuntimeCapabilityRegistry();
+    const commands = new CommandRegistry();
+    const editors = new EditorHostRegistry({ editorIdPrefix: "block-editor" });
+    installBaseCapabilities(capabilities, commands, editors);
+    const first = await attachEditor(editors, null, "Alpha\n\nBeta");
+    const root = first.container.querySelector(".cm-editor");
+    const plugin = managePlugin(capabilities, blockDragLifecyclePluginManifest,
+      (app, manifest) => new BlockDragLifecyclePlugin(app, manifest));
+    await plugin.load();
+    expect(first.container.querySelectorAll(".nexus-block-drag-layer")).toHaveLength(1);
+    const second = await attachEditor(editors, null, "One\n\nTwo");
+    expect(second.container.querySelectorAll(".nexus-block-drag-layer")).toHaveLength(1);
+    content(first).dispatchEvent(new KeyboardEvent("keydown", {
+      key: "ArrowDown", code: "ArrowDown", altKey: true, shiftKey: true, bubbles: true, cancelable: true,
+    }));
+    expect(first.editor.getDocument()).toBe("Beta\n\nAlpha");
+    expect(second.editor.getDocument()).toBe("One\n\nTwo");
+    await plugin.unload();
+    expect(first.container.querySelector(".cm-editor")).toBe(root);
+    expect(document.querySelectorAll(".nexus-block-drag-layer")).toHaveLength(0);
+    expect(first.editor.getDocument()).toBe("Beta\n\nAlpha");
+  });
+
   it("keeps word-count state isolated across current and future editors", async () => {
     const capabilities = new RuntimeCapabilityRegistry();
     const commands = new CommandRegistry();

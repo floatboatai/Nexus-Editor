@@ -19,6 +19,7 @@ export default defineConfig({
       "@floatboat/nexus-plugin-toolbar": resolveFromPackage("../plugin-toolbar/src/index.ts"),
       "@floatboat/nexus-plugin-slash": resolveFromPackage("../plugin-slash/src/index.ts"),
       "@floatboat/nexus-plugin-wordcount": resolveFromPackage("../plugin-wordcount/src/index.ts"),
+      "@floatboat/nexus-plugin-block-drag": resolveFromPackage("../plugin-block-drag/src/index.ts"),
     },
   },
   test: {

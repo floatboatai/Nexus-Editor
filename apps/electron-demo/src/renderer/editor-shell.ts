@@ -3,12 +3,14 @@ import {
   createWikilinksPlugin,
   type EditorAPI,
   type LivePreviewRenderContext,
-  type NexusPlugin,
 } from "@floatboat/nexus-core";
 import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
 import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
 import {
-  createToolbarPlugin,
+  createReferencePluginBootPlan,
+  type ReferencePluginBootPlan,
+} from "@floatboat/nexus-reference-plugins";
+import {
   createToolbarUI,
   type ToolbarUI,
 } from "@floatboat/nexus-plugin-toolbar";
@@ -16,7 +18,7 @@ import { createSearchPlugin } from "@floatboat/nexus-plugin-search";
 import { createSlashMenuUI, type SlashMenuUI } from "@floatboat/nexus-plugin-slash";
 import {
   attachWordCountPlugin,
-  createWordCountPlugin,
+  createStatusBar,
   type WordCountPlugin
 } from "@floatboat/nexus-plugin-wordcount";
 import type { AppState } from "./state";
@@ -56,19 +58,8 @@ export interface EditorShellOptions {
   resolveWikilink?(name: string): string | null;
   /** Returns autocomplete candidates for the query after `[[`. */
   suggestWikilinks?(query: string): string[];
-  /**
-   * Selects the single owner for migrated editor contributions. Runtime mode
-   * leaves toolbar, slash-menu and word-count lifecycle to PluginManager.
-   */
-  contributionMode?: "legacy" | "runtime";
-  /** Per-feature flags supplied by the reference-plugin boot plan. */
-  contributionFeatures?: Readonly<{
-    toolbar: boolean;
-    slashMenu: boolean;
-    wordCount: boolean;
-  }>;
-  /** Extra static contributions selected by the host boot plan. */
-  editorContributions?: readonly NexusPlugin[];
+  /** Shared with the runtime so each feature has exactly one plugin owner. */
+  pluginPlan?: ReferencePluginBootPlan;
 }
 
 export interface EditorShell {
@@ -92,11 +83,11 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     onWikilinkNavigate,
     resolveWikilink,
     suggestWikilinks,
-    contributionMode = "legacy",
-    contributionFeatures = { toolbar: true, slashMenu: true, wordCount: true },
-    editorContributions = [],
+    pluginPlan = createReferencePluginBootPlan({
+      pluginPlatform: false, toolbar: true, slashMenu: true, wordCount: true, blockDrag: true,
+    }),
   } = options;
-  const runtimeManaged = contributionMode === "runtime";
+  const wordcount = pluginPlan.legacyWordCount;
 
   // Forward ref so the image renderer (built BEFORE createEditor returns)
   // can dispatch selection changes through the editor API after it exists.
@@ -107,16 +98,6 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     onNavigate: onWikilinkNavigate,
     suggest: suggestWikilinks ? (q) => suggestWikilinks(q) : undefined,
   });
-
-  // The wordcount plugin reads `editor.getAst()` on each (debounced)
-  // change — no double parsing — and mounts an ARIA-live status bar in
-  // the editor container's footer. Bound to the editor instance via
-  // `attachWordCountPlugin` once `createEditor` returns.
-  const wordcount = runtimeManaged || !contributionFeatures.wordCount
-    ? null
-    : createWordCountPlugin({
-        statusBar: { container, classPrefix: "nexus-wordcount" },
-      });
 
   // No more parser worker. Live-preview drives off `syntaxTree(state)` from
   // @codemirror/lang-markdown (incremental, intrinsic to EditorState), and
@@ -138,11 +119,9 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     plugins: [
       createGfmPreset(),
       createHistoryPlugin(),
-      ...(!runtimeManaged && contributionFeatures.toolbar ? [createToolbarPlugin()] : []),
       createSearchPlugin(),
       wikilinksPlugin,
-      ...(wordcount ? [wordcount] : []),
-      ...editorContributions,
+      ...pluginPlan.editorContributions,
     ],
     livePreview: settings.livePreview
       ? {
@@ -332,23 +311,17 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
 
   editorRef.current = editor;
 
-  const toolbar = runtimeManaged || !contributionFeatures.toolbar
-    ? null
-    : createToolbarUI(editor);
+  const toolbar = pluginPlan.legacyUi.toolbar ? createToolbarUI(editor) : null;
   if (toolbar) container.insertBefore(toolbar.element, container.firstChild);
 
   // The slash menu owns its own DOM root mounted on document.body so
   // it can overflow the editor's clipping context (panels, scroll
   // ancestors). Its lifecycle is tied to the shell — destroyed below.
-  const slashMenu = runtimeManaged || !contributionFeatures.slashMenu
-    ? null
-    : createSlashMenuUI(editor);
+  const slashMenu = pluginPlan.legacyUi.slashMenu ? createSlashMenuUI(editor) : null;
 
-  // Bind the wordcount plugin now that the editor is fully constructed.
-  // The plugin's status-bar widget mounts on its first emission (next
-  // microtask), so it's already wired by the time the user sees the
-  // first paint.
+  // The boot plan owns the headless plugin; the shell owns its legacy UI.
   if (wordcount) attachWordCountPlugin(wordcount, editor);
+  const wordcountBar = wordcount ? createStatusBar(wordcount, { container }) : null;
 
   return {
     editor,
@@ -377,6 +350,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
         `${(t1 - t0).toFixed(1)}ms`, { bytes: content.length });
     },
     destroy() {
+      wordcountBar?.destroy();
       wordcount?.destroy();
       slashMenu?.destroy();
       toolbar?.destroy();
