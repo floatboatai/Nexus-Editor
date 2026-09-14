@@ -57,7 +57,26 @@ export function useEditor(config: MaybeRefOrGetter<UseEditorConfig>): UseEditorR
     const runtime = ownership?.kind === "owned"
       ? (ownedRuntime = ownership.createRuntime())
       : ownership?.runtime;
-    runtimeAttachment = runtime?.attachEditor(instance, containerRef.value) ?? null;
+    try {
+      runtimeAttachment = runtime?.attachEditor(instance, containerRef.value) ?? null;
+    } catch (attachError) {
+      const failedRuntime = ownedRuntime;
+      runtimeAttachment = null;
+      ownedRuntime = null;
+      if (failedRuntime) {
+        try {
+          void Promise.resolve(failedRuntime.dispose()).catch(() => undefined);
+        } catch {
+          // Preserve the original attach failure.
+        }
+      }
+      try {
+        instance.destroy();
+      } catch {
+        // Preserve the original attach failure.
+      }
+      throw attachError;
+    }
     editor.value = instance;
 
     lastSyncedDocRef.value = resolveInitialDocument(

@@ -3,7 +3,7 @@ import type { Root } from "mdast";
 import { useEffect, useRef, useState } from "react";
 
 import { resolveInitialDocument, shouldSyncControlledDocument } from "./controlled-document";
-import type { UseEditorConfig, UseEditorResult } from "./types";
+import type { EditorRuntimeAttachment, UseEditorConfig, UseEditorResult } from "./types";
 
 function buildCreateConfig(
   container: HTMLDivElement,
@@ -50,7 +50,24 @@ export function useEditor(config: UseEditorConfig): UseEditorResult {
       ? ownership.createRuntime()
       : null;
     const runtime = ownedRuntime ?? (ownership?.kind === "borrowed" ? ownership.runtime : undefined);
-    const attachment = runtime?.attachEditor(instance, container);
+    let attachment: EditorRuntimeAttachment | undefined;
+    try {
+      attachment = runtime?.attachEditor(instance, container);
+    } catch (attachError) {
+      if (ownedRuntime) {
+        try {
+          void Promise.resolve(ownedRuntime.dispose()).catch(() => undefined);
+        } catch {
+          // Preserve the original attach failure.
+        }
+      }
+      try {
+        instance.destroy();
+      } catch {
+        // Preserve the original attach failure.
+      }
+      throw attachError;
+    }
 
     lastSyncedDocRef.current = resolveInitialDocument(
       configRef.current.value,

@@ -1,6 +1,6 @@
 import type { EditorAPI } from "@floatboat/nexus-core";
 import { mount } from "@vue/test-utils";
-import { defineComponent, h, nextTick, onMounted, ref } from "vue";
+import { defineComponent, h, nextTick, onErrorCaptured, onMounted, ref } from "vue";
 import { describe, expect, it, vi } from "vitest";
 import { Editor, useEditor } from "../src/index";
 
@@ -313,5 +313,85 @@ describe("@floatboat/nexus-vue", () => {
     wrapper.unmount();
     await vi.waitFor(() => expect(events).toEqual(["detach", "dispose"]));
     expect(createRuntime).toHaveBeenCalledOnce();
+  });
+
+  it("rolls back the editor and owned runtime when attach fails", async () => {
+    const attachError = new Error("attach failed");
+    const onReady = vi.fn();
+    let capturedError: unknown;
+    let attachedRoot: HTMLElement | null = null;
+    let partialResourceActive = false;
+    const dispose = vi.fn(async () => {
+      partialResourceActive = false;
+    });
+    const runtime = {
+      attachEditor(_editor: EditorAPI, root: HTMLElement) {
+        attachedRoot = root;
+        partialResourceActive = true;
+        throw attachError;
+      },
+      dispose,
+    };
+    const Harness = defineComponent({
+      setup() {
+        onErrorCaptured((error) => {
+          capturedError = error;
+          return false;
+        });
+        return () => h(Editor, {
+          runtime: { kind: "owned", createRuntime: () => runtime },
+          onReady,
+        });
+      },
+    });
+
+    const wrapper = mount(Harness);
+    await nextTick();
+
+    expect(capturedError).toBe(attachError);
+    expect(attachedRoot).not.toBeNull();
+    expect(attachedRoot!.querySelector(".cm-editor")).toBeNull();
+    await vi.waitFor(() => expect(dispose).toHaveBeenCalledOnce());
+    expect(partialResourceActive).toBe(false);
+    expect(onReady).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("rolls back the editor without disposing a borrowed runtime when attach fails", async () => {
+    const attachError = new Error("borrowed attach failed");
+    let capturedError: unknown;
+    let attachedRoot: HTMLElement | null = null;
+    const dispose = vi.fn();
+    const runtime = {
+      attachEditor(_editor: EditorAPI, root: HTMLElement) {
+        attachedRoot = root;
+        throw attachError;
+      },
+      dispose,
+    };
+    const Harness = defineComponent({
+      setup() {
+        onErrorCaptured((error) => {
+          capturedError = error;
+          return false;
+        });
+        return () => h(Editor, {
+          runtime: { kind: "borrowed", runtime },
+        });
+      },
+    });
+
+    const wrapper = mount(Harness);
+    await nextTick();
+
+    expect(capturedError).toBe(attachError);
+    expect(attachedRoot).not.toBeNull();
+    expect(attachedRoot!.querySelector(".cm-editor")).toBeNull();
+    expect(dispose).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+    expect(dispose).not.toHaveBeenCalled();
   });
 });

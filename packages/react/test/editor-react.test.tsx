@@ -1,8 +1,27 @@
 import type { EditorAPI } from "@floatboat/nexus-core";
 import { render, waitFor } from "@testing-library/react";
-import { StrictMode, useEffect, useState } from "react";
+import { Component, StrictMode, useEffect, useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Editor, useEditor } from "../src/index";
+
+class TestErrorBoundary extends Component<
+  { children: ReactNode; onError: (error: Error) => void },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error) {
+    this.props.onError(error);
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
 
 describe("@floatboat/nexus-react", () => {
   it("renders an editor into the provided container through the Editor component", () => {
@@ -291,6 +310,74 @@ describe("@floatboat/nexus-react", () => {
     expect(createRuntime).toHaveBeenCalledOnce();
     unmount();
     await waitFor(() => expect(events).toEqual(["detach", "dispose"]));
+  });
+
+  it("rolls back the editor and owned runtime when attach fails", async () => {
+    const attachError = new Error("attach failed");
+    const onReady = vi.fn();
+    let capturedError: Error | null = null;
+    let attachedRoot: HTMLElement | null = null;
+    let partialResourceActive = false;
+    const dispose = vi.fn(async () => {
+      partialResourceActive = false;
+    });
+    const runtime = {
+      attachEditor(_editor: EditorAPI, root: HTMLElement) {
+        attachedRoot = root;
+        partialResourceActive = true;
+        throw attachError;
+      },
+      dispose,
+    };
+
+    const { unmount } = render(
+      <TestErrorBoundary onError={(error) => { capturedError = error; }}>
+        <Editor
+          runtime={{ kind: "owned", createRuntime: () => runtime }}
+          onReady={onReady}
+        />
+      </TestErrorBoundary>,
+      { onCaughtError() {} }
+    );
+
+    await waitFor(() => expect(capturedError).toBe(attachError));
+    expect(attachedRoot).not.toBeNull();
+    expect(attachedRoot!.querySelector(".cm-editor")).toBeNull();
+    await waitFor(() => expect(dispose).toHaveBeenCalledOnce());
+    expect(partialResourceActive).toBe(false);
+    expect(onReady).not.toHaveBeenCalled();
+
+    unmount();
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("rolls back the editor without disposing a borrowed runtime when attach fails", async () => {
+    const attachError = new Error("borrowed attach failed");
+    let capturedError: Error | null = null;
+    let attachedRoot: HTMLElement | null = null;
+    const dispose = vi.fn();
+    const runtime = {
+      attachEditor(_editor: EditorAPI, root: HTMLElement) {
+        attachedRoot = root;
+        throw attachError;
+      },
+      dispose,
+    };
+
+    const { unmount } = render(
+      <TestErrorBoundary onError={(error) => { capturedError = error; }}>
+        <Editor runtime={{ kind: "borrowed", runtime }} />
+      </TestErrorBoundary>,
+      { onCaughtError() {} }
+    );
+
+    await waitFor(() => expect(capturedError).toBe(attachError));
+    expect(attachedRoot).not.toBeNull();
+    expect(attachedRoot!.querySelector(".cm-editor")).toBeNull();
+    expect(dispose).not.toHaveBeenCalled();
+
+    unmount();
+    expect(dispose).not.toHaveBeenCalled();
   });
 
   it("attaches multiple editors to one borrowed runtime independently", () => {
