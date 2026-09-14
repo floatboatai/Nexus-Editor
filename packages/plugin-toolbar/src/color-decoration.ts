@@ -57,12 +57,12 @@ function findColorRanges(doc: string): ColorRange[] {
   let m: RegExpExecArray | null;
   while ((m = COLOR_RE.exec(doc)) !== null) {
     const from = m.index;
-    const openTag = `<span style="color:${m[1]}">`;
     const closeTag = "</span>";
+    const openTagLength = m[0].length - m[2].length - closeTag.length;
     ranges.push({
       from,
       to: from + m[0].length,
-      innerFrom: from + openTag.length,
+      innerFrom: from + openTagLength,
       innerTo: from + m[0].length - closeTag.length,
       color: m[1].trim(),
       kind: "color",
@@ -72,12 +72,12 @@ function findColorRanges(doc: string): ColorRange[] {
   HIGHLIGHT_RE.lastIndex = 0;
   while ((m = HIGHLIGHT_RE.exec(doc)) !== null) {
     const from = m.index;
-    const openTag = `<mark style="background:${m[1]}">`;
     const closeTag = "</mark>";
+    const openTagLength = m[0].length - m[2].length - closeTag.length;
     ranges.push({
       from,
       to: from + m[0].length,
-      innerFrom: from + openTag.length,
+      innerFrom: from + openTagLength,
       innerTo: from + m[0].length - closeTag.length,
       color: m[1].trim(),
       kind: "background",
