@@ -10,6 +10,7 @@ import type {
   LivePreviewRenderContext,
   LivePreviewRenderer
 } from "./types";
+import { isSafeUrl } from "./sanitize-html";
 
 function getText(node: LivePreviewNode): string {
   if ("value" in node && typeof node.value === "string") {
@@ -59,8 +60,16 @@ export function createDefaultRenderer(context: LivePreviewRenderContext): HTMLEl
       return element;
     }
     case "link": {
-      const element = document.createElement("a");
       const url = context.node.url;
+      if (!isSafeUrl(url)) {
+        // The editor renders links through its marker path, which applies the same
+        // policy. Guarding this fallback too means no copy of the navigation sink
+        // is left open if that path ever changes.
+        const inert = document.createElement("span");
+        inert.textContent = context.text;
+        return inert;
+      }
+      const element = document.createElement("a");
       element.textContent = context.text;
       element.href = url;
       element.rel = "noopener noreferrer";

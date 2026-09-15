@@ -3,6 +3,7 @@ import type { Table } from "mdast";
 
 import type { LivePreviewLabels } from "./types";
 import { setInputTargetProvider } from "./input-target-provider";
+import { isSafeUrl } from "./sanitize-html";
 
 const tableEditingCounts = new WeakMap<EditorView, number>();
 
@@ -432,8 +433,21 @@ function renderInlineMdast(node: any, mediaOnly = false, tableFrom = 0, rawSourc
       return text;
     }
     case "link": {
+      const url = typeof node.url === "string" ? node.url : "#";
+      if (!isSafeUrl(url)) {
+        // A blocked destination keeps the cell's content but offers nothing to
+        // click. The media-only layout is preserved so cell height, which
+        // CodeMirror measures, does not change with the destination.
+        const inert = document.createElement("span");
+        if (mediaOnly) {
+          inert.style.display = "block";
+          inert.style.lineHeight = "0";
+        }
+        for (const child of node.children ?? []) inert.appendChild(renderInlineMdast(child, mediaOnly, tableFrom, rawSourceStart));
+        return inert;
+      }
       const a = document.createElement("a");
-      a.href = typeof node.url === "string" ? node.url : "#";
+      a.href = url;
       a.target = "_blank";
       a.rel = "noopener noreferrer";
       a.style.cssText =

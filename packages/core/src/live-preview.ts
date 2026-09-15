@@ -15,6 +15,7 @@ import { createLivePreviewDiagnostics } from "./live-preview-diag";
 import { collectLivePreviewRanges, selectionIntersects, selectionOnSameLine } from "./live-preview-ranges";
 import { renderLivePreviewNode } from "./live-preview-renderers";
 import { EditableTableWidget, isTableEditing } from "./live-preview-table";
+import { sanitizeHtmlFragment, isSafeUrl } from "./sanitize-html";
 import type {
   LivePreviewConfig,
   LivePreviewLabels,
@@ -590,27 +591,6 @@ function isHtmlComment(raw: string): boolean {
   return /^\s*<!--[\s\S]*-->\s*$/.test(raw);
 }
 
-// Tags that an embedded HTML block can safely render via innerHTML. We
-// strip `<script>`, `<iframe>`, `<object>`, `<embed>`, on*=… handler
-// attributes, and javascript: URLs to keep authored Markdown from
-// turning into an arbitrary code execution vector when previewed.
-// The list intentionally allows enough structural / styling tags for
-// real authoring (`<details>`, `<summary>`, `<div style>`, etc.) — it's
-// not meant as a full sanitiser, hosts that need stronger guarantees
-// can plug their own via `LivePreviewConfig.htmlSanitizer`.
-function defaultSanitizeHtml(rawHtml: string): string {
-  let html = rawHtml;
-  // Remove dangerous element bodies entirely (open tag through close tag).
-  html = html.replace(/<\s*(script|iframe|object|embed|style)\b[\s\S]*?<\/\s*\1\s*>/gi, "");
-  // Remove orphan dangerous self-closing tags.
-  html = html.replace(/<\s*(script|iframe|object|embed|style)\b[^>]*\/?>/gi, "");
-  // Strip inline event handlers: `onclick="…"` / `onload='…'` / onfoo=bareword.
-  html = html.replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-  // Strip `javascript:` URLs in href / src attributes.
-  html = html.replace(/(href|src|xlink:href)\s*=\s*(['"])\s*javascript:[^'"]*\2/gi, '$1=$2#$2');
-  return html;
-}
-
 function buildHtmlDecorations(
   range: { from: number; to: number; node: Html; source: string },
   selection: readonly SelectionRange[],
@@ -659,7 +639,7 @@ function buildHtmlDecorations(
       inner = document.createElement("div");
       inner.className = "nexus-html-block-content";
       inner.style.cssText = "display:block;margin:0;padding:0;line-height:normal;font-family:inherit;";
-      inner.innerHTML = defaultSanitizeHtml(raw);
+      inner.innerHTML = sanitizeHtmlFragment(raw);
     }
   }
 
@@ -983,6 +963,28 @@ interface InlineMarkerStyle {
   attrs?: Record<string, string>;
 }
 
+/**
+ * Marker for a rendered link. A destination the host allows keeps its pointer
+ * affordance and carries the URL the click handler reads; a rejected one keeps
+ * the text but loses both, so Markdown alone cannot turn a scheme the host
+ * refuses into a click target.
+ */
+function linkMarker(openLen: number, closeLen: number, url: string): InlineMarkerStyle {
+  if (!isSafeUrl(url)) {
+    return {
+      openLen,
+      closeLen,
+      style: "color:var(--nexus-text);text-decoration:underline dotted;cursor:text"
+    };
+  }
+  return {
+    openLen,
+    closeLen,
+    style: "color:var(--nexus-accent);text-decoration:underline;cursor:pointer",
+    attrs: { "data-link-url": url }
+  };
+}
+
 function getInlineMarkerStyle(nodeType: string, source: string): InlineMarkerStyle | null {
   switch (nodeType) {
     case "strong":
@@ -1004,28 +1006,14 @@ function getInlineMarkerStyle(nodeType: string, source: string): InlineMarkerSty
       // [text](url) — hide [ and ](url)
       const bracketClose = source.indexOf("](");
       if (bracketClose >= 0) {
-        const url = source.slice(bracketClose + 2, source.length - 1);
-        return {
-          openLen: 1,                            // hide [
-          closeLen: source.length - bracketClose, // hide ](url)
-          style: "color:var(--nexus-accent);text-decoration:underline;cursor:pointer",
-          attrs: { "data-link-url": url }
-        };
+        return linkMarker(1, source.length - bracketClose, source.slice(bracketClose + 2, source.length - 1));
       }
       // Standard autolink: <URL> — hide angle brackets
       if (source.startsWith("<") && source.endsWith(">")) {
-        return {
-          openLen: 1, closeLen: 1,
-          style: "color:var(--nexus-accent);text-decoration:underline;cursor:pointer",
-          attrs: { "data-link-url": source.slice(1, -1) }
-        };
+        return linkMarker(1, 1, source.slice(1, -1));
       }
       // GFM autolink literal: bare URL, no markers to hide
-      return {
-        openLen: 0, closeLen: 0,
-        style: "color:var(--nexus-accent);text-decoration:underline;cursor:pointer",
-        attrs: { "data-link-url": source }
-      };
+      return linkMarker(0, 0, source);
     }
     default:
       return null;
@@ -1443,6 +1431,10 @@ export function createLivePreviewExtension(
       if (!linkEl) return false;
       const url = linkEl.getAttribute("data-link-url");
       if (!url) return false;
+      // The marker withholds the attribute for a rejected destination; the
+      // handler refuses it as well so host-authored markup cannot bypass the
+      // policy by setting the attribute itself.
+      if (!isSafeUrl(url)) return false;
 
       event.preventDefault();
 
@@ -1473,7 +1465,7 @@ export function createLivePreviewExtension(
       }
 
       // External links: open in new tab
-      window.open(url, "_blank", "noopener");
+      window.open(url, "_blank", "noopener,noreferrer");
       return true;
     }
   });
