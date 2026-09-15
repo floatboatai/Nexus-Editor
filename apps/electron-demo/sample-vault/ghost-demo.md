@@ -15,12 +15,16 @@ Another ghost with alias: [[NonExistent|phantom]].
 The string `\[[NotALink]]` on this line should stay literal — no decoration,
 no click target.
 
-## Code fence (v1 caveat)
+## Code span and fence (must NOT become links)
 
-The following code fence intentionally contains `[[InsideFence]]` — v1 still
-detects it as a link. This is called out in `design.md` (§ Risks / Trade-offs)
-as an acceptable v1 limitation; v2 will skip code ranges.
+A code context is how a note *describes* the syntax, so nothing inside it is a
+link. Neither the inline span `[[InsideFence]]` above nor the fenced copy below
+renders as a link, and neither shows up in the backlinks of a note named
+"InsideFence".
 
 ```md
 see [[InsideFence]]
 ```
+
+Links on the surrounding lines are unaffected: [[Ghost Note]] still resolves as
+a ghost, and undefined-target styling still applies.

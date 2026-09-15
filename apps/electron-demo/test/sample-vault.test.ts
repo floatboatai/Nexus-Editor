@@ -114,6 +114,21 @@ describe("sample-vault fixture — end-to-end wiki-link behavior", () => {
     }
   });
 
+  it("code spans and fences containing [[...]] are not indexed", async () => {
+    const idx = await buildIndex();
+    const ghost = path.join(VAULT_ROOT, "ghost-demo.md");
+    // ghost-demo.md documents the syntax inside both an inline span and a
+    // fenced block. Neither is a link, so neither reaches the index.
+    expect(idx.resolve("InsideFence", ghost)).toBeNull();
+    for (const source of idx.getAllFiles()) {
+      for (const h of idx.getBacklinks(source)) {
+        expect(h.target).not.toBe("InsideFence");
+      }
+    }
+    // The same note still exercises the ghost behaviour it documents.
+    expect(idx.resolve("Ghost Note", ghost)).toBeNull();
+  });
+
   it("aliased links still resolve by target, not alias", async () => {
     const idx = await buildIndex();
     const files = await readFixtureFiles();
