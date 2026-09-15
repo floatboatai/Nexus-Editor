@@ -3,6 +3,7 @@ import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 
 import { createGfmPreset } from "../../preset-gfm/src/index";
 import { createEditor, type EditorAPI } from "../src/index";
+import { renderLivePreviewNode } from "../src/live-preview-renderers";
 
 beforeAll(() => {
   if (!("getClientRects" in Range.prototype)) {
@@ -2259,6 +2260,119 @@ describe("live preview", () => {
     editor.setSelection(commentOffset + 3);
     expect(container.querySelector(".nexus-html-comment")).toBeNull();
     expect(container.textContent).toContain("<!-- editable note -->");
+    editor.destroy();
+  });
+
+  // ── Untrusted content in embedded HTML ──
+
+  it("removes script-bearing markup from an embedded HTML block", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue:
+        'Intro\n\n<div><svg/onload=alert(1)></svg><input/autofocus/onfocus=alert(2)><img src="x"/onerror=alert(3)><a href=javascript:alert(4)>x</a></div>\n\nend',
+      livePreview: true,
+    });
+
+    editor.setSelection(0);
+    const block = container.querySelector(".nexus-html-block");
+    expect(block).not.toBeNull();
+    // The block still renders — only the behaviour is removed.
+    expect(block?.querySelector("div")).not.toBeNull();
+    expect(block?.querySelector("svg")?.hasAttribute("onload")).toBe(false);
+    expect(block?.querySelector("input")?.hasAttribute("onfocus")).toBe(false);
+    expect(block?.querySelector("img")?.hasAttribute("onerror")).toBe(false);
+    expect(block?.querySelector("a[href]")).toBeNull();
+    editor.destroy();
+  });
+
+  it("removes script-bearing inline HTML inside a paragraph", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: 'Intro\n\n<kbd>Ctrl</kbd><svg/onload=alert(1)>\n\nend',
+      livePreview: true,
+    });
+
+    editor.setSelection(0);
+    expect(container.querySelector("kbd")?.textContent).toBe("Ctrl");
+    expect(container.querySelector("svg")?.hasAttribute("onload")).toBe(false);
+    editor.destroy();
+  });
+
+  it("keeps the fallback link renderer inert for a rejected destination", () => {
+    // The editor renders links through its marker path, which applies the same
+    // policy. This exercises the fallback renderer directly so it cannot become
+    // the one open copy of the navigation sink.
+    const rejected = renderLivePreviewNode(
+      { type: "link", url: "javascript:alert(1)", children: [{ type: "text", value: "click" }] },
+      "[click](javascript:alert(1))",
+      {}
+    );
+    expect(rejected.tagName.toLowerCase()).toBe("span");
+    expect(rejected.textContent).toBe("click");
+
+    const allowed = renderLivePreviewNode(
+      { type: "link", url: "https://example.com/docs", children: [{ type: "text", value: "docs" }] },
+      "[docs](https://example.com/docs)",
+      {}
+    );
+    expect(allowed.getAttribute("href")).toBe("https://example.com/docs");
+  });
+
+  it("removes runtime attribute writers from an embedded HTML block", () => {
+    // The unit suite covers the sanitizer; this checks the same payload through
+    // the editor, because that is where the block actually reaches the DOM. SMIL
+    // itself cannot run under jsdom, which is why the execution half of the
+    // evidence lives in a browser probe.
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: '<div><svg><a href="#"><set attributeName="href" to="javascript:alert(1)"></set>click</a></svg></div>\n\nend',
+      livePreview: true,
+    });
+
+    editor.setSelection(editor.getDocument().length);
+    const block = container.querySelector(".nexus-html-block");
+    expect(block).not.toBeNull();
+    expect(block?.querySelector("set")).toBeNull();
+    expect(block?.innerHTML.toLowerCase()).not.toContain("javascript:");
+    expect(block?.querySelector("a")).not.toBeNull();
+    editor.destroy();
+  });
+
+  it("does not turn a script destination into a click target", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "Intro [click](javascript:alert(1)) and [docs](https://example.com/docs) end",
+      livePreview: true,
+    });
+
+    editor.setSelection(0);
+    // Only the destination the host allows carries a navigation target.
+    const targets = Array.from(container.querySelectorAll<HTMLElement>("[data-link-url]"));
+    expect(targets.length).toBe(1);
+    expect(targets[0].getAttribute("data-link-url")).toBe("https://example.com/docs");
+    expect(targets[0].textContent).toBe("docs");
+    // The rejected link keeps its text so the author can see what was refused.
+    expect(container.textContent).toContain("click");
+    editor.destroy();
+  });
+
+  it("does not render a clickable link for a script destination inside a table cell", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue:
+        "| Name | Link |\n|---|---|\n| a | [click](javascript:alert(1)) |\n| b | [docs](https://example.com) |",
+      livePreview: true,
+      plugins: [createGfmPreset()],
+    });
+
+    const links = Array.from(container.querySelectorAll<HTMLAnchorElement>("table a[href]"));
+    expect(links.length).toBe(1);
+    expect(links[0].getAttribute("href")).toBe("https://example.com");
     editor.destroy();
   });
 
