@@ -20,6 +20,12 @@ function owner(id: string): ResourceOwner {
   };
 }
 
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 function service(
   runtime: PluginStorageRuntime,
   id: string,
@@ -33,6 +39,102 @@ async function activate(resources: readonly ManagedResource[]): Promise<void> {
 }
 
 describe("PluginStorageRuntime", () => {
+  it("rejects operations through retained services after disposal", async () => {
+    const backend = new MemoryPluginStorageBackend();
+    const read = vi.spyOn(backend, "read");
+    const write = vi.spyOn(backend, "write");
+    const runtime = new PluginStorageRuntime({ backend });
+    const storage = service(runtime, "disposed");
+    const migrate = vi.fn(() => ({ value: "migrated" }));
+
+    await runtime.dispose();
+
+    await expect(storage.loadData()).rejects.toThrow("Plugin storage runtime has been disposed");
+    await expect(storage.saveData({ value: "late" })).rejects.toThrow(
+      "Plugin storage runtime has been disposed",
+    );
+    await expect(storage.migrateData({ targetSchemaVersion: 1, migrate })).rejects.toThrow(
+      "Plugin storage runtime has been disposed",
+    );
+    expect(() => service(runtime, "new")).toThrow("Plugin storage runtime has been disposed");
+    expect(read).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    expect(migrate).not.toHaveBeenCalled();
+  });
+
+  it("shares shutdown completion and drains accepted operations across plugins", async () => {
+    const backend = new MemoryPluginStorageBackend();
+    const firstGate = deferred();
+    const secondGate = deferred();
+    const firstStarted = deferred();
+    const secondStarted = deferred();
+    const write = backend.write.bind(backend);
+    const writes = vi.spyOn(backend, "write").mockImplementation(async (id, data, version) => {
+      if (id === "first") {
+        firstStarted.resolve();
+        await firstGate.promise;
+      } else {
+        secondStarted.resolve();
+        await secondGate.promise;
+      }
+      return write(id, data, version);
+    });
+    const unsubscribe = vi.fn();
+    vi.spyOn(backend, "subscribe").mockReturnValue(unsubscribe);
+    const runtime = new PluginStorageRuntime({ backend });
+    const first = service(runtime, "first");
+    const second = service(runtime, "second");
+    const saves = [
+      first.saveData({ value: 1 }),
+      first.saveData({ value: 2 }),
+      second.saveData({ value: 3 }),
+    ];
+    await Promise.all([firstStarted.promise, secondStarted.promise]);
+
+    const shutdown = runtime.dispose();
+    const concurrentShutdown = runtime.dispose();
+    const finished = vi.fn();
+    const concurrentFinished = vi.fn();
+    void shutdown.then(finished);
+    void concurrentShutdown.then(concurrentFinished);
+    await Promise.resolve();
+    expect(concurrentFinished).not.toHaveBeenCalled();
+    await expect(first.saveData({ value: 99 })).rejects.toThrow("disposed");
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+
+    firstGate.resolve();
+    await Promise.all(saves.slice(0, 2));
+    expect(finished).not.toHaveBeenCalled();
+    expect(concurrentFinished).not.toHaveBeenCalled();
+    secondGate.resolve();
+    await Promise.all([...saves, shutdown, concurrentShutdown]);
+
+    expect(finished).toHaveBeenCalledTimes(1);
+    expect(concurrentFinished).toHaveBeenCalledTimes(1);
+    expect(writes).toHaveBeenCalledTimes(3);
+    expect(JSON.parse(backend.getRaw("first" as PluginId)!)).toMatchObject({ data: { value: 2 } });
+    expect(JSON.parse(backend.getRaw("second" as PluginId)!)).toMatchObject({ data: { value: 3 } });
+    await runtime.dispose();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("finishes draining after a queued backend operation fails", async () => {
+    const backend = new MemoryPluginStorageBackend();
+    vi.spyOn(backend, "write").mockRejectedValueOnce(new Error("disk unavailable"));
+    const runtime = new PluginStorageRuntime({ backend });
+    const storage = service(runtime, "failure");
+    const failed = storage.saveData({ value: 1 });
+    const recovered = storage.saveData({ value: 2 });
+    const rejection = expect(failed).rejects.toThrow("disk unavailable");
+
+    const shutdown = runtime.dispose();
+    await Promise.all([rejection, shutdown]);
+
+    expect((await recovered).ok).toBe(true);
+    expect(JSON.parse(backend.getRaw("failure" as PluginId)!)).toMatchObject({ data: { value: 2 } });
+    await expect(storage.loadData()).rejects.toThrow("disposed");
+  });
+
   it("returns null for first load and isolates plugin namespaces", async () => {
     const runtime = new PluginStorageRuntime();
     const first = service(runtime, "first");

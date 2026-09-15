@@ -255,6 +255,7 @@ export class PluginStorageRuntime implements ManagedResource {
   private readonly records = new Map<PluginId, StorageRecord>();
   private readonly unsubscribeBackend?: () => void;
   private disposed = false;
+  private disposePromise: Promise<void> | null = null;
 
   constructor(options: PluginStorageRuntimeOptions = {}) {
     this.backend = options.backend ?? new MemoryPluginStorageBackend();
@@ -311,12 +312,15 @@ export class PluginStorageRuntime implements ManagedResource {
     });
   }
 
-  async dispose(): Promise<void> {
-    if (this.disposed) return;
+  dispose(): Promise<void> {
+    if (this.disposePromise) return this.disposePromise;
     this.disposed = true;
-    this.unsubscribeBackend?.();
-    await Promise.all([...this.records.values()].map((record) => record.tail));
-    this.records.clear();
+    this.disposePromise = Promise.resolve().then(async () => {
+      this.unsubscribeBackend?.();
+      await Promise.all([...this.records.values()].map((record) => record.tail));
+      this.records.clear();
+    });
+    return this.disposePromise;
   }
 
   private record(pluginId: PluginId): StorageRecord {
@@ -337,6 +341,9 @@ export class PluginStorageRuntime implements ManagedResource {
   }
 
   private enqueue<T>(record: StorageRecord, operation: () => Promise<T>): Promise<T> {
+    if (this.disposed) {
+      return Promise.reject(new Error("Plugin storage runtime has been disposed"));
+    }
     const result = record.tail.then(operation, operation);
     record.tail = result.then(() => undefined, () => undefined);
     return result;
