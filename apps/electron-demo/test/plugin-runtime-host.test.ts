@@ -1,6 +1,7 @@
 import {
   EDITOR_CLIPBOARD_CAPABILITY,
   EDITOR_HOST_CAPABILITY,
+  EDITOR_TRANSACTIONS_CAPABILITY,
   FILE_MANAGER_CAPABILITY,
   METADATA_CAPABILITY,
   RESOURCES_CAPABILITY,
@@ -1115,6 +1116,65 @@ describe("createPluginRuntimeHost", () => {
     expect(host.capabilities.listProviders({ editorId: attachment.editorId }))
       .not.toEqual(expect.arrayContaining([
         expect.objectContaining({ descriptor: expect.objectContaining({ id: EDITOR_CLIPBOARD_CAPABILITY.id }) }),
+      ]));
+    editor.destroy();
+    await host.shutdown();
+  });
+
+  it("provides the editor transaction capability and lets a plugin filter a real edit", async () => {
+    const harness = bridgeHarness();
+    const host = createPluginRuntimeHost({ bridge: harness.bridge, document });
+    await host.restoreSession();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({ container, initialValue: "alpha" });
+    const attachment = await host.attachEditor(editor, container);
+
+    class TransactionsPlugin extends NexusPluginBase {
+      override onload(): void {
+        const transactions = this.app.capabilities.require(
+          EDITOR_TRANSACTIONS_CAPABILITY,
+          "^1.0.0",
+          { editorId: attachment.editorId },
+        );
+        const registered = transactions.registerFilter((context) => ({
+          action: "replace",
+          transaction: {
+            ...context.transaction,
+            changes: context.transaction.changes.map((change) => ({
+              ...change,
+              insert: `X${change.insert}`,
+            })),
+          },
+        }));
+        if (!registered.ok) throw new Error("Could not register the transaction filter");
+      }
+    }
+
+    const enabled = await host.enableBundledPlugin({
+      ...manifest([{
+        id: EDITOR_TRANSACTIONS_CAPABILITY.id,
+        version: "^1.0.0",
+        scope: "editor",
+      }]),
+    }, TransactionsPlugin);
+    expect(enabled).toMatchObject({ ok: true, state: "enabled" });
+    expect(host.capabilities.listProviders({ editorId: attachment.editorId }))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          descriptor: expect.objectContaining({ id: EDITOR_TRANSACTIONS_CAPABILITY.id }),
+        }),
+      ]));
+
+    editor.replaceRange(0, 5, "beta");
+    expect(editor.getDocument()).toBe("Xbeta");
+
+    await attachment.detach();
+    expect(host.capabilities.listProviders({ editorId: attachment.editorId }))
+      .not.toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          descriptor: expect.objectContaining({ id: EDITOR_TRANSACTIONS_CAPABILITY.id }),
+        }),
       ]));
     editor.destroy();
     await host.shutdown();

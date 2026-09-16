@@ -105,6 +105,10 @@ export {
 } from "./events/typed-event-registry";
 export * from "./editor-host-registry";
 export {
+  EditorTransactionPipeline,
+  type EditorTransactionPipelineOptions,
+} from "./editor-transaction-pipeline";
+export {
   ComponentController,
   ComponentLifecycleRuntime,
   type ComponentControllerOptions,

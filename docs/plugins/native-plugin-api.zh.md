@@ -157,7 +157,37 @@ Nexus 不把活动编辑器建模成全局单例。一个插件实例可以服�
 
 需要特定窗口、Workspace 或 editor capability 时，传入对应的 `CapabilityRequestContext`。不要缓存“当前编辑器”或从全局 DOM 推断活动 leaf。Workspace 的 focused leaf、active view/file 和 recent editor 是相互独立且都可能为空的查询。
 
-## 5. Manifest 字段速查
+## 5. 事务过滤与更新监听
+
+`nexus.editor-transactions`（`EDITOR_TRANSACTIONS_CAPABILITY`）的 scope 是 `editor`，所以 `require` 时必须传入 `{ editorId }`。运行时为每个已挂载编辑器提供一个**绑定到该编辑器**的服务，不依赖「当前活动编辑器」：同一插件实例服务多个编辑器时，每个编辑器各有自己的服务。
+
+过滤器在提交**前**运行，可以对事务返回 `accept` / `reject` / `replace`；更新监听器在提交**后**运行，只读。两者拿到的都是与该编辑器命令、事件、扩展**同一个** `EditorContext`，外加本次的 `transaction`。
+
+`dispatch(editorId, transaction)` 返回 `{ ok, value: { operationId } }`：调用方给了 `operationId` 就**原样回显**，没给则由服务生成 `editor-operation:<n>`。用户直接输入产生的提交没有调用方，因此在过滤器/监听器里它的 `operationId` 为 `undefined`——这是语义，不是缺省。
+
+`annotations` 原样透传并保持同一引用：运行时不合并、不改写、不做命名空间仲裁，键的命名空间由调用方自负。过滤器 `replace` 携带的 `operationId` / `annotations` **不生效**：身份属于发起这次 `dispatch` 的调用方，不属于改写它的过滤器。
+
+**故障不否决**：过滤器抛错、返回非同步值（Promise）或返回非法结果时，运行时会报 `callback-failed` 诊断并**旁路该过滤器**（提交按当前事务与其余过滤器继续）；只有**显式** `reject` 才是插件的意图，才否决事务。插件故障永远不该吞掉用户的按键。
+
+**注入边界**：在过滤器内调用 `dispatch` 会被确定性拒绝（返回 `unsupported-operation`），外层提交不受影响；在监听器内允许调用（受 core 的 32 层递归上限约束）。
+
+**覆盖边界**：上面的护栏只覆盖**经由本服务**的路径。插件直接调用 `context.editor.dispatchTransaction` 属显式使用 core 原生能力，不在保证内；在**过滤器回调内**调用任何会触发提交的 core API（`replaceRange` / `setDocument` / `replaceSelection` / `undo` / `redo`）与直接调用 `dispatchTransaction` 同等——CM6 会在 filter 阶段抛出 `RangeError` 并使外层提交被丢弃，属未定义行为。它是确定性契约，**不是安全机制**。
+
+```ts
+const transactions = this.app.capabilities.require(
+  EDITOR_TRANSACTIONS_CAPABILITY,
+  "^1.0.0",
+  { editorId },
+);
+transactions.registerFilter((context) =>
+  context.transaction.userEvent === "paste" ? { action: "reject" } : { action: "accept" },
+);
+transactions.registerUpdateListener((update) => {
+  console.log(update.documentBefore, "->", update.documentAfter);
+});
+```
+
+## 6. Manifest 字段速查
 
 | 字段 | 必填 | 约束 |
 |---|---:|---|

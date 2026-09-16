@@ -5,6 +5,7 @@ import {
   COMMANDS_CAPABILITY,
   EDITOR_CLIPBOARD_CAPABILITY,
   EDITOR_HOST_CAPABILITY,
+  EDITOR_TRANSACTIONS_CAPABILITY,
   FILE_MANAGER_CAPABILITY,
   HOTKEYS_CAPABILITY,
   MARKDOWN_PROCESSORS_CAPABILITY,
@@ -52,6 +53,7 @@ import {
   ClipboardPipeline,
   DiagnosticBus,
   EditorHostRegistry,
+  EditorTransactionPipeline,
   HostControlledPluginEntrypointLoader,
   HotkeyRegistry,
   MarkdownPostProcessorRegistry,
@@ -566,6 +568,7 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
     if (this.editorAttachment && !this.editorAttachment.detached) {
       throw new Error("The single-leaf Electron host already has an attached editor");
     }
+    const reportDiagnostic = (diagnostic: NexusDiagnostic) => this.diagnostics.report(diagnostic);
     const file = this.workspace.getActiveFile();
     const attachment = this.editorHost.attach({
       editor,
@@ -576,11 +579,16 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
       leaf: this.leaf,
       window: this.windowContext,
     });
+    const transactions = new EditorTransactionPipeline({
+      reportDiagnostic,
+      context: () => attachment.context,
+    });
     const onFocus = () => attachment.markRecent();
     let focusListenerAttached = false;
     let detachPromise: Promise<void> | null = null;
     let clipboardBridge: ManagedResource | null = null;
     let clipboardProvider: CapabilityProviderRegistration | null = null;
+    let transactionsProvider: CapabilityProviderRegistration | null = null;
     const removeFocusListener = (): void => {
       if (!focusListenerAttached) return;
       focusListenerAttached = false;
@@ -596,17 +604,22 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
       detach: () => {
         if (detachPromise) return detachPromise;
         removeFocusListener();
+        // Failures in this batch surface through the diagnostics bus only (never the console),
+        // so a clean log is NOT evidence that this cleanup succeeded.
+        // 注意：本批次的失败只上报诊断总线（不落 console）—— 日志里没有报错并不代表清理成功。
         detachPromise = (async () => {
           const results = await Promise.allSettled([
             clipboardProvider?.revoke("editor-detached"),
             clipboardBridge?.dispose(),
+            transactionsProvider?.revoke("editor-detached"),
+            transactions.dispose(),
           ]);
           await attachment.detach();
           const errors = results
             .filter((result): result is PromiseRejectedResult => result.status === "rejected")
             .map((result) => result.reason);
           if (errors.length > 0) {
-            throw new AggregateError(errors, "Clipboard editor capability cleanup failed");
+            throw new AggregateError(errors, "Editor capability cleanup failed");
           }
         })();
         return detachPromise;
@@ -621,6 +634,12 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
         { context: { editorId: PRIMARY_EDITOR_ID } },
       );
       this.providers.push(clipboardProvider);
+      transactionsProvider = this.capabilities.registerOwnerBound(
+        EDITOR_TRANSACTIONS_CAPABILITY,
+        ({ owner, registerResource }) => transactions.createService(owner, registerResource),
+        { context: { editorId: PRIMARY_EDITOR_ID } },
+      );
+      this.providers.push(transactionsProvider);
       markdownAttachments.push(this.remarkTransforms.attach(editor.getContributionSink()));
       markdownAttachments.push(this.widgets.attach(editor.getContributionSink()));
       focusListenerAttached = true;
@@ -633,6 +652,8 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
       await Promise.allSettled([
         clipboardProvider?.revoke("editor-attach-failed"),
         clipboardBridge?.dispose(),
+        transactionsProvider?.revoke("editor-attach-failed"),
+        transactions.dispose(),
         ...markdownAttachments.map((item) => item.dispose()),
         attachment.detach(),
       ]);

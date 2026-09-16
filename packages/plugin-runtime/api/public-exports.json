@@ -33,6 +33,8 @@
   "EditorHostRegistry",
   "EditorHostRegistryOptions",
   "EditorHostResourceRegistrar",
+  "EditorTransactionPipeline",
+  "EditorTransactionPipelineOptions",
   "EntrypointLoadResult",
   "EventContractMap",
   "EventResourceRegistrar",
