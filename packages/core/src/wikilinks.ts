@@ -8,6 +8,7 @@ import { StateEffect, StateField, type Extension, type Range, type Transaction }
 import { Decoration, type DecorationSet, EditorView } from "@codemirror/view";
 
 import type { NexusPlugin } from "./types";
+import { findCodeContextSpans, overlapsSpan } from "./code-context";
 
 const COMPOSITION_REDECORATE_DELAY_MS = 60;
 
@@ -74,9 +75,17 @@ const WIKILINK_RE = /(?<!\\)\[\[([^\[\]\n|]+?)(?:\|([^\[\]\n]+?))?\]\]/g;
 /**
  * Scan a document string for all wiki links. Pure, side-effect-free.
  * Ordering: ascending `from`.
+ *
+ * `[[…]]` inside a fenced code block or an inline code span is literal text,
+ * not a link — that is the only way a document can *describe* wiki-link syntax.
+ * Those contexts are excluded per `openspec/changes/add-wikilinks/design.md`
+ * ("Regex misses edge cases"), which deferred this to a follow-up.
  */
 export function scanWikiLinks(doc: string): WikiLinkMatch[] {
   const out: WikiLinkMatch[] = [];
+  // This runs per keystroke and once per file when a vault is indexed, so skip
+  // the code scan entirely for documents that cannot contain a link.
+  const codeSpans = doc.includes("[[") ? findCodeContextSpans(doc) : [];
   WIKILINK_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = WIKILINK_RE.exec(doc)) !== null) {
@@ -86,6 +95,7 @@ export function scanWikiLinks(doc: string): WikiLinkMatch[] {
     const target = match[1].trim();
     const alias = match[2]?.trim();
     if (!target) continue;
+    if (overlapsSpan(from, to, codeSpans)) continue;
 
     const display = alias && alias.length > 0 ? alias : target;
     // Layout: `[[` rawTarget [ `|` rawAlias ] `]]`

@@ -55,6 +55,70 @@ describe("scanWikiLinks", () => {
   });
 });
 
+describe("scanWikiLinks — code contexts stay literal", () => {
+  // A document can only *describe* wiki-link syntax by putting it in code.
+  // Before this was handled, a fenced example produced a live link: a click
+  // target in the editor and a phantom backlink edge in the vault index.
+  // See openspec/changes/add-wikilinks/design.md § Risks / Trade-offs.
+
+  it("ignores links inside a fenced code block", () => {
+    const doc = ["```md", "see [[InsideFence]]", "```"].join("\n");
+    expect(scanWikiLinks(doc)).toHaveLength(0);
+  });
+
+  it("ignores links inside a tilde-fenced code block", () => {
+    const doc = ["~~~", "[[InsideFence]]", "~~~"].join("\n");
+    expect(scanWikiLinks(doc)).toHaveLength(0);
+  });
+
+  it("ignores links inside a fence closed by a longer run", () => {
+    const doc = ["````", "[[InsideFence]]", "`````", ""].join("\n");
+    expect(scanWikiLinks(doc)).toHaveLength(0);
+  });
+
+  it("ignores links inside an indented fence", () => {
+    const doc = ["   ```", "   [[InsideFence]]", "   ```"].join("\n");
+    expect(scanWikiLinks(doc)).toHaveLength(0);
+  });
+
+  it("ignores links in an unterminated fence through end of document", () => {
+    const doc = ["intro [[Kept]]", "", "```", "[[Dropped]]"].join("\n");
+    const matches = scanWikiLinks(doc);
+    expect(matches.map((m) => m.target)).toEqual(["Kept"]);
+  });
+
+  it("ignores links inside an inline code span", () => {
+    expect(scanWikiLinks("Use `[[MyNote]]` syntax.")).toHaveLength(0);
+  });
+
+  it("ignores links inside a multi-backtick code span", () => {
+    expect(scanWikiLinks("Use ``[[MyNote]]`` syntax.")).toHaveLength(0);
+  });
+
+  it("still finds links outside the code context on the same line", () => {
+    const doc = "Keep [[Real]] but drop `[[Fake]]`";
+    const matches = scanWikiLinks(doc);
+    expect(matches.map((m) => m.target)).toEqual(["Real"]);
+    expect(doc.slice(matches[0].from, matches[0].to)).toBe("[[Real]]");
+  });
+
+  it("still finds links after a closed fence", () => {
+    const doc = ["```", "[[Fake]]", "```", "", "keep [[Real]]"].join("\n");
+    expect(scanWikiLinks(doc).map((m) => m.target)).toEqual(["Real"]);
+  });
+
+  it("keeps searching after an unmatched backtick run", () => {
+    // A lone backtick has no closing run, so it is literal and the link after
+    // it is real.
+    expect(scanWikiLinks("a ` b [[Real]]").map((m) => m.target)).toEqual(["Real"]);
+  });
+
+  it("does not treat a link as code when only its neighbour is code", () => {
+    const doc = "`[[Fake]]` and [[Real]] and `code` end";
+    expect(scanWikiLinks(doc).map((m) => m.target)).toEqual(["Real"]);
+  });
+});
+
 describe("wikilinks decorations (rendered output)", () => {
   function mount(initialValue: string, opts: Parameters<typeof createWikilinksPlugin>[0] = {}) {
     const container = document.createElement("div");
