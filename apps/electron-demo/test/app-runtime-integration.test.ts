@@ -151,6 +151,21 @@ beforeEach(() => {
 });
 
 describe("Electron renderer plugin runtime integration", () => {
+  it.each(["legacy", "runtime"] as const)("can disable block reordering in %s mode", async (mode) => {
+    const { boot } = await import("../src/renderer/app");
+    installBridgeHarness(createBridgeHarness(), mode);
+    const app = await boot({
+      root: document.getElementById("app")!,
+      featureFlags: { blockDrag: false },
+      deferVaultRestore: false,
+    });
+
+    expect(document.querySelectorAll(".nexus-block-drag")).toHaveLength(0);
+    expect(app.runtime?.pluginManager.list().find((plugin) =>
+      plugin.id === "block-drag" && plugin.state === "enabled")).toBeUndefined();
+    await app.shutdown();
+  });
+
   it("keeps the legacy path as the default and shuts it down once", async () => {
     const { boot } = await import("../src/renderer/app");
     const harness = createBridgeHarness();
@@ -169,6 +184,7 @@ describe("Electron renderer plugin runtime integration", () => {
     expect(app.shell.slashMenu).not.toBeNull();
     expect(app.shell.wordcount).not.toBeNull();
     expect(document.querySelectorAll(".nexus-toolbar")).toHaveLength(1);
+    expect(document.querySelectorAll(".nexus-block-drag")).toHaveLength(1);
 
     app.state.activeFile = "/vault-note.md";
     app.state.filePath = "/vault-note.md";
@@ -219,7 +235,9 @@ describe("Electron renderer plugin runtime integration", () => {
       "toolbar",
       "slash-menu",
       "wordcount",
+      "block-drag",
     ]);
+    expect(document.querySelectorAll(".nexus-block-drag")).toHaveLength(1);
     expect(app.slots["editor-toolbar"].querySelectorAll("[data-ui-action-id]")).toHaveLength(17);
     const slashCommandIds = app.shell.editor.getSlashCommands().map((command) => command.id);
     expect(slashCommandIds).toHaveLength(new Set(slashCommandIds).size);

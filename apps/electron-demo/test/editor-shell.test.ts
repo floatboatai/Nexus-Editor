@@ -20,7 +20,32 @@ describe("createEditorShell", () => {
     });
 
     expect(container.querySelector(".cm-editor")).not.toBeNull();
+    expect(container.querySelectorAll(".nexus-block-drag")).toHaveLength(1);
     shell.destroy();
+  });
+
+  it("moves blocks through the legacy keyboard binding and supports undo", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const state = createState();
+    state.content = "first\n\nsecond";
+    const shell = createEditorShell({
+      container,
+      state,
+      settings: defaultSettings(),
+      onStateChange: vi.fn(),
+    });
+
+    const event = new KeyboardEvent("keydown", {
+      key: "ArrowDown", altKey: true, shiftKey: true, bubbles: true, cancelable: true,
+    });
+    container.querySelector(".cm-content")!.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(shell.editor.getDocument()).toBe("second\n\nfirst");
+    expect(shell.editor.undo()).toBe(true);
+    expect(shell.editor.getDocument()).toBe("first\n\nsecond");
+    shell.destroy();
+    container.remove();
   });
 
   it("marks state dirty when the editor content changes", async () => {
@@ -80,6 +105,7 @@ describe("createEditorShell", () => {
     expect(shell.slashMenu).toBeNull();
     expect(shell.wordcount).toBeNull();
     expect(container.querySelectorAll(".nexus-toolbar")).toHaveLength(0);
+    expect(container.querySelectorAll(".nexus-block-drag")).toHaveLength(0);
     expect(document.body.querySelectorAll(".nexus-slash-menu")).toHaveLength(0);
     expect(container.querySelectorAll("[data-testid='nexus-wordcount-bar']")).toHaveLength(0);
 

@@ -27,6 +27,7 @@
   "dependencies": {
     "@floatboat/nexus-core": "workspace:*",
     "@floatboat/nexus-plugin-api": "workspace:*",
+    "@floatboat/nexus-plugin-block-drag": "workspace:*",
     "@floatboat/nexus-plugin-history": "workspace:*",
     "@floatboat/nexus-plugin-math": "workspace:*",
     "@floatboat/nexus-plugin-runtime": "workspace:*",

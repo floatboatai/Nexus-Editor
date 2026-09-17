@@ -1,6 +1,6 @@
 import { EditorSelection, Transaction } from "@codemirror/state";
 import { EditorView, ViewPlugin } from "@codemirror/view";
-import { history } from "@codemirror/commands";
+import { history, isolateHistory } from "@codemirror/commands";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -40,6 +40,55 @@ function transaction(
 }
 
 describe("core editor transaction pipeline", () => {
+  it.each([false, true])("preserves undo boundaries through a host replacement (batch: %s)", async (batch) => {
+    const { editor, view } = createTestEditor("ab");
+    await editor.getContributionSink().registerExtension("history", history()).ready;
+    editor.getContributionSink().registerTransactionFilter("audit", (context) => {
+      if (context.userEvent !== "input.type") return { action: "accept" };
+      return {
+        action: "replace",
+        transaction: {
+          changes: context.changes,
+          selection: context.selectionAfter,
+          origin: ["audit"],
+        },
+      };
+    });
+    view.dispatch({ changes: { from: 1, insert: "x" }, userEvent: "input.type" });
+    const change = view.state.update({
+      changes: { from: 2, insert: "y" },
+      annotations: isolateHistory.of("full"),
+      userEvent: "input.type",
+    });
+    if (batch) view.dispatch([change, change.state.update({ selection: { anchor: 3 } })]);
+    else view.dispatch(change);
+    view.dispatch({ changes: { from: 3, insert: "z" }, userEvent: "input.type" });
+    expect(editor.getDocument()).toBe("axyzb");
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("axyb");
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("axb");
+    expect(editor.redo()).toBe(true);
+    expect(editor.getDocument()).toBe("axyb");
+    editor.destroy();
+  });
+
+  it("preserves addToHistory through replacement filters", async () => {
+    const { editor, view } = createTestEditor("ab");
+    await editor.getContributionSink().registerExtension("history", history()).ready;
+    editor.getContributionSink().registerTransactionFilter("audit", (context) => ({
+      action: "replace",
+      transaction: { changes: context.changes, origin: ["audit"] },
+    }));
+    view.dispatch({
+      changes: { from: 1, insert: "untracked" },
+      annotations: Transaction.addToHistory.of(false),
+    });
+    expect(editor.getDocument()).toBe("auntrackedb");
+    expect(editor.undo()).toBe(false);
+    editor.destroy();
+  });
+
   it("filters before commit and only notifies listeners with the final update", () => {
     const { editor } = createTestEditor();
     const sink = editor.getContributionSink();

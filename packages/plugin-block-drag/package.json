@@ -1,0 +1,34 @@
+{
+  "name": "@floatboat/nexus-plugin-block-drag",
+  "version": "0.0.14",
+  "description": "Optional Markdown block reordering for Nexus-Editor.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.10.3",
+    "@codemirror/language": "^6.12.3",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.41.0",
+    "@floatboat/nexus-core": "workspace:*",
+    "@floatboat/nexus-plugin-api": "workspace:*",
+    "@lezer/common": "^1.5.1"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

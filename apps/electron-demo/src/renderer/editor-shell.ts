@@ -6,6 +6,7 @@ import {
   type NexusPlugin,
 } from "@floatboat/nexus-core";
 import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
+import { createBlockDragPlugin } from "@floatboat/nexus-plugin-block-drag";
 import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
 import {
   createToolbarPlugin,
@@ -66,6 +67,7 @@ export interface EditorShellOptions {
     toolbar: boolean;
     slashMenu: boolean;
     wordCount: boolean;
+    blockDrag?: boolean;
   }>;
   /** Extra static contributions selected by the host boot plan. */
   editorContributions?: readonly NexusPlugin[];
@@ -93,7 +95,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     resolveWikilink,
     suggestWikilinks,
     contributionMode = "legacy",
-    contributionFeatures = { toolbar: true, slashMenu: true, wordCount: true },
+    contributionFeatures = { toolbar: true, slashMenu: true, wordCount: true, blockDrag: true },
     editorContributions = [],
   } = options;
   const runtimeManaged = contributionMode === "runtime";
@@ -138,6 +140,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     plugins: [
       createGfmPreset(),
       createHistoryPlugin(),
+      ...(!runtimeManaged && contributionFeatures.blockDrag ? [createBlockDragPlugin()] : []),
       ...(!runtimeManaged && contributionFeatures.toolbar ? [createToolbarPlugin()] : []),
       createSearchPlugin(),
       wikilinksPlugin,

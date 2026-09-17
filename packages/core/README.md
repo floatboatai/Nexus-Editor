@@ -71,6 +71,34 @@ editor.on("selectionChange", ({ anchor, head, ranges, mainIndex }) => {
 
 Multiple ranges in `setSelections` require `multiCursor: true` — without the flag CodeMirror collapses the selection to its main range.
 
+## Preparing document block moves
+
+CodeMirror extensions that reorder document blocks must call
+`prepareBlockMove(view: EditorView): boolean` before blurring a table widget.
+Table cells keep input locally while editing, so the document may still contain
+their previous value.
+
+```ts
+import { prepareBlockMove } from "@floatboat/nexus-core";
+
+if (!prepareBlockMove(view)) return false;
+// Read the current document and resolve block positions after preparation.
+```
+
+Preparation synchronously submits pending cell input through the host transaction
+pipeline and releases editing locks only when the resulting document contains the
+exact submitted text. It returns `false` during composition or a table mouse
+gesture, when table offsets are stale, or when the host rejects or changes the
+submission. On failure, do not blur, reorder, or discard the pending widget input.
+A rejected submission can be retried after the host accepts edits; a stale session
+requires the host to reconcile the document and local input before moving.
+
+This function may change the document and selection. Recompute block positions
+after a successful call, and guard again if the document changes before the move.
+Successful preparation refreshes table widgets, so also reacquire any table DOM references.
+It protects built-in table sessions; custom widgets manage their own commit
+protocols. It is a CodeMirror extension API, not a native plugin capability.
+
 ## Other config highlights
 
 See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.

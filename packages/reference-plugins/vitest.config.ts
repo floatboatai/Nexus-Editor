@@ -9,6 +9,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@floatboat/nexus-core": resolveFromPackage("../core/src/index.ts"),
+      "@floatboat/nexus-plugin-block-drag": resolveFromPackage("../plugin-block-drag/src/index.ts"),
       "@floatboat/nexus-plugin-api": resolveFromPackage("../plugin-api/src/index.ts"),
       "@floatboat/nexus-plugin-runtime": resolveFromPackage("../plugin-runtime/src/index.ts"),
       "@floatboat/nexus-plugin-history": resolveFromPackage("../plugin-history/src/index.ts"),

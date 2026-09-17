@@ -1,4 +1,5 @@
 export { createEditor } from "./editor";
+export { prepareBlockMove } from "./live-preview-table";
 export {
   DynamicEditorContributionSink,
   EDITOR_PLUGIN_PRIORITY_MAX,
