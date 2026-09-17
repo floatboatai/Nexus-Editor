@@ -40,6 +40,7 @@ interface Layout {
   readonly root: DOMRect;
   readonly scroll: DOMRect;
   readonly content: DOMRect;
+  readonly scrollLeft: number;
   readonly source: { top: number; bottom: number } | null;
   readonly block: MarkdownBlock | null;
   readonly destination: number | null;
@@ -483,6 +484,7 @@ class BlockDragController {
           root,
           scroll,
           content,
+          scrollLeft: this.view.scrollDOM.scrollLeft,
           block,
           source: block ? this.bounds(block) : null,
           destination,
@@ -492,15 +494,19 @@ class BlockDragController {
     });
   }
 
-  private draw({ root, scroll, content, source, block, destination }: Layout): void {
+  private draw({ root, scroll, content, scrollLeft, source, block, destination }: Layout): void {
     if (this.stopped) return;
     this.hovered = block;
     const visible = source !== null && source.bottom > scroll.top && source.top < scroll.bottom;
     this.handle.hidden = !visible;
     const rtl = this.view.textDirection === Direction.RTL;
+    // Keep the control beside the viewport when long source lines scroll.
+    const offset = scrollLeft * this.view.scaleX;
+    const contentLeft = Math.max(scroll.left, content.left + (rtl ? 0 : offset));
+    const contentRight = Math.min(scroll.right, content.right + (rtl ? offset : 0));
     const x = rtl
-      ? content.right - (HANDLE_WIDTH + HANDLE_INSET) * this.view.scaleX
-      : content.left + HANDLE_INSET * this.view.scaleX;
+      ? contentRight - (HANDLE_WIDTH + HANDLE_INSET) * this.view.scaleX
+      : contentLeft + HANDLE_INSET * this.view.scaleX;
     if (visible && source) {
       this.handle.style.left = `${(x - root.left) / this.view.scaleX}px`;
       this.handle.style.top = `${(Math.max(source.top, scroll.top) - root.top) / this.view.scaleY}px`;
@@ -509,10 +515,10 @@ class BlockDragController {
       this.focusHandleAfterLayout = false;
       this.handle.focus({ preventScroll: true });
     }
-    const left = (content.left - root.left) / this.view.scaleX + (rtl ? 0 : GUTTER_WIDTH);
+    const left = (contentLeft - root.left) / this.view.scaleX + (rtl ? 0 : GUTTER_WIDTH);
     const width = Math.max(
       0,
-      (Math.min(content.right, scroll.right) - content.left) / this.view.scaleX - GUTTER_WIDTH,
+      (contentRight - contentLeft) / this.view.scaleX - GUTTER_WIDTH,
     );
     this.highlight.hidden = !this.gesture?.active || !visible;
     if (source) {

@@ -1,4 +1,5 @@
 import { history } from "@codemirror/commands";
+import { codeFolding, foldEffect, unfoldEffect } from "@codemirror/language";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, ViewPlugin } from "@codemirror/view";
 import { createEditor } from "@floatboat/nexus-core";
@@ -19,6 +20,7 @@ const editor = createEditor({
       name: "acceptance",
       cmExtensions: [
         history(),
+        codeFolding(),
         drag.of(createBlockDragExtension()),
         readonly.of([]),
         ViewPlugin.define(instance => {
@@ -46,6 +48,9 @@ const fixture = {
   },
   readOnly(enabled: boolean): void {
     view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(enabled)) });
+  },
+  fold(from: number, to: number, folded = true): void {
+    view.dispatch({ effects: (folded ? foldEffect : unfoldEffect).of({ from, to }) });
   },
   rejectCellSave(): () => void {
     const registration = editor.getContributionSink().registerTransactionFilter(

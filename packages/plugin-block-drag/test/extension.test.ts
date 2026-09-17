@@ -333,3 +333,19 @@ it("cancels if the source heading is folded during a drag", () => {
   expect(editor.getDocument()).toBe(source);
   expect(view.dom.querySelector(".is-dragging")).toBeNull();
 });
+
+it("keeps the handle and drag indicator visible after horizontal scrolling", () => {
+  const { view } = editorFor();
+  const { handle, measure } = geometry(view);
+  view.scrollDOM.scrollLeft = 180;
+  vi.mocked(view.contentDOM.getBoundingClientRect).mockReturnValue(new DOMRect(-180, 0, 1000, 300));
+  measure();
+  expect(handle.style.left).toBe("1px");
+  pointer(handle, "pointerdown", 5);
+  pointer(window, "pointermove", 240);
+  measure();
+  const indicator = view.dom.querySelector<HTMLElement>(".nexus-block-drag-indicator")!;
+  expect(indicator.hidden).toBe(false);
+  expect(indicator.style.left).toBe("28px");
+  expect(indicator.style.width).toBe("372px");
+});

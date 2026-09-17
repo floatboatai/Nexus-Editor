@@ -83,6 +83,8 @@ In another terminal, run the browser smoke test. Playwright must have a Chromium
 
 ```sh
 node packages/plugin-block-drag/test/browser/smoke.mjs
+node packages/plugin-block-drag/test/browser/edge-smoke.mjs
+node packages/plugin-block-drag/test/browser/runtime-smoke.mjs
 ```
 
 Run the Electron smoke test against a fresh demo build:
@@ -92,4 +94,4 @@ pnpm build:electron-demo
 node packages/plugin-block-drag/test/browser/electron-smoke.mjs
 ```
 
-Automated coverage includes source preservation, unsafe boundaries, selections, rejected table edits, history, and runtime command ownership. The browser smoke test exercises real rendering and pointer input, including CSS zoom and scrolling. Native OS IME, physical trackpads, and the full table interaction matrix still require manual acceptance. See the [validation record](../../openspec/changes/add-markdown-block-reordering/validation.md) for exact evidence and the [checklist](../../openspec/changes/add-markdown-block-reordering/tasks.md) for remaining work.
+Automated coverage includes source preservation, unsafe boundaries, selections, rejected table edits, history, and runtime command ownership. The browser scripts exercise real rendering, pointer and keyboard input, CSS zoom, scrolling, folding, table interactions, and runtime shortcut preferences. Native OS IME, physical input devices, and screen-reader output still require manual acceptance. See the [validation record](../../openspec/changes/add-markdown-block-reordering/validation.md) for exact evidence and known limitations, and the [checklist](../../openspec/changes/add-markdown-block-reordering/tasks.md) for remaining work.

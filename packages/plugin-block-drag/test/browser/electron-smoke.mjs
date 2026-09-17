@@ -41,6 +41,15 @@ for (const mode of ["legacy", "runtime"]) {
     const content = page.locator(".cm-content").first();
     await content.waitFor();
     await page.locator(".nexus-block-drag").waitFor({ state: "attached" });
+    // A visible macOS window also receives the user's physical pointer events,
+    // which can release capture between Playwright's synthetic pointer events.
+    // Isolate this temporary test window while retaining renderer input and rAF.
+    await application.evaluate(({ BrowserWindow }) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.webContents.setBackgroundThrottling(false);
+        window.hide();
+      }
+    });
     await content.click();
     await page.keyboard.press(`${modifier}+A`);
     await page.keyboard.insertText(original.join("\n\n"));
@@ -52,23 +61,23 @@ for (const mode of ["legacy", "runtime"]) {
     assert.deepEqual(await lines(), original);
     const firstLine = page.locator(".cm-line").filter({ hasText: "First paragraph" });
     const handle = page.locator(".nexus-block-drag-handle");
-    const hoverFirst = async () => {
+    const hoverBlock = async (source = firstLine) => {
       // Deferred vault restoration may reinstall runtime plugins after boot.
       // Wait for the current handle to follow the intended source, not just exist.
       const deadline = Date.now() + 5000;
       while (Date.now() < deadline) {
-        const first = await firstLine.boundingBox();
+        const first = await source.boundingBox();
         assert.ok(first);
         await page.mouse.move(first.x + 70, first.y + first.height / 2);
         await page.mouse.move(first.x + 80, first.y + first.height / 2);
         await frame(page);
         const grip = await handle.boundingBox();
-        const current = await firstLine.boundingBox();
+        const current = await source.boundingBox();
         if (grip && current && Math.abs(grip.y - current.y) < 2) return grip;
       }
-      assert.fail(`${mode}: handle did not follow the first paragraph`);
+      assert.fail(`${mode}: handle did not follow the intended source`);
     };
-    const grip = await hoverFirst();
+    const grip = await hoverBlock();
     const lastLine = page.locator(".cm-line").filter({ hasText: "Third paragraph" });
     const last = await lastLine.boundingBox();
     assert.ok(last);
@@ -82,7 +91,7 @@ for (const mode of ["legacy", "runtime"]) {
     await page.keyboard.press(`${modifier}+z`);
     await frame(page);
     assert.deepEqual(await lines(), original);
-    const again = await hoverFirst();
+    const again = await hoverBlock();
     await page.mouse.move(again.x + 12, again.y + 13);
     await page.mouse.down();
     await page.mouse.move(last.x + 140, last.y + last.height - 2, { steps: 10 });
@@ -94,9 +103,46 @@ for (const mode of ["legacy", "runtime"]) {
         path: process.env.BLOCK_DRAG_SCREENSHOT.replace(/\.png$/, `-${mode}.png`),
       });
     }
+    await firstLine.click();
+    await page.keyboard.press("Alt+Shift+ArrowDown");
+    await frame(page);
+    assert.deepEqual(await lines(), ["Second paragraph", "First paragraph", "Third paragraph"]);
+    await firstLine.click();
+    await page.keyboard.press("Alt+Shift+ArrowUp");
+    await frame(page);
+    assert.deepEqual(await lines(), original);
+
+    const tableSource = "| A | B |\n| --- | --- |\n| old | value |\n\nTail";
+    await firstLine.click();
+    await page.keyboard.press(`${modifier}+A`);
+    await page.keyboard.insertText(tableSource);
+    const table = page.locator(".nexus-table-wrapper");
+    const cell = page.locator(".nexus-cell").nth(2);
+    await cell.click();
+    await cell.fill("编辑已保存");
+    const tableGrip = await hoverBlock(table);
+    await page.mouse.move(tableGrip.x + tableGrip.width / 2, tableGrip.y + tableGrip.height / 2);
+    await page.mouse.down();
+    await frame(page);
+    const tail = page.locator(".cm-line").filter({ hasText: "Tail" });
+    const tailBox = await tail.boundingBox();
+    assert.ok(tailBox);
+    await page.mouse.move(tailBox.x + 100, tailBox.y + tailBox.height - 2, { steps: 15 });
+    await page.mouse.up();
+    await frame(page);
+    const tableFollowsTail = () => tail.evaluate(element => Boolean(
+      element.compareDocumentPosition(document.querySelector(".nexus-table-wrapper")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ));
+    assert.equal(await tableFollowsTail(), true, "whole table moves after the paragraph");
+    assert.equal(await cell.textContent(), "编辑已保存");
+    await page.keyboard.press(`${modifier}+z`);
+    await frame(page);
+    assert.equal(await tableFollowsTail(), false, "one undo restores table position");
+    assert.equal(await cell.textContent(), "编辑已保存", "undoing movement retains the cell edit");
     assert.deepEqual(errors, []);
     console.log(
-      `Electron ${mode}: default enablement, actual pointer drag, undo and Escape cancellation passed.`,
+      `Electron ${mode}: pointer drag, cancellation, default shortcuts, edited-table movement and isolated undo passed.`,
     );
   } finally {
     await application.evaluate(({ app }) => app.exit(0)).catch(() => {});

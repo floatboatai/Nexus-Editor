@@ -26,7 +26,7 @@
 - [x] 3.6 Run full repository tests, type checks, API checks, and package/demo builds.
 - [x] 3.7 Repeat required checks after the final code changes.
 
-Recorded results: 72 test files / 1,042 tests passed, with type checks, API checks, package build, demo build, and strict OpenSpec validation passing. The [validation record](validation.md) records the final rerun and separates automated checks from pending manual acceptance.
+Recorded results: 72 test files / 1,043 tests passed, with type checks, API checks, package build, demo build, and strict OpenSpec validation passing. The [validation record](validation.md) records the final rerun and separates automated checks from pending manual acceptance.
 
 ## 4. Browser Acceptance
 
@@ -36,15 +36,16 @@ Recorded results: 72 test files / 1,042 tests passed, with type checks, API chec
 - [x] 4.4 Verify read-only handle suppression and plugin disable during an active gesture.
 - [x] 4.5 Verify edge auto-scroll with 100 paragraphs and that scrolling stops after cancellation.
 - [x] 4.6 Reject a table cell save, attempt movement, accept a retry, and verify that undoing the move retains the accepted cell edit.
-- [ ] 4.7 Verify real pointer cancellation/lost capture and release outside the editor; current automated coverage for these paths uses DOM simulation.
-- [ ] 4.8 Verify resizing, horizontal overflow, and folded-heading geometry in a real browser.
-- [ ] 4.9 Verify actual screen-reader announcements and browser-level default/rebound/conflicting shortcuts; command ownership is covered by runtime tests.
-- [ ] 4.10 Manually recheck the complete table interaction matrix: click-to-edit, range selection, grip-click column selection, grip-drag reorder, outside deselection, and delete-key removal.
+- [x] 4.7 Verify release outside the editor and loss of actual browser pointer capture.
+- [x] 4.8 Verify resizing, horizontal overflow, and folded-heading geometry in a real browser, including folding the source during a gesture.
+- [x] 4.9 Verify browser-level default/rebound/cleared/conflicting shortcuts, current-editor routing, late attachment, and disable/re-enable.
+- [x] 4.10 Verify the table interaction matrix with automated browser pointer input: click-to-edit, range selection, grip-click column selection, row/column grip-drag reorder, outside deselection, delete-key removal, and editing after whole-table movement.
+- [ ] 4.11 Verify screen-reader announcements and OS-triggered pointer cancellation. Synthetic pointer cancellation is covered by DOM tests.
 
 ## 5. Electron and Manual Acceptance
 
-- [x] 5.1 Verify legacy-mode drag, undo, and Escape cancellation in the actual Electron demo.
-- [x] 5.2 Verify native-runtime drag, undo, and Escape cancellation in the actual Electron demo.
+- [x] 5.1 Verify legacy-mode drag, undo, Escape cancellation, default shortcuts, and moving an edited table with separate undo in the actual Electron demo.
+- [x] 5.2 Verify native-runtime drag, undo, Escape cancellation, default shortcuts, and moving an edited table with separate undo in the actual Electron demo.
 - [ ] 5.3 Verify Electron table rejection/retry, shortcut configuration, and cleanup scenarios.
 - [ ] 5.4 Run native Chinese/Japanese OS IME and physical mouse/trackpad checks, including composition near drag start.
 - [x] 5.5 Record exact browser/Electron versions and operating systems in `validation.md`.
