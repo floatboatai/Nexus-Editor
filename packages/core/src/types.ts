@@ -118,6 +118,15 @@ export interface EditorConfig {
    * 引用的 URL（相对路径或远程地址）。返回 null 表示放弃，编辑器不会插入坏链接。
    */
   onAssetUpload?: (file: File) => Promise<string | null>;
+  /**
+   * Convert rich `text/html` clipboard data to Markdown on paste. Default: true.
+   *
+   * Conversion only runs when the HTML is structurally richer than `text/plain`
+   * (headings, emphasis, links, lists, …). Plain paragraphs, file/image paste,
+   * plugin `paste` handlers, and paste inside code nodes are unchanged.
+   * Set `false` to keep CodeMirror's `text/plain` path for HTML clipboards.
+   */
+  htmlPaste?: boolean;
 }
 
 export interface SlashMenuState {

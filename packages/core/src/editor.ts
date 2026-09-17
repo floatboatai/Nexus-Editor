@@ -49,6 +49,8 @@ import type {
   SetDocumentOptions,
   TocEntry,
 } from "./types";
+import { markdownFromClipboard } from "./html-to-markdown";
+import { selectionInsideCode } from "./lezer-helpers";
 import { createWidgetExtension } from "./widget-extension";
 
 const FLOATBOAT_MARKDOWN_DEBUG_STORAGE_KEY = "floatboat:markdown-debug";
@@ -724,14 +726,28 @@ export function createEditor(config: EditorConfig): EditorAPI {
               event.preventDefault();
               return true;
             }
-            // 默认兜底：剪贴板里有图片 / 文件时走资源上传；纯文本粘贴交回 CodeMirror。
-            if (!config.onAssetUpload || destroyed) return false;
-            const files = collectFilesFromDataTransfer(event.clipboardData);
-            if (files.length === 0) return false;
-
-            event.preventDefault();
-            insertUploadedAssets(files);
-            return true;
+            if (destroyed) return false;
+            // 默认兜底：剪贴板里有图片 / 文件时走资源上传；结构化 HTML 转成
+            // Markdown；其余纯文本粘贴交回 CodeMirror。
+            if (config.onAssetUpload) {
+              const files = collectFilesFromDataTransfer(event.clipboardData);
+              if (files.length > 0) {
+                event.preventDefault();
+                insertUploadedAssets(files);
+                return true;
+              }
+            }
+            if (config.htmlPaste !== false && !selectionInsideCode(view.state)) {
+              const html = event.clipboardData?.getData("text/html") ?? "";
+              const plain = event.clipboardData?.getData("text/plain") ?? "";
+              const markdown = markdownFromClipboard(html, plain);
+              if (markdown) {
+                event.preventDefault();
+                view.dispatch(view.state.replaceSelection(markdown));
+                return true;
+              }
+            }
+            return false;
           },
           drop(event) {
             if (runEventHandlers(dropHandlers, event)) {

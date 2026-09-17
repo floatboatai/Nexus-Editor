@@ -80,6 +80,31 @@ export function isAtxHeading(name: string): boolean {
   );
 }
 
+const CODE_NODE_NAMES = new Set(["FencedCode", "CodeBlock", "InlineCode"]);
+
+/**
+ * True when `pos` sits inside a fenced code block, indented code block, or
+ * inline code span. Used to keep HTML→Markdown paste from rewriting source
+ * the user is editing as literal code.
+ */
+export function positionInsideCode(state: EditorState, pos: number): boolean {
+  const tree = syntaxTree(state);
+  let node: SyntaxNode | null = tree.resolveInner(pos, -1);
+  while (node) {
+    if (CODE_NODE_NAMES.has(node.name)) return true;
+    node = node.parent;
+  }
+  // Cursor parked on the opening fence line still counts — resolveInner at
+  // the very start of a FencedCode can land on the parent Document.
+  const around = tree.resolveInner(pos, 1);
+  return CODE_NODE_NAMES.has(around.name);
+}
+
+/** True when any selection range is inside a code node. */
+export function selectionInsideCode(state: EditorState): boolean {
+  return state.selection.ranges.some((range) => positionInsideCode(state, range.head));
+}
+
 /** Extract the heading depth (1–6) from an ATXHeading or SetextHeading node name. */
 export function headingDepth(name: string): 1 | 2 | 3 | 4 | 5 | 6 | null {
   if (name.startsWith("ATXHeading")) {

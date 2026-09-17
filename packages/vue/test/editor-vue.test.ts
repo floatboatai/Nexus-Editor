@@ -314,4 +314,59 @@ describe("@floatboat/nexus-vue", () => {
     await vi.waitFor(() => expect(events).toEqual(["detach", "dispose"]));
     expect(createRuntime).toHaveBeenCalledOnce();
   });
+
+  it("forwards htmlPaste=false so structured HTML paste is not converted", async () => {
+    let ready: EditorAPI | null = null;
+    const wrapper = mount(Editor, {
+      props: {
+        initialValue: "",
+        htmlPaste: false,
+        onReady: (editor: EditorAPI) => {
+          ready = editor;
+        },
+      },
+    });
+    await nextTick();
+
+    const content = wrapper.element.querySelector("[contenteditable='true']") as HTMLElement;
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: {
+        files: [],
+        items: [],
+        getData: (type: string) => (type === "text/html" ? "<h1>Title</h1>" : "Title"),
+      },
+    });
+    content.dispatchEvent(event);
+
+    expect(ready).not.toBeNull();
+    expect(ready!.getDocument()).not.toContain("# Title");
+  });
+
+  it("converts structured HTML paste through the Editor component by default", async () => {
+    let ready: EditorAPI | null = null;
+    const wrapper = mount(Editor, {
+      props: {
+        initialValue: "",
+        onReady: (editor: EditorAPI) => {
+          ready = editor;
+        },
+      },
+    });
+    await nextTick();
+
+    const content = wrapper.element.querySelector("[contenteditable='true']") as HTMLElement;
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: {
+        files: [],
+        items: [],
+        getData: (type: string) => (type === "text/html" ? "<h1>Title</h1>" : "Title"),
+      },
+    });
+    content.dispatchEvent(event);
+
+    expect(ready).not.toBeNull();
+    expect(ready!.getDocument()).toBe("# Title");
+  });
 });

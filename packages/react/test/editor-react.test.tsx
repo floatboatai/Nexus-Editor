@@ -311,4 +311,57 @@ describe("@floatboat/nexus-react", () => {
     unmount();
     expect(detached).toEqual(attached);
   });
+
+  it("forwards htmlPaste=false so structured HTML paste is not converted", () => {
+    let ready: EditorAPI | null = null;
+    const { container } = render(
+      <Editor
+        initialValue=""
+        htmlPaste={false}
+        onReady={(editor) => {
+          ready = editor;
+        }}
+      />
+    );
+
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: {
+        files: [],
+        items: [],
+        getData: (type: string) => (type === "text/html" ? "<h1>Title</h1>" : "Title"),
+      },
+    });
+    content.dispatchEvent(event);
+
+    expect(ready).not.toBeNull();
+    expect(ready!.getDocument()).not.toContain("# Title");
+  });
+
+  it("converts structured HTML paste through the Editor component by default", () => {
+    let ready: EditorAPI | null = null;
+    const { container } = render(
+      <Editor
+        initialValue=""
+        onReady={(editor) => {
+          ready = editor;
+        }}
+      />
+    );
+
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: {
+        files: [],
+        items: [],
+        getData: (type: string) => (type === "text/html" ? "<h1>Title</h1>" : "Title"),
+      },
+    });
+    content.dispatchEvent(event);
+
+    expect(ready).not.toBeNull();
+    expect(ready!.getDocument()).toBe("# Title");
+  });
 });

@@ -22,6 +22,7 @@ const editorPropKeys = [
   "onFocus",
   "onBlur",
   "onAssetUpload",
+  "htmlPaste",
   "onReady",
   "runtime"
 ] as const;
@@ -111,6 +112,11 @@ export const Editor = defineComponent({
     onAssetUpload: {
       type: Function as PropType<EditorProps["onAssetUpload"]>,
       required: false
+    },
+    htmlPaste: {
+      type: Boolean as PropType<boolean | undefined>,
+      required: false,
+      default: undefined,
     },
     onReady: {
       type: Function as PropType<(editor: EditorAPI) => void>,

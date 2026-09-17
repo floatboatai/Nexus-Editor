@@ -26,6 +26,12 @@ export { markdownAutoPair } from "./markdown-autopair";
 export { markdownFold, markdownFoldService } from "./markdown-fold";
 export { markdownKeymap, handleMarkdownEnter } from "./markdown-keymap";
 export {
+  htmlToMarkdown,
+  markdownFromClipboard,
+  isSafeHref,
+  isSafeImgSrc,
+} from "./html-to-markdown";
+export {
   addCursorAbove,
   addCursorBelow,
   collapseToMainSelection,

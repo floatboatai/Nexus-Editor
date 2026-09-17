@@ -73,4 +73,27 @@ Multiple ranges in `setSelections` require `multiCursor: true` — without the f
 
 ## Other config highlights
 
-See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.
+See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`, `htmlPaste`.
+
+## HTML clipboard paste
+
+Rich HTML from a browser, Google Docs, or Word is converted to Markdown on paste (headings, emphasis, links, images, lists, blockquotes, fenced code, GFM tables). The converter is dependency-free and exported for hosts that want to run it without an editor:
+
+```ts
+import { createEditor, htmlToMarkdown } from "@floatboat/nexus-core";
+
+htmlToMarkdown("<h1>Title</h1>"); // "# Title"
+
+const editor = createEditor({
+  container,
+  htmlPaste: true, // default — set false to keep text/plain
+});
+```
+
+Conversion is skipped when:
+
+- a plugin `paste` handler consumes the event
+- the clipboard contains files (those still go through `onAssetUpload`)
+- the cursor is inside a fenced / indented / inline code node
+- the HTML is just a wrapped copy of `text/plain` (a `<p>hello</p>` paste stays a plain paste)
+

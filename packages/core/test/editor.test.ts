@@ -888,6 +888,113 @@ describe("createEditor — DOM event hook layer", () => {
     editor.destroy();
   });
 
+  it("converts structured HTML clipboard paste to Markdown", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "",
+    });
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+
+    const event = makePasteEvent({
+      files: [],
+      items: [],
+      getData: (type: string) => (type === "text/html" ? "<h1>Title</h1>" : type === "text/plain" ? "Title" : ""),
+    });
+    content.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(editor.getDocument()).toBe("# Title");
+    editor.destroy();
+  });
+
+  it("does not convert HTML paste when htmlPaste is false", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "keep",
+      htmlPaste: false,
+    });
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+
+    const event = makePasteEvent({
+      files: [],
+      items: [],
+      getData: (type: string) => (type === "text/html" ? "<h1>Title</h1>" : "Title"),
+    });
+    content.dispatchEvent(event);
+
+    expect(editor.getDocument()).not.toContain("# Title");
+    editor.destroy();
+  });
+
+  it("does not convert a plain paragraph wrapped in HTML", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "keep",
+    });
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+
+    const event = makePasteEvent({
+      files: [],
+      items: [],
+      getData: (type: string) => (type === "text/html" ? "<p>hello</p>" : "hello"),
+    });
+    content.dispatchEvent(event);
+
+    expect(editor.getDocument()).not.toContain("#");
+    expect(editor.getDocument()).not.toContain("**");
+    editor.destroy();
+  });
+
+  it("does not convert HTML paste inside a fenced code block", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "```\ncode\n```\n",
+    });
+    editor.setSelection(5);
+
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+    const event = makePasteEvent({
+      files: [],
+      items: [],
+      getData: (type: string) => (type === "text/html" ? "<h1>Title</h1>" : "Title"),
+    });
+    content.dispatchEvent(event);
+
+    expect(editor.getDocument()).not.toContain("# Title");
+    editor.destroy();
+  });
+
+  it("lets file paste win over HTML conversion", async () => {
+    const container = document.createElement("div");
+    const uploads: File[] = [];
+    const editor = createEditor({
+      container,
+      onAssetUpload: (file) => {
+        uploads.push(file);
+        return Promise.resolve("assets/shot.png");
+      },
+    });
+    const content = container.querySelector("[contenteditable='true']") as HTMLElement;
+    const file = new File(["img"], "shot.png", { type: "image/png" });
+    const event = makePasteEvent({
+      files: [file],
+      items: [],
+      getData: (type: string) => (type === "text/html" ? "<h1>Title</h1>" : "Title"),
+    });
+    content.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    await flushMicrotasks();
+    expect(uploads).toEqual([file]);
+    expect(editor.getDocument()).toContain("![shot.png](assets/shot.png)");
+    expect(editor.getDocument()).not.toContain("# Title");
+    editor.destroy();
+  });
+
   it("dispatches keydown to plugin handlers and stops default only when consumed", () => {
     const container = document.createElement("div");
     const keys: string[] = [];

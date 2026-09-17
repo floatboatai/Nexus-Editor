@@ -20,6 +20,7 @@ export function Editor({
   onFocus,
   onBlur,
   onAssetUpload,
+  htmlPaste,
   onReady,
   runtime,
   ...divProps
@@ -42,6 +43,7 @@ export function Editor({
     onFocus,
     onBlur,
     onAssetUpload,
+    htmlPaste,
     onReady,
     runtime
   });
