@@ -1,4 +1,5 @@
 import type { NexusPlugin } from "@floatboat/nexus-core";
+import { BlockDragLifecyclePlugin, createBlockDragPlugin } from "@floatboat/nexus-plugin-block-drag";
 import type { NexusPluginConstructor } from "@floatboat/nexus-plugin-api";
 import { SlashLifecyclePlugin } from "@floatboat/nexus-plugin-slash";
 import {
@@ -17,6 +18,8 @@ export interface ReferencePluginFeatureFlags {
   readonly toolbar: boolean;
   readonly slashMenu: boolean;
   readonly wordCount: boolean;
+  /** Opt in to block reordering; omitted flags preserve existing host behavior. */
+  readonly blockDrag?: boolean;
 }
 
 export interface ReferencePluginBootPlan {
@@ -45,6 +48,7 @@ export function createReferencePluginBootPlan(
       editorContributions: Object.freeze([
         ...(flags.toolbar ? [createToolbarPlugin()] : []),
         ...(legacyWordCount ? [legacyWordCount] : []),
+        ...(flags.blockDrag ? [createBlockDragPlugin()] : []),
       ]),
       runtimePlugins: Object.freeze([]),
       legacyWordCount,
@@ -65,6 +69,7 @@ export function createReferencePluginBootPlan(
       ...(flags.toolbar ? [ToolbarLifecyclePlugin] : []),
       ...(flags.slashMenu ? [SlashLifecyclePlugin] : []),
       ...(flags.wordCount ? [WordCountLifecyclePlugin] : []),
+      ...(flags.blockDrag ? [BlockDragLifecyclePlugin] : []),
     ] as NexusPluginConstructor[]),
     legacyWordCount: null,
     legacyUi: Object.freeze({ toolbar: false, slashMenu: false, wordCount: false }),

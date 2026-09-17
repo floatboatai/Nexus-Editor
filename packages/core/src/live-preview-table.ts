@@ -1,10 +1,13 @@
 import { EditorView, WidgetType, runScopeHandlers } from "@codemirror/view";
+import { StateEffect } from "@codemirror/state";
 import type { Table } from "mdast";
 
 import type { LivePreviewLabels } from "./types";
 import { setInputTargetProvider } from "./input-target-provider";
 
 const tableEditingCounts = new WeakMap<EditorView, number>();
+
+export const tableEditingFinished = StateEffect.define<void>();
 
 export function isTableEditing(view: EditorView | null | undefined): boolean {
   return !!view && (tableEditingCounts.get(view) ?? 0) > 0;
@@ -21,11 +24,21 @@ function decrementTableEditing(view: EditorView): void {
 }
 
 interface TableEditSession {
+  readonly from: number;
   flush(): boolean;
+  canPrepareMove(): boolean;
+  prepareMove(): boolean;
+  finishMove(): void;
   finish(): void;
 }
 
 const tableEditSessions = new WeakMap<EditorView, Set<TableEditSession>>();
+
+function orderedTableEditSessions(view: EditorView): TableEditSession[] {
+  // Changes below a table cannot invalidate its source offsets. This also
+  // permits retrying several pending sessions after a host rejected their edits.
+  return Array.from(tableEditSessions.get(view) ?? []).sort((a, b) => b.from - a.from);
+}
 
 function registerTableEditSession(view: EditorView, session: TableEditSession): void {
   let sessions = tableEditSessions.get(view);
@@ -44,7 +57,7 @@ function unregisterTableEditSession(view: EditorView, session: TableEditSession)
 }
 
 export function flushPendingTableEdits(view: EditorView, finishEditing = false): boolean {
-  const sessions = Array.from(tableEditSessions.get(view) ?? []);
+  const sessions = orderedTableEditSessions(view);
   let changed = false;
   let firstError: unknown;
   let hasError = false;
@@ -72,6 +85,28 @@ export function flushPendingTableEdits(view: EditorView, finishEditing = false):
   }
   if (hasError) throw firstError;
   return changed;
+}
+
+/**
+ * Commit pending table input before a document block is moved. Returns false
+ * while an interaction is active or the host did not accept the exact input.
+ * Call before blurring widgets, then read block positions from the new state.
+ */
+export function prepareBlockMove(view: EditorView): boolean {
+  if (view.composing || view.compositionStarted) return false;
+  const sessions = orderedTableEditSessions(view);
+  if (sessions.some((session) => !session.canPrepareMove())) return false;
+  for (const session of sessions) {
+    if (!session.prepareMove()) return false;
+  }
+  for (const session of sessions) session.finishMove();
+  if (sessions.length > 0) {
+    // Refresh all rendered offsets after the commits. An effects-only update
+    // also works when the host rejects selection transactions, and a canceled
+    // move leaves fully functional widgets instead of closed edit sessions.
+    view.dispatch({ effects: tableEditingFinished.of(), filter: false });
+  }
+  return true;
 }
 
 // 表格方向键导航的调试日志，仅在显式开启 floatboat:markdown-debug 标记后输出。
@@ -677,6 +712,8 @@ export class EditableTableWidget extends WidgetType {
     const dataLineIndices: number[] = [];
     for (let i = 0; i < sourceLines.length; i++) if (!SEPARATOR_RE.test(sourceLines[i])) dataLineIndices.push(i);
     const dirtyRows = new Map<number, HTMLElement>();
+    const composingCells = new Set<HTMLElement>();
+    const snapshotCellSources = new Map<HTMLElement, () => void>();
 
     // State
     let selectedCol = -1;
@@ -699,6 +736,7 @@ export class EditableTableWidget extends WidgetType {
       range: false,
       drag: false,
       nativeSelection: false,
+      pending: false,
     };
     const editingLockViews: Partial<Record<keyof typeof editingLocks, EditorView>> = {};
     let pendingNativeTextSelection: PendingNativeTextSelection | null = null;
@@ -710,15 +748,50 @@ export class EditableTableWidget extends WidgetType {
     let removeInputTargetProvider: (() => void) | null = null;
 
     const tableEditSession: TableEditSession = {
+      get from() { return self.tableFrom; },
       flush: () => syncDirtyRowsToDocument(),
+      canPrepareMove: () => {
+        const view = self.viewRef.current;
+        return !sessionClosed && wrapper.isConnected && !!view &&
+          composingCells.size === 0 && !cellMouseDown && !isRangeSelecting &&
+          !editingLocks.drag && !editingLocks.nativeSelection &&
+          currentDocumentContainsOriginalTable(view);
+      },
+      prepareMove: () => {
+        if (!tableEditSession.canPrepareMove()) return false;
+        for (const [cell, snapshot] of snapshotCellSources) {
+          if (cell.contentEditable === "true") snapshot();
+        }
+        syncDirtyRowsToDocument();
+        return dirtyRows.size === 0;
+      },
+      finishMove: () => {
+        if (sessionClosed) return;
+        self.reusable = false;
+        clearRangeSelection();
+        clearSelection();
+        clearPendingNativeTextSelection();
+        const active = wrapper.ownerDocument.activeElement;
+        if (active instanceof HTMLElement && wrapper.contains(active)) {
+          active.blur();
+          active.contentEditable = "false";
+        }
+        releaseEditingLock("focus");
+      },
       finish: () => {
         self.reusable = false;
         self.cleanupEditingLocks?.();
+        const active = wrapper.ownerDocument.activeElement;
+        if (active instanceof HTMLElement && wrapper.contains(active)) {
+          active.blur();
+          active.contentEditable = "false";
+        }
       },
     };
 
     function hasEditingLocks(): boolean {
-      return editingLocks.focus || editingLocks.range || editingLocks.drag || editingLocks.nativeSelection;
+      return editingLocks.focus || editingLocks.range || editingLocks.drag ||
+        editingLocks.nativeSelection || editingLocks.pending;
     }
 
     function updateSessionRegistration(): void {
@@ -765,6 +838,9 @@ export class EditableTableWidget extends WidgetType {
       releaseEditingLock("focus");
       releaseEditingLock("range");
       releaseEditingLock("drag");
+      releaseEditingLock("pending");
+      composingCells.clear();
+      snapshotCellSources.clear();
       clearPendingNativeTextSelection();
       if (registeredSessionView) {
         unregisterTableEditSession(registeredSessionView, tableEditSession);
@@ -781,6 +857,9 @@ export class EditableTableWidget extends WidgetType {
     function rememberDirtyRow(lineIdx: number | undefined, row: HTMLElement): void {
       if (sessionClosed || lineIdx === undefined) return;
       dirtyRows.set(lineIdx, row);
+      // Keep rejected input alive even after the focused cell blurs. Without
+      // this lock a selection transaction can recreate the widget from old text.
+      acquireEditingLock("pending");
       updateSessionRegistration();
     }
 
@@ -869,6 +948,7 @@ export class EditableTableWidget extends WidgetType {
 
     function clearDirtyRows(): void {
       dirtyRows.clear();
+      releaseEditingLock("pending");
       updateSessionRegistration();
     }
 
@@ -892,10 +972,7 @@ export class EditableTableWidget extends WidgetType {
     function syncDirtyRowsToDocument(): boolean {
       const v = self.viewRef.current;
       if (!v || dirtyRows.size === 0) return false;
-      if (!currentDocumentContainsOriginalTable(v)) {
-        clearDirtyRows();
-        return false;
-      }
+      if (composingCells.size > 0 || !currentDocumentContainsOriginalTable(v)) return false;
 
       const snapshot = dirtySourceSnapshot();
       if (!snapshot.changed) {
@@ -906,7 +983,9 @@ export class EditableTableWidget extends WidgetType {
       const anchorLineIdx = snapshot.firstChangedLineIdx ?? 0;
       const anchor = lineStartOffset(sourceLines, anchorLineIdx, self.tableFrom);
       if (snapshot.firstChangedRow) restoreRowScrollPosition(anchorLineIdx, snapshot.firstChangedRow);
-      clearDirtyRows();
+      const documentBefore = v.state.doc;
+      const expectedDocument = documentBefore.sliceString(0, self.tableFrom) + snapshot.source +
+        documentBefore.sliceString(self.tableFrom + self.source.length);
       v.dispatch({
         changes: {
           from: self.tableFrom,
@@ -915,7 +994,18 @@ export class EditableTableWidget extends WidgetType {
         },
         selection: { anchor, head: anchor }
       });
+      // Dispatch can be rejected or replaced by a host transaction filter.
+      // Only release the local input when the committed document matches it.
+      if (v.state.doc.toString() !== expectedDocument) return false;
+      self.source = snapshot.source;
+      sourceLines.splice(0, sourceLines.length, ...snapshot.source.split("\n"));
+      self.reusable = false;
+      clearDirtyRows();
       v.requestMeasure();
+      if (!self.editing) {
+        const selection = v.state.selection;
+        v.dispatch({ selection });
+      }
       return true;
     }
 
@@ -2094,6 +2184,7 @@ export class EditableTableWidget extends WidgetType {
           enterRawEditingMode();
         });
         td.addEventListener("blur", () => {
+          if (sessionClosed) return;
           // input/compositionend can be followed immediately by blur. Snapshot
           // before swapping raw DOM back to rich rendering so the final IME
           // candidate (or last ordinary keystroke) cannot be overwritten.
@@ -2139,6 +2230,7 @@ export class EditableTableWidget extends WidgetType {
           // with the up-to-date AST. `queueMicrotask` lets the blur
           // settle before we re-enter CM6.
           queueMicrotask(() => {
+            if (sessionClosed) return;
             // 方向键在单元格间导航时，跳过这个 selection 派发：它会把焦点/光标抢回
             // CM 文档选区（常是第 0 行），让光标"飞到第一行"而非落在目标单元格。
             if (navigatingBetweenCells) {
@@ -2162,6 +2254,7 @@ export class EditableTableWidget extends WidgetType {
               tableNavDebug("blur-dispatch:committed", { active: describeActiveCell() });
               return;
             }
+            if (dirtyRows.size > 0 || sessionClosed) return;
             const v = self.viewRef.current;
             if (!v) return;
             const sel = v.state.selection.main;
@@ -2175,10 +2268,13 @@ export class EditableTableWidget extends WidgetType {
         });
 
         function rememberCellSourceEdit(): void {
-          if (sourceLineIdx === undefined) return;
-          td.dataset.source = td.textContent ?? "";
+          if (sessionClosed || sourceLineIdx === undefined) return;
+          const source = td.textContent ?? "";
+          if (source === td.dataset.source && !dirtyRows.has(sourceLineIdx)) return;
+          td.dataset.source = source;
           rememberDirtyRow(sourceLineIdx, tr);
         }
+        snapshotCellSources.set(td, rememberCellSourceEdit);
 
         const queueCompositionSourceSnapshot = (): void => {
           if (compositionSourceQueued) return;
@@ -2198,6 +2294,7 @@ export class EditableTableWidget extends WidgetType {
         td.addEventListener("compositionstart", (event) => {
           event.stopPropagation();
           cellComposing = true;
+          composingCells.add(td);
           acquireEditingLock("focus");
         }, true);
 
@@ -2208,6 +2305,7 @@ export class EditableTableWidget extends WidgetType {
         td.addEventListener("compositionend", (event) => {
           event.stopPropagation();
           cellComposing = false;
+          composingCells.delete(td);
           rememberCellSourceEdit();
           // 浏览器会在 compositionend 前后把候选词提交进 contentEditable。
           // 延后一拍读取 TD，只更新待提交源码，避免输入阶段重绘长表格导致失焦。

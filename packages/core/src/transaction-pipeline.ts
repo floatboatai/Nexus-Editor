@@ -6,6 +6,7 @@ import {
   type TransactionSpec,
 } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
+import { isolateHistory } from "@codemirror/commands";
 
 import type {
   CoreEditorChange,
@@ -114,10 +115,20 @@ function stableHookOrder<T>(entries: Iterable<HookEntry<T>>): HookEntry<T>[] {
     .sort((a, b) => b.priority - a.priority || a.sequence - b.sequence);
 }
 
-function toTransactionSpec(transaction: CoreEditorTransaction): TransactionSpec {
-  const annotations = transaction.origin.length > 0
-    ? [editorTransactionOrigin.of(Object.freeze([...transaction.origin]))]
-    : undefined;
+function historyAnnotations(transaction: Transaction): Annotation<unknown>[] {
+  const annotations: Annotation<unknown>[] = [];
+  const isolation = transaction.annotation(isolateHistory);
+  if (isolation !== undefined) annotations.push(isolateHistory.of(isolation));
+  const addToHistory = transaction.annotation(Transaction.addToHistory);
+  if (addToHistory !== undefined) annotations.push(Transaction.addToHistory.of(addToHistory));
+  return annotations;
+}
+
+function toTransactionSpec(transaction: CoreEditorTransaction, previous?: Transaction): TransactionSpec {
+  const annotations = previous ? historyAnnotations(previous) : [];
+  if (transaction.origin.length > 0) {
+    annotations.push(editorTransactionOrigin.of(Object.freeze([...transaction.origin])));
+  }
   return {
     changes: transaction.changes.map((change) => ({
       from: change.from,
@@ -253,13 +264,15 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
       for (const origin of transaction.annotation(editorTransactionOrigin) ?? []) {
         if (origins[origins.length - 1] !== origin) origins.push(origin);
       }
+      const annotations = historyAnnotations(transaction);
+      if (index === transactions.length - 1 && origins.length > 0) {
+        annotations.push(editorTransactionOrigin.of(Object.freeze(origins)));
+      }
       return {
         changes: transaction.changes,
         selection: transaction.selection,
         effects: transaction.effects,
-        annotations: index === transactions.length - 1 && origins.length > 0
-          ? editorTransactionOrigin.of(Object.freeze(origins))
-          : undefined,
+        annotations,
         scrollIntoView: transaction.scrollIntoView,
         userEvent: transaction.annotation(Transaction.userEvent),
         sequential: index > 0,
@@ -307,7 +320,7 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
       }
       if (result.action === "replace") {
         transaction = transaction.startState.update({
-          ...toTransactionSpec(inheritReplacement(context, result.transaction)),
+          ...toTransactionSpec(inheritReplacement(context, result.transaction), transaction),
           filter: false,
         });
         context = makeContext(this.host.editor, transaction);

@@ -1,3 +1,4 @@
+import { BlockDragLifecyclePlugin } from "@floatboat/nexus-plugin-block-drag";
 import {
   SlashLifecyclePlugin,
 } from "@floatboat/nexus-plugin-slash";
@@ -21,20 +22,22 @@ const BOOLEAN_VALUES = [false, true] as const;
 const FEATURE_FLAG_CASES = BOOLEAN_VALUES.flatMap((pluginPlatform) =>
   BOOLEAN_VALUES.flatMap((toolbar) =>
     BOOLEAN_VALUES.flatMap((slashMenu) =>
-      BOOLEAN_VALUES.map((wordCount) => ({
+      BOOLEAN_VALUES.flatMap((wordCount) => BOOLEAN_VALUES.map((blockDrag) => ({
         label: [
           `pluginPlatform=${pluginPlatform}`,
           `toolbar=${toolbar}`,
           `slashMenu=${slashMenu}`,
           `wordCount=${wordCount}`,
+          `blockDrag=${blockDrag}`,
         ].join(", "),
         flags: {
           pluginPlatform,
           toolbar,
           slashMenu,
           wordCount,
+          blockDrag,
         } satisfies ReferencePluginFeatureFlags,
-      })),
+      }))),
     ),
   ),
 );
@@ -54,6 +57,7 @@ describe("createReferencePluginBootPlan feature flags", () => {
       toolbar: true,
       slashMenu: true,
       wordCount: true,
+      blockDrag: true,
     });
 
     const pairs = plan.runtimePlugins.map((Plugin) =>
@@ -64,6 +68,7 @@ describe("createReferencePluginBootPlan feature flags", () => {
       "toolbar",
       "slash-menu",
       "wordcount",
+      "block-drag",
     ]);
   });
 
@@ -83,11 +88,20 @@ describe("createReferencePluginBootPlan feature flags", () => {
         countOwners(plan, plan.legacyUi.wordCount, WordCountLifecyclePlugin),
       ).toBe(Number(flags.wordCount));
 
+      expect(
+        countOwners(
+          plan,
+          plan.editorContributions.some((plugin) => plugin.name === "plugin-block-drag"),
+          BlockDragLifecyclePlugin,
+        ),
+      ).toBe(Number(flags.blockDrag));
+
       if (flags.pluginPlatform) {
         expect(plan.runtimePlugins).toEqual([
           ...(flags.toolbar ? [ToolbarLifecyclePlugin] : []),
           ...(flags.slashMenu ? [SlashLifecyclePlugin] : []),
           ...(flags.wordCount ? [WordCountLifecyclePlugin] : []),
+          ...(flags.blockDrag ? [BlockDragLifecyclePlugin] : []),
         ]);
         expect(plan.legacyUi).toEqual({
           toolbar: false,
@@ -111,6 +125,7 @@ describe("createReferencePluginBootPlan feature flags", () => {
       expect(plan.editorContributions.map((plugin) => plugin.name)).toEqual([
         ...(flags.toolbar ? ["plugin-toolbar"] : []),
         ...(flags.wordCount ? ["plugin-wordcount"] : []),
+        ...(flags.blockDrag ? ["plugin-block-drag"] : []),
       ]);
     },
   );
@@ -125,7 +140,7 @@ describe("createReferencePluginBootPlan feature flags", () => {
       expect(plan.editorContributions).toHaveLength(
         flags.pluginPlatform
           ? Number(shouldExposeCatalogue)
-          : Number(flags.toolbar) + Number(flags.wordCount),
+          : Number(flags.toolbar) + Number(flags.wordCount) + Number(flags.blockDrag),
       );
 
       if (!flags.pluginPlatform || !shouldExposeCatalogue) return;

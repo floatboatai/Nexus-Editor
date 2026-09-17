@@ -9,6 +9,7 @@ const flags: ReferencePluginFeatureFlags = {
   toolbar: true,
   slashMenu: true,
   wordCount: true,
+  blockDrag: true,
 };
 const plan = createReferencePluginBootPlan(flags);
 

@@ -68,6 +68,7 @@ const MAIN_PLUGIN_PERMISSION_POLICIES = new Map<string, MainOwnedPluginPermissio
   ["wordcount", { declaredPermissions: [], grantedPermissions: [] }],
   ["toolbar", { declaredPermissions: [], grantedPermissions: [] }],
   ["slash-menu", { declaredPermissions: [], grantedPermissions: [] }],
+  ["block-drag", { declaredPermissions: [], grantedPermissions: [] }],
   ["obsidian-sample-port", { declaredPermissions: [], grantedPermissions: [] }],
 ]);
 

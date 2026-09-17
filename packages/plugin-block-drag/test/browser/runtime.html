@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Block reorder runtime acceptance</title>
+  <style>
+    body { margin: 28px; font: 15px system-ui; color: #24232b; background: #faf9f6; }
+    h1 { font-size: 22px; }
+    main { display: flex; gap: 24px; }
+    section { flex: 1; min-width: 0; }
+    .editor { height: 320px; background: white; border: 1px solid #d8d5df; }
+    .cm-editor { height: 100%; }
+    .cm-scroller { overflow: auto; }
+    .cm-content { font-size: 16px; line-height: 1.6; }
+    #outside { margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <h1>Runtime block reordering</h1>
+  <p>Hotkeys follow the focused editor and the host's command preferences.</p>
+  <main>
+    <section><h2>First editor</h2><div class="editor" id="first"></div></section>
+    <section><h2>Second editor</h2><div class="editor" id="second"></div></section>
+  </main>
+  <button id="outside" type="button">Focus outside both editors</button>
+  <script type="module" src="./runtime.ts"></script>
+</body>
+</html>

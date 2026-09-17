@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Block reorder acceptance</title>
+  <style>
+    body { margin: 28px; font: 15px system-ui; color: #24232b; background: #faf9f6; }
+    h1 { font-size: 22px; }
+    #editor { width: 700px; height: 460px; background: white; border: 1px solid #d8d5df; }
+    .cm-editor { height: 100%; }
+    .cm-scroller { overflow: auto; }
+    .cm-content { font-size: 16px; line-height: 1.6; }
+    pre { max-width: 700px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Markdown block reordering</h1>
+  <p>Drag the margin handle. Escape cancels; each move has its own undo step.</p>
+  <div id="editor"></div>
+  <pre id="markdown"></pre>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

@@ -91,6 +91,7 @@ export function resolveReferencePluginFeatureFlags(
     toolbar: true,
     slashMenu: true,
     wordCount: true,
+    blockDrag: true,
     ...rendererFeatures,
   });
 }
@@ -857,6 +858,10 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
         ? bootPlan.runtimePlugins.some((Plugin) =>
             bundledReferencePlugins.some((entry) => entry.Plugin === Plugin && entry.manifest.id === "wordcount"))
         : bootPlan.legacyUi.wordCount,
+      blockDrag: bootPlan.mode === "runtime"
+        ? bootPlan.runtimePlugins.some((Plugin) =>
+            bundledReferencePlugins.some((entry) => entry.Plugin === Plugin && entry.manifest.id === "block-drag"))
+        : bootPlan.editorContributions.some((plugin) => plugin.name === "plugin-block-drag"),
     },
     editorContributions: bootPlan.mode === "runtime"
       ? bootPlan.editorContributions

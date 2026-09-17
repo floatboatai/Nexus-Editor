@@ -157,6 +157,13 @@ Nexus 不把活动编辑器建模成全局单例。一个插件实例可以服�
 
 需要特定窗口、Workspace 或 editor capability 时，传入对应的 `CapabilityRequestContext`。不要缓存“当前编辑器”或从全局 DOM 推断活动 leaf。Workspace 的 focused leaf、active view/file 和 recent editor 是相互独立且都可能为空的查询。
 
+原生插件如通过 editor extension 重排文档块，必须在表格失焦前调用 core 的
+`prepareBlockMove(view)`，并在返回 `true` 后重新解析块位置。该调用可能提交表格的
+本地输入并改变文档、选区；组合输入、未结束的表格手势、过期位置、宿主拒绝或改写
+提交时返回 `false`，插件应取消移动并保留输入。它是已有 `EditorView` 上的扩展 API，
+不新增 capability，也不提供全局活动编辑器查询。详见
+[core 表格提交契约](../../packages/core/README.md#preparing-document-block-moves)。
+
 ## 5. Manifest 字段速查
 
 | 字段 | 必填 | 约束 |
