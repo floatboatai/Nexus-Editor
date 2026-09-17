@@ -1,4 +1,9 @@
-import type { EditorAPI, SlashCommandDef, SlashMenuState } from "@floatboat/nexus-core";
+import {
+  rankSlashCommands,
+  type EditorAPI,
+  type SlashCommandDef,
+  type SlashMenuState,
+} from "@floatboat/nexus-core";
 import {
   createSlashCommandHistory,
   type SlashCommandHistoryConfig,
@@ -82,11 +87,44 @@ export interface SlashMenuUI {
 const DEFAULT_PREFIX = "nexus-slash";
 const DEFAULT_OFFSET = 4;
 const VIEWPORT_MARGIN = 8;
+const MATCH_CLASS_SUFFIX = "menu__match";
 
 let uniqueIdCounter = 0;
 function generateId(prefix: string): string {
   uniqueIdCounter += 1;
   return `${prefix}-menu-${uniqueIdCounter}`;
+}
+
+/** Character length of the code point at `index` — never splits a surrogate pair. */
+function codePointLength(text: string, index: number): number {
+  const code = text.codePointAt(index);
+  return code !== undefined && code > 0xffff ? 2 : 1;
+}
+
+/**
+ * Positions to highlight per command id. Only title matches are collected: the
+ * menu renders the title, so a keyword-only match has nothing to mark. The
+ * ranking is recomputed for the (already capped) rendered list because hosts
+ * may have reordered it through command history.
+ */
+function collectTitleMatches(
+  commands: SlashCommandDef[],
+  query: string
+): Map<string, number[]> {
+  const matches = new Map<string, number[]>();
+  if (query.length === 0) return matches;
+
+  for (const ranking of rankSlashCommands(commands, query)) {
+    if (ranking.field !== "title" || ranking.positions.length === 0) continue;
+
+    const title = ranking.command.title;
+    const withinBounds = ranking.positions.every(
+      (position) => position >= 0 && position < title.length
+    );
+    if (withinBounds) matches.set(ranking.command.id, ranking.positions);
+  }
+
+  return matches;
 }
 
 export function createSlashMenuUI(
@@ -167,6 +205,8 @@ export function createSlashMenuUI(
       return;
     }
 
+    const titleMatches = collectTitleMatches(commands, currentState?.query ?? "");
+
     // Reconcile existing item nodes. Append missing, hide extras.
     while (itemEls.length < commands.length) {
       const item = ownerDocument.createElement("div");
@@ -218,7 +258,7 @@ export function createSlashMenuUI(
       const item = itemEls[i];
       item.dataset.slashCommandId = cmd.id;
       const [titleEl, descEl] = item.children as unknown as HTMLDivElement[];
-      titleEl.textContent = cmd.title;
+      renderMatchedText(titleEl, cmd.title, titleMatches.get(cmd.id) ?? []);
       if (cmd.description) {
         descEl.textContent = cmd.description;
         descEl.style.display = "";
@@ -227,6 +267,44 @@ export function createSlashMenuUI(
         descEl.style.display = "none";
       }
     }
+  }
+
+  /**
+   * Render `text` with the matched code points wrapped in `mark` elements.
+   * `textContent` is preserved so screen readers and host assertions keep
+   * seeing the plain title.
+   */
+  function renderMatchedText(element: HTMLElement, text: string, positions: number[]): void {
+    if (positions.length === 0) {
+      element.textContent = text;
+      return;
+    }
+
+    const matched = new Set(positions);
+    const nodes: Node[] = [];
+    let cursor = 0;
+
+    while (cursor < text.length) {
+      const isMatch = matched.has(cursor);
+      let end = cursor + codePointLength(text, cursor);
+      while (end < text.length && matched.has(end) === isMatch) {
+        end += codePointLength(text, end);
+      }
+
+      const chunk = text.slice(cursor, end);
+      if (isMatch) {
+        const mark = ownerDocument.createElement("mark");
+        mark.className = `${prefix}-${MATCH_CLASS_SUFFIX}`;
+        mark.textContent = chunk;
+        nodes.push(mark);
+      } else {
+        nodes.push(ownerDocument.createTextNode(chunk));
+      }
+
+      cursor = end;
+    }
+
+    element.replaceChildren(...nodes);
   }
 
   function reposition(): void {

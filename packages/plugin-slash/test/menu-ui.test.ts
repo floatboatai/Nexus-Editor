@@ -601,3 +601,65 @@ describe("createSlashMenuUI document interactions", () => {
     expect(e.defaultPrevented).toBe(false);
   });
 });
+
+describe("createSlashMenuUI match highlighting", () => {
+  let h: Harness;
+  afterEach(() => h?.destroy());
+
+  const commands: SlashCommandDef[] = [
+    { id: "table", title: "Table" },
+    { id: "bold", title: "Bold", keywords: ["strong"] },
+  ];
+
+  function marks(menu: SlashMenuUI, id: string): string[] {
+    return Array.from(
+      itemById(menu, id).querySelectorAll(`mark.${PREFIX}-menu__match`)
+    ).map((mark) => mark.textContent ?? "");
+  }
+
+  function title(menu: SlashMenuUI, id: string): string {
+    return itemById(menu, id).querySelector(`.${PREFIX}-menu__title`)?.textContent ?? "";
+  }
+
+  it("highlights the characters a fuzzy query matched", () => {
+    h = setup(commands);
+    open(h.editor, "tbl");
+
+    expect(marks(h.menu, "table")).toEqual(["T", "bl"]);
+    expect(title(h.menu, "table")).toBe("Table");
+  });
+
+  it("highlights contiguous literal matches", () => {
+    h = setup(commands);
+    open(h.editor, "ta");
+
+    expect(marks(h.menu, "table")).toEqual(["Ta"]);
+  });
+
+  it("leaves the title plain when only a keyword matched", () => {
+    h = setup(commands);
+    open(h.editor, "str");
+
+    expect(title(h.menu, "bold")).toBe("Bold");
+    expect(marks(h.menu, "bold")).toEqual([]);
+  });
+
+  it("clears stale marks when the query changes", () => {
+    h = setup(commands);
+    open(h.editor, "tbl");
+    expect(marks(h.menu, "table")).toEqual(["T", "bl"]);
+
+    open(h.editor, "ta");
+    expect(marks(h.menu, "table")).toEqual(["Ta"]);
+  });
+
+  it("renders no marks after the query is cleared", () => {
+    h = setup(commands);
+    open(h.editor, "ta");
+    expect(marks(h.menu, "table")).toEqual(["Ta"]);
+
+    open(h.editor, "");
+    expect(marks(h.menu, "table")).toEqual([]);
+    expect(title(h.menu, "table")).toBe("Table");
+  });
+});
