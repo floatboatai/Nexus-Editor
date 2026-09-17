@@ -14,20 +14,31 @@ export function toggleWrap(editor: EditorAPI, marker: string): boolean {
   const { anchor, head } = editor.getSelection();
   const from = Math.min(anchor, head);
   const to = Math.max(anchor, head);
-  const selected = doc.slice(from, to);
-  const before = doc.slice(Math.max(0, from - marker.length), from);
-  const after = doc.slice(to, to + marker.length);
+  if (from === to) return false;
 
-  if (before === marker && after === marker) {
-    editor.setDocument(
-      doc.slice(0, from - marker.length) + selected + doc.slice(to + marker.length),
+  const htmlTag = marker.match(/^<([a-z][\w-]*)>$/i)?.[1];
+  const openingMarker = marker;
+  const closingMarker = htmlTag ? `</${htmlTag}>` : marker;
+  const selected = doc.slice(from, to);
+  const before = doc.slice(Math.max(0, from - openingMarker.length), from);
+  const after = doc.slice(to, to + closingMarker.length);
+
+  if (before === openingMarker && after === closingMarker) {
+    editor.replaceRange(
+      from - openingMarker.length,
+      to + closingMarker.length,
+      selected,
+      { anchor: from - openingMarker.length, head: to - openingMarker.length },
     );
-    editor.setSelection(from - marker.length, to - marker.length);
     return true;
   }
 
-  editor.setDocument(doc.slice(0, from) + marker + selected + marker + doc.slice(to));
-  editor.setSelection(from + marker.length, to + marker.length);
+  editor.replaceRange(
+    from,
+    to,
+    openingMarker + selected + closingMarker,
+    { anchor: from + openingMarker.length, head: to + openingMarker.length },
+  );
   return true;
 }
 
@@ -56,9 +67,8 @@ export function insertLink(editor: EditorAPI): boolean {
   const linkText = selected || "link text";
   const markdown = `[${linkText}](url)`;
 
-  editor.setDocument(doc.slice(0, from) + markdown + doc.slice(to));
   const urlStart = from + linkText.length + 3;
-  editor.setSelection(urlStart, urlStart + 3);
+  editor.replaceRange(from, to, markdown, { anchor: urlStart, head: urlStart + 3 });
   return true;
 }
 
@@ -75,8 +85,7 @@ export function toggleHeading(editor: EditorAPI, level: number): boolean {
     ? line.slice(prefix.length)
     : prefix + (headingMatch ? line.slice(headingMatch[0].length) : line);
 
-  editor.setDocument(doc.slice(0, lineStart) + newLine + doc.slice(end));
-  editor.setSelection(lineStart + newLine.length);
+  editor.replaceRange(lineStart, end, newLine, { anchor: lineStart + newLine.length });
   return true;
 }
 
