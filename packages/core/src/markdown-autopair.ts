@@ -2,13 +2,16 @@
  * Auto-pair extension for Markdown syntax markers.
  * When the user types **, *, ~~, or ` with a selection, it wraps the selection.
  * When typed without selection, it inserts a matching pair and places the cursor between.
+ * When the closing marker already sits in front of the cursor, the typed marker
+ * steps over it; Backspace inside an empty pair removes both markers. Both mirror
+ * the type-over / pair-deletion contract `closeBrackets()` gives `(`/`[`/`{`/quotes.
  *
- * Multi-cursor aware: wrapping / pair insertion applies to every selection
- * range in one dispatch, with the double-marker preceding-character check
- * evaluated per range — secondary cursors never lose the typed character.
+ * Multi-cursor aware: wrapping / pair insertion / stepping over applies to every
+ * selection range in one dispatch, with the double-marker preceding-character
+ * check evaluated per range — secondary cursors never lose the typed character.
  */
-import { EditorSelection, type Extension } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorSelection, type EditorState, type Extension, type SelectionRange } from "@codemirror/state";
+import { EditorView, keymap } from "@codemirror/view";
 
 const PAIRS: Array<{ trigger: string; open: string; close: string }> = [
   { trigger: "`", open: "`", close: "`" },
@@ -20,8 +23,63 @@ const DOUBLE_PAIRS: Array<{ char: string; open: string; close: string }> = [
   { char: "~", open: "~~", close: "~~" },
 ];
 
+/** Complete marker pairs a Backspace can remove as a unit. */
+const EMPTY_PAIR_MARKERS = [
+  ...DOUBLE_PAIRS.map((pair) => pair.close),
+  ...PAIRS.map((pair) => pair.close),
+];
+
+/** True when `closing` already sits at `pos`, so typing it should step over. */
+function closingMarkerAhead(state: EditorState, pos: number, closing: string): boolean {
+  return state.sliceDoc(pos, pos + closing.length) === closing;
+}
+
+/**
+ * True when `pos` sits inside an isolated, empty `marker` pair — the state a
+ * pair is in right after auto-insertion. Adjacent same-character runs are
+ * rejected so Backspace never eats into a fence (` ``` `) or a marker cluster
+ * (`***`), which are not empty pairs.
+ */
+function isInsideEmptyPair(state: EditorState, pos: number, marker: string): boolean {
+  const { doc } = state;
+  const width = marker.length;
+  if (pos < width || pos + width > doc.length) return false;
+  if (doc.sliceString(pos - width, pos) !== marker) return false;
+  if (doc.sliceString(pos, pos + width) !== marker) return false;
+
+  const char = marker[0];
+  const outerLeft = doc.sliceString(Math.max(0, pos - width - 1), pos - width);
+  const outerRight = doc.sliceString(pos + width, Math.min(doc.length, pos + width + 1));
+  return outerLeft !== char && outerRight !== char;
+}
+
+/** Backspace inside an empty marker pair deletes both markers at once. */
+function deleteEmptyMarkerPair(view: EditorView): boolean {
+  const { state } = view;
+  if (state.readOnly) return false;
+
+  let handled = false;
+  const transaction = state.changeByRange((range) => {
+    if (!range.empty) return { range };
+
+    for (const marker of EMPTY_PAIR_MARKERS) {
+      if (!isInsideEmptyPair(state, range.from, marker)) continue;
+      handled = true;
+      return {
+        changes: { from: range.from - marker.length, to: range.from + marker.length },
+        range: EditorSelection.cursor(range.from - marker.length),
+      };
+    }
+    return { range };
+  });
+
+  if (!handled) return false;
+  view.dispatch(transaction);
+  return true;
+}
+
 export function markdownAutoPair(): Extension {
-  return EditorView.inputHandler.of((view, _from, _to, text) => {
+  const inputHandler = EditorView.inputHandler.of((view, _from, _to, text) => {
     if (view.composing || view.compositionStarted) return false;
 
     const { state } = view;
@@ -32,6 +90,10 @@ export function markdownAutoPair(): Extension {
 
       view.dispatch(
         state.changeByRange((range) => {
+          if (range.empty && closingMarkerAhead(state, range.from, pair.close)) {
+            return { range: EditorSelection.cursor(range.from + pair.close.length) };
+          }
+
           if (!range.empty) {
             // Wrap selection
             const selected = state.sliceDoc(range.from, range.to);
@@ -58,14 +120,27 @@ export function markdownAutoPair(): Extension {
     for (const pair of DOUBLE_PAIRS) {
       if (text !== pair.char) continue;
 
-      // Only step in when some cursor just completed a double marker
-      // (the previous keystroke left `pair.char` right before the range).
+      // Only step in when some cursor just completed a double marker (the
+      // previous keystroke left `pair.char` right before the range) or sits in
+      // front of the closing marker it already completed.
       const charBeforeMatches = (from: number): boolean =>
         from > 0 && state.sliceDoc(from - 1, from) === pair.char;
-      if (!state.selection.ranges.some((range) => charBeforeMatches(range.from))) continue;
+      const stepsOverClosingMarker = (range: SelectionRange): boolean =>
+        range.empty && closingMarkerAhead(state, range.from, pair.close);
+      if (
+        !state.selection.ranges.some(
+          (range) => charBeforeMatches(range.from) || stepsOverClosingMarker(range)
+        )
+      ) {
+        continue;
+      }
 
       view.dispatch(
         state.changeByRange((range) => {
+          if (stepsOverClosingMarker(range)) {
+            return { range: EditorSelection.cursor(range.from + pair.close.length) };
+          }
+
           if (!charBeforeMatches(range.from)) {
             // This cursor is not completing a double marker — plain insert.
             return {
@@ -102,4 +177,6 @@ export function markdownAutoPair(): Extension {
 
     return false;
   });
+
+  return [inputHandler, keymap.of([{ key: "Backspace", run: deleteEmptyMarkerPair }])];
 }
