@@ -71,6 +71,27 @@ editor.on("selectionChange", ({ anchor, head, ranges, mainIndex }) => {
 
 Multiple ranges in `setSelections` require `multiCursor: true` — without the flag CodeMirror collapses the selection to its main range.
 
+## Fuzzy matching
+
+`matchFuzzy(query, target, options?)` aligns every query character to a target character in order and returns the alignment score together with the matched positions. Positions are UTF-16 code-unit offsets into the original target, so they can be used directly with `String.prototype.slice` when rendering highlights:
+
+```ts
+import { matchFuzzy, rankSlashCommands } from "@floatboat/nexus-core";
+
+matchFuzzy("tbl", "Table");
+// { score: 65, positions: [0, 2, 3] }
+
+matchFuzzy("tbl", "Table", { caseSensitive: true });
+// null
+
+rankSlashCommands([{ id: "table", title: "Table" }], "tbl");
+// [{ command, score, field: "title", matchedText: "Table", positions: [0, 2, 3] }]
+```
+
+Word starts, camelCase humps, adjacent characters and prefix hits score above scattered mid-word hits, and skipped characters are penalised, so `tbl` prefers **Table** over a longer title where the same letters are spread out. Matching is case-insensitive by default and walks code points, so an emoji counts as one query character rather than two surrogate halves. Targets up to 512 characters get the optimal (backtracking) alignment; longer targets fall back to a greedy alignment so cost stays bounded.
+
+`filterSlashCommands` uses the matcher as its lowest ranking tier: a query that matches nothing literally still returns commands whose title or keywords contain the query characters in order, while every literal hit keeps its existing tier and ordering.
+
 ## Other config highlights
 
 See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.

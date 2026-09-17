@@ -4,6 +4,7 @@ import {
   computeSlashState,
   filterSlashCommands,
   getSlashMatch,
+  rankSlashCommands,
 } from "../src/slash-state";
 import type { SlashCommandDef } from "../src/types";
 
@@ -127,6 +128,99 @@ describe("filterSlashCommands ranking", () => {
       { id: "a", title: "Aoo" },
     );
     expect(filterSlashCommands(list2, "oo").map((c) => c.id)).toEqual(["a", "z"]);
+  });
+});
+
+describe("filterSlashCommands fuzzy fallback", () => {
+  it("returns commands whose title contains the query characters in order", () => {
+    const list = cmds(
+      { id: "table", title: "Table" },
+      { id: "bold", title: "Bold" },
+    );
+    expect(filterSlashCommands(list, "tbl").map((c) => c.id)).toEqual(["table"]);
+  });
+
+  it("returns commands whose keyword contains the query characters in order", () => {
+    const list = cmds({ id: "bold", title: "Bold", keywords: ["strong"] });
+    expect(filterSlashCommands(list, "srg").map((c) => c.id)).toEqual(["bold"]);
+  });
+
+  it("ranks literal hits above fuzzy hits", () => {
+    const list = cmds(
+      // "tbl" is only a subsequence of "Table" — never a substring.
+      { id: "tall-ball", title: "Tall Ball" },
+      { id: "table", title: "Table" },
+      { id: "troubleshoot", title: "Troubleshoot", keywords: ["tbl"] },
+    );
+    expect(filterSlashCommands(list, "tbl").map((c) => c.id)).toEqual([
+      "troubleshoot",
+      "table",
+      "tall-ball",
+    ]);
+  });
+
+  it("keeps fuzzy scores inside the lowest tier", () => {
+    const list = cmds({ id: "tall-ball", title: "Tall Ball" });
+    const [fuzzy] = rankSlashCommands(list, "tbl");
+    expect(fuzzy.score).toBeLessThan(1000);
+  });
+
+  it("still drops commands without an in-order match", () => {
+    const list = cmds(
+      { id: "table", title: "Table" },
+      { id: "bold", title: "Bold" },
+    );
+    expect(filterSlashCommands(list, "lbt")).toEqual([]);
+  });
+});
+
+describe("rankSlashCommands positions", () => {
+  it("reports title prefix positions", () => {
+    const [ranking] = rankSlashCommands(cmds({ id: "table", title: "Table" }), "ta");
+    expect(ranking).toMatchObject({
+      field: "title",
+      matchedText: "Table",
+      positions: [0, 1],
+    });
+  });
+
+  it("reports fuzzy title positions", () => {
+    const [ranking] = rankSlashCommands(cmds({ id: "table", title: "Table" }), "tbl");
+    expect(ranking).toMatchObject({
+      field: "title",
+      matchedText: "Table",
+      positions: [0, 2, 3],
+    });
+  });
+
+  it("reports keyword positions relative to the keyword text", () => {
+    const [ranking] = rankSlashCommands(
+      cmds({ id: "bold", title: "Bold", keywords: ["strong"] }),
+      "ron",
+    );
+    expect(ranking).toMatchObject({
+      field: "keyword",
+      matchedText: "strong",
+      positions: [2, 3, 4],
+    });
+  });
+
+  it("prefers the title when the title and a keyword align equally", () => {
+    const [ranking] = rankSlashCommands(
+      cmds({ id: "x", title: "Alpha Bra", keywords: ["Alpha Brb"] }),
+      "ab",
+    );
+    expect(ranking.field).toBe("title");
+    expect(ranking.matchedText).toBe("Alpha Bra");
+  });
+
+  it("reports empty positions for an empty query without reordering", () => {
+    const rankings = rankSlashCommands(
+      cmds({ id: "b", title: "Bold" }, { id: "a", title: "Alpha" }),
+      "",
+    );
+    expect(rankings.map((ranking) => ranking.command.id)).toEqual(["b", "a"]);
+    expect(rankings.every((ranking) => ranking.positions.length === 0)).toBe(true);
   });
 });
 

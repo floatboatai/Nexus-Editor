@@ -38,10 +38,13 @@ export {
   computeSlashState,
   filterSlashCommands,
   getSlashMatch,
+  rankSlashCommands,
   type SlashMatch,
+  type SlashCommandRanking,
   type SlashStateOptions,
   type SlashStateResult,
 } from "./slash-state";
+export { matchFuzzy, type FuzzyMatchOptions, type FuzzyMatchResult } from "./fuzzy-match";
 export { lightTheme, darkTheme, type NexusTheme } from "./theme";
 export {
   scanWikiLinks,
