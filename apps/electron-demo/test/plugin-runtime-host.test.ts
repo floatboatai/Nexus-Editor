@@ -534,6 +534,108 @@ describe("createPluginRuntimeHost", () => {
     await host.shutdown();
   });
 
+  it("durably rewrites only links resolved to the moved file", async () => {
+    const harness = bridgeHarness();
+    harness.files.set("Projects/Notes/target.md", "# Target");
+    harness.files.set("Other/target.md", "# Other");
+    harness.files.set("Projects/source.md", "![[Notes/target#Heading|preview]]");
+    harness.files.set("Projects/Notes/local.md", "[[target]]");
+    harness.files.set("Other/source.md", "[[target]]");
+    harness.files.set("root.md", "[[target]] and [[Projects/Notes/target]]");
+    harness.files.set(
+      "broken-frontmatter.md",
+      "---\nbroken: [\n---\n[[Projects/Notes/target]]",
+    );
+    let vault!: VaultService;
+    let fileManager!: FileManagerService;
+    class FixturePlugin extends NexusPluginBase {
+      override onload(): void {
+        const context = { workspaceId: "runtime-workspace" as never };
+        vault = this.app.capabilities.require(VAULT_CAPABILITY, "^1.0.0", context);
+        fileManager = this.app.capabilities.require(
+          FILE_MANAGER_CAPABILITY,
+          "^1.0.0",
+          context,
+        );
+      }
+    }
+    const host = createPluginRuntimeHost({ bridge: harness.bridge, document });
+    await host.restoreSession();
+    await host.enableBundledPlugin(
+      manifest([
+        { id: VAULT_CAPABILITY.id, version: "^1.0.0", scope: "workspace" },
+        { id: FILE_MANAGER_CAPABILITY.id, version: "^1.0.0", scope: "workspace" },
+      ]),
+      FixturePlugin,
+    );
+    const target = vault.getFileByPath("Projects/Notes/target.md" as never)!;
+
+    await expect(fileManager.renameFile(
+      target,
+      "renamed.md",
+      { updateLinks: "always" },
+    )).resolves.toMatchObject({ ok: true });
+
+    expect(harness.files.get("Projects/source.md")).toBe(
+      "![[Projects/Notes/renamed#Heading|preview]]",
+    );
+    expect(harness.files.get("Projects/Notes/local.md")).toBe(
+      "[[Projects/Notes/renamed]]",
+    );
+    expect(harness.files.get("Other/source.md")).toBe("[[target]]");
+    expect(harness.files.get("root.md")).toBe(
+      "[[target]] and [[Projects/Notes/renamed]]",
+    );
+    expect(harness.files.get("broken-frontmatter.md")).toBe(
+      "---\nbroken: [\n---\n[[Projects/Notes/renamed]]",
+    );
+    await host.shutdown();
+  });
+
+  it("renames within the directory established by an earlier queued move", async () => {
+    const harness = bridgeHarness();
+    harness.files.set("A/note.md", "# Note");
+    let vault!: VaultService;
+    let fileManager!: FileManagerService;
+    class FixturePlugin extends NexusPluginBase {
+      override onload(): void {
+        const context = { workspaceId: "runtime-workspace" as never };
+        vault = this.app.capabilities.require(VAULT_CAPABILITY, "^1.0.0", context);
+        fileManager = this.app.capabilities.require(
+          FILE_MANAGER_CAPABILITY,
+          "^1.0.0",
+          context,
+        );
+      }
+    }
+    const host = createPluginRuntimeHost({ bridge: harness.bridge, document });
+    await host.restoreSession();
+    await host.enableBundledPlugin(
+      manifest([
+        { id: VAULT_CAPABILITY.id, version: "^1.0.0", scope: "workspace" },
+        { id: FILE_MANAGER_CAPABILITY.id, version: "^1.0.0", scope: "workspace" },
+      ]),
+      FixturePlugin,
+    );
+    const note = vault.getFileByPath("A/note.md" as never)!;
+
+    const moving = fileManager.moveFile(note, "B/note.md" as never, {
+      updateLinks: "never",
+    });
+    const renaming = fileManager.renameFile(note, "renamed.md", {
+      updateLinks: "never",
+    });
+
+    await expect(Promise.all([moving, renaming])).resolves.toMatchObject([
+      { ok: true },
+      { ok: true },
+    ]);
+    expect(note.path).toBe("B/renamed.md");
+    expect(harness.files.has("A/renamed.md")).toBe(false);
+    expect(harness.files.get("B/renamed.md")).toBe("# Note");
+    await host.shutdown();
+  });
+
   it("hydrates empty folders and durably applies safe frontmatter without overwriting files", async () => {
     const harness = bridgeHarness();
     harness.files.set("note.md", "Body\r\ncontinues\r\n");

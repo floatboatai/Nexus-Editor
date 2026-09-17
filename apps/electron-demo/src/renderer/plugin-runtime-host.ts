@@ -167,6 +167,7 @@ interface PreparedVaultMirror {
 interface VaultMutationContext {
   readonly session: PluginVaultSession;
   readonly vault: MemoryVaultRuntime;
+  readonly metadata: MemoryMetadataRuntime;
 }
 
 export interface PluginRuntimeHost {
@@ -266,13 +267,11 @@ function escapeLinkPart(value: string): string {
   return value.replace(/([\\|\]#^])/g, "\\$1");
 }
 
-function normalizeComparableLink(target: string): string {
-  return target.replace(/\\/g, "/").replace(/\.md$/i, "").toLocaleLowerCase();
-}
-
-function rewriteWikiLinks(source: string, oldPath: string, newPath: string): string {
-  const oldWithoutExtension = oldPath.replace(/\.md$/i, "");
-  const oldBasename = stemOf(oldPath.slice(oldPath.lastIndexOf("/") + 1));
+function rewriteWikiLinks(
+  source: string,
+  newPath: string,
+  shouldRewrite: (target: string) => boolean,
+): string {
   const replacement = newPath.replace(/\.md$/i, "");
   return source.replace(
     /(?<!\\)(!?)\[\[([^\[\]\n|]+?)(\|[^\[\]\n]+?)?\]\]/g,
@@ -280,12 +279,7 @@ function rewriteWikiLinks(source: string, oldPath: string, newPath: string): str
       const anchorIndex = rawTarget.search(/[#^]/);
       const pathPart = (anchorIndex < 0 ? rawTarget : rawTarget.slice(0, anchorIndex)).trim();
       const anchor = anchorIndex < 0 ? "" : rawTarget.slice(anchorIndex);
-      const comparable = normalizeComparableLink(pathPart);
-      if (
-        comparable !== normalizeComparableLink(oldPath) &&
-        comparable !== normalizeComparableLink(oldWithoutExtension) &&
-        comparable !== normalizeComparableLink(oldBasename)
-      ) return whole;
+      if (!pathPart || !shouldRewrite(rawTarget.trim())) return whole;
       return `${embed}[[${replacement}${anchor}${alias ?? ""}]]`;
     },
   );
@@ -1396,6 +1390,21 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
   }
 
   private createDurableFileManagerService(owner: ResourceOwner): FileManagerService {
+    const moveFile: FileManagerService["moveFile"] = (file, destination, moveOptions) =>
+      this.enqueueMutationResult(
+        (context) => this.moveFileDurablyNow(
+          context,
+          owner,
+          file,
+          destination,
+          moveOptions?.expectedVersion,
+          moveOptions?.updateLinks !== "never",
+        ),
+        (error) => ({
+          ok: false,
+          diagnostic: this.reportHostFailure("Vault move was rejected", error),
+        }),
+      );
     const service: FileManagerService = {
       getAvailableAttachmentPath: async (request) => {
         const name = request.name.trim();
@@ -1414,20 +1423,7 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
         }
         throw new Error("No attachment path is available");
       },
-      moveFile: (file, destination, moveOptions) => this.enqueueMutationResult(
-        (context) => this.moveFileDurablyNow(
-          context,
-          owner,
-          file,
-          destination,
-          moveOptions?.expectedVersion,
-          moveOptions?.updateLinks !== "never",
-        ),
-        (error) => ({
-          ok: false,
-          diagnostic: this.reportHostFailure("Vault move was rejected", error),
-        }),
-      ),
+      moveFile,
       renameFile: (file, name, moveOptions) => {
         if (!name.trim() || name.includes("/") || name.includes("\\") || name === "." || name === "..") {
           return Promise.resolve({
@@ -1435,8 +1431,24 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
             diagnostic: failure("path-outside-authorized-root", "File name must be a single path segment"),
           });
         }
-        const destination = normalizeVaultPath(dirname(file.path) ? `${dirname(file.path)}/${name}` : name);
-        return this.renameDurably(owner, file, destination, moveOptions?.expectedVersion);
+        return this.enqueueMutationResult(
+          (context) => {
+            const directory = dirname(file.path);
+            const destination = normalizeVaultPath(directory ? `${directory}/${name}` : name);
+            return this.moveFileDurablyNow(
+              context,
+              owner,
+              file,
+              destination,
+              moveOptions?.expectedVersion,
+              moveOptions?.updateLinks !== "never",
+            );
+          },
+          (error) => ({
+            ok: false,
+            diagnostic: this.reportHostFailure("Vault rename was rejected", error),
+          }),
+        );
       },
       trashFile: async (file, trashOptions) => {
         if (trashOptions?.permanent) return {
@@ -1474,19 +1486,35 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
     updateLinks: boolean,
   ): Promise<ServiceResult<NexusAbstractFile>> {
     const oldPath = file.path;
-    const moved = await this.renameDurablyNow(context, owner, file, destination, expectedVersion);
-    if (!moved.ok || !updateLinks || !oldPath.toLocaleLowerCase().endsWith(".md")) return moved;
+    const normalizedDestination = normalizeVaultPath(destination);
+    const referenceUpdates: Array<{ readonly source: NexusFile; readonly content: string }> = [];
+    if (updateLinks && file.kind === "file" && oldPath.toLocaleLowerCase().endsWith(".md")) {
+      for (const source of context.vault.listFiles()) {
+        if (!source.path.toLocaleLowerCase().endsWith(".md")) continue;
+        const current = await context.vault.read(source);
+        const next = rewriteWikiLinks(
+          current,
+          normalizedDestination,
+          (target) => context.metadata.resolveLink(target, source.path) === file,
+        );
+        if (next !== current) referenceUpdates.push({ source, content: next });
+      }
+    }
+    const moved = await this.renameDurablyNow(
+      context,
+      owner,
+      file,
+      normalizedDestination,
+      expectedVersion,
+    );
+    if (!moved.ok || referenceUpdates.length === 0) return moved;
 
-    for (const source of context.vault.listFiles()) {
-      if (!source.path.toLocaleLowerCase().endsWith(".md")) continue;
-      const current = await context.vault.read(source);
-      const next = rewriteWikiLinks(current, oldPath, destination);
-      if (next === current) continue;
+    for (const { source, content } of referenceUpdates) {
       const updated = await this.writeDurablyNow(
         context,
         owner,
         source.path,
-        next,
+        content,
         "modify",
         source.version,
       );
@@ -1799,6 +1827,7 @@ class ElectronPluginRuntimeHost implements PluginRuntimeHost {
       const context = Object.freeze({
         session: this.requireSession(),
         vault: this.currentVault,
+        metadata: this.currentMetadata,
       });
       return operation(context);
     });

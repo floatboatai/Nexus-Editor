@@ -14,6 +14,11 @@ import type {
 } from "@floatboat/nexus-plugin-api";
 
 import { parseFrontmatterDocument, serializeFrontmatterDocument } from "./frontmatter";
+import {
+  resolveWikiLinkTarget,
+  type WikiLinkFile,
+  type WikiLinkFileLookup,
+} from "./link-resolution";
 import { VaultPathPolicy } from "./path-policy";
 import { MemoryVaultRuntime } from "./vault-runtime";
 
@@ -42,13 +47,17 @@ function escapeLinkPart(value: string): string {
   return value.replace(/([\\|\]#^])/g, "\\$1");
 }
 
-function normalizeComparableLink(target: string): string {
-  return target.replace(/\\/g, "/").replace(/\.md$/i, "").toLocaleLowerCase();
+interface WikiLinkFileSnapshot extends WikiLinkFile {
+  readonly file: NexusFile;
 }
 
-function rewriteWikiLinks(source: string, oldPath: string, newPath: string): string {
-  const oldWithoutExtension = oldPath.replace(/\.md$/i, "");
-  const oldBasename = stemOf(oldPath.slice(oldPath.lastIndexOf("/") + 1));
+function rewriteWikiLinks(
+  source: string,
+  sourcePath: VaultPath,
+  movedFile: WikiLinkFileSnapshot,
+  newPath: VaultPath,
+  lookup: WikiLinkFileLookup<WikiLinkFileSnapshot>,
+): string {
   const replacement = newPath.replace(/\.md$/i, "");
   return source.replace(
     /(?<!\\)(!?)\[\[([^\[\]\n|]+?)(\|[^\[\]\n]+?)?\]\]/g,
@@ -56,14 +65,8 @@ function rewriteWikiLinks(source: string, oldPath: string, newPath: string): str
       const anchorIndex = rawTarget.search(/[#^]/);
       const pathPart = (anchorIndex < 0 ? rawTarget : rawTarget.slice(0, anchorIndex)).trim();
       const anchor = anchorIndex < 0 ? "" : rawTarget.slice(anchorIndex);
-      const comparable = normalizeComparableLink(pathPart);
-      if (
-        comparable !== normalizeComparableLink(oldPath) &&
-        comparable !== normalizeComparableLink(oldWithoutExtension) &&
-        comparable !== normalizeComparableLink(oldBasename)
-      ) {
-        return whole;
-      }
+      if (!pathPart) return whole;
+      if (resolveWikiLinkTarget(rawTarget, sourcePath, lookup) !== movedFile) return whole;
       return `${embed}[[${replacement}${anchor}${alias ?? ""}]]`;
     },
   );
@@ -74,6 +77,7 @@ export class MemoryFileManagerRuntime {
   private readonly pathPolicy = new VaultPathPolicy();
   private readonly attachmentFolder: VaultPath;
   private readonly updateLinksByDefault: boolean;
+  private moveTail: Promise<void> = Promise.resolve();
 
   constructor(options: MemoryFileManagerOptions) {
     this.vault = options.vault;
@@ -86,7 +90,7 @@ export class MemoryFileManagerRuntime {
     const service: FileManagerService = {
       getAvailableAttachmentPath: (request) => this.getAvailableAttachmentPath(request),
       moveFile: (file, destination, options) =>
-        this.moveFile(vaultService, file, destination, options),
+        this.enqueueMove(() => this.moveFile(vaultService, file, destination, options)),
       renameFile: (file, name, options) => {
         if (
           name.includes("/") ||
@@ -105,22 +109,25 @@ export class MemoryFileManagerRuntime {
             },
           });
         }
-        try {
-          const destination = this.pathPolicy.normalize(
-            dirname(file.path) ? `${dirname(file.path)}/${name}` : name,
-          );
-          return this.moveFile(vaultService, file, destination, options);
-        } catch (error) {
-          return Promise.resolve({
-            ok: false,
-            diagnostic: {
-              code: "path-outside-authorized-root",
-              severity: "error",
-              phase: "runtime",
-              message: error instanceof Error ? error.message : "File name is invalid",
-            },
-          });
-        }
+        return this.enqueueMove(async () => {
+          try {
+            const directory = dirname(file.path);
+            const destination = this.pathPolicy.normalize(
+              directory ? `${directory}/${name}` : name,
+            );
+            return this.moveFile(vaultService, file, destination, options);
+          } catch (error) {
+            return {
+              ok: false,
+              diagnostic: {
+                code: "path-outside-authorized-root",
+                severity: "error",
+                phase: "runtime",
+                message: error instanceof Error ? error.message : "File name is invalid",
+              },
+            };
+          }
+        });
       },
       trashFile: async (file, options) => {
         if (options?.permanent) {
@@ -173,19 +180,44 @@ export class MemoryFileManagerRuntime {
     options: FileMoveOptions = {},
   ): Promise<ServiceResult<NexusAbstractFile>> {
     const oldPath = file.path;
+    const shouldUpdate = options.updateLinks === "always" ||
+      (options.updateLinks !== "never" && this.updateLinksByDefault);
+    const shouldRewriteLinks = shouldUpdate &&
+      file.kind === "file" &&
+      oldPath.toLocaleLowerCase().endsWith(".md");
+    const snapshots = shouldRewriteLinks
+      ? this.vault.listFiles().map<WikiLinkFileSnapshot>((candidate) => ({
+          file: candidate,
+          path: candidate.path,
+          basename: candidate.basename,
+        }))
+      : [];
+    const snapshotByFile = new Map(snapshots.map((snapshot) => [snapshot.file, snapshot]));
+    const snapshotByPath = new Map(snapshots.map((snapshot) => [snapshot.path, snapshot]));
+    const movedFile = file.kind === "file" ? snapshotByFile.get(file) : undefined;
+    const lookup: WikiLinkFileLookup<WikiLinkFileSnapshot> = {
+      getFileByPath: (path) => snapshotByPath.get(path) ?? null,
+      listFiles: () => snapshots,
+    };
     const result = await service.rename(file, destination, {
       ...(options.expectedVersion ? { expectedVersion: options.expectedVersion } : {}),
       origin: "file-manager-move",
     });
     if (!result.ok) return result;
-    const shouldUpdate = options.updateLinks === "always" ||
-      (options.updateLinks !== "never" && this.updateLinksByDefault);
-    if (shouldUpdate && oldPath.toLocaleLowerCase().endsWith(".md")) {
+    if (movedFile) {
       const failures: string[] = [];
       for (const source of this.vault.listFiles()) {
         if (!source.path.toLocaleLowerCase().endsWith(".md")) continue;
+        if (!snapshotByFile.has(source)) continue;
+        const sourcePath = source === movedFile.file ? movedFile.path : source.path;
         const transformed = await service.process(source, (current) =>
-          rewriteWikiLinks(current, oldPath, result.value.path));
+          rewriteWikiLinks(
+            current,
+            sourcePath,
+            movedFile,
+            result.value.path,
+            lookup,
+          ));
         if (!transformed.ok) failures.push(source.path);
       }
       if (failures.length > 0) {
@@ -201,6 +233,12 @@ export class MemoryFileManagerRuntime {
         };
       }
     }
+    return result;
+  }
+
+  private enqueueMove<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.moveTail.then(operation, operation);
+    this.moveTail = result.then(() => undefined, () => undefined);
     return result;
   }
 
