@@ -56,6 +56,23 @@ const menu = createSlashMenuUI(editor);
 menu.destroy();
 ```
 
+## Highlighting
+
+The menu marks the title characters the query matched with
+`<mark class="nexus-slash-menu__match">` (prefix follows `classPrefix`), so a
+fuzzy `/tbl` query renders **T**_a_**bl**_e_ while `textContent` stays exactly
+`Table`. Only the title is highlighted — a command that is returned because one
+of its *keywords* matched renders as plain text, since keywords are not part of
+the rendered item. Style the hook with your own CSS:
+
+```css
+.nexus-slash-menu__match {
+  background: transparent;
+  color: var(--nexus-accent);
+  font-weight: 600;
+}
+```
+
 ## Ranking
 
 `filterSlashCommands(commands, query)` ranks candidates deterministically:
@@ -66,10 +83,24 @@ menu.destroy();
 4. title substring (earlier offset wins)
 5. keyword prefix
 6. keyword substring
+7. fuzzy subsequence match (title or keyword), highest alignment score first
 
 Ties break alphabetically by title. Empty queries preserve the original
 registration order so you can curate "most useful first" via plugin
 order.
+
+Fuzzy matching is a fallback tier: it only adds commands that no literal tier
+matched, so `/table` ranks exactly as it did before, while `/tbl` still finds
+**Table**. Pass `rankSlashCommands(commands, query)` instead of
+`filterSlashCommands` when you want the score, the matched field
+(`title`/`keyword`), the matched text and the positions of every candidate:
+
+```ts
+import { rankSlashCommands } from "@floatboat/nexus-plugin-slash";
+
+rankSlashCommands([{ id: "table", title: "Table" }], "tbl");
+// [{ command, score: 65, field: "title", matchedText: "Table", positions: [0, 2, 3] }]
+```
 
 ## Limit
 
@@ -103,9 +134,9 @@ your own keyboard handlers.
 | `createSlashPlugin(commands)` | Wraps a command list as a `NexusPlugin`. |
 | `createSlashMenuUI(editor, options?)` | Mount a floating menu UI. |
 | `filterSlashCommands(commands, query)` | Rank + filter a command list. |
+| `rankSlashCommands(commands, query)` | Rank a command list with match positions for highlighting. |
 | `getSlashState(doc, cursor, commands, options?)` | Compute the full menu state. Alias of `computeSlashState`. |
 | `getSlashMatch(doc, cursor)` | Detect the current `/query` trigger range. |
 | `SlashMenuUIOptions` | `{ container?, onCommand?, classPrefix?, offset? }` |
 
-See [`docs/ROADMAP.md`](../../docs/ROADMAP.md) for upcoming items
-including history (#16) and fuzzy matching (#17).
+See [`docs/ROADMAP.md`](../../docs/ROADMAP.md) for upcoming items.

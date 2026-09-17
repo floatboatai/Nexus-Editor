@@ -301,6 +301,13 @@ body,
   color: var(--nexus-slash-text);
 }
 
+/* Characters covered by the current slash query. */
+.nexus-slash-menu__match {
+  background: transparent;
+  color: var(--nexus-slash-accent);
+  font-weight: 600;
+}
+
 .nexus-slash-menu__description {
   font-size: 12px;
   color: var(--nexus-slash-text-muted);
