@@ -86,6 +86,7 @@ Plugin-platform documentation (Chinese): [native API](./plugins/native-plugin-ap
 | 25 | End-to-end testing | repo infra | P1 | planned | No | Candidate: Playwright against electron-demo |
 | 26 | CI/CD pipeline polish | `.github/workflows` | P1 | in-progress | No | PR check / CI and publish workflow exist; missing e2e gate |
 | 28 | Markdown-aware word / reading-time stats | new `plugin-wordcount` | P1 | done | Yes | Walks editor AST (no double parse) + CJK-first + ARIA status bar — see `openspec/changes/add-plugin-wordcount` |
+| 30 | Performance benchmark harness + cursor-latency budget | repo infra (`bench/`, `packages/core`) | P1 | done | No | `pnpm bench` (zero-dependency, black-box, `bench/README.md`); scaling budget in `packages/core/test/live-preview-cursor-budget.test.ts`; enabled per-range decoration reuse in `live-preview` |
 
 ---
 
