@@ -1,6 +1,7 @@
 import type {
   CommandContext,
   ComponentId,
+  HotkeyBinding,
   ManagedResource,
   NexusDiagnostic,
   PluginId,
@@ -97,42 +98,101 @@ describe("HotkeyRegistry", () => {
     ]);
   });
 
-  it("diagnoses equally ranked conflicts instead of using registration order", () => {
-    const resources: ManagedResource[] = [];
-    const diagnostics: NexusDiagnostic[] = [];
-    const commands = new CommandRegistry();
-    const first = commands.createService(owner("first"), (resource) => resources.push(resource));
-    const second = commands.createService(owner("second"), (resource) => resources.push(resource));
-    first.registerCommand({
-      id: "one",
-      name: "One",
-      callback: vi.fn(),
-      defaultHotkeys: [{ key: "K", modifiers: ["Mod"] }],
-    });
-    second.registerCommand({
-      id: "two",
-      name: "Two",
-      callback: vi.fn(),
-      defaultHotkeys: [{ key: "k", modifiers: ["Ctrl"] }],
-    });
-    activate(resources);
-    const hotkeys = new HotkeyRegistry(commands, {
-      platform: "windows",
-      reportDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
-    });
+  it.each(["default", "custom"] as const)(
+    "resolves %s bindings per platform without changing their stored semantics",
+    async (mode) => {
+      const resources: ManagedResource[] = [];
+      const action = vi.fn();
+      const reportDiagnostic = vi.fn();
+      const commands = new CommandRegistry();
+      const service = commands.createService(owner(), (resource) => resources.push(resource));
+      const bindings: readonly HotkeyBinding[] = [
+        { key: "k", modifiers: ["Mod"] },
+        { key: "k", modifiers: ["Ctrl"] },
+        { key: "k", modifiers: ["Meta"] },
+      ];
+      service.registerCommand({
+        id: "run",
+        name: "Run",
+        callback: action,
+        defaultHotkeys: mode === "default" ? bindings : [],
+      });
+      activate(resources);
+      const preferences = new MemoryHotkeyPreferenceStore();
+      if (mode === "custom") {
+        await new HotkeyRegistry(commands, { platform: "windows", preferences })
+          .setPreference("sample-tools:run", { mode, bindings });
+      }
 
-    expect(hotkeys.findConflicts()).toMatchObject([
-      {
-        scopeId: "application",
-        normalizedHotkey: "Ctrl+k",
-        commandIds: ["first:one", "second:two"],
-      },
-    ]);
-    const event = key("k", { ctrlKey: true });
-    expect(hotkeys.dispatchKeyboardEvent(event)).toMatchObject({ status: "conflict" });
-    expect(event.defaultPrevented).toBe(false);
-    expect(diagnostics).toHaveLength(1);
-  });
+      for (const platform of ["windows", "linux", "macos"] as const) {
+        const hotkeys = new HotkeyRegistry(commands, { platform, preferences, reportDiagnostic });
+        expect(hotkeys.findConflicts()).toEqual([]);
+        for (const modifiers of [{ ctrlKey: true }, { metaKey: true }]) {
+          const event = key("k", modifiers);
+          const dispatched = hotkeys.dispatchKeyboardEvent(event);
+          expect(dispatched).toMatchObject({ status: "handled", commandId: "sample-tools:run" });
+          expect(event.defaultPrevented).toBe(true);
+          if (dispatched.status === "handled") await dispatched.completion;
+          expect(action).toHaveBeenCalledTimes(1);
+          action.mockClear();
+        }
+        expect(hotkeys.getBindings("sample-tools:run")).toEqual(bindings);
+        expect(hotkeys.getPreference("sample-tools:run")).toEqual(
+          mode === "custom" ? { mode, bindings } : { mode },
+        );
+      }
+      expect(reportDiagnostic).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["windows", "linux", "macos"] as const)(
+    "diagnoses distinct command conflicts after resolving aliases on %s",
+    (platform) => {
+      const resources: ManagedResource[] = [];
+      const diagnostics: NexusDiagnostic[] = [];
+      const action = vi.fn();
+      const commands = new CommandRegistry();
+      const modifier = platform === "macos" ? "Meta" : "Ctrl";
+      const first = commands.createService(owner("first"), (resource) => resources.push(resource));
+      const second = commands.createService(owner("second"), (resource) => resources.push(resource));
+      first.registerCommand({
+        id: "one",
+        name: "One",
+        callback: action,
+        defaultHotkeys: [
+          { key: "K", modifiers: ["Mod"] },
+          { key: "K", modifiers: [modifier] },
+        ],
+      });
+      second.registerCommand({
+        id: "two",
+        name: "Two",
+        callback: action,
+        defaultHotkeys: [{ key: "k", modifiers: [modifier] }],
+      });
+      activate(resources);
+      const hotkeys = new HotkeyRegistry(commands, {
+        platform,
+        reportDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+      });
+
+      expect(hotkeys.findConflicts()).toMatchObject([
+        {
+          scopeId: "application",
+          normalizedHotkey: `${modifier}+k`,
+          commandIds: ["first:one", "second:two"],
+        },
+      ]);
+      const event = key("k", { ctrlKey: platform !== "macos", metaKey: platform === "macos" });
+      expect(hotkeys.dispatchKeyboardEvent(event)).toMatchObject({
+        status: "conflict",
+        conflict: { commandIds: ["first:one", "second:two"] },
+      });
+      expect(event.defaultPrevented).toBe(false);
+      expect(action).not.toHaveBeenCalled();
+      expect(diagnostics).toHaveLength(1);
+    },
+  );
 
   it("synchronously consumes a unique command hotkey without fabricating clipboard events", async () => {
     const resources: ManagedResource[] = [];
