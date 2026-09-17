@@ -28,6 +28,6 @@
 ## Phase 4: P3 — Quality
 
 - [x] 4.1 Accessibility (a11y) — ARIA attributes on headings, code blocks, tables
-- [ ] 4.2 Performance benchmarks
+- [x] 4.2 Performance benchmarks (`pnpm bench` + `bench/README.md`, cursor-latency budget in `packages/core/test/live-preview-cursor-budget.test.ts`)
 - [ ] 4.3 API documentation
 - [ ] 4.4 E2E tests
