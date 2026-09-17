@@ -59,20 +59,15 @@ function applyLines(editor: EditorAPI, lines: LineRange[], newLines: string[]): 
   return true;
 }
 
-/** Toggle a line prefix (e.g., "> " for blockquote). */
+/** Toggle a line prefix (e.g., "> ") across the selected lines. */
 function toggleLinePrefix(editor: EditorAPI, prefix: string): boolean {
   const doc = editor.getDocument();
-  const { anchor } = editor.getSelection();
-  const lineStart = doc.lastIndexOf("\n", anchor - 1) + 1;
-  const lineEndIdx = doc.indexOf("\n", anchor);
-  const lineEnd = lineEndIdx === -1 ? doc.length : lineEndIdx;
-  const line = doc.slice(lineStart, lineEnd);
-
-  const newLine = line.startsWith(prefix) ? line.slice(prefix.length) : prefix + line;
-  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
-  editor.setDocument(newDoc);
-  editor.setSelection(lineStart + newLine.length);
-  return true;
+  const { anchor, head } = editor.getSelection();
+  const lines = getLinesInRange(doc, Math.min(anchor, head), Math.max(anchor, head));
+  const allMarked = lines.every(({ line }) => line.startsWith(prefix));
+  return applyLines(editor, lines, lines.map(({ line }) => (
+    allMarked ? line.slice(prefix.length) : prefix + line
+  )));
 }
 
 export function toggleBlockquote(editor: EditorAPI): boolean {
@@ -135,12 +130,9 @@ export function insertCodeBlock(editor: EditorAPI): boolean {
     "```\n" + (selected || "") + "\n```" +
     (needsTrailingNewline ? "\n" : "");
 
-  const newDoc = doc.slice(0, from) + block + doc.slice(to);
-  editor.setDocument(newDoc);
-
   // Place cursor on the language line (after ```)
   const langPos = from + (needsLeadingNewline ? 1 : 0) + 3;
-  editor.setSelection(langPos);
+  editor.replaceRange(from, to, block, { anchor: langPos });
   return true;
 }
 
@@ -153,12 +145,9 @@ export function insertImage(editor: EditorAPI): boolean {
 
   const alt = selected || "alt text";
   const md = `![${alt}](url)`;
-  const newDoc = doc.slice(0, from) + md + doc.slice(to);
-  editor.setDocument(newDoc);
-
   // Select the "url" part
   const urlStart = from + alt.length + 4;
-  editor.setSelection(urlStart, urlStart + 3);
+  editor.replaceRange(from, to, md, { anchor: urlStart, head: urlStart + 3 });
   return true;
 }
 
@@ -172,10 +161,8 @@ export function applyTextColor(editor: EditorAPI, color: string): boolean {
   if (from === to) return false;
 
   const wrapped = `<span style="color:${color}">${selected}</span>`;
-  const newDoc = doc.slice(0, from) + wrapped + doc.slice(to);
-  editor.setDocument(newDoc);
   const innerStart = from + `<span style="color:${color}">`.length;
-  editor.setSelection(innerStart, innerStart + selected.length);
+  editor.replaceRange(from, to, wrapped, { anchor: innerStart, head: innerStart + selected.length });
   return true;
 }
 
@@ -189,10 +176,8 @@ export function applyHighlight(editor: EditorAPI, color: string): boolean {
   if (from === to) return false;
 
   const wrapped = `<mark style="background:${color}">${selected}</mark>`;
-  const newDoc = doc.slice(0, from) + wrapped + doc.slice(to);
-  editor.setDocument(newDoc);
   const innerStart = from + `<mark style="background:${color}">`.length;
-  editor.setSelection(innerStart, innerStart + selected.length);
+  editor.replaceRange(from, to, wrapped, { anchor: innerStart, head: innerStart + selected.length });
   return true;
 }
 
@@ -200,11 +185,9 @@ export function insertHorizontalRule(editor: EditorAPI): boolean {
   const doc = editor.getDocument();
   const { anchor } = editor.getSelection();
 
-  const needsLeadingNewline = anchor > 0 && doc[anchor - 1] !== "\n";
-  const hr = (needsLeadingNewline ? "\n" : "") + "---\n";
+  const needsBlankLine = anchor > 0 && doc[anchor - 1] !== "\n";
+  const hr = (needsBlankLine ? "\n\n" : "") + "---\n";
 
-  const newDoc = doc.slice(0, anchor) + hr + doc.slice(anchor);
-  editor.setDocument(newDoc);
-  editor.setSelection(anchor + hr.length);
+  editor.replaceRange(anchor, anchor, hr, { anchor: anchor + hr.length });
   return true;
 }

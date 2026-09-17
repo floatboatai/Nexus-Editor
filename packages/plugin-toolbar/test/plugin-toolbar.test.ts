@@ -8,8 +8,10 @@ import {
   toggleInlineCode,
   insertLink,
   toggleHeading,
+  toggleBlockquote,
   toggleOrderedList,
   toggleUnorderedList,
+  insertHorizontalRule,
   createToolbarPlugin,
   createToolbarUI,
 } from "../src/index";
@@ -34,6 +36,76 @@ describe("toggleBold", () => {
     toggleBold(editor);
 
     expect(editor.getDocument()).toBe("hello world");
+    editor.destroy();
+  });
+
+  it("does not insert an empty marker pair at a collapsed cursor", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello" });
+
+    editor.setSelection(2);
+
+    expect(toggleBold(editor)).toBe(false);
+    expect(editor.getDocument()).toBe("hello");
+    editor.destroy();
+  });
+});
+
+describe("toolbar edits", () => {
+  it("uses a single undo step for inline formatting", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "hello world",
+      plugins: [createHistoryPlugin()],
+    });
+
+    editor.setSelection(6, 11);
+    toggleBold(editor);
+
+    expect(editor.getDocument()).toBe("hello **world**");
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("hello world");
+    expect(editor.undo()).toBe(false);
+    editor.destroy();
+  });
+
+  it("applies formatting immediately while an IME composition is active", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+    const content = container.querySelector<HTMLElement>(".cm-content");
+    expect(content).not.toBeNull();
+
+    editor.setSelection(6, 11);
+    content?.dispatchEvent(new Event("compositionstart", { bubbles: true }));
+    expect(editor.isComposing()).toBe(true);
+
+    toggleBold(editor);
+    expect(editor.getDocument()).toBe("hello **world**");
+
+    content?.dispatchEvent(new Event("compositionend", { bubbles: true }));
+    editor.destroy();
+  });
+
+  it("toggles every selected line when applying a blockquote", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "alpha\nbeta\ngamma" });
+
+    editor.setSelection(0, editor.getDocument().length);
+    toggleBlockquote(editor);
+
+    expect(editor.getDocument()).toBe("> alpha\n> beta\n> gamma");
+    editor.destroy();
+  });
+
+  it("inserts a thematic break without turning the preceding line into a heading", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "Title" });
+
+    editor.setSelection(5);
+    insertHorizontalRule(editor);
+
+    expect(editor.getDocument()).toBe("Title\n\n---\n");
     editor.destroy();
   });
 });
