@@ -1038,6 +1038,61 @@ interface BuildContext {
   /** Optional pre-computed code highlight tokens for the snapshot's fenced blocks. */
   codeTokens?: CodeHighlightToken[];
   compositionActive?: boolean;
+  /**
+   * Per-range decoration reuse cache, owned by the live-preview extension and
+   * cleared whenever the document (or composition state) changes. Present only
+   * on selection-only rebuilds, where a range's output is still valid unless
+   * the cursor reached into its line span.
+   */
+  rangeCache?: Map<string, CachedRangeDecorations>;
+}
+
+/** Decorations one AST range contributed during the previous build. */
+interface CachedRangeDecorations {
+  decos: Range<Decoration>[];
+  parentSpans: [number, number][];
+}
+
+/**
+ * The selection-dependent inputs of one range's builders, at the exact
+ * granularity they consume them. Every cursor-aware decision below is a pure
+ * function of these three predicates (plus `compositionActive`, which
+ * invalidates the whole cache), so two builds that agree on them produce
+ * identical decorations for the range.
+ *
+ * `list` ranges are excluded from reuse: their builder evaluates the
+ * intersect predicate per list item, which is finer than one range-level key.
+ */
+function rangeSelectionKey(
+  range: { from: number; to: number },
+  doc: string,
+  selection: readonly SelectionRange[]
+): string {
+  const inclusive = selectionIntersects(range.from, range.to, selection, true) ? 1 : 0;
+  const exclusive = selectionIntersects(range.from, range.to, selection) ? 1 : 0;
+  const sameLine = selectionOnSameLine(range.from, range.to, doc, selection) ? 1 : 0;
+  return `${inclusive}${exclusive}${sameLine}`;
+}
+
+/**
+ * Selection overlap with `[from, to]`, clamped to it. `buildListDecorations`
+ * evaluates the intersect predicate per list item — a sub-interval of the
+ * range — so its output is determined by which part of the range the selection
+ * covers, not just by whether it does. Ranges whose builder only asks
+ * range-level questions use the coarser three-bit key instead.
+ */
+function selectionOverlapInside(
+  range: { from: number; to: number },
+  selection: readonly SelectionRange[]
+): string {
+  const parts: string[] = [];
+  for (const sel of selection) {
+    const lo = Math.min(sel.anchor, sel.head);
+    const hi = Math.max(sel.anchor, sel.head);
+    if (hi < range.from || lo > range.to) continue;
+    parts.push(`${Math.max(lo, range.from)}-${Math.min(hi, range.to)}`);
+  }
+  return parts.join(",");
 }
 
 function buildDecorations(
@@ -1070,6 +1125,22 @@ function buildDecorations(
 
   for (const range of ranges) {
     if (parentSpans.some(([from, to]) => range.from >= from && range.to <= to)) continue;
+
+    const rangeCacheKey =
+      range.node.type === "list"
+        ? `list:${range.from}:${range.to}:${selectionOverlapInside(range, selection)}`
+        : `${range.node.type}:${range.from}:${range.to}:${rangeSelectionKey(range, doc, selection)}`;
+    const cachedRange = rangeCacheKey !== null ? ctx.rangeCache?.get(rangeCacheKey) : undefined;
+    if (cachedRange) {
+      // The key already encodes the range's selection-dependent inputs, so an
+      // entry with the same key was built from identical inputs — reuse the
+      // exact decoration objects instead of rebuilding them.
+      for (const deco of cachedRange.decos) decos.push(deco);
+      for (const span of cachedRange.parentSpans) parentSpans.push(span);
+      continue;
+    }
+    const decosStart = decos.length;
+    const spansStart = parentSpans.length;
 
     if (range.node.type === "heading" && !config.renderers.heading) {
       buildHeadingDecorations(
@@ -1270,6 +1341,15 @@ function buildDecorations(
         );
       }
     }
+
+    // A `continue` inside the chain (cursor on a link) leaves this range
+    // uncached, which is fine — it just gets rebuilt next time.
+    if (ctx.rangeCache) {
+      ctx.rangeCache.set(rangeCacheKey, {
+        decos: decos.slice(decosStart),
+        parentSpans: parentSpans.slice(spansStart),
+      });
+    }
   }
 
   const set = Decoration.set(decos, true);
@@ -1322,15 +1402,26 @@ export function createLivePreviewExtension(
   let lastBuilt: { doc: string; ast: Root; codeTokens: CodeHighlightToken[] } | null = null;
   let lastTransformRevision = "";
   let compositionActive = false;
+  let lastCompositionActive = false;
+  // Per-range decoration reuse. Survives selection-only rebuilds; dropped when
+  // the document or the composition state changes, since both can change what
+  // a range renders.
+  let rangeCache = new Map<string, CachedRangeDecorations>();
   const rebuildForCompositionStart = StateEffect.define<null>();
   const rebuildAfterComposition = StateEffect.define<null>();
 
   function build(state: EditorState, selection: readonly SelectionRange[], reuseCache: boolean): DecorationSet {
     lastTransformRevision = getMarkdownTransformRevision(state);
     const docStr = state.doc.toString();
-    const ctx: BuildContext = reuseCache && lastBuilt && lastBuilt.doc === docStr
-      ? { ast: lastBuilt.ast, codeTokens: lastBuilt.codeTokens }
-      : {};
+    const docUnchanged = reuseCache && lastBuilt !== null && lastBuilt.doc === docStr;
+    if (!docUnchanged || compositionActive !== lastCompositionActive) {
+      rangeCache = new Map();
+    }
+    lastCompositionActive = compositionActive;
+    const ctx: BuildContext = {
+      ...(docUnchanged ? { ast: lastBuilt!.ast, codeTokens: lastBuilt!.codeTokens } : {}),
+      rangeCache,
+    };
     try {
       const out = buildDecorations(state, selection, normalized, viewRef, {
         ...ctx,
