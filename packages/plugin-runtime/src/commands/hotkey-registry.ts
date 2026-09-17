@@ -155,8 +155,12 @@ export class HotkeyRegistry implements HotkeyService {
   private candidatesByHotkey(): Map<string, ResolvedCandidate[]> {
     const groups = new Map<string, ResolvedCandidate[]>();
     for (const command of this.commands.listHotkeyCandidates()) {
+      const seen = new Set<string>();
       for (const binding of this.getBindings(command.id)) {
         const normalizedHotkey = hotkeyToString(binding, this.options.platform);
+        // Mod and a native modifier can resolve to the same key for this command.
+        if (seen.has(normalizedHotkey)) continue;
+        seen.add(normalizedHotkey);
         const candidate: ResolvedCandidate = {
           commandId: command.id,
           normalizedHotkey,
