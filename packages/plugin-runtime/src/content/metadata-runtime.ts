@@ -21,7 +21,7 @@ import type {
 
 import { TypedEventRegistry } from "../events/typed-event-registry";
 import { freezeFrontmatter, parseFrontmatterDocument } from "./frontmatter";
-import { normalizeVaultPath } from "./path-policy";
+import { resolveWikiLinkTarget } from "./link-resolution";
 import { MemoryVaultRuntime, type VaultCommit } from "./vault-runtime";
 
 interface ParsedIndexEntry {
@@ -38,27 +38,6 @@ interface VersionWaiter {
 export interface MemoryMetadataRuntimeOptions {
   readonly vault: MemoryVaultRuntime;
   readonly reportDiagnostic?: (diagnostic: NexusDiagnostic) => void;
-}
-
-function dirname(path: string): string {
-  const index = path.lastIndexOf("/");
-  return index < 0 ? "" : path.slice(0, index);
-}
-
-function basename(path: string): string {
-  const index = path.lastIndexOf("/");
-  return index < 0 ? path : path.slice(index + 1);
-}
-
-function stripMarkdownExtension(path: string): string {
-  return path.replace(/\.md$/i, "");
-}
-
-function stripLinkAnchor(target: string): string {
-  const hash = target.indexOf("#");
-  const caret = target.indexOf("^");
-  const indexes = [hash, caret].filter((index) => index >= 0);
-  return (indexes.length === 0 ? target : target.slice(0, Math.min(...indexes))).trim();
 }
 
 function versionNumber(version: ContentVersion): number {
@@ -222,35 +201,7 @@ export class MemoryMetadataRuntime implements ManagedResource {
   }
 
   resolveLink(target: string, sourcePath?: VaultPath): NexusFile | null {
-    const bare = stripLinkAnchor(target);
-    if (!bare && sourcePath) return this.vault.getFileByPath(sourcePath);
-    if (!bare) return null;
-    let normalized: VaultPath;
-    try {
-      normalized = normalizeVaultPath(bare);
-    } catch {
-      return null;
-    }
-    const variants = normalized.toLocaleLowerCase().endsWith(".md")
-      ? [normalized]
-      : [normalized, `${normalized}.md` as VaultPath];
-    for (const candidate of variants) {
-      const exact = this.vault.getFileByPath(candidate);
-      if (exact) return exact;
-    }
-    if (sourcePath) {
-      const directory = dirname(sourcePath);
-      for (const candidate of variants) {
-        const relativePath = directory ? `${directory}/${candidate}` : candidate;
-        const relative = this.vault.getFileByPath(relativePath);
-        if (relative) return relative;
-      }
-    }
-    const needle = stripMarkdownExtension(basename(normalized)).toLocaleLowerCase();
-    const matches = this.vault.listFiles().filter(
-      (file) => file.basename.toLocaleLowerCase() === needle,
-    );
-    return matches.length === 1 ? matches[0] : null;
+    return resolveWikiLinkTarget(target, sourcePath, this.vault);
   }
 
   getResolvedLinks(file?: NexusFile): readonly ResolvedLink[] {

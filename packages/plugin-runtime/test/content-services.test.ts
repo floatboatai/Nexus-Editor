@@ -302,7 +302,7 @@ describe("FileManager and frontmatter", () => {
   it("moves files, updates resolvable wiki links, and defaults to recoverable trash", async () => {
     const { runtime, services } = harness({
       "Notes/target.md": "# Target",
-      "source.md": "See [[Notes/target|target]].",
+      "source.md": "See [[Notes/target|target]], [[target]], and \\[[target]].",
     });
     const target = requireFile(services.vault.getFileByPath("Notes/target.md" as never));
     const moved = await services.fileManager.moveFile(target, "Archive/target.md" as never, {
@@ -310,7 +310,9 @@ describe("FileManager and frontmatter", () => {
     });
     expect(moved.ok).toBe(true);
     const source = requireFile(services.vault.getFileByPath("source.md" as never));
-    expect(await services.vault.read(source)).toBe("See [[Archive/target|target]].");
+    expect(await services.vault.read(source)).toBe(
+      "See [[Archive/target|target]], [[Archive/target]], and \\[[target]].",
+    );
     expect(services.fileManager.generateMarkdownLink(target, { alias: "Target" })).toBe(
       "[[Archive/target|Target]]",
     );
@@ -319,6 +321,108 @@ describe("FileManager and frontmatter", () => {
     expect(target.valid).toBe(true);
     expect(target.path).toBe(".trash/Archive/target.md");
     expect(runtime.vault.getFileById(target.id)).toBe(target);
+  });
+
+  it("rewrites only wiki links that resolve to the moved file", async () => {
+    const { services } = harness({
+      "Projects/Notes/target.md": "# Target",
+      "Other/target.md": "# Other",
+      "Projects/source.md": "![[Notes/target#Heading|preview]]",
+      "Projects/Notes/local.md": "[[target]]",
+      "Other/source.md": "[[target]]",
+      "root.md": "[[target]] and [[Projects/Notes/target]]",
+    });
+    const target = requireFile(
+      services.vault.getFileByPath("Projects/Notes/target.md" as never),
+    );
+    const other = requireFile(services.vault.getFileByPath("Other/target.md" as never));
+    const relativeSource = requireFile(
+      services.vault.getFileByPath("Projects/source.md" as never),
+    );
+    const localSource = requireFile(
+      services.vault.getFileByPath("Projects/Notes/local.md" as never),
+    );
+    const otherSource = requireFile(
+      services.vault.getFileByPath("Other/source.md" as never),
+    );
+    const rootSource = requireFile(services.vault.getFileByPath("root.md" as never));
+
+    expect(services.metadata.resolveLink("Notes/target", relativeSource.path)).toBe(target);
+    expect(services.metadata.resolveLink("target", localSource.path)).toBe(target);
+    expect(services.metadata.resolveLink("target", otherSource.path)).toBe(other);
+    expect(services.metadata.resolveLink("target", rootSource.path)).toBeNull();
+
+    const moved = await services.fileManager.moveFile(
+      target,
+      "Archive/target.md" as never,
+      { updateLinks: "always" },
+    );
+
+    expect(moved.ok).toBe(true);
+    expect(await services.vault.read(relativeSource)).toBe(
+      "![[Archive/target#Heading|preview]]",
+    );
+    expect(await services.vault.read(localSource)).toBe("[[Archive/target]]");
+    expect(await services.vault.read(otherSource)).toBe("[[target]]");
+    expect(await services.vault.read(rootSource)).toBe(
+      "[[target]] and [[Archive/target]]",
+    );
+  });
+
+  it("uses a concurrently moved source's current path when resolving links", async () => {
+    const { services } = harness({
+      "A/foo.md": "# A",
+      "B/foo.md": "# B",
+      "A/source.md": "[[foo]]",
+    });
+    const target = requireFile(services.vault.getFileByPath("A/foo.md" as never));
+    const source = requireFile(services.vault.getFileByPath("A/source.md" as never));
+
+    const movingSource = services.fileManager.moveFile(
+      source,
+      "B/source.md" as never,
+      { updateLinks: "never" },
+    );
+    const movingTarget = services.fileManager.moveFile(
+      target,
+      "C/foo.md" as never,
+      { updateLinks: "always" },
+    );
+
+    expect(await Promise.all([movingSource, movingTarget])).toMatchObject([
+      { ok: true },
+      { ok: true },
+    ]);
+    expect(source.path).toBe("B/source.md");
+    expect(await services.vault.read(source)).toBe("[[foo]]");
+  });
+
+  it("resolves links from the topology established by an earlier queued move", async () => {
+    const { services } = harness({
+      "A/foo.md": "# Target",
+      "B/foo.md": "# Competitor",
+      "source.md": "[[foo]]",
+    });
+    const target = requireFile(services.vault.getFileByPath("A/foo.md" as never));
+    const competitor = requireFile(services.vault.getFileByPath("B/foo.md" as never));
+    const source = requireFile(services.vault.getFileByPath("source.md" as never));
+
+    const movingCompetitor = services.fileManager.moveFile(
+      competitor,
+      "B/bar.md" as never,
+      { updateLinks: "never" },
+    );
+    const movingTarget = services.fileManager.moveFile(
+      target,
+      "C/qux.md" as never,
+      { updateLinks: "always" },
+    );
+
+    expect(await Promise.all([movingCompetitor, movingTarget])).toMatchObject([
+      { ok: true },
+      { ok: true },
+    ]);
+    expect(await services.vault.read(source)).toBe("[[C/qux]]");
   });
 
   it("serializes safe YAML frontmatter without changing the body", async () => {
