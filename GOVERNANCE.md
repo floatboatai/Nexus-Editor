@@ -4,7 +4,7 @@ This document describes how the Nexus-Editor project is governed and what contri
 
 If you only want to send a small fix, you can stop reading after §6. The rest exists so that the project's direction stays stable as we grow.
 
-[中文版 — TODO](./GOVERNANCE.zh.md)
+[中文版](./GOVERNANCE.zh.md)
 
 ---
 
