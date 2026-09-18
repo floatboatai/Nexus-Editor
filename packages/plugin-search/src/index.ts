@@ -29,12 +29,20 @@ export interface SearchMatch {
   from: number;
   to: number;
   text: string;
+  /**
+   * Relevance score, present only for fuzzy matches.
+   */
+  score?: number;
 }
 
 export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  /**
+   * Match the query as an ordered subsequence within a line.
+   */
+  fuzzy?: boolean;
 }
 
 export interface SearchHistoryStorage {
@@ -80,12 +88,13 @@ export interface SearchPluginLabels {
   matchCase: string;
   regexp: string;
   byWord: string;
+  fuzzy?: string;
   replaceNext: string;
   replaceAll: string;
   close: string;
 }
 
-const DEFAULT_LABELS: SearchPluginLabels = {
+const DEFAULT_LABELS: SearchPluginLabels & { fuzzy: string } = {
   find: "Find",
   replace: "Replace",
   showReplace: "Show replace",
@@ -96,6 +105,7 @@ const DEFAULT_LABELS: SearchPluginLabels = {
   matchCase: "Match case",
   regexp: "Regexp",
   byWord: "By word",
+  fuzzy: "Fuzzy",
   replaceNext: "Replace",
   replaceAll: "Replace all",
   close: "Close"
@@ -619,6 +629,343 @@ class SearchHistoryController {
   }
 }
 
+const FUZZY_SCORE_MATCH = 10;
+const FUZZY_BONUS_BOUNDARY = 8;
+const FUZZY_BONUS_CONSECUTIVE = 5;
+const FUZZY_BONUS_CASE_MATCH = 1;
+const FUZZY_PENALTY_GAP_START = 2;
+const FUZZY_PENALTY_GAP_EXTEND = 1;
+const FUZZY_SEPARATORS = " \t/\\|-_:.,\"'({[<>";
+
+type SearchEditorState = EditorView["state"];
+
+type FuzzyCursorState = Parameters<SearchQuery["getCursor"]>[0];
+
+interface FuzzyTextDocument {
+  length: number;
+  sliceString(from: number, to?: number): string;
+  lineAt(pos: number): { from: number; to: number; text: string };
+}
+
+interface FuzzyLineMatch {
+  from: number;
+  to: number;
+  score: number;
+}
+
+function isFuzzySeparator(value: string): boolean {
+  return FUZZY_SEPARATORS.includes(value);
+}
+
+function isFuzzyLowerAlpha(value: string): boolean {
+  return value >= "a" && value <= "z";
+}
+
+function isFuzzyUpperAlpha(value: string): boolean {
+  return value >= "A" && value <= "Z";
+}
+
+function isFuzzyBoundary(line: string, pos: number): boolean {
+  if (pos === 0) return true;
+  const previous = line[pos - 1];
+  if (isFuzzySeparator(previous)) return true;
+  return isFuzzyLowerAlpha(previous) && isFuzzyUpperAlpha(line[pos]);
+}
+
+function fuzzyCharsEqual(
+  caseSensitive: boolean
+): (lineChar: string, queryChar: string) => boolean {
+  if (caseSensitive) {
+    return (lineChar, queryChar) => lineChar === queryChar;
+  }
+  return (lineChar, queryChar) => lineChar.toLowerCase() === queryChar.toLowerCase();
+}
+
+function scoreFuzzyMatch(
+  line: string,
+  query: string,
+  positions: number[],
+  caseSensitive: boolean
+): number {
+  let score = 0;
+
+  for (let index = 0; index < positions.length; index++) {
+    const pos = positions[index];
+    score += FUZZY_SCORE_MATCH;
+
+    if (!caseSensitive && line[pos] === query[index]) {
+      score += FUZZY_BONUS_CASE_MATCH;
+    }
+
+    if (isFuzzyBoundary(line, pos)) {
+      score += index === 0 ? FUZZY_BONUS_BOUNDARY * 2 : FUZZY_BONUS_BOUNDARY;
+    }
+
+    if (index > 0) {
+      if (pos === positions[index - 1] + 1) {
+        score += FUZZY_BONUS_CONSECUTIVE;
+      }
+      const gap = pos - positions[index - 1] - 1;
+      if (gap > 0) {
+        score -= FUZZY_PENALTY_GAP_START + (gap - 1) * FUZZY_PENALTY_GAP_EXTEND;
+      }
+    }
+  }
+
+  return score;
+}
+
+function matchFuzzyLine(
+  line: string,
+  query: string,
+  caseSensitive: boolean,
+  start: number
+): FuzzyLineMatch | null {
+  const queryLength = query.length;
+  if (queryLength === 0 || line.length < queryLength || start >= line.length) {
+    return null;
+  }
+
+  const charsEqual = fuzzyCharsEqual(caseSensitive);
+  const positions = new Array<number>(queryLength);
+
+  let queryIndex = 0;
+  for (let pos = start; pos < line.length && queryIndex < queryLength; pos++) {
+    if (charsEqual(line[pos], query[queryIndex])) {
+      positions[queryIndex++] = pos;
+    }
+  }
+  if (queryIndex < queryLength) {
+    return null;
+  }
+
+  let cursor = positions[queryLength - 1];
+  for (let index = queryLength - 1; index >= 0; index--) {
+    let found = -1;
+    for (let pos = cursor; pos >= start; pos--) {
+      if (charsEqual(line[pos], query[index])) {
+        found = pos;
+        break;
+      }
+    }
+    if (found < 0) {
+      return null;
+    }
+    positions[index] = found;
+    cursor = found - 1;
+  }
+
+  return {
+    from: positions[0],
+    to: positions[queryLength - 1] + 1,
+    score: scoreFuzzyMatch(line, query, positions, caseSensitive)
+  };
+}
+
+function matchAllFuzzyInLine(
+  line: string,
+  query: string,
+  caseSensitive: boolean
+): FuzzyLineMatch[] {
+  const matches: FuzzyLineMatch[] = [];
+
+  for (let start = 0; start < line.length; ) {
+    const match = matchFuzzyLine(line, query, caseSensitive, start);
+    if (!match) break;
+    matches.push(match);
+    start = match.to;
+  }
+
+  return matches;
+}
+
+function forEachDocumentLine(doc: string, visit: (line: string, start: number) => void): void {
+  let start = 0;
+
+  for (let index = 0; index < doc.length; index++) {
+    const char = doc[index];
+    if (char !== "\r" && char !== "\n") continue;
+    visit(doc.slice(start, index), start);
+    if (char === "\r" && doc[index + 1] === "\n") index++;
+    start = index + 1;
+  }
+
+  visit(doc.slice(start), start);
+}
+
+function findFuzzyMatches(doc: string, query: string, caseSensitive: boolean): SearchMatch[] {
+  const matches: SearchMatch[] = [];
+
+  forEachDocumentLine(doc, (line, lineStart) => {
+    for (const match of matchAllFuzzyInLine(line, query, caseSensitive)) {
+      matches.push({
+        from: lineStart + match.from,
+        to: lineStart + match.to,
+        text: line.slice(match.from, match.to),
+        score: match.score
+      });
+    }
+  });
+
+  return matches;
+}
+
+function fuzzyDocumentOf(state: FuzzyCursorState): FuzzyTextDocument {
+  if ("doc" in state) {
+    return (state as { doc: FuzzyTextDocument }).doc;
+  }
+  return state as unknown as FuzzyTextDocument;
+}
+
+function isFuzzySearchQuery(query: SearchQuery): query is FuzzySearchQuery {
+  return (query as Partial<FuzzySearchQuery>).fuzzy === true;
+}
+
+function fuzzyMatchesInDocument(
+  doc: FuzzyTextDocument,
+  query: string,
+  caseSensitive: boolean,
+  from: number,
+  to: number
+): SearchMatch[] {
+  const matches: SearchMatch[] = [];
+  if (doc.length === 0 || query.length === 0) return matches;
+
+  const rangeStart = Math.max(0, Math.min(from, doc.length));
+  const rangeEnd = Math.max(rangeStart, Math.min(to, doc.length));
+
+  let line = doc.lineAt(Math.min(rangeStart, doc.length - 1));
+  while (line.from <= rangeEnd) {
+    if (line.to > rangeStart) {
+      for (const match of matchAllFuzzyInLine(line.text, query, caseSensitive)) {
+        const matchFrom = line.from + match.from;
+        const matchTo = line.from + match.to;
+        if (matchFrom < rangeStart || matchTo > rangeEnd) continue;
+        matches.push({
+          from: matchFrom,
+          to: matchTo,
+          text: doc.sliceString(matchFrom, matchTo),
+          score: match.score
+        });
+      }
+    }
+    if (line.to >= doc.length) break;
+    line = doc.lineAt(line.to + 1);
+  }
+
+  return matches;
+}
+
+/**
+ * A search query that matches an ordered subsequence within a line instead of
+ * a literal or regular expression.
+ */
+export class FuzzySearchQuery extends SearchQuery {
+  readonly fuzzy = true;
+
+  constructor(config: ConstructorParameters<typeof SearchQuery>[0]) {
+    super({ ...config, literal: true, regexp: false, wholeWord: false });
+  }
+
+  override eq(other: SearchQuery): boolean {
+    return super.eq(other) && (other as Partial<FuzzySearchQuery>).fuzzy === this.fuzzy;
+  }
+
+  getCursor(
+    state: FuzzyCursorState,
+    from = 0,
+    to?: number
+  ): Iterator<{ from: number; to: number }> {
+    const doc = fuzzyDocumentOf(state);
+    const rangeEnd = to ?? doc.length;
+    const search = this.search;
+    const caseSensitive = this.caseSensitive;
+
+    function* matches(): Generator<{ from: number; to: number }> {
+      for (const match of fuzzyMatchesInDocument(doc, search, caseSensitive, from, rangeEnd)) {
+        yield { from: match.from, to: match.to };
+      }
+    }
+
+    return matches();
+  }
+
+  create(): FuzzyQueryHandler {
+    return new FuzzyQueryHandler(this);
+  }
+}
+
+class FuzzyQueryHandler {
+  readonly spec: FuzzySearchQuery;
+
+  constructor(spec: FuzzySearchQuery) {
+    this.spec = spec;
+  }
+
+  nextMatch(
+    state: SearchEditorState,
+    curFrom: number,
+    curTo: number
+  ): { from: number; to: number } | null {
+    const doc = fuzzyDocumentOf(state);
+    const forward = this.matches(doc, curTo, doc.length);
+    if (forward.length > 0) {
+      return { from: forward[0].from, to: forward[0].to };
+    }
+
+    const wrapped = this.matches(doc, 0, curFrom);
+    const first = wrapped[0];
+    return first && (first.from !== curFrom || first.to !== curTo)
+      ? { from: first.from, to: first.to }
+      : null;
+  }
+
+  prevMatch(
+    state: SearchEditorState,
+    curFrom: number,
+    curTo: number
+  ): { from: number; to: number } | null {
+    const doc = fuzzyDocumentOf(state);
+    const before = this.matches(doc, 0, curFrom);
+    const previous = before[before.length - 1];
+    if (previous) {
+      return { from: previous.from, to: previous.to };
+    }
+
+    const all = this.matches(doc, 0, doc.length);
+    const last = all[all.length - 1];
+    return last && (last.from !== curFrom || last.to !== curTo)
+      ? { from: last.from, to: last.to }
+      : null;
+  }
+
+  matchAll(state: SearchEditorState, limit: number): SearchMatch[] | null {
+    const doc = fuzzyDocumentOf(state);
+    const matches = this.matches(doc, 0, doc.length);
+    return matches.length > limit ? null : matches;
+  }
+
+  highlight(
+    state: SearchEditorState,
+    from: number,
+    to: number,
+    add: (from: number, to: number) => void
+  ): void {
+    const doc = fuzzyDocumentOf(state);
+    for (const match of this.matches(doc, from, to)) {
+      add(match.from, match.to);
+    }
+  }
+
+  getReplacement(result: SearchMatch): string {
+    return result.text;
+  }
+
+  private matches(doc: FuzzyTextDocument, from: number, to: number): SearchMatch[] {
+    return fuzzyMatchesInDocument(doc, this.spec.search, this.spec.caseSensitive, from, to);
+  }
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -648,6 +995,10 @@ export function findSearchMatches(
 ): SearchMatch[] {
   if (!query) {
     return [];
+  }
+
+  if (options.fuzzy) {
+    return findFuzzyMatches(doc, query, options.caseSensitive ?? false);
   }
 
   const pattern = buildSearchPattern(query, options);
@@ -700,7 +1051,10 @@ function resolveLabel(
   return phrase || fallback;
 }
 
-function resolveLabels(view: EditorView, labels: Partial<SearchPluginLabels> | undefined): SearchPluginLabels {
+function resolveLabels(
+  view: EditorView,
+  labels: Partial<SearchPluginLabels> | undefined
+): SearchPluginLabels & { fuzzy: string } {
   return {
     find: resolveLabel(view, labels, "find", DEFAULT_LABELS.find),
     replace: resolveLabel(view, labels, "replace", DEFAULT_LABELS.replace),
@@ -712,6 +1066,7 @@ function resolveLabels(view: EditorView, labels: Partial<SearchPluginLabels> | u
     matchCase: resolveLabel(view, labels, "matchCase", DEFAULT_LABELS.matchCase),
     regexp: resolveLabel(view, labels, "regexp", DEFAULT_LABELS.regexp),
     byWord: resolveLabel(view, labels, "byWord", DEFAULT_LABELS.byWord),
+    fuzzy: resolveLabel(view, labels, "fuzzy", DEFAULT_LABELS.fuzzy),
     replaceNext: resolveLabel(view, labels, "replaceNext", DEFAULT_LABELS.replaceNext),
     replaceAll: resolveLabel(view, labels, "replaceAll", DEFAULT_LABELS.replaceAll),
     close: resolveLabel(view, labels, "close", DEFAULT_LABELS.close)
@@ -891,7 +1246,8 @@ class NexusSearchPanel implements Panel {
   private readonly caseField: HTMLInputElement;
   private readonly regexpField: HTMLInputElement;
   private readonly wholeWordField: HTMLInputElement;
-  private readonly labels: SearchPluginLabels;
+  private readonly fuzzyField: HTMLInputElement;
+  private readonly labels: SearchPluginLabels & { fuzzy: string };
   private readonly history: SearchHistoryController;
   private readonly replaceRow?: HTMLDivElement;
   private readonly replaceToggle?: IconButtonElements;
@@ -923,8 +1279,16 @@ class NexusSearchPanel implements Panel {
       false
     );
     this.caseField = this.createCheckbox("markdown-search-case-toggle", "case", this.query.caseSensitive);
-    this.regexpField = this.createCheckbox("markdown-search-regexp-toggle", "re", this.query.regexp);
-    this.wholeWordField = this.createCheckbox("markdown-search-word-toggle", "word", this.query.wholeWord);
+    this.regexpField = this.createCheckbox("markdown-search-regexp-toggle", "re", this.query.regexp, (input) => {
+      if (input.checked) this.fuzzyField.checked = false;
+    });
+    this.wholeWordField = this.createCheckbox("markdown-search-word-toggle", "word", this.query.wholeWord, (input) => {
+      if (input.checked) this.fuzzyField.checked = false;
+    });
+    this.fuzzyField = this.createCheckbox("markdown-search-fuzzy-toggle", "fuzzy", isFuzzySearchQuery(this.query), () => {
+      this.regexpField.checked = false;
+      this.wholeWordField.checked = false;
+    });
 
     this.dom = document.createElement("div");
     this.dom.className = "cm-search nexus-search-panel";
@@ -961,6 +1325,7 @@ class NexusSearchPanel implements Panel {
       createLabel(this.caseField, resolvedLabels.matchCase),
       createLabel(this.regexpField, resolvedLabels.regexp),
       createLabel(this.wholeWordField, resolvedLabels.byWord),
+      createLabel(this.fuzzyField, resolvedLabels.fuzzy),
       navigationGroup
     ];
     if (this.replaceToggle) {
@@ -992,6 +1357,8 @@ class NexusSearchPanel implements Panel {
       this.setReplaceExpanded(false);
       this.dom.append(replaceRow);
     }
+
+    this.setFuzzyActive(this.fuzzyField.checked);
 
     const closeButton = createButton("markdown-search-close", "close", "×", () => closeSearchPanel(view));
     closeButton.setAttribute("aria-label", resolvedLabels.close);
@@ -1043,30 +1410,47 @@ class NexusSearchPanel implements Panel {
     return input;
   }
 
-  private createCheckbox(testId: string, name: string, checked: boolean): HTMLInputElement {
+  private createCheckbox(
+    testId: string,
+    name: string,
+    checked: boolean,
+    onToggle?: (input: HTMLInputElement) => void
+  ): HTMLInputElement {
     const input = document.createElement("input");
     input.dataset.testId = testId;
     input.type = "checkbox";
     input.name = name;
     input.setAttribute("form", "");
     input.checked = checked;
-    input.addEventListener("change", () => this.commit());
+    input.addEventListener("change", () => {
+      onToggle?.(input);
+      this.commit();
+    });
     return input;
   }
 
   private commit(): void {
-    const query = new SearchQuery({
-      search: this.searchField.value,
-      caseSensitive: this.caseField.checked,
-      regexp: this.regexpField.checked,
-      wholeWord: this.wholeWordField.checked,
-      replace: this.replaceField.value
-    });
+    const fuzzy = this.fuzzyField.checked;
+    const query = fuzzy
+      ? new FuzzySearchQuery({
+          search: this.searchField.value,
+          caseSensitive: this.caseField.checked,
+          replace: this.replaceField.value
+        })
+      : new SearchQuery({
+          search: this.searchField.value,
+          caseSensitive: this.caseField.checked,
+          regexp: this.regexpField.checked,
+          wholeWord: this.wholeWordField.checked,
+          replace: this.replaceField.value
+        });
 
     if (!query.eq(this.query)) {
       this.query = query;
       this.view.dispatch({ effects: setSearchQuery.of(query) });
     }
+
+    this.setFuzzyActive(fuzzy);
   }
 
   private submitSearch(runSearchCommand: () => void): void {
@@ -1130,13 +1514,25 @@ class NexusSearchPanel implements Panel {
     return true;
   }
 
+  private setFuzzyActive(fuzzy: boolean): void {
+    if (this.replaceToggle) {
+      this.replaceToggle.wrapper.hidden = fuzzy;
+    }
+    if (fuzzy && this.replaceExpanded) {
+      this.setReplaceExpanded(false);
+    }
+  }
+
   private setQuery(query: SearchQuery): void {
+    const fuzzy = isFuzzySearchQuery(query);
     this.query = query;
     this.searchField.value = query.search;
     this.replaceField.value = query.replace;
     this.caseField.checked = query.caseSensitive;
     this.regexpField.checked = query.regexp;
     this.wholeWordField.checked = query.wholeWord;
+    this.fuzzyField.checked = fuzzy;
+    this.setFuzzyActive(fuzzy);
   }
 }
 
