@@ -2,6 +2,7 @@ import {
   type Extension,
   type Range,
   type SelectionRange,
+  type Text,
   StateEffect,
   StateField,
   type Transaction,
@@ -154,19 +155,20 @@ class NexusWidget extends WidgetType {
   }
 }
 
+// 作者：tobegold574（2026/9/17）
+// 原因：签名调整——解析（parser/widgets 参数）与 AST 构建职责上移到
+// createWidgetExtension 的缓存层，本函数改为接收已解析好的 definitions 与
+// ast，只负责范围收集与装饰生成；产出行为与原实现完全一致。
 function buildWidgetDecorations(
   state: import("@codemirror/state").EditorState,
   doc: string,
   selection: readonly SelectionRange[],
-  parser: ParserLike,
-  widgets: WidgetDefinition[],
-  viewRef: { current: EditorView | null }
+  definitions: WidgetDefinition[],
+  viewRef: { current: EditorView | null },
+  ast: Root
 ): DecorationSet {
-  const dynamicWidgets = getWidgetDefinitionContributions(state).map((item) => item.definition);
-  const definitions = [...widgets, ...dynamicWidgets];
   if (definitions.length === 0) return Decoration.none;
 
-  const ast = applyMarkdownTransformSnapshots(state, parseDocument(parser, doc));
   const ranges = collectWidgetRanges(ast, doc, selection, definitions);
   const decos: Range<Decoration>[] = [];
 
@@ -197,14 +199,39 @@ export function createWidgetExtension(
   const viewRef: { current: EditorView | null } = { current: null };
   const rebuildAfterComposition = StateEffect.define<null>();
 
+  // 作者：tobegold574（2026/9/17）
+  // 原因：单条目 mdast 缓存，键为不可变 Text 对象 + markdown transform 版本。
+  // 解析+变换后的 AST（以及物化的文档串）只取决于（文档, transform 快照），
+  // 与 selection 无关——纯光标移动原先每次都要整体无头重解析，现在两者复用。
+  // widget 区间仍每次重算：其显隐随光标切换（selectionIntersects），行为不变。
+  let lastAst: { docText: Text; revision: string; doc: string; ast: Root } | null = null;
+
   const build = (state: import("@codemirror/state").EditorState): DecorationSet => {
+    // 作者：tobegold574（2026/9/17）
+    // 原因：先解析 widget 定义、再物化文档——最常见的"未配置任何 widget"场景
+    // 不该在每次更新时白付一次全文档拷贝（原实现在空检查之前就 toString）。
+    const dynamicWidgets = getWidgetDefinitionContributions(state).map((item) => item.definition);
+    const definitions = [...widgets, ...dynamicWidgets];
+    if (definitions.length === 0) return Decoration.none;
+
+    const revision = getMarkdownTransformRevision(state);
+    const cached =
+      lastAst && lastAst.docText === state.doc && lastAst.revision === revision ? lastAst : null;
+    const doc = cached ? cached.doc : state.doc.toString();
+    let ast: Root;
+    if (cached) {
+      ast = cached.ast;
+    } else {
+      ast = applyMarkdownTransformSnapshots(state, parseDocument(parser, doc));
+      lastAst = { docText: state.doc, revision, doc, ast };
+    }
     return buildWidgetDecorations(
       state,
-      state.doc.toString(),
+      doc,
       state.selection.ranges,
-      parser,
-      widgets,
+      definitions,
       viewRef,
+      ast
     );
   };
 

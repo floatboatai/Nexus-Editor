@@ -667,7 +667,11 @@ export function createEditor(config: EditorConfig): EditorAPI {
           if ((update.selectionSet || update.docChanged) && !destroyed) {
             const sel = update.state.selection.main;
 
-            if (update.selectionSet) {
+            // 作者：tobegold574（2026/9/17）
+            // 原因：没有 selectionChange 监听者时跳过 payload 构造（含 ranges
+            // 数组的逐范围映射）——鼠标拖选时该事件按 mousemove 频率触发，
+            // 无人监听时这些对象分配纯属浪费。
+            if (update.selectionSet && emitter.hasListeners("selectionChange")) {
               const selection = update.state.selection;
               emitter.emit("selectionChange", {
                 anchor: sel.anchor,
@@ -677,7 +681,11 @@ export function createEditor(config: EditorConfig): EditorAPI {
               });
             }
 
-            if (slashCommands.length > 0) {
+            // 作者：tobegold574（2026/9/17）
+            // 原因：斜杠状态计算会物化整个文档并给命令重新排序；没有
+            // slashMenuChange 监听者时整个跳过——否则算出来的命令列表
+            // 直接被丢弃，纯粹浪费。
+            if (slashCommands.length > 0 && emitter.hasListeners("slashMenuChange")) {
               const doc = update.state.doc.toString();
               const state = computeSlashState(doc, sel.head, slashCommands, {
                 limit: config.slashMenuLimit,

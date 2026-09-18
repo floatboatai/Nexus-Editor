@@ -108,8 +108,15 @@ function makeContext(editor: EditorAPI, transaction: Transaction): CoreEditorTra
   });
 }
 
-function stableHookOrder<T>(entries: Iterable<HookEntry<T>>): HookEntry<T>[] {
-  return Array.from(entries)
+// 作者：tobegold574（2026/9/17）
+// 原因：多数宿主的 hook 注册表长期为空——空表直接返回共享的同一空数组，
+// 让每次 dispatch 的事件路径完全跳过 Array.from + filter + sort，
+// 不再为每次派发新分配一个数组。
+const NO_HOOKS: readonly HookEntry<never>[] = [];
+
+function stableHookOrder<T>(hooks: Map<string, HookEntry<T>>): HookEntry<T>[] {
+  if (hooks.size === 0) return NO_HOOKS as unknown as HookEntry<T>[];
+  return Array.from(hooks.values())
     .filter((entry) => !entry.disposed)
     .sort((a, b) => b.priority - a.priority || a.sequence - b.sequence);
 }
@@ -202,6 +209,15 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
     view: EditorView
   ): CoreEditorTransactionDispatchResult | null {
     if (transactions.length === 0 || this.destroyed || this.host.isDestroyed()) return null;
+    // 作者：tobegold574（2026/9/17）
+    // 原因：快速路径——没有注册任何 filter 和 update listener 时，管线对这次
+    // 派发毫无贡献：完全跳过事务合并、context 构造与通知簿记，把事务原样交给
+    // CM6（与该 sink 存在之前编辑器自身的 fallback 行为一致）。之后注册的
+    // hook 从下一次 dispatch 起自动走完整路径。
+    if (this.filters.size === 0 && this.updateListeners.size === 0) {
+      view.update(transactions);
+      return null;
+    }
     if (transactions.every((transaction) => !transaction.docChanged && transaction.selection === undefined)) {
       view.update(transactions);
       return null;
@@ -277,21 +293,36 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
     if (filtered.status === "rejected") return filtered;
 
     const { transaction, context } = filtered.prepared;
-    const documentBefore = transaction.startState.doc.toString();
     view.update([transaction]);
-    const update: CoreEditorUpdateContext = Object.freeze({
-      ...context,
-      documentBefore,
-      documentAfter: transaction.state.doc.toString(),
-    });
-    this.notify(update);
-    return { status: "success", update };
+    // 作者：tobegold574（2026/9/17）
+    // 原因：documentBefore/documentAfter 会物化整个文档；改为惰性记忆 getter，
+    // 无人读取的事务（最常见情形）不再在每次 dispatch 时做两次 O(文档长度)
+    // 字符串拷贝。无论从 update listener 还是 dispatchTransaction 结果读取，
+    // 得到的值与原先的急切拷贝完全一致。
+    let documentBefore: string | undefined;
+    let documentAfter: string | undefined;
+    const update: CoreEditorUpdateContext = Object.defineProperties(
+      { ...context } as CoreEditorUpdateContext,
+      {
+        documentBefore: {
+          enumerable: true,
+          get: () => (documentBefore ??= transaction.startState.doc.toString()),
+        },
+        documentAfter: {
+          enumerable: true,
+          get: () => (documentAfter ??= transaction.state.doc.toString()),
+        },
+      }
+    );
+    const frozenUpdate = Object.freeze(update);
+    this.notify(frozenUpdate);
+    return { status: "success", update: frozenUpdate };
   }
 
   private applyFilters(initial: Transaction): FilterPreparation {
     let transaction = initial;
     let context = makeContext(this.host.editor, transaction);
-    const filters = stableHookOrder(this.filters.values());
+    const filters = stableHookOrder(this.filters);
 
     for (const entry of filters) {
       if (entry.disposed) continue;
@@ -317,7 +348,7 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
   }
 
   private notify(update: CoreEditorUpdateContext): void {
-    const listeners = stableHookOrder(this.updateListeners.values());
+    const listeners = stableHookOrder(this.updateListeners);
     this.notificationDepth += 1;
     try {
       for (const entry of listeners) {

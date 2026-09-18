@@ -88,6 +88,35 @@ function cacheSet(key: string, value: CodeHighlightToken[]): void {
   }
 }
 
+// 作者：tobegold574（2026/9/17）
+// 原因：二级 LRU，键为 (lang, code, contentStart)，缓存已换算成绝对偏移的
+// token 数组。文档每次变更重建时 buildDecorations 都会重新请求所有代码块；
+// 没有这一层的话，即使一级缓存全命中，每块每次仍要为每个 token 新建对象，
+// 仅为做偏移 rebase。未变更的块是常态，其 rebase 数组一直有效——块内容或
+// 位置任一变化都会产生新键，自然失效。
+const rebasedCache = new Map<string, CodeHighlightToken[]>();
+
+function rebasedCacheGet(key: string): CodeHighlightToken[] | undefined {
+  // 作者：tobegold574（2026/9/17）
+  // 原因：与上方一级缓存相同的 LRU 触碰语义——命中即删除再重插以提升
+  // 活跃度，让热点条目尽量不被淘汰。
+  const hit = rebasedCache.get(key);
+  if (!hit) return undefined;
+  rebasedCache.delete(key);
+  rebasedCache.set(key, hit);
+  return hit;
+}
+
+function rebasedCacheSet(key: string, value: CodeHighlightToken[]): void {
+  // 作者：tobegold574（2026/9/17）
+  // 原因：超限即淘汰 Map 首项（最久未命中的条目），上限与一级缓存一致。
+  rebasedCache.set(key, value);
+  if (rebasedCache.size > CACHE_LIMIT) {
+    const oldest = rebasedCache.keys().next().value;
+    if (oldest !== undefined) rebasedCache.delete(oldest);
+  }
+}
+
 /**
  * Highlight a single fenced code block. `contentStart` is the document offset
  * where the code body begins (one past the opening fence's newline). Returns
@@ -105,12 +134,27 @@ export function highlightCodeBlock(
   if (code.length > MAX_BLOCK_LEN) return [];
   if (!hljs.getLanguage(lang)) return [];
 
-  const key = `${lang}\u0000${code}`;
-  const cached = cacheGet(key);
+  // 作者：tobegold574（2026/9/17）
+  // 原因：先查二级缓存——rebase 键里含 contentStart，命中说明同一块在文档
+  // 同一位置被重复请求（打字期间未变更块的常态），直接返回已换算好绝对偏移
+  // 的数组，一级缓存查找与逐 token 重 rebase 全部省掉；contentStart=0 时
+  // 无需 rebase，天然走一级缓存原数组。
+  const baseKey = `${lang}\u0000${code}`;
+  const rebaseKey = contentStart === 0 ? null : `${baseKey}\u0000${contentStart}`;
+  if (rebaseKey) {
+    const rebased = rebasedCacheGet(rebaseKey);
+    if (rebased) return rebased;
+  }
+
+  const cached = cacheGet(baseKey);
   if (cached) {
     if (contentStart === 0) return cached;
-    // Cached tokens are stored at contentStart=0; rebase on read.
-    return cached.map((t) => ({ from: t.from + contentStart, to: t.to + contentStart, className: t.className }));
+    // 作者：tobegold574（2026/9/17）
+    // 原因：一级缓存里的 token 以 contentStart=0 存放；读取时 rebase 一份并
+    // 记入二级缓存，让文档其他位置打字时的重复读取零分配。
+    const rebased = cached.map((t) => ({ from: t.from + contentStart, to: t.to + contentStart, className: t.className }));
+    rebasedCacheSet(rebaseKey!, rebased);
+    return rebased;
   }
 
   let result: { _emitter: unknown };
@@ -122,15 +166,21 @@ export function highlightCodeBlock(
 
   const tokens: CodeHighlightToken[] = [];
   emit(result._emitter, 0, tokens);
-  cacheSet(key, tokens);
+  cacheSet(baseKey, tokens);
   if (contentStart === 0) return tokens;
-  return tokens.map((t) => ({ from: t.from + contentStart, to: t.to + contentStart, className: t.className }));
+  // 作者：tobegold574（2026/9/17）
+  // 原因：冷解析后的首次 rebase 也写入二级缓存——此后相同的
+  // (lang, code, contentStart) 请求即可零分配复用。
+  const rebased = tokens.map((t) => ({ from: t.from + contentStart, to: t.to + contentStart, className: t.className }));
+  rebasedCacheSet(rebaseKey!, rebased);
+  return rebased;
 }
 
-// hljs's internal token stream walker. `_emitter.rootNode` is a TokenTree
-// whose leaves are strings (untagged spans) and whose branches carry a
-// `kind` (e.g. "string" or "string.regexp"). We accumulate position offsets
-// and emit one CodeHighlightToken per leaf string with non-empty scope.
+// 作者：tobegold574（2026/9/17）
+// 原因：hljs 内部令牌流的遍历器。`_emitter.rootNode` 是 TokenTree：叶子为
+// 字符串（无标签片段），分支携带 scope 字段（如 "keyword"、"string"），kind
+// 仅作兜底。按偏移累加位置，为每个带非空 scope 的叶子产出一个
+// CodeHighlightToken。（原注释写的字段名 kind 与 hljs 实际结构不符，已更正。）
 function emit(emitter: unknown, offset: number, out: CodeHighlightToken[]): void {
   const root = emitter as { rootNode?: { children?: unknown[] } } | null;
   if (!root || !root.rootNode) return;
@@ -154,9 +204,15 @@ function walkNode(
       pos += c.length;
       continue;
     }
-    const child = c as { kind?: string; children?: unknown[] };
-    if (child && child.kind) {
-      pos = walkNode(child, pos, [...scope, child.kind], out);
+    const child = c as { kind?: string; scope?: string; children?: unknown[] };
+    // 作者：tobegold574（2026/9/17）
+    // 原因：修复存量 bug——hljs 令牌树分支的字段名是 scope（形如
+    // {children:["const"], scope:"keyword"}），原代码检查的 kind 永远不匹配，
+    // 导致 emit() 恒产出 0 个 token、代码块从未真正被高亮过。改为优先读
+    // scope，保留 kind 作为对其他 hljs 构建的兜底。
+    const scopeName = child && (child.scope || child.kind);
+    if (child && scopeName) {
+      pos = walkNode(child, pos, [...scope, scopeName], out);
     } else if (child && child.children) {
       pos = walkNode(child, pos, scope, out);
     }

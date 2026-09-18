@@ -1,4 +1,4 @@
-import { type EditorState, RangeSet, RangeSetBuilder, StateEffect, StateField, type Extension, type Range, type SelectionRange, type Transaction } from "@codemirror/state";
+import { type EditorState, type Text, RangeSet, RangeSetBuilder, StateEffect, StateField, type Extension, type Range, type SelectionRange, type Transaction } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import { ensureSyntaxTree } from "@codemirror/language";
 import type { Code, FootnoteDefinition, FootnoteReference, Heading, Html, List, Root, Table } from "mdast";
@@ -12,7 +12,7 @@ import {
 } from "./markdown-contributions";
 
 import { createLivePreviewDiagnostics } from "./live-preview-diag";
-import { collectLivePreviewRanges, selectionIntersects, selectionOnSameLine } from "./live-preview-ranges";
+import { collectLivePreviewRanges, selectionIntersects, selectionOnSameLine, type LivePreviewRange } from "./live-preview-ranges";
 import { renderLivePreviewNode } from "./live-preview-renderers";
 import { EditableTableWidget, isTableEditing } from "./live-preview-table";
 import type {
@@ -43,11 +43,13 @@ function createEmptyAst(): Root {
   return { type: "root", children: [] };
 }
 
-function parseFromState(state: EditorState): Root {
+// 作者：tobegold574（2026/9/17）
+// 原因：docStr 入参接收调用方已物化的文档串，让兜底解析路径不再重复物化一次全文档。
+function parseFromState(state: EditorState, docStr?: string): Root {
   try {
     const tree = ensureSyntaxTree(state, state.doc.length, 50);
     if (tree) return lezerTreeToMdast(state, tree);
-    return lezerStringToMdast(state.doc.toString());
+    return lezerStringToMdast(docStr ?? state.doc.toString());
   } catch {
     return createEmptyAst();
   }
@@ -65,10 +67,13 @@ function highlightAllCodeBlocks(ast: Root, doc: string): CodeHighlightToken[] {
     if (!code.lang || !code.value) return;
     const blockFrom = code.position?.start.offset ?? -1;
     if (blockFrom < 0) return;
-    const fenceBlock = doc.slice(blockFrom);
-    const firstNewline = fenceBlock.indexOf("\n");
-    if (firstNewline < 0) return;
-    const contentStart = blockFrom + firstNewline + 1;
+    // 作者：tobegold574（2026/9/17）
+    // 原因：用绝对下标的 indexOf 定位围栏行末尾。原来的 doc.slice(blockFrom)
+    // 只为找一个换行符，每次重建、每个代码块都要把整个文档尾部拷贝一遍，
+    // 是 O(文档长度) 的无谓分配。
+    const newlineAbs = doc.indexOf("\n", blockFrom);
+    if (newlineAbs < 0) return;
+    const contentStart = newlineAbs + 1;
     const blockTokens = highlightCodeBlock(code.lang, code.value, contentStart);
     for (const t of blockTokens) tokens.push(t);
   });
@@ -958,11 +963,14 @@ function buildCodeBlockDecorations(
   // unstyled and gets coloured on the next buildDecorations pass once the
   // worker response has been merged into the AST cache.
   if (codeTokens && codeTokens.length > 0 && firstNewline >= 0 && range.node.value) {
-    // Tokens are sorted by `from` in the worker; still filter since one
-    // code block gets decorations for only its subrange.
+    // 作者：tobegold574（2026/9/17）
+    // 原因：token 在全文按 from 升序（见 highlightAllCodeBlocks），每个代码块的
+    // 高亮区间是连续一段——先二分跳过前面所有块的前缀，再按本块范围过滤。
+    // 替代原先每次重建都从下标 0 重扫的 O(块数 × token 总数) 行为。
     const contentStart = range.from + firstNewline + 1;
     const contentEnd = range.to;
-    for (const tok of codeTokens) {
+    for (let i = firstTokenFromAtOrAfter(codeTokens, contentStart); i < codeTokens.length; i++) {
+      const tok = codeTokens[i];
       if (tok.from >= contentEnd) break;
       if (tok.to <= contentStart) continue;
       if (tok.from < range.from || tok.to > range.to) continue;
@@ -971,6 +979,24 @@ function buildCodeBlockDecorations(
       );
     }
   }
+}
+
+/**
+ * 作者：tobegold574（2026/9/17）
+ * 原因：在全局按 from 升序的 token 数组里二分查找第一个 from >= pos 的下标
+ * （不存在则返回 tokens.length）。让每个代码块直接跳过前面所有块拥有的
+ * token 前缀，每次重建的成本从 O(块数 × token 总数) 降到
+ * O(log tokens + 本块 token 数)。
+ */
+function firstTokenFromAtOrAfter(tokens: readonly CodeHighlightToken[], pos: number): number {
+  let lo = 0;
+  let hi = tokens.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (tokens[mid].from < pos) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }
 
 // NOTE: applyHljsTokens removed — highlighting is now pre-computed in the
@@ -1037,6 +1063,14 @@ interface BuildContext {
   ast?: Root;
   /** Optional pre-computed code highlight tokens for the snapshot's fenced blocks. */
   codeTokens?: CodeHighlightToken[];
+  /** 作者：tobegold574（2026/9/17）——与 ast/codeTokens/ranges 配套的已物化文档串，避免同一轮 build 内第二次 doc.toString()。 */
+  doc?: string;
+  /**
+   * 作者：tobegold574（2026/9/17）
+   * 原因：live-preview 区间是 (ast, doc) 的纯函数（见 collectLivePreviewRanges），
+   * 纯光标移动时直接复用上一轮结果，免去重走 AST 与全文档正则扫描。
+   */
+  ranges?: LivePreviewRange[];
   compositionActive?: boolean;
 }
 
@@ -1046,23 +1080,39 @@ function buildDecorations(
   config: NormalizedLivePreviewConfig,
   viewRef: { current: EditorView | null },
   ctx: BuildContext
-): { decos: DecorationSet; ast: Root; codeTokens: CodeHighlightToken[] } {
-  if (!config.enabled) return { decos: Decoration.none, ast: ctx.ast ?? createEmptyAst(), codeTokens: [] };
+): { decos: DecorationSet; ast: Root; codeTokens: CodeHighlightToken[]; ranges: LivePreviewRange[] } {
+  if (!config.enabled) {
+    // 作者：tobegold574（2026/9/17）
+    // 原因：禁用 live-preview 的快速出口透传缓存字段，使返回结构与正常
+    // 路径一致，调用方可以无条件解构。
+    return {
+      decos: Decoration.none,
+      ast: ctx.ast ?? createEmptyAst(),
+      codeTokens: [],
+      ranges: ctx.ranges ?? [],
+    };
+  }
 
   const perfEnabled = (globalThis as { NEXUS_PERF?: boolean }).NEXUS_PERF !== false;
   const t0 = perfEnabled ? performance.now() : 0;
-  const doc = state.doc.toString();
+  // 作者：tobegold574（2026/9/17）
+  // 原因：优先复用 ctx 传入的已物化文档串（光标移动命中缓存时就是上一轮
+  // 同一实例），整轮 build 不再产生第二份全文档拷贝。
+  const doc = ctx.doc ?? state.doc.toString();
   // Lezer-driven adapter: synchronous, viewport-agnostic, intrinsic to the
   // EditorState. No worker round-trip, no async cache invalidation. Reuse
   // a pre-computed ast when the caller already walked the tree this turn
   // (cursor-only updates pass the previous build's ast through ctx).
-  const ast = ctx.ast ?? applyMarkdownTransformSnapshots(state, parseFromState(state));
+  const ast = ctx.ast ?? applyMarkdownTransformSnapshots(state, parseFromState(state, doc));
   const t1 = perfEnabled ? performance.now() : 0;
   // Highlight tokens are computed ON DEMAND but cached: identical (lang, code)
   // pairs hit the LRU in highlightCodeBlock so cursor moves don't re-tokenize.
   const codeTokens = ctx.codeTokens ?? highlightAllCodeBlocks(ast, doc);
   const t1b = perfEnabled ? performance.now() : 0;
-  const ranges = collectLivePreviewRanges(ast, doc, selection);
+  // 作者：tobegold574（2026/9/17）
+  // 原因：区间只取决于 (ast, doc)；纯光标移动时复用上一轮集合，
+  // 只有下方依赖光标的装饰开关需要重新计算。
+  const ranges = ctx.ranges ?? collectLivePreviewRanges(ast, doc);
   const t2 = perfEnabled ? performance.now() : 0;
   const astHit = !!ctx.ast;
   const decos: Range<Decoration>[] = [];
@@ -1299,7 +1349,10 @@ function buildDecorations(
       );
     }
   }
-  return { decos: set, ast, codeTokens };
+  // 作者：tobegold574（2026/9/17）
+  // 原因：把 ranges 一并返回，供 createLivePreviewExtension 的 lastBuilt
+  // 缓存下一轮纯光标移动时复用。
+  return { decos: set, ast, codeTokens, ranges };
 }
 
 export function createLivePreviewExtension(
@@ -1315,11 +1368,19 @@ export function createLivePreviewExtension(
 
   const viewRef: { current: EditorView | null } = { current: null };
 
-  // Cache the most recent (doc, ast, codeTokens) tuple keyed by doc string.
-  // Cursor-only updates pass this through as ctx so we skip the Lezer→mdast
-  // walk and the hljs run when the source hasn't changed. Edits replace the
-  // cache via the docChanged branch below.
-  let lastBuilt: { doc: string; ast: Root; codeTokens: CodeHighlightToken[] } | null = null;
+  // 作者：tobegold574（2026/9/17）
+  // 原因：把最近一次 (doc, ast, codeTokens, ranges) 缓存在不可变的 Text 对象上。
+  // 纯光标移动（selection-only）经 ctx 复用缓存，跳过 Lezer→mdast 遍历、hljs
+  // 高亮和全文档区间收集（AST 遍历 + wiki/image 正则扫描 + 排序）；文档变更走
+  // docChanged 分支整体重建。缓存命中判断用 state.doc 对象身份比较，O(1)——
+  // 文档未变时 CM6 复用同一个 Text 实例；原来的字符串相等比较本身就要 O(n)。
+  let lastBuilt: {
+    docText: Text;
+    doc: string;
+    ast: Root;
+    codeTokens: CodeHighlightToken[];
+    ranges: LivePreviewRange[];
+  } | null = null;
   let lastTransformRevision = "";
   let compositionActive = false;
   const rebuildForCompositionStart = StateEffect.define<null>();
@@ -1327,16 +1388,27 @@ export function createLivePreviewExtension(
 
   function build(state: EditorState, selection: readonly SelectionRange[], reuseCache: boolean): DecorationSet {
     lastTransformRevision = getMarkdownTransformRevision(state);
-    const docStr = state.doc.toString();
-    const ctx: BuildContext = reuseCache && lastBuilt && lastBuilt.doc === docStr
-      ? { ast: lastBuilt.ast, codeTokens: lastBuilt.codeTokens }
+    const docText = state.doc;
+    // 作者：tobegold574（2026/9/17）
+    // 原因：缓存命中判断改为 Text 对象身份比较——文档未变时 CM6 复用同一
+    // 实例，判断是 O(1)；命中时连文档字符串一起复用，只有未命中才物化一次。
+    const cached = reuseCache && lastBuilt && lastBuilt.docText === docText ? lastBuilt : null;
+    const docStr = cached ? cached.doc : docText.toString();
+    const ctx: BuildContext = cached
+      ? { ast: cached.ast, codeTokens: cached.codeTokens, doc: cached.doc, ranges: cached.ranges }
       : {};
     try {
       const out = buildDecorations(state, selection, normalized, viewRef, {
         ...ctx,
         compositionActive,
       });
-      lastBuilt = { doc: docStr, ast: out.ast, codeTokens: out.codeTokens };
+      lastBuilt = {
+        docText,
+        doc: docStr,
+        ast: out.ast,
+        codeTokens: out.codeTokens,
+        ranges: out.ranges,
+      };
       return out.decos;
     } catch (err) {
       // 任何 decoration 构建异常都不得让编辑器白屏：降级为"无 live-preview 的原始
@@ -1344,7 +1416,7 @@ export function createLivePreviewExtension(
       // 文档再次变更（docChanged，reuseCache=false）会重新尝试完整构建并自动恢复。
       // eslint-disable-next-line no-console
       console.error("[NexusEditor] live-preview build failed; rendering raw markdown for this view", err);
-      lastBuilt = { doc: docStr, ast: createEmptyAst(), codeTokens: [] };
+      lastBuilt = { docText, doc: docStr, ast: createEmptyAst(), codeTokens: [], ranges: [] };
       return Decoration.none;
     }
   }

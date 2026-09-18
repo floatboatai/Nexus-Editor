@@ -362,18 +362,46 @@ function extractCellText(cell: any): string {
 
 function visualLength(text: string): number {
   let length = 0;
-  for (const char of text) {
-    length += /[\u2e80-\u9fff\uff00-\uffef]/u.test(char) ? 2 : 1;
+  for (let i = 0; i < text.length; ) {
+    const code = text.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length) {
+      const next = text.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        // 作者：tobegold574（2026/9/17）
+        // 原因：增补平面码点（代理对）——原来按码点循环时计 1（非 CJK），
+        // 这里保持行为完全一致。
+        length += 1;
+        i += 2;
+        continue;
+      }
+    }
+    // 作者：tobegold574（2026/9/17）
+    // 原因：CJK 区间改用 charCode 区间判断，替代逐字符 RegExp 检测
+    // （原来每个字符都要走一遍正则对象 + unicode 机制）。
+    length +=
+      (code >= 0x2e80 && code <= 0x9fff) || (code >= 0xff00 && code <= 0xffef) ? 2 : 1;
+    i++;
   }
   return length;
 }
 
+// 作者：tobegold574（2026/9/17）
+// 原因：提升为模块常量——String.replace 配 /g 正则每次都从头开始并重置
+// lastIndex，共享实例是安全的，省去每次调用的正则求值。
+const BR_RE = /<br\s*\/?>/gi;
+
 function estimateCellLineCount(cellSource: string): number {
-  const normalized = cellSource.replace(/<br\s*\/?>/gi, "\n");
-  return Math.max(
-    1,
-    ...normalized.split("\n").map((line) => Math.ceil(visualLength(line.trim()) / TABLE_ESTIMATE_UNITS_PER_LINE))
-  );
+  const normalized = cellSource.replace(BR_RE, "\n");
+  // 作者：tobegold574（2026/9/17）
+  // 原因：用标量循环取最大值，替代 Math.max(1, ...split().map())——省去中间
+  // 数组与参数展开（超大单元格内容下参数展开还有栈溢出风险）。
+  let max = 1;
+  const lines = normalized.split("\n");
+  for (const line of lines) {
+    const count = Math.ceil(visualLength(line.trim()) / TABLE_ESTIMATE_UNITS_PER_LINE);
+    if (count > max) max = count;
+  }
+  return max;
 }
 
 function estimateTableHeight(source: string): number {
@@ -382,7 +410,14 @@ function estimateTableHeight(source: string): number {
     if (SEPARATOR_RE.test(line)) continue;
     const parts = line.split("|");
     const cells = parts.length > 2 ? parts.slice(1, -1) : parts;
-    const lineCount = Math.max(1, ...cells.map(estimateCellLineCount));
+    // 作者：tobegold574（2026/9/17）
+    // 原因：同 estimateCellLineCount——Math.max(1, ...cells.map(...)) 的参数
+    // 展开改为标量循环，省去中间数组且对大表栈安全。
+    let lineCount = 1;
+    for (const cell of cells) {
+      const count = estimateCellLineCount(cell);
+      if (count > lineCount) lineCount = count;
+    }
     const rowHeight = TABLE_BASE_ROW_HEIGHT + (lineCount - 1) * TABLE_EXTRA_LINE_HEIGHT;
     height += Math.min(TABLE_MAX_ESTIMATED_ROW_HEIGHT, rowHeight);
   }
@@ -564,6 +599,9 @@ export class EditableTableWidget extends WidgetType {
   private editing = false;
   private reusable = true;
   private cleanupEditingLocks: (() => void) | null = null;
+  // 作者：tobegold574（2026/9/17）
+  // 原因：estimatedHeight 的 memo 槽，null 表示尚未计算（见下方 getter）。
+  private estimatedHeightCache: number | null = null;
 
   constructor(
     private node: Table,
@@ -589,7 +627,13 @@ export class EditableTableWidget extends WidgetType {
   get estimatedHeight(): number {
     // 长表格里大量中文/链接会换行，固定 32px/行会严重低估高度。
     // 底部单元格编辑后 CM6 可能按低估 heightmap 把 widget 判出 viewport，导致 TD 被卸载失焦。
-    return estimateTableHeight(this.source);
+    // 作者：tobegold574（2026/9/17）
+    // 原因：source 在 widget 实例内不可变，故对估算值做 memo——CM6 每次高度图
+    // 刷新都会读这个 getter，而估算本身要重新解析整张表源码。
+    if (this.estimatedHeightCache === null) {
+      this.estimatedHeightCache = estimateTableHeight(this.source);
+    }
+    return this.estimatedHeightCache;
   }
 
   private dispatch(newSource: string): void {

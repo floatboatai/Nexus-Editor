@@ -67,9 +67,10 @@ export function selectionOnSameLine(
   });
 }
 
+// 作者：tobegold574（2026/9/17）
+// 原因：selection 参数在本函数内从未被读取，随"输出与光标无关"的解耦一并移除。
 function collectImageRanges(
-  doc: string,
-  selection: readonly SelectionRange[]
+  doc: string
 ): LivePreviewRange[] {
   const ranges: LivePreviewRange[] = [];
   const pattern = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g;
@@ -109,10 +110,11 @@ function shouldSkipInsideWikiLink(node: Content, from: number, to: number, wikiL
   );
 }
 
+// 作者：tobegold574（2026/9/17）
+// 原因：同理移除从未被读取的 selection 参数，递归调用点随之同步收敛。
 function visit(
   node: Parent | Root,
   doc: string,
-  selection: readonly SelectionRange[],
   ranges: LivePreviewRange[],
   wikiLinkSpans: readonly [number, number][]
 ): void {
@@ -134,7 +136,7 @@ function visit(
         ranges.push({ from, to, node: child, source: doc.slice(from, to) });
 
         if ("children" in child && Array.isArray(child.children)) {
-          visit(child, doc, selection, ranges, wikiLinkSpans);
+          visit(child, doc, ranges, wikiLinkSpans);
         }
         continue;
       }
@@ -145,27 +147,36 @@ function visit(
       // with color changes — so the heightmap stays perfectly stable.
       ranges.push({ from, to, node: child, source: doc.slice(from, to) });
       if ("children" in child && Array.isArray(child.children)) {
-        visit(child as Parent, doc, selection, ranges, wikiLinkSpans);
+        visit(child as Parent, doc, ranges, wikiLinkSpans);
       }
       continue;
     }
 
     if ("children" in child && Array.isArray(child.children)) {
-      visit(child, doc, selection, ranges, wikiLinkSpans);
+      visit(child, doc, ranges, wikiLinkSpans);
     }
   }
 }
 
+/**
+ * 收集文档中所有 live-preview 候选区间。
+ *
+ * 作者：tobegold574（2026/9/17）
+ * 原因：返回值只由 (ast, doc) 决定——历史上的 selection 参数本就不会被函数体
+ * 读取（光标感知的显示/编辑切换在 buildDecorations 里做），这里改为可选参数
+ * 仅为兼容旧调用方。输出与 selection 无关，是 StateField 能在纯光标移动时
+ * 缓存复用该结果的前提。
+ */
 export function collectLivePreviewRanges(
   ast: Root,
   doc: string,
-  selection: readonly SelectionRange[]
+  _selection?: readonly SelectionRange[]
 ): LivePreviewRange[] {
   const ranges: LivePreviewRange[] = [];
   const wikiLinkSpans = scanWikiLinks(doc).map((link) => [link.from, link.to] as [number, number]);
 
-  visit(ast, doc, selection, ranges, wikiLinkSpans);
-  ranges.push(...collectImageRanges(doc, selection));
+  visit(ast, doc, ranges, wikiLinkSpans);
+  ranges.push(...collectImageRanges(doc));
 
   return ranges.sort((left, right) => left.from - right.from);
 }
