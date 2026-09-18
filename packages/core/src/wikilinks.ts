@@ -4,7 +4,7 @@ import {
   type CompletionResult,
   type Completion
 } from "@codemirror/autocomplete";
-import { StateEffect, StateField, type Extension, type Range, type Transaction } from "@codemirror/state";
+import { StateEffect, StateField, type EditorState, type Extension, type Range, type Text, type Transaction } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView } from "@codemirror/view";
 
 import type { NexusPlugin } from "./types";
@@ -136,13 +136,16 @@ const RESOLVED_STYLE =
 const UNRESOLVED_STYLE =
   "color:var(--nexus-hl-deletion,#c0392b);cursor:pointer;text-decoration:underline dashed;text-decoration-thickness:1px;";
 
+// 作者：tobegold574（2026/9/17）
+// 原因：matches 改为可注入参数（缺省时仍自行扫描）——调用方经 scanCached
+// 复用扫描结果；不传时行为与原实现完全一致。
 function buildWikiLinkDecorations(
   doc: string,
   selectionHeads: readonly number[],
   resolve: WikilinksOptions["resolve"],
-  ignore: WikilinksOptions["ignore"]
+  ignore: WikilinksOptions["ignore"],
+  matches: WikiLinkMatch[] = scanWikiLinks(doc)
 ): DecorationSet {
-  const matches = scanWikiLinks(doc);
   if (matches.length === 0) return Decoration.none;
 
   const decos: Range<Decoration>[] = [];
@@ -256,6 +259,20 @@ export function createWikilinksExtension(options: WikilinksOptions = {}): Extens
   const ignore = options.ignore;
   const rebuildAfterComposition = StateEffect.define<null>();
 
+  // 作者：tobegold574（2026/9/17）
+  // 原因：单条目扫描缓存，键为不可变 Text 对象。scanWikiLinks 是文档的纯函数，
+  // 但原先纯光标移动也要付一次全文档物化 + 正则重扫，只为算出完全相同的匹配
+  // 列表。有了缓存后，光标移动同时复用文档串与匹配列表，只有依赖光标的
+  // 行内/行外装饰处理需要重算。
+  let lastScan: { docText: Text; doc: string; matches: WikiLinkMatch[] } | null = null;
+  const scanCached = (state: EditorState): { doc: string; matches: WikiLinkMatch[] } => {
+    if (lastScan && lastScan.docText === state.doc) return lastScan;
+    const doc = state.doc.toString();
+    const matches = scanWikiLinks(doc);
+    lastScan = { docText: state.doc, doc, matches };
+    return lastScan;
+  };
+
   // A small effect to force redecoration when the host announces the index has
   // changed (e.g. a new note was created elsewhere). Hosts do this by
   // dispatching an empty transaction; we recompute on every selection/doc
@@ -264,19 +281,22 @@ export function createWikilinksExtension(options: WikilinksOptions = {}): Extens
   const field = StateField.define<DecorationSet>({
     create(state) {
       const heads = state.selection.ranges.map((r) => r.head);
-      return buildWikiLinkDecorations(state.doc.toString(), heads, resolve, ignore);
+      const { doc, matches } = scanCached(state);
+      return buildWikiLinkDecorations(doc, heads, resolve, ignore, matches);
     },
     update(decos: DecorationSet, tr: Transaction) {
       if (tr.effects.some((effect) => effect.is(rebuildAfterComposition))) {
         const heads = tr.state.selection.ranges.map((r) => r.head);
-        return buildWikiLinkDecorations(tr.state.doc.toString(), heads, resolve, ignore);
+        const { doc, matches } = scanCached(tr.state);
+        return buildWikiLinkDecorations(doc, heads, resolve, ignore, matches);
       }
       if (tr.isUserEvent("input.type.compose")) {
         return tr.docChanged ? decos.map(tr.changes) : decos;
       }
       if (tr.docChanged || tr.selection) {
         const heads = tr.state.selection.ranges.map((r) => r.head);
-        return buildWikiLinkDecorations(tr.state.doc.toString(), heads, resolve, ignore);
+        const { doc, matches } = scanCached(tr.state);
+        return buildWikiLinkDecorations(doc, heads, resolve, ignore, matches);
       }
       return decos;
     },
