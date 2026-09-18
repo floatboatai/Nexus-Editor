@@ -624,6 +624,46 @@ describe("createEditor", () => {
     expect(html).toContain("console.log(1)");
     editor.destroy();
   });
+
+  it("warns when container has zero height", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const rAFSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      cb(0);
+      return 0;
+    });
+
+    const container = document.createElement("div");
+    container.style.height = "0px";
+    createEditor({ container, initialValue: "hello" });
+
+    // requestAnimationFrame callback runs synchronously via the mock
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const message: string = warnSpy.mock.calls[0]?.[0] ?? "";
+    expect(message).toContain("[Nexus-Editor]");
+    expect(message).toContain("zero height");
+    expect(message).toContain("explicit CSS height");
+
+    rAFSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("does not warn when container has explicit height set", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const rAFSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      cb(0);
+      return 0;
+    });
+
+    const container = document.createElement("div");
+    container.style.height = "400px";
+    const editor = createEditor({ container, initialValue: "hello" });
+
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    rAFSpy.mockRestore();
+    warnSpy.mockRestore();
+    editor.destroy();
+  });
 });
 
 function captureViewPlugin(onView: (view: EditorView) => void) {
