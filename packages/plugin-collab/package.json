@@ -1,0 +1,40 @@
+{
+  "name": "@floatboat/nexus-plugin-collab",
+  "version": "0.0.1",
+  "description": "CRDT-driven real-time collaborative editing plugin for Nexus-Editor: document-level sync, awareness (remote cursors/selections), offline-first editing with reconnect merge, and replayable collaboration history. Offline-first, capability-only integration.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean"
+  },
+  "dependencies": {
+    "@floatboat/nexus-core": "workspace:*",
+    "@floatboat/nexus-plugin-api": "workspace:*"
+  },
+  "peerDependencies": {
+    "yjs": "^13.6.0"
+  },
+  "peerDependenciesMeta": {
+    "yjs": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "fast-check": "^3.19.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

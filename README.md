@@ -26,6 +26,14 @@ We ship in priority tiers — **P0 is what we're working on right now**.
 
 👉 **Full roadmap with package ownership, status, and OpenSpec linkage:** [`docs/ROADMAP.md`](./docs/ROADMAP.md)
 
+### 🧩 Official plugins
+
+Nexus ships opt-in plugins — each a standalone package that integrates through **public capabilities only, with no core changes**:
+
+- `@floatboat/nexus-preset-gfm` — GitHub Flavored Markdown (tables, task lists…).
+- `@floatboat/nexus-plugin-wordcount` — Markdown-aware word / character / CJK / reading-time stats.
+- **`@floatboat/nexus-plugin-collab`** *(this branch: `feat/nexus-plugin-collab`)* — CRDT-driven realtime collaboration: document sync, awareness (remote cursors/selections), offline-first editing with reconnect merge, and a deterministic convergence test suite. See [`需求描述文档.md`](./需求描述文档.md), [`技术架构文档.md`](./技术架构文档.md), [`测试和验证文档.md`](./测试和验证文档.md).
+
 ---
 
 ## 💡 Why Nexus-Editor?
