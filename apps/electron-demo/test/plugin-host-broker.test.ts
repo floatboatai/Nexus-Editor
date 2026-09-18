@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { constants } from "node:fs";
-import { lstat, mkdtemp, mkdir, open, readFile, realpath, rename, stat, symlink, unlink, writeFile } from "node:fs/promises";
+import { lstat, link, mkdtemp, mkdir, open, readFile, realpath, rename, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -22,6 +22,33 @@ import {
 
 const sender: SenderIdentity = { id: 7, url: "app://nexus/index.html" };
 const otherSender: SenderIdentity = { id: 8, url: "app://nexus/index.html" };
+
+const IS_WINDOWS = process.platform === "win32";
+
+/**
+ * Creates a directory symlink that also works on Windows without the symlink
+ * privilege (non-elevated, no Developer Mode). Windows silently creates a dead
+ * file-type link for directory targets unless "junction" is requested, and
+ * junctions never require elevated privileges.
+ */
+function symlinkDirectory(target: string, linkPath: string): Promise<void> {
+  return symlink(target, linkPath, IS_WINDOWS ? "junction" : undefined);
+}
+
+/**
+ * Swaps an authorized leaf to a file living outside the vault. Windows cannot
+ * create usable file symlinks without the symlink privilege, so the swap uses
+ * a hardlink there instead. Either way the leaf's identity changes, which is
+ * the invariant the broker must detect and reject with `vault-path-escape`.
+ */
+async function swapLeafOutside(target: string, outsideFile: string): Promise<void> {
+  await unlink(target);
+  if (IS_WINDOWS) {
+    await link(outsideFile, target);
+  } else {
+    await symlink(outsideFile, target);
+  }
+}
 
 interface WatchHarness {
   readonly callbacks: Array<(eventType: string, filename: string | Buffer | null) => void>;
@@ -319,7 +346,7 @@ describe("ElectronVaultBroker", () => {
 
   it("rejects traversal and symlink escape for existing and new leaves", async () => {
     const { root, outside } = await fixtureVault();
-    await symlink(outside, path.join(root, "linked-outside"));
+    await symlinkDirectory(outside, path.join(root, "linked-outside"));
     const broker = createBroker();
     const session = await broker.openSession(sender, root);
 
@@ -342,8 +369,7 @@ describe("ElectronVaultBroker", () => {
       lstatPath: (async (...args: Parameters<typeof lstat>) => {
         const info = await lstat(...args);
         if (path.resolve(args[0].toString()) === target && ++leafStats === 2) {
-          await unlink(target);
-          await symlink(path.join(outside, "secret.md"), target);
+          await swapLeafOutside(target, path.join(outside, "secret.md"));
         }
         return info;
       }) as typeof lstat,
@@ -368,7 +394,7 @@ describe("ElectronVaultBroker", () => {
         const result = await realpath(target);
         if (resolvedTarget === canonicalNotes && ++notesRealpaths === 3) {
           await rename(notes, movedNotes);
-          await symlink(outside, notes);
+          await symlinkDirectory(outside, notes);
         }
         return result;
       }) as typeof realpath,
@@ -390,8 +416,7 @@ describe("ElectronVaultBroker", () => {
       lstatPath: (async (...args: Parameters<typeof lstat>) => {
         const info = await lstat(...args);
         if (path.resolve(args[0].toString()) === target && ++leafStats === 2) {
-          await unlink(target);
-          await symlink(path.join(outside, "secret.md"), target);
+          await swapLeafOutside(target, path.join(outside, "secret.md"));
         }
         return info;
       }) as typeof lstat,
@@ -412,8 +437,7 @@ describe("ElectronVaultBroker", () => {
       lstatPath: (async (...args: Parameters<typeof lstat>) => {
         const info = await lstat(...args);
         if (path.resolve(args[0].toString()) === source && ++sourceStats === 2) {
-          await unlink(source);
-          await symlink(path.join(outside, "secret.md"), source);
+          await swapLeafOutside(source, path.join(outside, "secret.md"));
         }
         return info;
       }) as typeof lstat,
@@ -437,8 +461,7 @@ describe("ElectronVaultBroker", () => {
       lstatPath: (async (...args: Parameters<typeof lstat>) => {
         const info = await lstat(...args);
         if (path.resolve(args[0].toString()) === source && ++sourceStats === 2) {
-          await unlink(source);
-          await symlink(path.join(outside, "secret.md"), source);
+          await swapLeafOutside(source, path.join(outside, "secret.md"));
         }
         return info;
       }) as typeof lstat,
@@ -466,7 +489,7 @@ describe("ElectronVaultBroker", () => {
         const result = await realpath(target);
         if (resolvedTarget === canonicalNotes && ++notesRealpaths === 3) {
           await rename(notes, movedNotes);
-          await symlink(outside, notes);
+          await symlinkDirectory(outside, notes);
         }
         return result;
       }) as typeof realpath,
@@ -664,7 +687,9 @@ describe("ElectronVaultBroker", () => {
     const [, sessionCapability, token] = new URL(resource.url).pathname.split("/");
 
     await expect(broker.readResource(sender.id, sessionCapability, token)).resolves.not.toBeNull();
-    expect(openedFlags & constants.O_NONBLOCK).toBe(constants.O_NONBLOCK);
+    if (constants.O_NONBLOCK !== undefined) {
+      expect(openedFlags & constants.O_NONBLOCK).toBe(constants.O_NONBLOCK);
+    }
     if (constants.O_NOFOLLOW !== undefined) {
       expect(openedFlags & constants.O_NOFOLLOW).toBe(constants.O_NOFOLLOW);
     }
@@ -764,10 +789,18 @@ describe("ElectronVaultBroker", () => {
 
   it("reads an in-vault symlink resource through its canonical target", async () => {
     const { root } = await fixtureVault();
-    await symlink(path.join(root, "Notes", "A.md"), path.join(root, "alias.md"));
+    // Windows cannot create usable file symlinks without the symlink
+    // privilege; a directory junction through the same canonical leaf
+    // exercises the identical re-resolution path there.
+    if (IS_WINDOWS) {
+      await symlinkDirectory(path.join(root, "Notes"), path.join(root, "NotesAlias"));
+    } else {
+      await symlink(path.join(root, "Notes", "A.md"), path.join(root, "alias.md"));
+    }
+    const vaultPath = IS_WINDOWS ? "NotesAlias/A.md" : "alias.md";
     const broker = createBroker({ events: [], watch: watchHarness() });
     const session = await broker.openSession(sender, root);
-    const resource = await broker.createResourceUrl(sender, session.sessionId, "alias.md");
+    const resource = await broker.createResourceUrl(sender, session.sessionId, vaultPath);
     const [, sessionCapability, token] = new URL(resource.url).pathname.split("/");
 
     const resolved = await broker.readResource(sender.id, sessionCapability, token);

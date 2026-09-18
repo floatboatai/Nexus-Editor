@@ -36,6 +36,14 @@ import {
 import {
   ElectronRuntimeProductUiAdapter,
 } from "./runtime-product-ui-adapter";
+import {
+  bindText,
+  bindTitle,
+  getLocale,
+  onLocaleChange,
+  t,
+  toggleLocale,
+} from "./i18n";
 
 installLongTaskWatch(50);
 
@@ -154,59 +162,83 @@ function createAppToolbar(): HTMLElement {
   const toolbar = document.createElement("div");
   toolbar.className = "toolbar";
 
+  const brand = document.createElement("span");
+  brand.className = "toolbar__brand";
+  brand.textContent = "◆ Nexus";
+
   const vaultBtn = document.createElement("button");
-  vaultBtn.textContent = "Vault";
-  vaultBtn.title = "Open a folder as a vault";
+  vaultBtn.className = "toolbar__btn toolbar__btn--text";
+  bindText(vaultBtn, "toolbar.vault");
+  bindTitle(vaultBtn, "toolbar.vault.title");
   vaultBtn.addEventListener("click", () => {
     void vault.promptPickVault();
   });
 
   const openBtn = document.createElement("button");
-  openBtn.textContent = "Open";
+  openBtn.className = "toolbar__btn toolbar__btn--text";
+  bindText(openBtn, "toolbar.open");
+  bindTitle(openBtn, "toolbar.open.title");
   openBtn.addEventListener("click", handleOpen);
 
   const saveBtn = document.createElement("button");
-  saveBtn.textContent = "Save";
+  saveBtn.className = "toolbar__btn toolbar__btn--text";
+  bindText(saveBtn, "toolbar.save");
+  bindTitle(saveBtn, "toolbar.save.title");
   saveBtn.addEventListener("click", handleSave);
 
   const saveAsBtn = document.createElement("button");
-  saveAsBtn.textContent = "Save As";
+  saveAsBtn.className = "toolbar__btn toolbar__btn--text";
+  bindText(saveAsBtn, "toolbar.saveAs");
+  bindTitle(saveAsBtn, "toolbar.saveAs.title");
   saveAsBtn.addEventListener("click", handleSaveAs);
 
   const spacer = document.createElement("div");
   spacer.style.flex = "1";
 
   const vaultToggleBtn = document.createElement("button");
+  vaultToggleBtn.className = "toolbar__btn toolbar__btn--icon";
   vaultToggleBtn.textContent = "\uD83D\uDCD1"; // 📑
-  vaultToggleBtn.title = "Toggle vault panel";
-  vaultToggleBtn.style.fontSize = "14px";
+  bindTitle(vaultToggleBtn, "toolbar.vaultPanel.title");
   vaultToggleBtn.addEventListener("click", toggleVault);
 
   const outlineBtn = document.createElement("button");
+  outlineBtn.className = "toolbar__btn toolbar__btn--icon";
   outlineBtn.textContent = "\u2630"; // ☰
-  outlineBtn.title = "Toggle outline";
-  outlineBtn.style.fontSize = "14px";
+  bindTitle(outlineBtn, "toolbar.outline.title");
   outlineBtn.addEventListener("click", toggleOutline);
 
   const backlinksBtn = document.createElement("button");
+  backlinksBtn.className = "toolbar__btn toolbar__btn--icon";
   backlinksBtn.textContent = "\uD83D\uDD17"; // 🔗
-  backlinksBtn.title = "Toggle backlinks panel";
-  backlinksBtn.style.fontSize = "14px";
+  bindTitle(backlinksBtn, "toolbar.backlinks.title");
   backlinksBtn.addEventListener("click", toggleBacklinks);
 
   const searchBtn = document.createElement("button");
+  searchBtn.className = "toolbar__btn toolbar__btn--icon";
   searchBtn.textContent = "\uD83D\uDD0D"; // 🔍
-  searchBtn.title = "Search (Ctrl+F)";
-  searchBtn.style.fontSize = "14px";
+  bindTitle(searchBtn, "toolbar.search.title");
   searchBtn.addEventListener("click", () => searchBar.open());
 
   const settingsBtn = document.createElement("button");
+  settingsBtn.className = "toolbar__btn toolbar__btn--icon";
   settingsBtn.textContent = "\u2699"; // ⚙
-  settingsBtn.title = "Settings";
-  settingsBtn.style.fontSize = "16px";
+  bindTitle(settingsBtn, "toolbar.settings.title");
   settingsBtn.addEventListener("click", handleSettings);
 
+  const languageBtn = document.createElement("button");
+  languageBtn.className = "toolbar__btn toolbar__btn--lang";
+  languageBtn.addEventListener("click", () => {
+    toggleLocale();
+  });
+  const applyLanguageLabel = () => {
+    languageBtn.textContent = getLocale() === "zh" ? "EN" : "中";
+  };
+  applyLanguageLabel();
+  bindTitle(languageBtn, "toolbar.language.title");
+  onLocaleChange(applyLanguageLabel);
+
   toolbar.append(
+    brand,
     vaultBtn,
     openBtn,
     saveBtn,
@@ -216,6 +248,7 @@ function createAppToolbar(): HTMLElement {
     outlineBtn,
     backlinksBtn,
     searchBtn,
+    languageBtn,
     settingsBtn
   );
   return toolbar;
@@ -252,21 +285,21 @@ function createStatusLine(statusBarSlot: HTMLElement): HTMLElement {
 function renderStatus(): void {
   if (!statusText?.isConnected) return;
 
-  const pathLabel = state.activeFile ?? state.filePath ?? "Untitled";
-  const dirtyMark = state.dirty ? " [modified]" : "";
+  const pathLabel = state.activeFile ?? state.filePath ?? t("status.untitled");
+  const dirtyMark = state.dirty ? ` ${t("status.modified")}` : "";
   // Runtime word-count owns document statistics through the status-bar slot.
   const stats = pluginOwnsDocumentStats ? null : shell?.editor.getDocumentStats();
-  const statsText = stats ? ` | ${stats.words} words, ${stats.lines} lines` : "";
+  const statsText = stats ? ` | ${t("status.stats", { words: stats.words, lines: stats.lines })}` : "";
   const vaultLabel = state.vaultPath
-    ? ` | Vault: ${state.vaultPath.split(/[\\/]/).pop()}`
+    ? ` | ${t("status.vault", { name: state.vaultPath.split(/[\\/]/).pop() ?? "" })}`
     : "";
-  const errorText = state.error ? ` — Error: ${state.error}` : "";
+  const errorText = state.error ? ` ${t("status.error", { message: state.error })}` : "";
   statusText.textContent = `${pathLabel}${dirtyMark}${statsText}${vaultLabel}${errorText}`;
 }
 
 async function confirmDiscardIfDirty(): Promise<boolean> {
   if (!state.dirty) return true;
-  return window.confirm("You have unsaved changes. Discard them and switch files?");
+  return window.confirm(t("confirm.unsavedChanges"));
 }
 
 async function handleOpen(): Promise<void> {
@@ -316,8 +349,8 @@ async function handleSaveAs(): Promise<void> {
   try {
     state.error = null;
     if (pluginRuntime) {
-      if (!state.vaultPath) throw new Error("Open a Vault before saving a runtime document");
-      const name = window.prompt("File name", "untitled.md")?.trim();
+      if (!state.vaultPath) throw new Error(t("error.openVaultBeforeSave"));
+      const name = window.prompt(t("prompt.fileName"), "untitled.md")?.trim();
       if (!name) return;
       const created = await vault.createFile(state.vaultPath, name);
       await vault.writeFile(created.path, state.content);
@@ -607,7 +640,7 @@ async function handleWikilinkNavigate(target: string, opts: { unresolved: boolea
       return;
     }
     if (!state.vaultPath) {
-      state.error = "Open a vault before following wiki links.";
+      state.error = t("error.openVaultFirst");
       renderStatus();
       return;
     }
@@ -1008,6 +1041,14 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
   }
 
   document.addEventListener("keydown", handleGlobalKeydown);
+  // Keep dynamic status text and panels in the active locale.
+  onLocaleChange(() => {
+    renderStatus();
+    if (outlineCreated) outline.update();
+    if (backlinksCreated && !backlinks.element.hidden && backlinks.element.style.display !== "none") {
+      backlinks.refresh();
+    }
+  });
 
   renderStatus();
   perfEnd(bootScope);

@@ -151,6 +151,8 @@ beforeEach(() => {
 });
 
 describe("Electron renderer plugin runtime integration", () => {
+  // Full-app boot integration tests: generous timeout so parallel CI load
+  // cannot starve them (a timed-out test also leaks DOM into the next test).
   it("keeps the legacy path as the default and shuts it down once", async () => {
     const { boot } = await import("../src/renderer/app");
     const harness = createBridgeHarness();
@@ -193,7 +195,7 @@ describe("Electron renderer plugin runtime integration", () => {
       "unsubscribe-shutdown",
       "shutdown-complete",
     ]);
-  });
+  }, 15_000);
 
   it("boots one runtime owner, synchronizes relative file context, and preserves slot DOM", async () => {
     const { boot } = await import("../src/renderer/app");
@@ -393,7 +395,7 @@ describe("Electron renderer plugin runtime integration", () => {
       "unsubscribe-shutdown",
       "shutdown-complete",
     ]);
-  });
+  }, 15_000);
 
   it("rolls back a failed runtime boot without acknowledging shutdown and can retry", async () => {
     const actualRuntime = await import("../src/renderer/plugin-runtime-host");
