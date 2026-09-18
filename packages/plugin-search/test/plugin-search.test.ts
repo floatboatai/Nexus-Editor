@@ -887,4 +887,300 @@ describe("@floatboat/nexus-plugin-search", () => {
     editor.destroy();
     container.remove();
   });
+
+  it("finds fuzzy subsequence matches with a minimal span", () => {
+    expect(findSearchMatches("foo bar baz", "fbb", { fuzzy: true })).toEqual([
+      { from: 0, to: 9, text: "foo bar b", score: 57 }
+    ]);
+  });
+
+  it("finds every non-overlapping fuzzy match in a line in document order", () => {
+    expect(findSearchMatches("cat cats", "ct", { fuzzy: true })).toEqual([
+      { from: 0, to: 3, text: "cat", score: 36 },
+      { from: 4, to: 7, text: "cat", score: 36 }
+    ]);
+  });
+
+  it("keeps fuzzy matches in document order across lines", () => {
+    expect(findSearchMatches("foo bar baz\nfoo bar baz", "fbb", { fuzzy: true })).toEqual([
+      { from: 0, to: 9, text: "foo bar b", score: 57 },
+      { from: 12, to: 21, text: "foo bar b", score: 57 }
+    ]);
+  });
+
+  it("does not match a fuzzy query across a newline", () => {
+    expect(findSearchMatches("foo\nbar", "fb", { fuzzy: true })).toEqual([]);
+  });
+
+  it("returns no fuzzy matches when the query is longer than every line", () => {
+    expect(findSearchMatches("ab\ncde", "abcd", { fuzzy: true })).toEqual([]);
+  });
+
+  it("returns no fuzzy matches for an empty query", () => {
+    expect(findSearchMatches("foo bar", "", { fuzzy: true })).toEqual([]);
+  });
+
+  it("returns no fuzzy matches for an empty document", () => {
+    expect(findSearchMatches("", "foo", { fuzzy: true })).toEqual([]);
+  });
+
+  it("keeps fuzzy match offsets correct across CRLF line endings", () => {
+    expect(findSearchMatches("abcd\r\nef", "ad", { fuzzy: true })).toEqual([
+      { from: 0, to: 4, text: "abcd", score: 35 }
+    ]);
+  });
+
+  it("folds case by default and scores exact-case matches higher", () => {
+    expect(findSearchMatches("Foo\nfoo", "fo", { fuzzy: true })).toEqual([
+      { from: 0, to: 2, text: "Fo", score: 42 },
+      { from: 4, to: 6, text: "fo", score: 43 }
+    ]);
+  });
+
+  it("requires exact casing for fuzzy matches when case sensitivity is enabled", () => {
+    expect(findSearchMatches("FooBar", "foobar", { fuzzy: true, caseSensitive: true })).toEqual([]);
+  });
+
+  it("scores a word-boundary match higher than a mid-word match", () => {
+    const matches = findSearchMatches("xcat cats", "ct", { fuzzy: true });
+
+    expect(matches.map((match) => match.from)).toEqual([1, 5]);
+    expect(matches[1].score!).toBeGreaterThan(matches[0].score!);
+  });
+
+  it("scores adjacent fuzzy characters higher than gapped ones", () => {
+    expect(findSearchMatches("abXb\naXXbXXb", "abb", { fuzzy: true })).toEqual([
+      { from: 0, to: 4, text: "abXb", score: 52 },
+      { from: 5, to: 12, text: "aXXbXXb", score: 43 }
+    ]);
+  });
+
+  it("penalizes larger gaps between fuzzy matches", () => {
+    expect(findSearchMatches("aXbYc\naXXXXbYYYYc", "abc", { fuzzy: true })).toEqual([
+      { from: 0, to: 5, text: "aXbYc", score: 45 },
+      { from: 6, to: 17, text: "aXXXXbYYYYc", score: 39 }
+    ]);
+  });
+
+  it("treats a camelCase transition as a fuzzy boundary", () => {
+    const matches = findSearchMatches("getFooBar\ngetfoobar", "fb", { fuzzy: true });
+
+    expect(matches.map((match) => match.from)).toEqual([3, 13]);
+    expect(matches[0].score!).toBeGreaterThan(matches[1].score!);
+  });
+
+  it("does not add a score to literal search results", () => {
+    expect(findSearchMatches("alpha beta alpha", "alpha")).toEqual([
+      { from: 0, to: 5, text: "alpha" },
+      { from: 11, to: 16, text: "alpha" }
+    ]);
+  });
+
+  it("treats fuzzy as a find-only option in replaceAllMatches", () => {
+    expect(replaceAllMatches("cat scatter cat", "cat", "dog", { fuzzy: true })).toBe(
+      "dog sdogter dog"
+    );
+  });
+
+  it("adds the fuzzy toggle with the default label", () => {
+    const harness = setupSearchPanel();
+    const fuzzyField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
+    );
+
+    expect(fuzzyField).not.toBeNull();
+    expect(fuzzyField!.closest("label")?.textContent).toBe("Fuzzy");
+
+    harness.destroy();
+  });
+
+  it("labels the fuzzy toggle through the label options", () => {
+    const harness = setupSearchPanel({ labels: { fuzzy: "模糊" } });
+    const fuzzyField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
+    );
+
+    expect(fuzzyField!.closest("label")?.textContent).toBe("模糊");
+
+    harness.destroy();
+  });
+
+  it("navigates fuzzy matches from the search panel", () => {
+    const harness = setupSearchPanel();
+    const fuzzyField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
+    );
+    fuzzyField!.checked = true;
+    fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+
+    submitSearch(harness.input, "alp");
+    let selection = harness.editor.getSelection();
+    expect(Math.min(selection.anchor, selection.head)).toBe(0);
+    expect(Math.max(selection.anchor, selection.head)).toBe(3);
+
+    harness.container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-next"]')!.click();
+    selection = harness.editor.getSelection();
+    expect(Math.min(selection.anchor, selection.head)).toBe(17);
+    expect(Math.max(selection.anchor, selection.head)).toBe(20);
+
+    harness.destroy();
+  });
+
+  it("selects all fuzzy matches with the select-all control", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({
+      container,
+      initialValue: "alpha beta gamma alpha",
+      multiCursor: true,
+      plugins: [createSearchPlugin()]
+    });
+
+    try {
+      const input = openSearchPanel(container);
+      const fuzzyField = container.querySelector<HTMLInputElement>(
+        '[data-test-id="markdown-search-fuzzy-toggle"]'
+      );
+      fuzzyField!.checked = true;
+      fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+
+      submitSearch(input, "alp");
+      container.querySelector<HTMLButtonElement>('[data-test-id="markdown-search-all"]')!.click();
+
+      expect(editor.getSelections().ranges.map((range) => [
+        Math.min(range.anchor, range.head),
+        Math.max(range.anchor, range.head)
+      ])).toEqual([
+        [0, 3],
+        [17, 20]
+      ]);
+    } finally {
+      editor.destroy();
+      container.remove();
+    }
+  });
+
+  it("keeps fuzzy, regexp, and whole-word mutually exclusive", () => {
+    const harness = setupSearchPanel();
+    const fuzzyField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
+    );
+    const regexpField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-regexp-toggle"]'
+    );
+    const wholeWordField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-word-toggle"]'
+    );
+
+    regexpField!.checked = true;
+    wholeWordField!.checked = true;
+    regexpField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    wholeWordField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+
+    fuzzyField!.checked = true;
+    fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    expect(regexpField!.checked).toBe(false);
+    expect(wholeWordField!.checked).toBe(false);
+    expect(fuzzyField!.checked).toBe(true);
+
+    fuzzyField!.checked = false;
+    fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    regexpField!.checked = true;
+    regexpField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    expect(fuzzyField!.checked).toBe(false);
+    expect(regexpField!.checked).toBe(true);
+
+    harness.destroy();
+  });
+
+  it("hides the replace controls while fuzzy mode is active", () => {
+    const harness = setupSearchPanel();
+    const fuzzyField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
+    );
+    const replaceButton = harness.container.querySelector<HTMLButtonElement>(
+      '[data-test-id="markdown-search-toggle-replace"]'
+    );
+    const replaceWrap = replaceButton!.parentElement!;
+    const replaceRow = harness.container.querySelector<HTMLElement>(
+      '[data-test-id="markdown-search-replace-row"]'
+    );
+
+    expect(replaceWrap.hidden).toBe(false);
+    expect(replaceRow!.hidden).toBe(true);
+
+    replaceButton!.click();
+    expect(replaceRow!.hidden).toBe(false);
+
+    fuzzyField!.checked = true;
+    fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    expect(replaceWrap.hidden).toBe(true);
+    expect(replaceRow!.hidden).toBe(true);
+
+    fuzzyField!.checked = false;
+    fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    expect(replaceWrap.hidden).toBe(false);
+    expect(replaceRow!.hidden).toBe(true);
+
+    harness.destroy();
+  });
+
+  it("keeps fuzzy mode when recalling a query from history", () => {
+    const storage = createMemoryHistoryStorage(JSON.stringify(["alpha"]));
+    const harness = setupSearchPanel(historyOptions({ storage }));
+    const fuzzyField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-fuzzy-toggle"]'
+    );
+    const regexpField = harness.container.querySelector<HTMLInputElement>(
+      '[data-test-id="markdown-search-regexp-toggle"]'
+    );
+
+    fuzzyField!.checked = true;
+    fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    harness.input.value = "draft";
+    harness.input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+
+    pressInputArrow(harness.input, "ArrowUp");
+
+    expect(harness.input.value).toBe("alpha");
+    expect(fuzzyField!.checked).toBe(true);
+    expect(regexpField!.checked).toBe(false);
+
+    harness.destroy();
+  });
+
+  it("maps fuzzy matches into rendered table cell highlights", () => {
+    const highlightSupport = installCssHighlightMock();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const editor = createEditor({
+      container,
+      initialValue: [
+        "| Name | Status |",
+        "| --- | --- |",
+        "| SearchNeedle070 | Todo |",
+        "| Other | Done |"
+      ].join("\n"),
+      livePreview: true,
+      plugins: [createGfmPreset(), createSearchPlugin()]
+    });
+
+    try {
+      const input = openSearchPanel(container);
+      const fuzzyField = container.querySelector<HTMLInputElement>(
+        '[data-test-id="markdown-search-fuzzy-toggle"]'
+      );
+      fuzzyField!.checked = true;
+      fuzzyField!.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+
+      submitSearch(input, "SN");
+
+      expect(readTableHighlightTexts(highlightSupport.registry, "selected")).toEqual(["SearchN"]);
+      expect(readTableHighlightTexts(highlightSupport.registry, "match")).toEqual([]);
+    } finally {
+      editor.destroy();
+      container.remove();
+      highlightSupport.restore();
+    }
+  });
 });
