@@ -776,6 +776,27 @@ export function createEditor(config: EditorConfig): EditorAPI {
   viewRef.current = view;
   lastMarkdownTransformRevision = getMarkdownTransformRevision(view.state);
 
+  requestAnimationFrame(() => {
+    const containerEl = config.container;
+    const computedHeight = getComputedStyle(containerEl).height;
+    const hasExplicitHeight = computedHeight !== "0px" && computedHeight !== "auto" && computedHeight !== "";
+    if (!hasExplicitHeight) {
+      const style = getComputedStyle(containerEl);
+      let hint = "";
+      if (style.display === "none") {
+        hint =
+          "The container has `display: none`. Consider setting `display: block` or another visible display value.";
+      } else {
+        hint =
+          "The container has a computed height of 0. Give it an explicit CSS height (e.g. `height: 100%`, `min-height: 400px`, or a fixed pixel value).";
+      }
+      console.warn(
+        `[Nexus-Editor] Container element has zero height. The editor may appear blank.\n${hint}`,
+        containerEl
+      );
+    }
+  });
+
   api = {
     getDocument() {
       return view.state.doc.toString();
