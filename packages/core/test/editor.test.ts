@@ -918,3 +918,123 @@ describe("createEditor — DOM event hook layer", () => {
     editor.destroy();
   });
 });
+
+describe("createEditor — setDocument undo history boundary", () => {
+  function createHistoryEditor(initialValue: string) {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue, plugins: [createHistoryPlugin()] });
+    return editor;
+  }
+
+  it("records a bare setDocument so the replacement stays undoable", () => {
+    const editor = createHistoryEditor("start");
+
+    editor.setDocument("next");
+
+    expect(editor.getDocument()).toBe("next");
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("start");
+    editor.destroy();
+  });
+
+  it("skips a skipped load without consuming an undo entry", () => {
+    const editor = createHistoryEditor("A");
+
+    editor.setDocument("B", { history: "skip" });
+    editor.setDocument("C", { history: "record" });
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("B");
+    // "B" was loaded with skip, so nothing earlier is reachable.
+    expect(editor.undo()).toBe(false);
+    expect(editor.getDocument()).toBe("B");
+    editor.destroy();
+  });
+
+  it("leaves nothing to undo after a reset load", () => {
+    const editor = createHistoryEditor("A");
+
+    editor.setDocument("B", { history: "reset" });
+
+    expect(editor.getDocument()).toBe("B");
+    expect(editor.undo()).toBe(false);
+    expect(editor.getDocument()).toBe("B");
+    editor.destroy();
+  });
+
+  it("undoes an edit back to the reset-loaded content, not past it", () => {
+    const editor = createHistoryEditor("A");
+
+    editor.setDocument("B", { history: "reset" });
+    editor.setDocument("B edited", { history: "record" });
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("B");
+    expect(editor.undo()).toBe(false);
+    expect(editor.getDocument()).toBe("B");
+    editor.destroy();
+  });
+
+  it("clears the redo stack so a previous document cannot be restored", () => {
+    const editor = createHistoryEditor("A");
+
+    editor.setDocument("B", { history: "record" });
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("A");
+
+    editor.setDocument("C", { history: "reset" });
+
+    expect(editor.redo()).toBe(false);
+    expect(editor.getDocument()).toBe("C");
+    editor.destroy();
+  });
+
+  it("accepts a reset load without a history extension", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "start" });
+
+    expect(() => editor.setDocument("next", { history: "reset" })).not.toThrow();
+    expect(editor.getDocument()).toBe("next");
+    // No history extension means no stacks to reset, and no history to replay.
+    expect(editor.undo()).toBe(false);
+    expect(editor.getDocument()).toBe("next");
+    editor.destroy();
+  });
+
+  it("accepts a skip load without a history extension", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "start" });
+
+    expect(() => editor.setDocument("next", { history: "skip" })).not.toThrow();
+    expect(editor.getDocument()).toBe("next");
+    expect(editor.undo()).toBe(false);
+    editor.destroy();
+  });
+
+  it("applies a reset load deferred by IME composition", async () => {
+    const container = document.createElement("div");
+    let capturedView: EditorView | null = null;
+    const editor = createEditor({
+      container,
+      initialValue: "A",
+      plugins: [
+        createHistoryPlugin(),
+        { name: "capture", cmExtensions: [captureViewPlugin((view) => (capturedView = view))] },
+      ],
+    });
+    const view = requireEditorView(capturedView);
+
+    view.contentDOM.dispatchEvent(new Event("compositionstart", { bubbles: true }));
+    editor.setDocument("B", { history: "reset" });
+    expect(editor.getDocument()).toBe("A");
+
+    view.contentDOM.dispatchEvent(new Event("compositionend", { bubbles: true }));
+    // The deferred load lands on the composition flush timer, not synchronously.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    expect(editor.getDocument()).toBe("B");
+    expect(editor.undo()).toBe(false);
+    expect(editor.getDocument()).toBe("B");
+    editor.destroy();
+  });
+});

@@ -364,6 +364,24 @@ export interface SetDocumentOptions {
     anchor: number;
     head?: number;
   };
+  /**
+   * How this replacement interacts with the undo history. Defaults to
+   * `"record"`, which keeps the replacement undoable.
+   *
+   * - `"record"` — the replacement is one undo entry. Correct for
+   *   programmatic *user edits* such as toolbar formatting.
+   * - `"skip"` — the replacement is not an undo entry, but earlier entries
+   *   stay undoable. Use when incoming text should be visible to undo
+   *   position mapping without becoming a step of its own.
+   * - `"reset"` — the replacement is not an undo entry AND the undo/redo
+   *   stacks are cleared, making the load a document boundary. Use when
+   *   opening or switching files: undo must not revert the load, and redo
+   *   must not restore the previous document.
+   *
+   * Independent of `silent`: either may be set without the other. `"reset"`
+   * is a no-op when no CodeMirror history extension is installed.
+   */
+  history?: "record" | "skip" | "reset";
 }
 
 export interface EditorAPI {
@@ -393,6 +411,10 @@ export interface EditorAPI {
    * @param opts.silent  When true, skip the onChange pipeline. Use when
    *   loading a file from disk — avoids treating a file-open as a user
    *   edit (no redundant mdast parse / link-index rebuild).
+   * @param opts.history  How the replacement interacts with the undo
+   *   history. Defaults to `"record"`. Pass `"reset"` when opening or
+   *   switching documents so the load cannot be undone and the previous
+   *   document cannot be redone back into the buffer.
    *
    * 组合输入（IME）进行中时，整文档替换会打断输入法、丢失正在合成的文字
    * 并把视口重置到顶部。此时本次替换会延迟到 compositionend 再应用，只保留
@@ -585,5 +607,16 @@ export interface NexusPlugin {
   handlers?: EditorEventHandlers;
   remarkPlugins?: Array<Plugin<[], Root, Root>>;
   cmExtensions?: Extension[];
+  /**
+   * Marks `cmExtensions` as the editor's undo-history extension. The editor
+   * installs them inside a per-instance compartment so that a document load can
+   * rebuild the history state from scratch (`setDocument(..., { history:
+   * "reset" })`), which is the only supported way to drop the undo and redo
+   * stacks while they stay enabled.
+   *
+   * Plugins that install `history()` themselves instead of declaring this are
+   * still valid; they simply keep their history across document loads.
+   */
+  historyCompartment?: true;
   widgets?: WidgetDefinition[];
 }

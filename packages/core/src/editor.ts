@@ -1,12 +1,12 @@
-import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
+import { Annotation, Compartment, EditorSelection, EditorState, StateEffect, Transaction } from "@codemirror/state";
+import { EditorView, keymap, dropCursor, lineNumbers, type Direction } from "@codemirror/view";
+import { indentWithTab, redo as cmRedo, undo as cmUndo } from "@codemirror/commands";
+import { closeBrackets } from "@codemirror/autocomplete";
 
 // Annotation attached to dispatches that load content programmatically (e.g.
 // setDocument from file open) so updateListener can skip the user-edit path —
 // no onChange emission, no AST reparse for the onChange pipeline.
 const silentDocChange = Annotation.define<boolean>();
-import { EditorView, keymap, dropCursor, lineNumbers, type Direction } from "@codemirror/view";
-import { indentWithTab, undo as cmUndo, redo as cmRedo } from "@codemirror/commands";
-import { closeBrackets } from "@codemirror/autocomplete";
 import type { Root } from "mdast";
 import type { Heading } from "mdast";
 import rehypeStringify from "rehype-stringify";
@@ -260,7 +260,19 @@ export function createEditor(config: EditorConfig): EditorAPI {
   const customParser = config.parser;
   const shortcuts = plugins.flatMap((plugin) => plugin.shortcuts ?? []);
   const slashCommands = plugins.flatMap((plugin) => plugin.slashCommands ?? []);
-  const cmExtensions = plugins.flatMap((plugin) => plugin.cmExtensions ?? []);
+  // History extensions are installed through a compartment so that
+  // `setDocument(..., { history: "reset" })` can rebuild them empty. They must
+  // be routed through the compartment *exclusively*: an earlier attempt also
+  // spread them into the plain extension list, and clearing the compartment
+  // then left the duplicate copy alive, so the reset silently did nothing.
+  const historyExtensions = plugins
+    .filter((plugin) => plugin.historyCompartment === true)
+    .flatMap((plugin) => plugin.cmExtensions ?? []);
+  // Per editor, so no other editor can reconfigure this one's history slot.
+  const historyCompartment = new Compartment();
+  const cmExtensions = plugins
+    .filter((plugin) => plugin.historyCompartment !== true)
+    .flatMap((plugin) => plugin.cmExtensions ?? []);
   const widgetDefs = plugins.flatMap((plugin) => plugin.widgets ?? []);
   // 命名命令（类 Obsidian addCommand）。同 id 以先注册者为准。
   const commands = plugins.flatMap((plugin) => plugin.commands ?? []);
@@ -426,6 +438,21 @@ export function createEditor(config: EditorConfig): EditorAPI {
     }, COMPOSITION_FLUSH_DELAY_MS);
   }
 
+  // Undo/redo stacks live in a CodeMirror state field with no public reset.
+  // Rebuilding it means toggling the history extension out of the compartment
+  // and back in, and a compartment keeps only the last reconfigure in a
+  // transaction — so "reset" needs two dispatches: this one drops the
+  // extension (and with it the stacks), and the load transaction right after
+  // it installs a fresh instance. Both run synchronously in the same task, so
+  // no input can slip in between.
+  function disableHistoryBoundary(): StateEffect<unknown> | null {
+    return historyExtensions.length === 0 ? null : historyCompartment.reconfigure([]);
+  }
+
+  function enableHistoryBoundary(): StateEffect<unknown> | null {
+    return historyExtensions.length === 0 ? null : historyCompartment.reconfigure(historyExtensions);
+  }
+
   // 整文档替换的实际执行体。setDocument（公开 API）在组合输入中会推迟调用本函数。
   function performSetDocument(next: string, opts?: SetDocumentOptions) {
     // Table cells intentionally keep their DOM edits local until blur so the
@@ -436,6 +463,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
     if (tableEditFlushed) flushScheduledChangeNow();
     const beforeSelection = view.state.selection.main;
     const silent = opts?.silent === true;
+    const historyMode = opts?.history ?? "record";
     const selection = resolveDocumentSelection(
       { anchor: beforeSelection.anchor, head: beforeSelection.head },
       next.length,
@@ -443,11 +471,30 @@ export function createEditor(config: EditorConfig): EditorAPI {
     );
     debugNexus("setDocument", {
       silent,
+      historyMode,
       oldLength: view.state.doc.length,
       nextLength: next.length,
       beforeSelection: { anchor: beforeSelection.anchor, head: beforeSelection.head },
       selection,
     });
+
+    // A document load must not become an undo step: undoing it would erase the
+    // opened file, and a surviving redo stack would restore the previous
+    // document into the new buffer. `addToHistory` keeps the load itself out of
+    // the history, but on its own it leaves every earlier entry reachable, so
+    // "reset" additionally rebuilds the history extension from scratch.
+    const historyAnnotations: Annotation<unknown>[] = [];
+    if (historyMode !== "record") {
+      historyAnnotations.push(Transaction.addToHistory.of(false));
+    }
+
+    let historyEffects: StateEffect<unknown>[] | undefined;
+    if (historyMode === "reset") {
+      const disable = disableHistoryBoundary();
+      if (disable) view.dispatch({ effects: [disable] });
+      const enable = enableHistoryBoundary();
+      historyEffects = enable ? [enable] : undefined;
+    }
 
     const dispatchSpec = {
       changes: {
@@ -455,8 +502,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
         to: view.state.doc.length,
         insert: next
       },
-      annotations: silent ? silentDocChange.of(true) : undefined,
+      annotations: silent ? [...historyAnnotations, silentDocChange.of(true)] : historyAnnotations,
       ...(selection ? { selection } : {}),
+      effects: historyEffects,
     };
 
     view.dispatch(dispatchSpec);
@@ -766,7 +814,10 @@ export function createEditor(config: EditorConfig): EditorAPI {
         ...createWidgetExtension(widgetParser, widgetDefs),
         ...shortcutExtensions,
         ...commandKeymapExtensions,
-        ...cmExtensions
+        ...cmExtensions,
+        // Single configuration point for the history compartment; see
+        // `historyExtensions` above and `disableHistoryBoundary` below.
+        historyCompartment.of(historyExtensions)
       ]
     })
   });

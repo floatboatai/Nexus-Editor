@@ -65,6 +65,80 @@ describe("createEditorShell", () => {
     shell.destroy();
   });
 
+  it("loads a document as a fresh undo/redo history boundary", () => {
+    const container = document.createElement("div");
+    const state = createState();
+    const shell = createEditorShell({
+      container,
+      state,
+      settings: defaultSettings(),
+      onStateChange: vi.fn(),
+    });
+
+    // Opening a file must not become an undo step — otherwise Ctrl+Z before
+    // typing anything reverts the loaded buffer back to the empty document.
+    shell.loadDocument("opened file");
+    expect(shell.editor.undo()).toBe(false);
+    expect(shell.editor.getDocument()).toBe("opened file");
+
+    // An edit after the load is undoable, and undo stops at the loaded content.
+    shell.editor.setDocument("opened file edited", { history: "record" });
+    expect(shell.editor.undo()).toBe(true);
+    expect(shell.editor.getDocument()).toBe("opened file");
+    expect(shell.editor.redo()).toBe(true);
+    expect(shell.editor.getDocument()).toBe("opened file edited");
+
+    // Switching documents must not let the previous file leak back in, in
+    // either direction.
+    shell.loadDocument("second file");
+    expect(shell.editor.undo()).toBe(false);
+    expect(shell.editor.redo()).toBe(false);
+    expect(shell.editor.getDocument()).toBe("second file");
+
+    shell.destroy();
+  });
+
+  it("keeps each shell's undo history isolated from other live editors", () => {
+    const firstContainer = document.createElement("div");
+    document.body.append(firstContainer);
+    const secondContainer = document.createElement("div");
+    document.body.append(secondContainer);
+
+    const first = createEditorShell({
+      container: firstContainer,
+      state: createState(),
+      settings: defaultSettings(),
+      onStateChange: vi.fn(),
+    });
+    const second = createEditorShell({
+      container: secondContainer,
+      state: createState(),
+      settings: defaultSettings(),
+      onStateChange: vi.fn(),
+    });
+
+    first.loadDocument("first opened file");
+    first.editor.setDocument("first opened file edited", { history: "record" });
+
+    // A reset in one shell must not disturb another live shell's stacks. This
+    // holds because each editor owns its history compartment; the assertions
+    // lock the contract rather than reproducing a known defect.
+    second.loadDocument("second opened file");
+    second.editor.setDocument("second opened file edited", { history: "record" });
+    expect(second.editor.undo()).toBe(true);
+    expect(second.editor.getDocument()).toBe("second opened file");
+    expect(second.editor.undo()).toBe(false);
+
+    expect(first.editor.undo()).toBe(true);
+    expect(first.editor.getDocument()).toBe("first opened file");
+    expect(first.editor.undo()).toBe(false);
+
+    first.destroy();
+    second.destroy();
+    firstContainer.remove();
+    secondContainer.remove();
+  });
+
   it("leaves migrated UI to the runtime owner in runtime mode", () => {
     const container = document.createElement("div");
     document.body.append(container);

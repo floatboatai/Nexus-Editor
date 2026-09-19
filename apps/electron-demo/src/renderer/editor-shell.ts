@@ -363,8 +363,11 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       // onChange pipeline (avoids redundant parse + link-index rebuild on
       // every file open). Caller owns state.content / dirty below and the
       // link index is re-seeded as part of vault open.
+      // `history: "reset"` makes the open a document boundary: Ctrl+Z must
+      // not revert the file that was just opened, and a redo left over from
+      // the previous document must not restore it into this buffer.
       const t0 = performance.now();
-      editor.setDocument(content, { silent: true });
+      editor.setDocument(content, { silent: true, history: "reset" });
       const t1 = performance.now();
       state.content = content;
       state.dirty = false;
