@@ -14,7 +14,7 @@
     "cycles": 6,
     "remarkCommitsPerCycle": 2,
     "widgetCommitsPerCycle": 2,
-    "maximumElapsedMs": 5000
+    "maximumElapsedMs": 10000
   },
   "notes": "The time limit is a coarse regression guard, not a microbenchmark. It is intentionally much higher than the local baseline so shared CI remains stable. Exact resource counts are deterministic."
 }

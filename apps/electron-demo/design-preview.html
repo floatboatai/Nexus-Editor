@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>Nexus Editor — 新设计预览</title>
+<style>
+  :root {
+    --app-accent: #6366f1;
+    --app-accent-soft: rgba(99, 102, 241, 0.12);
+    --app-radius: 8px;
+    --app-bg: #ffffff;
+    --app-bg-subtle: #f6f7f9;
+    --app-bg-muted: #eceef1;
+    --app-border: #e4e7eb;
+    --app-text: #1f2328;
+    --app-text-muted: #6b7280;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #eef0f4; color: var(--app-text); padding: 32px 16px;
+  }
+  h1 { text-align: center; font-size: 18px; margin-bottom: 6px; }
+  .sub { text-align: center; color: var(--app-text-muted); font-size: 13px; margin-bottom: 24px; }
+  .frame {
+    width: min(960px, 100%); margin: 0 auto; height: 620px;
+    background: var(--app-bg); border-radius: 14px; overflow: hidden;
+    box-shadow: 0 20px 60px rgba(20, 24, 40, 0.18);
+    display: flex; flex-direction: column;
+  }
+  .toolbar {
+    display: flex; align-items: center; gap: 6px; padding: 8px 14px;
+    background: var(--app-bg-subtle); border-bottom: 1px solid var(--app-border); flex-shrink: 0;
+  }
+  .brand {
+    margin-right: 10px; font-size: 14px; font-weight: 700;
+    background: linear-gradient(120deg, #6366f1, #a855f7);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    min-height: 30px; border: 1px solid transparent; border-radius: 8px;
+    background: transparent; color: var(--app-text); font: inherit; font-size: 13px; cursor: pointer;
+    transition: background .15s;
+  }
+  .btn:hover { background: var(--app-bg-muted); }
+  .btn.text { padding: 4px 12px; }
+  .btn.icon { width: 32px; font-size: 14px; color: var(--app-text-muted); }
+  .btn.lang {
+    min-width: 36px; padding: 4px 8px; font-size: 12px; font-weight: 600; color: var(--app-accent);
+    border: 1px solid var(--app-border); background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.05);
+  }
+  .spacer { flex: 1; }
+  .main { flex: 1; display: flex; overflow: hidden; }
+  .side {
+    width: 200px; border-right: 1px solid var(--app-border); background: #fbfcfd;
+    font-size: 13px; display: flex; flex-direction: column;
+  }
+  .side h3 {
+    padding: 10px 14px; font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .5px; color: var(--app-text-muted); border-bottom: 1px solid var(--app-border);
+  }
+  .side .item { padding: 6px 14px; color: var(--app-text); cursor: pointer; }
+  .side .item:hover { background: var(--app-accent-soft); }
+  .side .item.active { background: var(--app-accent-soft); color: var(--app-accent); font-weight: 500; }
+  .side .empty { padding: 14px; color: #b6bcc6; font-size: 12px; font-style: italic; }
+  .editor { flex: 1; display: flex; flex-direction: column; }
+  .doc { flex: 1; padding: 28px 40px; font-size: 15px; line-height: 1.7; overflow: hidden; }
+  .doc h1 { text-align: left; font-size: 24px; margin: 0 0 12px; }
+  .doc p { color: #3a4150; margin-bottom: 10px; }
+  .doc code { background: var(--app-bg-muted); border-radius: 4px; padding: 1px 5px; font-size: 13px; }
+  .status {
+    padding: 5px 14px; font-size: 12px; color: var(--app-text-muted);
+    background: var(--app-bg-subtle); border-top: 1px solid var(--app-border);
+    display: flex; gap: 12px; align-items: center;
+  }
+  .status .pill {
+    border: 1px solid var(--app-border); border-radius: 999px; padding: 2px 10px; background: #fff;
+  }
+  .caption { width: min(960px,100%); margin: 18px auto 0; font-size: 13px; color: var(--app-text-muted); }
+  .switcher { text-align:center; margin-top: 20px; }
+  .switcher button {
+    font: inherit; font-size: 13px; padding: 6px 14px; margin: 0 4px; cursor: pointer;
+    border: 1px solid var(--app-border); border-radius: 8px; background: #fff; color: var(--app-text);
+  }
+  .switcher button.active { border-color: var(--app-accent); color: var(--app-accent); font-weight: 600; }
+</style>
+</head>
+<body>
+  <h1>Nexus Editor · 新界面设计预览</h1>
+  <p class="sub">点下面的按钮切换 中 / EN，预览语言切换效果（与真实应用行为一致，点击「中」即时切换，无需重启）</p>
+  <div class="frame">
+    <div class="toolbar">
+      <span class="brand">◆ Nexus</span>
+      <button class="btn text" data-i="vault">仓库</button>
+      <button class="btn text" data-i="open">打开</button>
+      <button class="btn text" data-i="save">保存</button>
+      <button class="btn text" data-i="saveAs">另存为</button>
+      <span class="spacer"></span>
+      <button class="btn icon" title="仓库面板">📑</button>
+      <button class="btn icon" title="大纲">☰</button>
+      <button class="btn icon" title="反向链接">🔗</button>
+      <button class="btn icon" title="搜索 (Ctrl+F)">🔍</button>
+      <button class="btn lang" id="langBtn">中</button>
+      <button class="btn icon" title="设置">⚙</button>
+    </div>
+    <div class="main">
+      <div class="side">
+        <h3 data-i="vaultTitle">仓库</h3>
+        <div class="item active">欢迎.md</div>
+        <div class="item">使用指南.md</div>
+        <div class="item">会议笔记/</div>
+        <div class="item" style="padding-left:26px">2026-09-18.md</div>
+      </div>
+      <div class="editor">
+        <div class="doc">
+          <h1 data-i="docTitle">欢迎使用 Nexus 👋</h1>
+          <p data-i="docP1">这是一个<strong>无头、AST 驱动</strong>的 Markdown 编辑引擎 —— 以 Markdown 纯文本为唯一事实源，配合 Obsidian 风格的实时预览。</p>
+          <p data-i="docP2">试试在行首输入 <code>/</code> 唤起命令菜单，或按 <code>Ctrl+F</code> 全文搜索。</p>
+        </div>
+      </div>
+      <div class="side" style="border-right:0;border-left:1px solid var(--app-border)">
+        <h3 data-i="outlineTitle">大纲</h3>
+        <div class="item">欢迎使用 Nexus</div>
+        <div class="empty" data-i="outlineEmpty">点击标题可快速跳转</div>
+      </div>
+    </div>
+    <div class="status">
+      <span>欢迎.md <span data-i="modified">[已修改]</span></span>
+      <span class="spacer"></span>
+      <span data-i="stats">128 词，9 行</span>
+      <span class="pill" data-i="vaultStatus">仓库：My Notes</span>
+    </div>
+  </div>
+  <p class="caption">设计要点：渐变品牌标识 · 幽灵按钮工具栏 · 高亮语言切换胶囊按钮 · 更柔和的面板与状态栏 · 全部文案支持中英双语</p>
+  <div class="switcher">
+    <button class="active" id="btnZh">中文界面</button>
+    <button id="btnEn">English UI</button>
+  </div>
+<script>
+  const I18N = {
+    zh: { vault:"仓库", open:"打开", save:"保存", saveAs:"另存为", vaultTitle:"仓库",
+      docTitle:"欢迎使用 Nexus 👋",
+      docP1:"这是一个<strong>无头、AST 驱动</strong>的 Markdown 编辑引擎 —— 以 Markdown 纯文本为唯一事实源，配合 Obsidian 风格的实时预览。",
+      docP2:"试试在行首输入 <code>/</code> 唤起命令菜单，或按 <code>Ctrl+F</code> 全文搜索。",
+      outlineTitle:"大纲", outlineEmpty:"点击标题可快速跳转", modified:"[已修改]",
+      stats:"128 词，9 行", vaultStatus:"仓库：My Notes", hint:"点下面的按钮切换 中 / EN，预览语言切换效果（与真实应用行为一致，点击「中」即时切换，无需重启）" },
+    en: { vault:"Vault", open:"Open", save:"Save", saveAs:"Save As", vaultTitle:"Vault",
+      docTitle:"Welcome to Nexus 👋",
+      docP1:"A <strong>headless, AST-driven</strong> Markdown editor engine — Markdown text is the single source of truth, with Obsidian-style live preview.",
+      docP2:"Type <code>/</code> at the start of a line for the command menu, or press <code>Ctrl+F</code> to search.",
+      outlineTitle:"Outline", outlineEmpty:"Click a heading to jump", modified:"[modified]",
+      stats:"128 words, 9 lines", vaultStatus:"Vault: My Notes", hint:"Switch below to preview the language toggle (same behavior as the real app — instant, no restart)" },
+  };
+  let lang = "zh";
+  const $ = (s) => document.querySelector(s);
+  function apply() {
+    const dict = I18N[lang];
+    document.querySelectorAll("[data-i]").forEach((el) => { el.innerHTML = dict[el.dataset.i]; });
+    $("#langBtn").textContent = lang === "zh" ? "中" : "EN";
+    $("#btnZh").classList.toggle("active", lang === "zh");
+    $("#btnEn").classList.toggle("active", lang === "en");
+    $(".sub").textContent = dict.hint;
+  }
+  $("#langBtn").addEventListener("click", () => { lang = lang === "zh" ? "en" : "zh"; apply(); });
+  $("#btnZh").addEventListener("click", () => { lang = "zh"; apply(); });
+  $("#btnEn").addEventListener("click", () => { lang = "en"; apply(); });
+</script>
+</body>
+</html>

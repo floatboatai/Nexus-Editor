@@ -1,3 +1,24 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Nexus Editor — app chrome theme
+   Modern, calm, low-chrome design. Adapts to the editor's theme by
+   consuming the --nexus-* custom properties that the core themes set.
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+  --app-accent: #6366f1;
+  --app-accent-soft: rgba(99, 102, 241, 0.12);
+  --app-radius: 8px;
+  --app-bg: var(--nexus-bg, #ffffff);
+  --app-bg-subtle: var(--nexus-bg-subtle, #f6f7f9);
+  --app-bg-muted: var(--nexus-bg-muted, #eceef1);
+  --app-border: var(--nexus-border, #e4e7eb);
+  --app-text: var(--nexus-text, #1f2328);
+  --app-text-muted: var(--nexus-text-muted, #6b7280);
+  --app-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --app-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
+  --app-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.16);
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -13,22 +34,97 @@ body,
 #app {
   display: flex;
   flex-direction: column;
-  font-family: system-ui, sans-serif;
+  font-family: var(--nexus-font, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif);
+  background: var(--app-bg);
+  color: var(--app-text);
+  -webkit-font-smoothing: antialiased;
 }
+
+/* ── Top toolbar ─────────────────────────────────────────────────── */
 
 .toolbar {
   display: flex;
-  gap: 8px;
-  padding: 8px 12px;
-  background: #f0f0f0;
-  border-bottom: 1px solid #ddd;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--app-bg-subtle);
+  border-bottom: 1px solid var(--app-border);
   flex-shrink: 0;
 }
 
-.toolbar button {
-  padding: 4px 12px;
-  cursor: pointer;
+.toolbar__brand {
+  margin-right: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  background: linear-gradient(120deg, var(--app-accent), #a855f7);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  user-select: none;
 }
+
+.toolbar__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  border: 1px solid transparent;
+  border-radius: var(--app-radius);
+  background: transparent;
+  color: var(--app-text);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.toolbar__btn:hover {
+  background: var(--app-bg-muted);
+}
+
+.toolbar__btn:active {
+  background: var(--app-accent-soft);
+  color: var(--app-accent);
+}
+
+.toolbar__btn:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 1px;
+}
+
+.toolbar__btn--text {
+  padding: 4px 12px;
+}
+
+.toolbar__btn--icon {
+  width: 32px;
+  padding: 4px 0;
+  font-size: 14px;
+  color: var(--app-text-muted);
+}
+
+.toolbar__btn--icon:hover {
+  color: var(--app-text);
+}
+
+.toolbar__btn--lang {
+  min-width: 36px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-accent);
+  border: 1px solid var(--app-border);
+  background: var(--app-bg);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.toolbar__btn--lang:hover {
+  border-color: var(--app-accent);
+}
+
+/* ── Plugin slots ────────────────────────────────────────────────── */
 
 .plugin-slot {
   display: flex;
@@ -43,24 +139,34 @@ body,
 .plugin-slot--ribbon,
 .plugin-slot--view-toolbar {
   flex-shrink: 0;
+  margin-left: 8px;
 }
 
 .plugin-slot--editor-toolbar {
   flex-shrink: 0;
   padding: 6px 10px;
-  border-bottom: 1px solid var(--nexus-border, #ddd);
-  background: var(--nexus-bg-subtle, #f6f8fa);
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-bg-subtle);
 }
 
 .plugin-slot button {
   min-height: 28px;
-  padding: 4px 8px;
-  border: 1px solid var(--nexus-border, #d0d7de);
-  border-radius: 4px;
-  background: var(--nexus-bg, #fff);
-  color: var(--nexus-text, #24292e);
+  padding: 4px 10px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+  background: var(--app-bg);
+  color: var(--app-text);
+  font-family: inherit;
+  font-size: 12px;
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
+
+.plugin-slot button:hover {
+  background: var(--app-bg-muted);
+}
+
+/* ── Main layout ─────────────────────────────────────────────────── */
 
 .main-area {
   flex: 1;
@@ -95,12 +201,14 @@ body,
   height: auto;
 }
 
+/* ── Status line ─────────────────────────────────────────────────── */
+
 .status-line {
-  padding: 4px 12px;
-  font-size: 13px;
-  color: #666;
-  background: #fafafa;
-  border-top: 1px solid #eee;
+  padding: 5px 14px;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  background: var(--app-bg-subtle);
+  border-top: 1px solid var(--app-border);
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -113,7 +221,18 @@ body,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
+
+/* ── Side panels (vault / outline / backlinks) ──────────────────── */
+
+.nexus-vault-panel,
+.nexus-outline-panel,
+.backlinks-panel {
+  scrollbar-width: thin;
+}
+
+/* ── Menus & overlays ────────────────────────────────────────────── */
 
 .nexus-workspace-leaf[data-nexus-product-surface] {
   display: flex;
@@ -129,33 +248,44 @@ body,
 
 .nexus-plugin-menu {
   z-index: 10000;
-  min-width: 160px;
-  padding: 4px 0;
-  border: 1px solid var(--nexus-border, #ddd);
-  border-radius: 4px;
-  background: var(--nexus-bg, #fff);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  min-width: 180px;
+  padding: 5px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-bg);
+  box-shadow: var(--app-shadow-lg);
+  animation: menu-in 0.12s ease;
+}
+
+@keyframes menu-in {
+  from { opacity: 0; transform: translateY(-3px) scale(0.98); }
+  to { opacity: 1; transform: none; }
 }
 
 .nexus-plugin-menu button {
   display: block;
   width: 100%;
-  padding: 6px 12px;
+  padding: 7px 12px;
   border: 0;
+  border-radius: 6px;
   background: transparent;
   color: inherit;
   text-align: left;
   cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
 }
 
 .nexus-plugin-menu button:hover,
 .nexus-plugin-menu button:focus-visible {
-  background: var(--nexus-bg-muted, #f0f0f0);
+  background: var(--app-accent-soft);
 }
 
 .nexus-plugin-menu button[data-dangerous="true"] {
-  color: #d73a49;
+  color: #dc2626;
 }
+
+/* ── Settings dialog ─────────────────────────────────────────────── */
 
 .nexus-runtime-settings-panel {
   position: fixed;
@@ -164,18 +294,19 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(15, 18, 25, 0.45);
+  backdrop-filter: blur(2px);
 }
 
 .nexus-runtime-settings-dialog {
-  width: min(520px, calc(100vw - 32px));
-  max-height: 80vh;
+  width: min(540px, calc(100vw - 32px));
+  max-height: 82vh;
   overflow-y: auto;
-  border: 1px solid var(--nexus-border, #eee);
-  border-radius: 8px;
-  background: var(--nexus-bg, #fff);
-  color: var(--nexus-text, #24292e);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  background: var(--app-bg);
+  color: var(--app-text);
+  box-shadow: var(--app-shadow-lg);
 }
 
 .nexus-runtime-settings-dialog > header {
@@ -183,7 +314,7 @@ body,
   align-items: center;
   justify-content: space-between;
   padding: 16px 24px;
-  border-bottom: 1px solid var(--nexus-border, #eee);
+  border-bottom: 1px solid var(--app-border);
 }
 
 .nexus-runtime-settings-dialog > header h2 {
@@ -194,6 +325,7 @@ body,
   width: 32px;
   height: 32px;
   border: 0;
+  border-radius: 8px;
   background: transparent;
   font-size: 20px;
   cursor: pointer;
@@ -209,12 +341,12 @@ body,
   gap: 4px 12px;
   align-items: center;
   padding: 10px 0;
-  border-bottom: 1px solid var(--nexus-border-subtle, #f0f0f0);
+  border-bottom: 1px solid var(--app-bg-subtle);
 }
 
 .nexus-plugin-setting > p {
   grid-column: 1;
-  color: var(--nexus-text-muted, #888);
+  color: var(--app-text-muted);
   font-size: 12px;
 }
 
@@ -225,35 +357,34 @@ body,
   grid-row: 1 / span 2;
 }
 
-/* Syntax highlighting for fenced code blocks.
-   Tokens produced by the parser worker use hljs-* class names, mapped here
-   to a minimal colour palette. */
+/* ── Syntax highlighting (fenced code blocks) ─────────────────────
+   Tokens produced by the parser worker use hljs-* class names. */
 .cm-editor .hljs-keyword,
 .cm-editor .hljs-selector-tag,
 .cm-editor .hljs-built_in,
 .cm-editor .hljs-name,
-.cm-editor .hljs-doctag { color: #d33682; }
+.cm-editor .hljs-doctag { color: #c026d3; }
 .cm-editor .hljs-string,
 .cm-editor .hljs-attr,
 .cm-editor .hljs-symbol,
 .cm-editor .hljs-bullet,
 .cm-editor .hljs-addition,
 .cm-editor .hljs-regexp,
-.cm-editor .hljs-link { color: #2aa198; }
+.cm-editor .hljs-link { color: #0d9488; }
 .cm-editor .hljs-title,
-.cm-editor .hljs-section { color: #268bd2; }
+.cm-editor .hljs-section { color: #2563eb; }
 .cm-editor .hljs-comment,
 .cm-editor .hljs-quote,
-.cm-editor .hljs-meta { color: #93a1a1; font-style: italic; }
+.cm-editor .hljs-meta { color: #94a3b8; font-style: italic; }
 .cm-editor .hljs-number,
-.cm-editor .hljs-literal { color: #b58900; }
+.cm-editor .hljs-literal { color: #b45309; }
 .cm-editor .hljs-type,
-.cm-editor .hljs-params { color: #859900; }
-.cm-editor .hljs-deletion { color: #dc322f; }
+.cm-editor .hljs-params { color: #65a30d; }
+.cm-editor .hljs-deletion { color: #dc2626; }
 .cm-editor .hljs-variable,
-.cm-editor .hljs-template-variable { color: #cb4b16; }
+.cm-editor .hljs-template-variable { color: #ea580c; }
 
-/* ── Slash command menu ───────────────────────────────────────────
+/* ── Slash command menu ────────────────────────────────────────────
    The menu is mounted on document.body via createSlashMenuUI so it
    can overflow the editor's clipping context. We expose every visual
    knob behind a CSS custom property so the host's theme (light/dark)
@@ -264,30 +395,31 @@ body,
   --nexus-slash-border: var(--nexus-border, #e4e7eb);
   --nexus-slash-text: var(--nexus-text, #24292e);
   --nexus-slash-text-muted: var(--nexus-text-muted, #6e7681);
-  --nexus-slash-accent: var(--nexus-accent, #0969da);
-  --nexus-slash-active-bg: var(--nexus-bg-muted, #eaeef2);
+  --nexus-slash-accent: var(--nexus-accent, #6366f1);
+  --nexus-slash-active-bg: var(--nexus-bg-muted, #eef0f3);
 
-  min-width: 220px;
-  max-width: 320px;
+  min-width: 230px;
+  max-width: 330px;
   max-height: 320px;
   overflow-y: auto;
   background: var(--nexus-slash-bg);
   color: var(--nexus-slash-text);
   border: 1px solid var(--nexus-slash-border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  padding: 4px;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  border-radius: 12px;
+  box-shadow: var(--app-shadow-lg);
+  padding: 5px;
+  font-family: var(--nexus-font, system-ui, -apple-system, "Segoe UI", sans-serif);
   font-size: 13px;
   line-height: 1.4;
   z-index: 1000;
+  animation: menu-in 0.12s ease;
 }
 
 .nexus-slash-menu__item {
   display: flex;
   flex-direction: column;
-  padding: 6px 10px;
-  border-radius: 5px;
+  padding: 7px 11px;
+  border-radius: 8px;
   cursor: pointer;
   user-select: none;
 }
@@ -314,7 +446,7 @@ body,
   text-align: center;
 }
 
-/* --- nexus-plugin-wordcount status bar -------------------------------- */
+/* ── Word count status bar ----------------------------------------- */
 .nexus-wordcount__bar {
   position: absolute;
   right: 12px;
@@ -328,7 +460,7 @@ body,
   color: var(--nexus-text-muted, #6b7280);
   background: var(--nexus-surface, rgba(255, 255, 255, 0.85));
   border: 1px solid var(--nexus-border, rgba(0, 0, 0, 0.08));
-  border-radius: 6px;
+  border-radius: 999px;
   pointer-events: none;
   user-select: none;
   z-index: 2;
@@ -340,6 +472,6 @@ body,
 }
 
 .nexus-wordcount__selection {
-  color: var(--nexus-accent, #2563eb);
+  color: var(--app-accent);
   font-weight: 500;
 }

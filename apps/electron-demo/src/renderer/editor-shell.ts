@@ -13,6 +13,8 @@ import {
   type ToolbarUI,
 } from "@floatboat/nexus-plugin-toolbar";
 import { createSearchPlugin } from "@floatboat/nexus-plugin-search";
+
+import { t } from "./i18n";
 import { createSlashMenuUI, type SlashMenuUI } from "@floatboat/nexus-plugin-slash";
 import {
   attachWordCountPlugin,
@@ -181,7 +183,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
               // Top-right action: jump cursor to image source.
               const srcBtn = document.createElement("button");
               srcBtn.type = "button";
-              srcBtn.title = "View source";
+              srcBtn.title = t("shell.viewSource.title");
               srcBtn.setAttribute("aria-label", "View image markdown source");
               srcBtn.textContent = "</>";
               srcBtn.style.cssText = [
@@ -218,7 +220,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
               // Bottom-right resize handle — drag to resize; on mouseup writes
               // back `|width` into the image's alt in markdown.
               const resizeDot = document.createElement("span");
-              resizeDot.title = "Drag to resize";
+              resizeDot.title = t("shell.resize.title");
               resizeDot.style.cssText = [
                 "position:absolute",
                 "bottom:2px",
@@ -299,7 +301,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
 
               img.addEventListener("error", () => {
                 const err = document.createElement("span");
-                err.textContent = `⚠ image not found: ${node.url}`;
+                err.textContent = t("shell.imageNotFound", { url: node.url });
                 err.style.cssText =
                   "display:block;padding:8px 12px;font-size:12px;color:var(--nexus-hl-deletion,#c33);" +
                   "font-family:monospace;background:var(--nexus-bg-subtle);border-radius:4px;";
