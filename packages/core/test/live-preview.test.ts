@@ -3,6 +3,10 @@ import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 
 import { createGfmPreset } from "../../preset-gfm/src/index";
 import { createEditor, type EditorAPI } from "../src/index";
+import {
+  EDITOR_INPUT_TARGET_PROVIDER,
+  type InputTargetProviderElement,
+} from "../src/input-target-provider";
 
 beforeAll(() => {
   if (!("getClientRects" in Range.prototype)) {
@@ -54,6 +58,16 @@ function activateTableCell(cell: HTMLElement, clientX = 80, clientY = 40): void 
 
 async function nextAnimationFrame(): Promise<void> {
   await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+}
+
+/**
+ * 渲染后带内容单元格的表格行，按 DOM 顺序：`[0]` 表头，`[1..]` 数据行。
+ * 过滤掉合成的握把行 —— 它只有握把，没有 `.nexus-cell`。
+ */
+function tableCellRows(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>("tr")).filter(
+    (row) => row.querySelector(".nexus-cell")
+  );
 }
 
 describe("live preview", () => {
@@ -560,6 +574,309 @@ describe("live preview", () => {
   });
 
   // ── Tables ──
+
+  // 单元格全是横线的行（`| - | - |`）是数据行，不是分隔行。
+  // 分隔行固定在表头下一行；区分二者只能靠结构 ——
+  // 嗅探行内容会把两者都当成 "separator"。
+  describe("table row → source line mapping", () => {
+    const sourceWithDashRow = "| A | B |\n| --- | --- |\n| - | - |\n| x | y |";
+
+    it("maps each row to its own source line when a data row is all dashes", () => {
+      const container = document.createElement("div");
+      const editor = createEditor({
+        container,
+        initialValue: sourceWithDashRow,
+        livePreview: true,
+        plugins: [createGfmPreset()]
+      });
+
+      // 表头 → 第 0 行，`| - | - |` → 第 2 行，`| x | y |` → 第 3 行。
+      // 第 1 行的分隔行不是渲染出来的行。
+      expect(tableCellRows(container).map((row) => row.dataset.sourceLineIdx)).toEqual([
+        "0",
+        "2",
+        "3"
+      ]);
+      editor.destroy();
+    });
+
+    it("keeps the following row intact when an all-dash row is edited", async () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const editor = createEditor({
+        container,
+        initialValue: sourceWithDashRow,
+        livePreview: true,
+        plugins: [createGfmPreset()]
+      });
+
+      const dashCell = tableCellRows(container)[1].querySelectorAll<HTMLElement>(".nexus-cell")[0];
+      activateTableCell(dashCell);
+      dashCell.textContent = "edited";
+      dashCell.dispatchEvent(
+        new InputEvent("input", { bubbles: true, inputType: "insertText", data: "edited" })
+      );
+      await blurCellOutsideTable(dashCell);
+
+      // 改动落在第 2 行；真正属于第 3 行的那一行不受影响。
+      expect(editor.getDocument()).toContain("edited");
+      expect(editor.getDocument()).toContain("| x | y |");
+      editor.destroy();
+      container.remove();
+    });
+
+    it("commits edits made in the row that follows an all-dash row", async () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const editor = createEditor({
+        container,
+        initialValue: sourceWithDashRow,
+        livePreview: true,
+        plugins: [createGfmPreset()]
+      });
+
+      const lastCell = tableCellRows(container)[2].querySelectorAll<HTMLElement>(".nexus-cell")[0];
+      activateTableCell(lastCell);
+      lastCell.textContent = "changed";
+      lastCell.dispatchEvent(
+        new InputEvent("input", { bubbles: true, inputType: "insertText", data: "changed" })
+      );
+      await blurCellOutsideTable(lastCell);
+
+      expect(editor.getDocument()).toContain("changed");
+      editor.destroy();
+      container.remove();
+    });
+
+    it("maps a trailing all-dash row to its own source line", () => {
+      const container = document.createElement("div");
+      const editor = createEditor({
+        container,
+        initialValue: "| A | B |\n| --- | --- |\n| x | y |\n| --- |",
+        livePreview: true,
+        plugins: [createGfmPreset()]
+      });
+
+      expect(tableCellRows(container).map((row) => row.dataset.sourceLineIdx)).toEqual([
+        "0",
+        "2",
+        "3"
+      ]);
+      editor.destroy();
+    });
+
+    it("maps a non-pipe line that the parser absorbs into the table", () => {
+      const container = document.createElement("div");
+      const editor = createEditor({
+        container,
+        initialValue: "| A | B |\n| --- | --- |\n| x | y |\ntext",
+        livePreview: true,
+        plugins: [createGfmPreset()]
+      });
+
+      // Lezer 会把末尾的普通行也并进表格，所以行数并非 `源码行数 - 1`；
+      // 映射只能来自节点位置。
+      const rows = tableCellRows(container);
+      expect(rows.length).toBe(3);
+      expect(rows.map((row) => row.dataset.sourceLineIdx)).toEqual(["0", "2", "3"]);
+      editor.destroy();
+    });
+
+    it("only gives the new delimiter cell to the delimiter row", () => {
+      const container = document.createElement("div");
+      const editor = createEditor({
+        container,
+        initialValue: sourceWithDashRow,
+        livePreview: true,
+        plugins: [createGfmPreset()]
+      });
+
+      const addColumn = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.title === "Add column"
+      );
+      expect(addColumn).not.toBeUndefined();
+      addColumn!.click();
+
+      // 第 1 行是分隔行，补 `---`；第 2 行只是长得像分隔行，
+      // 必须补空单元格。
+      const lines = editor.getDocument().split("\n");
+      expect(lines[1]).toContain("---");
+      expect(lines[2]).not.toContain("---");
+      editor.destroy();
+    });
+
+    it("leaves the mapping unchanged for a table with no dash rows", () => {
+      const container = document.createElement("div");
+      const editor = createEditor({
+        container,
+        initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |",
+        livePreview: true,
+        plugins: [createGfmPreset()]
+      });
+
+      expect(tableCellRows(container).map((row) => row.dataset.sourceLineIdx)).toEqual(["0", "2"]);
+      editor.destroy();
+    });
+
+    // 下面四个调用点共用同一套「行 → 源码行」解析，之前都以同样的方式错位：
+    // 全横线行拿到了后一行的行号，而后者一行号都没剩下。
+
+    it("deletes the row that owns the grip, not the row after it", () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const editor = createEditor({
+        container,
+        initialValue: sourceWithDashRow,
+        livePreview: true,
+        plugins: [createGfmPreset()]
+      });
+
+      // 握把在全横线行上：AST 第 1 行、源码第 2 行。
+      // 嗅探内容会把 AST 第 1 行映射到第 3 行，于是 Delete 删掉了 `| x | y |`。
+      const rowGrip = tableCellRows(container)[1].querySelector<HTMLElement>(".nexus-row-grip");
+      expect(rowGrip).not.toBeNull();
+      rowGrip!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+      const wrapper = container.querySelector<HTMLElement>(".nexus-table-wrapper");
+      expect(wrapper).not.toBeNull();
+      const deleteRow = new KeyboardEvent("keydown", {
+        key: "Delete",
+        bubbles: true,
+        cancelable: true
+      });
+      wrapper!.dispatchEvent(deleteRow);
+
+      expect(deleteRow.defaultPrevented).toBe(true);
+      expect(editor.getDocument()).toBe("| A | B |\n| --- | --- |\n| x | y |");
+      editor.destroy();
+      container.remove();
+    });
+
+    it("reorders rows by grip drag when a data row is all dashes", () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const editor = createEditor({
+        container,
+        initialValue: sourceWithDashRow,
+        livePreview: true,
+        plugins: [createGfmPreset()]
+      });
+
+      const rows = tableCellRows(container);
+      rows[1].getBoundingClientRect = () => new DOMRect(0, 30, 100, 30);
+      rows[2].getBoundingClientRect = () => new DOMRect(0, 60, 100, 30);
+
+      // 把全横线行（AST 第 1 行）拖到 `| x | y |`（AST 第 2 行）原本毫无反应：
+      // 内容扫描没给 AST 第 2 行行号，`moveRow` 还没开始搬运就返回了。
+      const grip = rows[1].querySelector<HTMLElement>(".nexus-row-grip");
+      expect(grip).not.toBeNull();
+      grip!.dispatchEvent(new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 5,
+        clientY: 45
+      }));
+      document.dispatchEvent(new MouseEvent("mousemove", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 5,
+        clientY: 75
+      }));
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, clientX: 5, clientY: 75 }));
+
+      expect(editor.getDocument()).toBe("| A | B |\n| --- | --- |\n| x | y |\n| - | - |");
+      editor.destroy();
+      container.remove();
+    });
+
+    it("clears a selected range that spans an all-dash row", () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const editor = createEditor({
+        container,
+        initialValue: sourceWithDashRow,
+        livePreview: true,
+        plugins: [createGfmPreset()]
+      });
+
+      const rows = tableCellRows(container);
+      const firstCell = rows[1].querySelectorAll<HTMLElement>(".nexus-cell")[0];
+      const lastCell = rows[2].querySelectorAll<HTMLElement>(".nexus-cell")[0];
+      firstCell.getBoundingClientRect = () => new DOMRect(0, 0, 50, 30);
+      lastCell.getBoundingClientRect = () => new DOMRect(0, 30, 50, 30);
+
+      // 只选中 AST 第 1..2 行、第 0 列。
+      firstCell.dispatchEvent(new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 25,
+        clientY: 15
+      }));
+      document.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, button: 0, clientX: 25, clientY: 45 }));
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, clientX: 25, clientY: 45 }));
+
+      const wrapper = container.querySelector<HTMLElement>(".nexus-table-wrapper");
+      expect(wrapper).not.toBeNull();
+      const clearRange = new KeyboardEvent("keydown", {
+        key: "Delete",
+        bubbles: true,
+        cancelable: true
+      });
+      wrapper!.dispatchEvent(clearRange);
+
+      expect(clearRange.defaultPrevented).toBe(true);
+      // 两行的第 0 列都被清空。内容扫描只能碰到后者，
+      // 全横线行会原封不动。
+      expect(editor.getDocument()).toBe("| A | B |\n| --- | --- |\n|  | - |\n|  | y |");
+      editor.destroy();
+      container.remove();
+    });
+
+    it("pastes into a selected range that spans an all-dash row", () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const editor = createEditor({
+        container,
+        initialValue: sourceWithDashRow,
+        livePreview: true,
+        plugins: [createGfmPreset()]
+      });
+
+      const rows = tableCellRows(container);
+      const firstCell = rows[1].querySelectorAll<HTMLElement>(".nexus-cell")[0];
+      const lastCell = rows[2].querySelectorAll<HTMLElement>(".nexus-cell")[1];
+      firstCell.getBoundingClientRect = () => new DOMRect(0, 0, 50, 30);
+      lastCell.getBoundingClientRect = () => new DOMRect(50, 30, 50, 30);
+
+      // 跨两列选中 AST 第 1..2 行。
+      firstCell.dispatchEvent(new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 25,
+        clientY: 15
+      }));
+      document.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, button: 0, clientX: 75, clientY: 45 }));
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, clientX: 75, clientY: 45 }));
+
+      // 粘贴经表格的 input target provider 进入。
+      const wrapper = container.querySelector<HTMLElement>(".nexus-table-wrapper") as
+        | InputTargetProviderElement
+        | null;
+      const provider = wrapper?.[EDITOR_INPUT_TARGET_PROVIDER];
+      expect(provider).not.toBeUndefined();
+      const target = provider!.resolveInputTarget(firstCell);
+      expect(target).not.toBeNull();
+      expect(target!.replaceSelection("P\tQ\nR\tS")).toBe(true);
+
+      expect(editor.getDocument()).toBe("| A | B |\n| --- | --- |\n| P | Q |\n| R | S |");
+      editor.destroy();
+      container.remove();
+    });
+  });
 
   it("renders tables as editable widget with grip cells", () => {
     const container = document.createElement("div");

@@ -164,6 +164,51 @@ function sourceOffsetForCell(lines: string[], lineIdx: number, colIdx: number, t
   return lineStart + contentFrom;
 }
 
+/**
+ * `rel` 落在 `tableSource` 的第几行；越界返回 null。
+ *
+ * 刻意写成单遍扫描：`toDOM` 每渲染一行都会调一次，
+ * 用 `slice(0, rel).split("\n")` 会把整张表复制 N 遍。
+ */
+function lineIndexForOffset(tableSource: string, rel: number): number | null {
+  if (!Number.isFinite(rel) || rel < 0 || rel > tableSource.length) return null;
+  let line = 0;
+  for (
+    let i = tableSource.indexOf("\n");
+    i !== -1 && i < rel;
+    i = tableSource.indexOf("\n", i + 1)
+  ) {
+    line++;
+  }
+  return line;
+}
+
+/**
+ * AST 第 `rowIdx` 行落在 `source` 的第几行。
+ *
+ * 分隔行不在 mdast 里，所以行索引 ≠ 源码行号。每一行都自带绝对文档偏移
+ * （`adaptTable` 为每个 `TableHeader` / `TableRow` 记了 `position(c.from, c.to)`），
+ * `tableFrom` 是表格节点自身的偏移，两者相减即可直接定位到 `source`。
+ * 这比嗅探行内容可靠：内容分不出分隔行和写成 `| - | - |` 的数据行。
+ *
+ * 位置缺失或越出快照时返回 undefined。调用方本就把 undefined 当 no-op，
+ * 而且这是安全的方向：算错行号会经 `dirtyRows` 覆盖掉一行真实源码，
+ * 算不出来只是放弃这次编辑。
+ */
+function sourceLineForRow(
+  node: Table,
+  tableFrom: number,
+  source: string,
+  rowIdx: number
+): number | undefined {
+  const row = (node.children ?? [])[rowIdx] as
+    | { position?: { start?: { offset?: number } } }
+    | undefined;
+  const offset = row?.position?.start?.offset;
+  if (typeof offset !== "number") return undefined;
+  return lineIndexForOffset(source, offset - tableFrom) ?? undefined;
+}
+
 function getNodeSourceOffsets(
   node: any,
   tableFrom: number,
@@ -613,19 +658,48 @@ export class EditableTableWidget extends WidgetType {
     this.dispatch(newLines.join("\n"));
   }
 
-  private deleteRow(rowIdx: number): void {
+  /** AST 第 `rowIdx` 行在本 widget 快照里的源码行号。 */
+  private rowSourceLine(rowIdx: number): number | undefined {
+    return sourceLineForRow(this.node, this.tableFrom, this.source, rowIdx);
+  }
+
+  /**
+   * 分隔行所在的源码行；判断不出来时返回 undefined。
+   * GFM 不把分隔行写进 mdast，所以它就是表格里唯一没有被任何 AST 行认领的那一行。
+   */
+  private delimiterLine(): number | undefined {
     const lines = this.source.split("\n");
-    const dataLines: number[] = [];
-    for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dataLines.push(i);
-    const lineIdx = dataLines[rowIdx];
+    const claimed = new Set<number>();
+    for (let rowIdx = 0; rowIdx < (this.node.children ?? []).length; rowIdx++) {
+      const line = this.rowSourceLine(rowIdx);
+      if (line === undefined) return undefined;
+      claimed.add(line);
+    }
+    const unclaimed: number[] = [];
+    for (let i = 0; i < lines.length; i++) if (!claimed.has(i)) unclaimed.push(i);
+    return unclaimed.length === 1 ? unclaimed[0] : undefined;
+  }
+
+  private deleteRow(rowIdx: number): void {
+    const lineIdx = this.rowSourceLine(rowIdx);
     if (lineIdx === undefined) return;
+    const lines = this.source.split("\n");
     lines.splice(lineIdx, 1);
     this.dispatch(lines.join("\n"));
   }
 
   private addColumn(): void {
     const lines = this.source.split("\n");
-    const nl = lines.map((l) => SEPARATOR_RE.test(l) ? l.replace(/\|?\s*$/, " | --- |") : l.replace(/\|?\s*$/, " |  |"));
+    // 只有分隔行补 `---`，内容恰好全是横线的数据行补空单元格。
+    // 定位不到分隔行时退回内容判断：AST 退化也不该让「加列」直接不能编辑。
+    const delim = this.delimiterLine();
+    const isDelimiter =
+      delim !== undefined && SEPARATOR_RE.test(lines[delim] ?? "")
+        ? (i: number) => i === delim
+        : (i: number) => SEPARATOR_RE.test(lines[i]);
+    const nl = lines.map((l, i) =>
+      isDelimiter(i) ? l.replace(/\|?\s*$/, " | --- |") : l.replace(/\|?\s*$/, " |  |")
+    );
     this.dispatch(nl.join("\n"));
   }
 
@@ -650,11 +724,12 @@ export class EditableTableWidget extends WidgetType {
   }
 
   private moveRow(from: number, to: number, source = this.source): void {
-    const lines = source.split("\n");
-    const dl: number[] = [];
-    for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dl.push(i);
-    const s = dl[from], d = dl[to];
+    // `onDragEnd` 传入的是冲刷过待提交单元格的快照，好让未提交的文字跟着行一起走。
+    // 行号仍按 `this.source` 解析：快照是整行原地重写，行号不变，
+    // 但行位置依赖的字节偏移在新快照里已失效。
+    const s = this.rowSourceLine(from), d = this.rowSourceLine(to);
     if (s === undefined || d === undefined) return;
+    const lines = source.split("\n");
     const [m] = lines.splice(s, 1);
     lines.splice(d, 0, m);
     this.dispatch(lines.join("\n"));
@@ -674,8 +749,11 @@ export class EditableTableWidget extends WidgetType {
       if (len > colCount) colCount = len;
     }
     const sourceLines = this.source.split("\n");
-    const dataLineIndices: number[] = [];
-    for (let i = 0; i < sourceLines.length; i++) if (!SEPARATOR_RE.test(sourceLines[i])) dataLineIndices.push(i);
+    // 按渲染顺序每个 AST 行一项，位置不可用的行留空。
+    // 下面两个读取方本就把 undefined 当「跳过」。
+    const dataLineIndices: (number | undefined)[] = rows.map((_, rowIdx) =>
+      self.rowSourceLine(rowIdx)
+    );
     const dirtyRows = new Map<number, HTMLElement>();
 
     // State
@@ -1375,10 +1453,7 @@ export class EditableTableWidget extends WidgetType {
       if (!range) return false;
       const inputRows = text.replace(/\r\n?/g, "\n").split("\n").map((line) => line.split("\t"));
       const lines = self.source.split("\n");
-      const dataLines: number[] = [];
-      for (let index = 0; index < lines.length; index++) {
-        if (!SEPARATOR_RE.test(lines[index])) dataLines.push(index);
-      }
+      const dataLines = (self.node.children ?? []).map((_, rowIdx) => self.rowSourceLine(rowIdx));
       for (let row = range.r1; row <= range.r2; row++) {
         const lineIndex = dataLines[row];
         if (lineIndex === undefined) continue;
@@ -2382,8 +2457,7 @@ export class EditableTableWidget extends WidgetType {
         if (range) {
           e.preventDefault();
           const lines = self.source.split("\n");
-          const dl: number[] = [];
-          for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dl.push(i);
+          const dl = (self.node.children ?? []).map((_, rowIdx) => self.rowSourceLine(rowIdx));
           for (let r = range.r1; r <= range.r2; r++) {
             const lineIdx = dl[r];
             if (lineIdx === undefined) continue;
