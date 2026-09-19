@@ -173,7 +173,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 | `@floatboat/nexus-react` | React binding — `useEditor` hook and `<Editor />` component |
 | `@floatboat/nexus-vue` | Vue 3 binding — `useEditor` composable |
 | `@floatboat/nexus-preset-gfm` | GitHub Flavored Markdown preset (tables, strikethrough, task lists) |
-| `@floatboat/nexus-plugin-history` | Undo/redo with `Ctrl+Z` / `Ctrl+Shift+Z` |
+| `@floatboat/nexus-plugin-history` | Undo/redo with `Ctrl+Z` / `Ctrl+Shift+Z`, plus document-load history boundaries |
 | `@floatboat/nexus-plugin-search` | Search and replace helpers |
 | `@floatboat/nexus-plugin-slash` | Slash command detection, ranking, and a vanilla-DOM floating menu UI |
 | `@floatboat/nexus-plugin-toolbar` | Toolbar primitives for formatting commands |
@@ -209,9 +209,10 @@ Plugin platform documentation (Chinese): [native plugin API](./docs/plugins/nati
 ```ts
 editor.getDocument()          // current Markdown string
 editor.getAst()               // current mdast Root
-editor.setDocument(md)        // replace entire document
+editor.setDocument(md)        // replace entire document (undoable)
 editor.setDocument(md, { silent: true, preserveSelection: true })
 editor.setDocument(md, { selection: { anchor: 0 } })
+editor.setDocument(md, { silent: true, history: "reset" })  // open a file: not undoable, clears undo/redo
 editor.setSelection(pos)      // move cursor
 editor.focus() / editor.blur()
 editor.destroy()
@@ -225,6 +226,20 @@ editor.off("change", handler)
 // Coordinates (for floating UI)
 editor.getCoordsAtPos(pos)     // { left, right, top, bottom } | null
 ```
+
+**Document loading and undo history.** `setDocument` accepts `history`, which
+controls how the replacement interacts with undo/redo:
+
+| `history` | Replacement becomes an undo entry | Clears undo/redo stacks | Use for |
+|---|---|---|---|
+| `"record"` *(default)* | yes | no | programmatic user edits — toolbar formatting, replace-all |
+| `"skip"` | no | no | incoming text that should not itself be undoable |
+| `"reset"` | no | yes | opening or switching files |
+
+Loading a file with the default records the load as an edit, so `Ctrl+Z` before
+typing reverts the buffer and a redo from the previous file leaks into the new
+one. Pass `history: "reset"` at a document boundary instead. It is a no-op when
+no history plugin is installed.
 
 </details>
 
