@@ -229,6 +229,52 @@ editor.getCoordsAtPos(pos)     // { left, right, top, bottom } | null
 </details>
 
 <details>
+<summary><b>服务端渲染与 SSG</b> —— 不依赖 DOM 把 Markdown 渲染成 HTML</summary>
+
+`editor.exportHTML()` 需要一个已挂载的编辑器，也就是需要浏览器。对 SEO 敏感的页面、静态站点构建、CLI 和构建脚本，可以在无 DOM 环境跑同一条管线：
+
+```ts
+import { createHtmlRenderer, renderMarkdownToHtml } from "@floatboat/nexus-core";
+import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
+
+// 一次性调用
+const html = renderMarkdownToHtml("# Hello", { plugins: [createGfmPreset()] });
+
+// 可复用 —— 管线只构建一次，批量渲染多篇文档（SSG 构建）
+const renderer = createHtmlRenderer({ plugins: [createGfmPreset()] });
+const pages = notes.map((markdown) => renderer.render(markdown));
+```
+
+传入和 `createEditor()` 相同的 `plugins`，服务端输出就和浏览器里 `exportHTML()` 的结果完全一致。源码中的原始 HTML 会被丢弃（remark-rehype 默认行为），结果可以直接嵌入页面。
+
+Next.js App Router 示例 —— 首屏就是可被爬虫抓取的 HTML，编辑器在客户端水合后接管：
+
+```tsx
+// app/notes/[slug]/page.tsx（Server Component）
+import { renderMarkdownToHtml } from "@floatboat/nexus-core";
+import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
+import { NoteEditor } from "./note-editor"; // 带 "use client" 的 <Editor /> 封装
+
+export default async function NotePage({ params }: { params: { slug: string } }) {
+  const markdown = await loadNote(params.slug);
+  const html = renderMarkdownToHtml(markdown, { plugins: [createGfmPreset()] });
+
+  return (
+    <>
+      {/* 可被抓取，JS 未执行时已可见 */}
+      <article dangerouslySetInnerHTML={{ __html: html }} />
+      {/* 水合后可交互 */}
+      <NoteEditor initialValue={markdown} />
+    </>
+  );
+}
+```
+
+`@floatboat/nexus-react` 与 `@floatboat/nexus-vue` 的 `<Editor />` 对 SSR 安全：服务端只渲染容器 `<div>`，CodeMirror 在客户端 effect 中创建。
+
+</details>
+
+<details>
 <summary><b>插件编写</b> —— 三个层级，统一形态</summary>
 
 ```ts

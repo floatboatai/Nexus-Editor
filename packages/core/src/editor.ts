@@ -9,9 +9,7 @@ import { indentWithTab, undo as cmUndo, redo as cmRedo } from "@codemirror/comma
 import { closeBrackets } from "@codemirror/autocomplete";
 import type { Root } from "mdast";
 import type { Heading } from "mdast";
-import rehypeStringify from "rehype-stringify";
 import remarkParse from "remark-parse";
-import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 
 import { EventEmitter } from "./event-emitter";
@@ -49,6 +47,7 @@ import type {
   SetDocumentOptions,
   TocEntry,
 } from "./types";
+import { createHtmlRenderer, type HtmlRenderer } from "./render-html";
 import { createWidgetExtension } from "./widget-extension";
 
 const FLOATBOAT_MARKDOWN_DEBUG_STORAGE_KEY = "floatboat:markdown-debug";
@@ -137,22 +136,6 @@ function lezerAstFromAnywhere(
   const view = viewRef.current;
   if (view) return lezerTreeToMdast(view.state);
   return lezerStringToMdast(fallbackMarkdown);
-}
-
-function markdownToHtml(
-  markdown: string,
-  plugins: NexusPlugin[],
-  applyDynamicTransforms: (tree: Root) => Root,
-): string {
-  const processor = unified().use(remarkParse);
-  for (const plugin of plugins) {
-    for (const rp of plugin.remarkPlugins ?? []) {
-      processor.use(rp);
-    }
-  }
-  processor.use(() => (tree) => applyDynamicTransforms(tree as Root));
-  processor.use(remarkRehype).use(rehypeStringify);
-  return String(processor.processSync(markdown));
 }
 
 function extractToc(ast: Root): TocEntry[] {
@@ -245,6 +228,9 @@ function createTransformProcessor(plugins: NexusPlugin[]): { runSync(tree: Root)
 
 export function createEditor(config: EditorConfig): EditorAPI {
   const plugins = config.plugins ?? [];
+  // Built lazily on first exportHTML() and reused afterwards: hosts that never
+  // export do not pay for the pipeline, hosts that export often pay once.
+  let htmlRenderer: HtmlRenderer | null = null;
   debugNexus("create", {
     initialLength: (config.initialValue ?? "").length,
     pluginNames: plugins.map((plugin) => plugin.name),
@@ -787,11 +773,13 @@ export function createEditor(config: EditorConfig): EditorAPI {
       return extractToc(currentAst);
     },
     exportHTML() {
-      return markdownToHtml(
-        view.state.doc.toString(),
-        plugins,
-        (tree) => applyMarkdownTransformSnapshots(view.state, tree),
-      );
+      if (!htmlRenderer) {
+        htmlRenderer = createHtmlRenderer({
+          plugins,
+          transform: (tree) => applyMarkdownTransformSnapshots(view.state, tree),
+        });
+      }
+      return htmlRenderer.render(view.state.doc.toString());
     },
     setTheme(theme: NexusTheme) {
       if (destroyed) return;

@@ -37,6 +37,7 @@ This document maps every planned feature to **package ownership / priority / sta
 | 6 | Multi-cursor / multi-selection | `core` | P1 | done | Yes | `openspec/changes/add-core-multi-cursor` — opt-in `multiCursor` config; live-preview reveal + table checks verified by regression tests |
 | 7 | AST enhancement / Markdown extensions | `core` + `preset-gfm` | P2 | planned | Yes | Affects serialization and every AST-dependent plugin |
 | 8 | Undo / redo grouping | `plugin-history` | P1 | planned | No | Coordinate with table's `tableEditingCount`; consolidate competing impls before merge |
+| 30 | Headless HTML rendering (SSR / SSG) | `core` | P1 | in-progress | Yes | `createHtmlRenderer()` / `renderMarkdownToHtml()` run the `exportHTML()` pipeline without a DOM; react/vue SSR contract tests — see `openspec/changes/add-headless-html-render` |
 
 ## 4. Plugin System
 

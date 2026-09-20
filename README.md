@@ -229,6 +229,52 @@ editor.getCoordsAtPos(pos)     // { left, right, top, bottom } | null
 </details>
 
 <details>
+<summary><b>Server-side rendering &amp; SSG</b> — render Markdown to HTML without a DOM</summary>
+
+`editor.exportHTML()` needs a mounted editor, i.e. a browser. For SEO-critical pages, static-site builds, CLIs and build scripts, run the same pipeline headless:
+
+```ts
+import { createHtmlRenderer, renderMarkdownToHtml } from "@floatboat/nexus-core";
+import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
+
+// One-shot
+const html = renderMarkdownToHtml("# Hello", { plugins: [createGfmPreset()] });
+
+// Reusable — build the pipeline once, render many documents (SSG builds)
+const renderer = createHtmlRenderer({ plugins: [createGfmPreset()] });
+const pages = notes.map((markdown) => renderer.render(markdown));
+```
+
+Pass the same `plugins` you give `createEditor()` and the server output is exactly what `exportHTML()` returns in the browser. Raw HTML in the source is dropped (remark-rehype default), so the result is safe to embed.
+
+Next.js App Router example — the page is crawlable HTML on first paint, the editor hydrates on the client:
+
+```tsx
+// app/notes/[slug]/page.tsx (Server Component)
+import { renderMarkdownToHtml } from "@floatboat/nexus-core";
+import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
+import { NoteEditor } from "./note-editor"; // "use client" wrapper around <Editor />
+
+export default async function NotePage({ params }: { params: { slug: string } }) {
+  const markdown = await loadNote(params.slug);
+  const html = renderMarkdownToHtml(markdown, { plugins: [createGfmPreset()] });
+
+  return (
+    <>
+      {/* crawlable, visible before any JS runs */}
+      <article dangerouslySetInnerHTML={{ __html: html }} />
+      {/* interactive once hydrated */}
+      <NoteEditor initialValue={markdown} />
+    </>
+  );
+}
+```
+
+`<Editor />` from `@floatboat/nexus-react` and `@floatboat/nexus-vue` is SSR-safe: on the server it renders only its container `<div>`; CodeMirror is created in a client-side effect.
+
+</details>
+
+<details>
 <summary><b>Plugin authoring</b> — three tiers, one shape</summary>
 
 ```ts
