@@ -275,6 +275,60 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("flushes a pending user change before a silent setDocument", () => {
+    vi.useFakeTimers();
+
+    const container = document.createElement("div");
+    const docs: string[] = [];
+    const editor = createEditor({
+      container,
+      initialValue: "",
+      parseDelayMs: 20,
+      onChange(doc) {
+        docs.push(doc);
+      }
+    });
+
+    editor.setDocument("before-load");
+    expect(docs).toEqual([]);
+
+    editor.setDocument("after-load", { silent: true });
+    expect(docs).toEqual(["before-load"]);
+    expect(editor.getDocument()).toBe("after-load");
+
+    vi.advanceTimersByTime(20);
+    expect(docs).toEqual(["before-load"]);
+
+    editor.destroy();
+  });
+
+  it("flushes a pending user change before a silent replaceRange", () => {
+    vi.useFakeTimers();
+
+    const container = document.createElement("div");
+    const docs: string[] = [];
+    const editor = createEditor({
+      container,
+      initialValue: "abc",
+      parseDelayMs: 20,
+      onChange(doc) {
+        docs.push(doc);
+      }
+    });
+
+    editor.setDocument("abcdef");
+    expect(docs).toEqual([]);
+
+    editor.replaceRange(0, 6, "synced", undefined, { silent: true });
+    expect(docs).toEqual(["abcdef"]);
+    expect(editor.getDocument()).toBe("synced");
+
+    vi.advanceTimersByTime(20);
+    expect(docs).toEqual(["abcdef"]);
+
+    editor.destroy();
+  });
+
   it("defers change emission until IME composition ends", async () => {
     const container = document.createElement("div");
     const docs: string[] = [];
