@@ -628,6 +628,34 @@ describe("ElectronVaultBroker", () => {
       .toThrow(/missing or belongs/);
   });
 
+  it("resolves a missing image path by a unique Vault basename", async () => {
+    const { root } = await fixtureVault();
+    await mkdir(path.join(root, "attachments"), { recursive: true });
+    await writeFile(path.join(root, "attachments", "Pasted image.png"), Buffer.from([1, 2, 3]));
+    const broker = createBroker({ events: [], watch: watchHarness() });
+    const session = await broker.openSession(sender, root);
+
+    const resource = await broker.createResourceUrl(sender, session.sessionId, "Pasted image.png");
+    const [, sessionCapability, token] = new URL(resource.url).pathname.split("/");
+    const resolved = await broker.readResource(sender.id, sessionCapability, token);
+
+    expect(resolved?.path).toBe(await realpath(path.join(root, "attachments", "Pasted image.png")));
+    expect(Array.from(resolved?.content ?? [])).toEqual([1, 2, 3]);
+  });
+
+  it("rejects ambiguous image basenames instead of choosing arbitrarily", async () => {
+    const { root } = await fixtureVault();
+    await mkdir(path.join(root, "attachments"), { recursive: true });
+    await mkdir(path.join(root, "other"), { recursive: true });
+    await writeFile(path.join(root, "attachments", "Pasted image.png"), Buffer.from([1]));
+    await writeFile(path.join(root, "other", "Pasted image.png"), Buffer.from([2]));
+    const broker = createBroker({ events: [], watch: watchHarness() });
+    const session = await broker.openSession(sender, root);
+
+    await expect(broker.createResourceUrl(sender, session.sessionId, "Pasted image.png"))
+      .rejects.toMatchObject({ code: "vault-path-invalid" });
+  });
+
   it("opens resource files nonblocking and compares bigint file identities", async () => {
     const { root } = await fixtureVault();
     let openedFlags = 0;

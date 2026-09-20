@@ -24,6 +24,8 @@ declare global {
     list(vaultPath: string): Promise<VaultNode[]>;
     read(filePath: string): Promise<DemoFileHandle>;
     readAll(): Promise<Array<{ path: string; content: string }>>;
+    createResourceUrl(filePath: string): Promise<{ url: string; registrationId: string }>;
+    revokeResourceUrl(registrationId: string): Promise<{ ok: boolean }>;
     write(filePath: string, content: string): Promise<{ path: string }>;
     createFile(parentDir: string, name: string): Promise<{ path: string }>;
     createFolder(parentDir: string, name: string): Promise<{ path: string }>;

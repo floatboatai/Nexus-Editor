@@ -37,6 +37,8 @@ export interface VaultBridge {
   list(vaultPath: string): Promise<VaultNode[]>;
   read(filePath: string): Promise<DemoFileHandle>;
   readAll(): Promise<Array<{ path: string; content: string }>>;
+  createResourceUrl(filePath: string): Promise<{ url: string; registrationId: string }>;
+  revokeResourceUrl(registrationId: string): Promise<{ ok: boolean }>;
   write(filePath: string, content: string): Promise<{ path: string }>;
   createFile(parentDir: string, name: string): Promise<{ path: string }>;
   createFolder(parentDir: string, name: string): Promise<{ path: string }>;
@@ -72,6 +74,12 @@ const vaultBridge: VaultBridge = {
   },
   readAll() {
     return ipcRenderer.invoke("vault:read-all");
+  },
+  createResourceUrl(filePath) {
+    return ipcRenderer.invoke("vault:resource-url", filePath);
+  },
+  revokeResourceUrl(registrationId) {
+    return ipcRenderer.invoke("vault:revoke-resource-url", registrationId);
   },
   write(filePath, content) {
     return ipcRenderer.invoke("vault:write", filePath, content);

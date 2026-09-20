@@ -10,7 +10,7 @@ import {
   type ReferencePluginFeatureFlags,
 } from "@floatboat/nexus-reference-plugins";
 import { createState, type AppState } from "./state";
-import { createEditorShell, type EditorShell } from "./editor-shell";
+import { createEditorShell, type EditorShell, type ImageResource } from "./editor-shell";
 import {
   loadSettings,
   saveSettings,
@@ -33,6 +33,7 @@ import {
   createPluginRuntimeHost,
   type PluginRuntimeHost,
 } from "./plugin-runtime-host";
+import { resolveImageReference } from "./image-resolver";
 import {
   ElectronRuntimeProductUiAdapter,
 } from "./runtime-product-ui-adapter";
@@ -148,6 +149,48 @@ function fromIndexPath(filePath: string | null): string | null {
 function resolveWikilink(name: string): string | null {
   const resolved = linkIndex?.resolve(name, toIndexPath(state.activeFile)) ?? null;
   return fromIndexPath(resolved);
+}
+
+async function createImageResource(source: string): Promise<ImageResource | null> {
+  const resolved = resolveImageReference(source, state.activeFile, state.vaultPath);
+  if (!resolved) return null;
+  if (resolved.kind === "external") {
+    return { url: resolved.url, dispose: () => undefined };
+  }
+
+  if (pluginRuntime?.session && window.nexusPlugins) {
+    const bridge = requirePluginBridge();
+    const sessionId = pluginRuntime.session.sessionId;
+    const created = await bridge.vault.createResourceUrl(sessionId, resolved.path);
+    return {
+      url: created.url,
+      dispose: async () => {
+        try {
+          await bridge.vault.revokeResourceUrl(sessionId, created.registrationId);
+        } catch {
+          // The runtime may already have revoked the whole session.
+        }
+      },
+    };
+  }
+
+  if (window.nexusDemo) {
+    const absolutePath = toVaultAbsolutePath(state.vaultPath, resolved.path);
+    if (!absolutePath) return null;
+    const created = await requireLegacyBridge().vault.createResourceUrl(absolutePath);
+    return {
+      url: created.url,
+      dispose: async () => {
+        try {
+          await requireLegacyBridge().vault.revokeResourceUrl(created.registrationId);
+        } catch {
+          // The legacy window cleanup revokes all remaining resources.
+        }
+      },
+    };
+  }
+
+  return null;
 }
 
 function createAppToolbar(): HTMLElement {
@@ -833,6 +876,7 @@ export async function boot(options: BootOptions = {}): Promise<ElectronDemoApp> 
     state,
     settings,
     onStateChange: renderStatus,
+    resolveImageResource: createImageResource,
     resolveWikilink,
     suggestWikilinks: (q) => {
       const names = linkIndex?.getAllNoteNames() ?? [];

@@ -147,6 +147,10 @@ function buildWikiLinkDecorations(
 
   const decos: Range<Decoration>[] = [];
   for (const m of matches) {
+    // `![[image.png]]` is an image embed, not a navigable note link. The
+    // image range collector owns its preview; leaving this decoration in
+    // place would show the embedded filename as a blue wiki-link.
+    if (m.from > 0 && doc[m.from - 1] === "!") continue;
     if (ignore?.(m.target)) continue;
     const unresolved = resolve ? !resolve(m.target) : false;
     const style = unresolved ? UNRESOLVED_STYLE : RESOLVED_STYLE;

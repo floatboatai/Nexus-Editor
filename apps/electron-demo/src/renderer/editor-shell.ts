@@ -39,10 +39,16 @@ function parseImageSize(raw: string): { alt: string; width?: number; height?: nu
   };
 }
 
-// Only ResourcesCapability may mint nexus-vault URLs. The legacy editor path
-// leaves relative sources renderer-relative instead of bypassing that lifecycle.
+// Keep this pure fallback for hosts that do not provide a resource resolver.
+// Electron hosts pass resolveImageResource so local paths cross the Vault
+// security boundary before they become an <img> src.
 export function resolveImageSrc(url: string): string {
   return url;
+}
+
+export interface ImageResource {
+  readonly url: string;
+  readonly dispose: () => void | Promise<void>;
 }
 
 export interface EditorShellOptions {
@@ -56,6 +62,8 @@ export interface EditorShellOptions {
   resolveWikilink?(name: string): string | null;
   /** Returns autocomplete candidates for the query after `[[`. */
   suggestWikilinks?(query: string): string[];
+  /** Resolves a local image through the host resource boundary. */
+  resolveImageResource?(source: string): Promise<ImageResource | null>;
   /**
    * Selects the single owner for migrated editor contributions. Runtime mode
    * leaves toolbar, slash-menu and word-count lifecycle to PluginManager.
@@ -92,11 +100,18 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
     onWikilinkNavigate,
     resolveWikilink,
     suggestWikilinks,
+    resolveImageResource,
     contributionMode = "legacy",
     contributionFeatures = { toolbar: true, slashMenu: true, wordCount: true },
     editorContributions = [],
   } = options;
   const runtimeManaged = contributionMode === "runtime";
+  const imageCleanups = new Set<() => void>();
+  let shellDestroyed = false;
+
+  const disposeImageResources = (): void => {
+    for (const cleanup of [...imageCleanups]) cleanup();
+  };
 
   // Forward ref so the image renderer (built BEFORE createEditor returns)
   // can dispatch selection changes through the editor API after it exists.
@@ -167,7 +182,6 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
               wrapper.setAttribute("data-live-preview-image", node.url);
 
               const img = document.createElement("img");
-              img.src = resolveImageSrc(node.url);
               img.alt = alt;
               if (node.title) img.title = node.title;
               img.referrerPolicy = "no-referrer";
@@ -177,6 +191,52 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
               img.style.borderRadius = "4px";
               if (typeof width === "number") img.style.width = width + "px";
               if (typeof height === "number") img.style.height = height + "px";
+
+              let resource: ImageResource | null = null;
+              let cleaned = false;
+              let observer: MutationObserver | null = null;
+              const cleanup = () => {
+                if (cleaned) return;
+                cleaned = true;
+                observer?.disconnect();
+                observer = null;
+                imageCleanups.delete(cleanup);
+                const current = resource;
+                resource = null;
+                if (current) void current.dispose();
+              };
+              imageCleanups.add(cleanup);
+
+              const showImageError = () => {
+                if (cleaned || !img.parentNode) return;
+                const err = document.createElement("span");
+                err.textContent = `⚠ image not found: ${node.url}`;
+                err.style.cssText =
+                  "display:block;padding:8px 12px;font-size:12px;color:var(--nexus-hl-deletion,#c33);" +
+                  "font-family:monospace;background:var(--nexus-bg-subtle);border-radius:4px;";
+                img.replaceWith(err);
+              };
+
+              if (resolveImageResource) {
+                void resolveImageResource(node.url).then((next) => {
+                  if (!next || shellDestroyed || cleaned || !wrapper.parentNode) {
+                    if (next) void next.dispose();
+                    if (!next) showImageError();
+                    return;
+                  }
+                  resource = next;
+                  img.src = next.url;
+                }).catch(showImageError);
+              } else {
+                img.src = resolveImageSrc(node.url);
+              }
+
+              if (typeof MutationObserver !== "undefined") {
+                observer = new MutationObserver(() => {
+                  if (!wrapper.isConnected && !wrapper.parentNode) cleanup();
+                });
+                observer.observe(container, { childList: true, subtree: true });
+              }
 
               // Top-right action: jump cursor to image source.
               const srcBtn = document.createElement("button");
@@ -297,14 +357,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
               // is what reveals on cursor-on-image or </> click.
               if (alt) img.title = alt;
 
-              img.addEventListener("error", () => {
-                const err = document.createElement("span");
-                err.textContent = `⚠ image not found: ${node.url}`;
-                err.style.cssText =
-                  "display:block;padding:8px 12px;font-size:12px;color:var(--nexus-hl-deletion,#c33);" +
-                  "font-family:monospace;background:var(--nexus-bg-subtle);border-radius:4px;";
-                img.replaceWith(err);
-              });
+              img.addEventListener("error", showImageError);
 
               wrapper.appendChild(img);
               wrapper.appendChild(srcBtn);
@@ -359,6 +412,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
       editor.setTheme(settingsToTheme(next));
     },
     loadDocument(content: string) {
+      disposeImageResources();
       // Load from disk is NOT a user edit — use silent mode to skip the
       // onChange pipeline (avoids redundant parse + link-index rebuild on
       // every file open). Caller owns state.content / dirty below and the
@@ -377,6 +431,8 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
         `${(t1 - t0).toFixed(1)}ms`, { bytes: content.length });
     },
     destroy() {
+      shellDestroyed = true;
+      disposeImageResources();
       wordcount?.destroy();
       slashMenu?.destroy();
       toolbar?.destroy();

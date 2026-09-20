@@ -42,6 +42,11 @@ function createBridgeHarness() {
         path: absolute(path),
         content,
       }))),
+      createResourceUrl: vi.fn(async (path: string) => ({
+        url: `nexus-vault://resource/legacy/${encodeURIComponent(path)}`,
+        registrationId: path,
+      })),
+      revokeResourceUrl: vi.fn(async () => ({ ok: true })),
       write: vi.fn(async (path: string) => ({ path })),
       createFile: vi.fn(async (parent: string, name: string) => ({ path: `${parent}/${name}` })),
       createFolder: vi.fn(async (parent: string, name: string) => ({ path: `${parent}/${name}` })),

@@ -29,6 +29,7 @@ import {
 } from "../src/shared/plugin-ipc";
 
 const SUPPORTED_TEXT_EXTENSIONS = new Set([".md", ".markdown", ".txt"]);
+const SUPPORTED_IMAGE_EXTENSIONS = new Set([".avif", ".gif", ".jpeg", ".jpg", ".png", ".svg", ".webp"]);
 const SKIPPED_DIRECTORIES = new Set(["node_modules", ".git", ".svn", ".hg"]);
 const SESSION_ID_PATTERN = /^[a-f0-9-]{16,}$/i;
 const PLUGIN_ID_PATTERN = /^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$/;
@@ -737,8 +738,9 @@ export class ElectronVaultBroker {
     vaultPath: string,
   ): Promise<{ readonly url: string; readonly registrationId: string }> {
     const session = this.requireSession(sender, sessionId);
+    const normalized = await this.resolveImageResourcePath(session, vaultPath);
     const sessionCapability = session.resourceCapability;
-    await this.resolveAuthorizedPath(session, vaultPath, false);
+    await this.resolveAuthorizedPath(session, normalized, false);
     const currentSession = this.requireSession(sender, sessionId);
     if (currentSession !== session || currentSession.resourceCapability !== sessionCapability) {
       throw new PluginHostBrokerError(
@@ -746,7 +748,6 @@ export class ElectronVaultBroker {
         "Vault session changed while the resource URL was being registered.",
       );
     }
-    const normalized = normalizeVaultRelativePath(vaultPath);
     const token = randomUUID();
     session.resourceTokens.add(token);
     this.resources.set(token, { token, sessionId, senderId: sender.id, vaultPath: normalized });
@@ -754,6 +755,42 @@ export class ElectronVaultBroker {
       url: `nexus-vault://resource/${sessionCapability}/${token}`,
       registrationId: token,
     });
+  }
+
+  private async resolveImageResourcePath(
+    session: VaultSessionRecord,
+    vaultPath: string,
+  ): Promise<string> {
+    const normalized = normalizeVaultRelativePath(vaultPath);
+    const absolute = path.resolve(session.root, ...normalized.split("/"));
+    if (existsSync(absolute)) return normalized;
+
+    const basename = path.posix.basename(normalized).toLocaleLowerCase();
+    const matches: string[] = [];
+    const visit = async (directory: string): Promise<void> => {
+      if (matches.length > 1) return;
+      const entries = await readdir(directory, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.name.startsWith(".") || SKIPPED_DIRECTORIES.has(entry.name) || entry.isSymbolicLink()) continue;
+        const child = path.join(directory, entry.name);
+        if (entry.isDirectory()) {
+          await visit(child);
+        } else if (
+          entry.isFile() &&
+          entry.name.toLocaleLowerCase() === basename &&
+          SUPPORTED_IMAGE_EXTENSIONS.has(path.extname(entry.name).toLocaleLowerCase())
+        ) {
+          matches.push(relativeFromRoot(session.root, child));
+          if (matches.length > 1) return;
+        }
+      }
+    };
+    await visit(session.root);
+    if (matches.length > 1) {
+      throw new PluginHostBrokerError("vault-path-invalid", `Ambiguous image resource: ${basename}`);
+    }
+    if (matches.length === 1) return matches[0];
+    throw new PluginHostBrokerError("vault-path-invalid", `Image resource not found: ${normalized}`);
   }
 
   revokeResourceUrl(
