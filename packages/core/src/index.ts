@@ -23,6 +23,12 @@ export {
   widgetDefinitionSnapshotExtension,
 } from "./markdown-contributions";
 export { markdownAutoPair } from "./markdown-autopair";
+export {
+  createHtmlRenderer,
+  renderMarkdownToHtml,
+  type HtmlRenderer,
+  type HtmlRendererOptions,
+} from "./render-html";
 export { markdownFold, markdownFoldService } from "./markdown-fold";
 export { markdownKeymap, handleMarkdownEnter } from "./markdown-keymap";
 export {

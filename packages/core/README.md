@@ -74,3 +74,28 @@ Multiple ranges in `setSelections` require `multiCursor: true` — without the f
 ## Other config highlights
 
 See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.
+
+## Headless HTML rendering (SSR / SSG)
+
+`editor.exportHTML()` requires a mounted editor. The same pipeline is available
+without a DOM for server-side rendering, static-site builds and scripts:
+
+```ts
+import { createHtmlRenderer, renderMarkdownToHtml } from "@floatboat/nexus-core";
+import { createGfmPreset } from "@floatboat/nexus-preset-gfm";
+
+renderMarkdownToHtml("# Hello", { plugins: [createGfmPreset()] });
+// => "<h1>Hello</h1>"
+
+const renderer = createHtmlRenderer({ plugins: [createGfmPreset()] }); // build once
+renderer.render(markdownA);
+renderer.render(markdownB);
+```
+
+- `plugins` — the `NexusPlugin[]` you pass to `createEditor()`; only their
+  `remarkPlugins` participate. Same plugins ⇒ same HTML as `exportHTML()`.
+- `transform?: (tree: Root) => Root` — optional mdast hook applied after the
+  remark plugins, before HTML conversion.
+- Raw HTML nodes are dropped (remark-rehype default), so output is safe to embed.
+- Live-preview widgets (mermaid, syntax highlighting, KaTeX) are not part of
+  this pipeline; they render in the browser once the editor hydrates.
