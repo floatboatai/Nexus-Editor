@@ -436,6 +436,9 @@ export function createEditor(config: EditorConfig): EditorAPI {
     if (tableEditFlushed) flushScheduledChangeNow();
     const beforeSelection = view.state.selection.main;
     const silent = opts?.silent === true;
+    // Host-driven silent loads must not leave a debounced user edit pending — the
+    // timer would emit stale Markdown against the newly loaded document.
+    if (silent) flushScheduledChangeNow();
     const selection = resolveDocumentSelection(
       { anchor: beforeSelection.anchor, head: beforeSelection.head },
       next.length,
@@ -879,6 +882,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
     replaceRange(from, to, insert, selection, opts) {
       if (destroyed) return;
       const silent = opts?.silent === true;
+      if (silent) flushScheduledChangeNow();
       view.dispatch({
         changes: { from, to, insert },
         selection: selection
