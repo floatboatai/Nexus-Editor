@@ -30,7 +30,7 @@ We ship in priority tiers — **P0 is what we're working on right now**.
 
 ## 💡 Why Nexus-Editor?
 
-Markdown editing on the web is a crowded space — yet every existing option forced us to compromise on something fundamental. We built Nexus because we needed an editor that treats **Markdown text as the source of truth**, stays out of the way of your UI, and is honest about extension points.
+Markdown editing on the web is a crowded space — yet every existing option forced us to compromise on something fundamental. We built Nexus because we needed an editor that treats **Markdown text as a first-class document**, not a JSON shadow copy that only occasionally gets serialized back to `.md`.
 
 ### Side-by-side comparison
 
@@ -51,7 +51,7 @@ Markdown editing on the web is a crowded space — yet every existing option for
 
 ### What this means in practice
 
-- **Tiptap / Lexical / Milkdown / MDXEditor** all keep an internal JSON document model. Markdown is an import/export concern — round-tripping a `.md` file through them can quietly drift (lost soft-breaks, reordered attributes, normalized tables). If your product *is* the Markdown file (notes app, static-site authoring, LLM writing tools), this matters.
+- **Tiptap / Lexical / Milkdown / MDXEditor** all keep an internal JSON document model. Markdown is an import/export concern — round-tripping a `.md` file through them can quietly drift (lost soft-breaks, ordering nuances, custom syntax).
 - **@uiw/react-md-editor** keeps Markdown as the document, but offers a classic split-pane preview — no inline syntax reveal, no widget API, React only.
 - **Obsidian** has the UX we love, but it's closed source. You can't embed its engine in your own product.
 - **Nexus** keeps Markdown as the document **and** gives you Obsidian-style live preview, a widget API, three plugin altitudes, and framework-agnostic bindings — without the WYSIWYG lock-in.
@@ -144,7 +144,7 @@ const editor = createEditor({
 > - **You don't need to know CodeMirror.** The React / Vue wrapper handles the lifecycle. You only meet CodeMirror if you write a low-level plugin.
 > - **Headless means no theme.** We ship logic, not looks. Plan a few hours for styling — the Electron demo is a copy-pasteable starting point.
 > - **Live preview is opt-in.** If you just want a raw Markdown editor, leave it off and you get a clean text-editing experience.
-> - **The AST is `mdast`** — the same tree used by `remark` and the unified ecosystem. If you've never seen it, the [mdast spec](https://github.com/syntax-tree/mdast) is the one-page cheat sheet you actually need.
+> - **The AST is `mdast`** — the same tree used by `remark` and the unified ecosystem. If you've never seen it, the [mdast spec](https://github.com/syntax-tree/mdast) is the one-page cheat sheet you need.
 > - **Don't auto-save on every keystroke.** `onChange` fires constantly — debounce before writing to disk or hitting the network.
 > - **Blank screen?** Nine times out of ten, the container has no height. Give it one and the editor appears.
 > - **Lost?** Open an issue with the `question` label — we'd rather answer the same question 20 times than have you give up.
@@ -199,7 +199,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 
 ## 📖 API Reference
 
-Plugin platform documentation (Chinese): [native plugin API](./docs/plugins/native-plugin-api.zh.md) · [Obsidian migration matrix](./docs/plugins/obsidian-migration.zh.md) · [legacy migration](./docs/plugins/legacy-plugin-migration.zh.md) · [events and security boundaries](./docs/plugins/security-and-events.zh.md)
+Plugin platform documentation (Chinese): [native plugin API](./docs/plugins/native-plugin-api.zh.md) · [Obsidian migration matrix](./docs/plugins/obsidian-migration.zh.md) · [legacy migration](./docs/plugins/legacy-migration.zh.md)
 
 <details>
 <summary><b>Editor API</b> — methods and events</summary>
@@ -282,18 +282,18 @@ We'd love your help — whether it's a typo fix, a new plugin, or a deep core ch
 1. **Fork this repo** — click the **Fork** button at the top of the page.
 2. **Clone your fork** locally:
    ```bash
-   git clone https://github.com/<your-username>/Nexus-Editor.git
+git clone https://github.com/<your-username>/Nexus-Editor.git
    cd Nexus-Editor
    pnpm install
    ```
 3. **Create a branch** following our naming convention (see `CONTRIBUTING.md`):
    ```bash
-   git checkout -b feat/<scope>/<short-description>
+git checkout -b feat/<scope>/<short-description>
    ```
 4. **Make your change** — write tests, run `pnpm test`, run `pnpm build`.
 5. **Commit** using [Conventional Commits](https://www.conventionalcommits.org/):
    ```bash
-   git commit -m "feat(core): add getSelectedText() API"
+git commit -m "feat(core): add getSelectedText() API"
    ```
 6. **Push** to your fork and **open a Pull Request** against `main`.
 
@@ -317,7 +317,7 @@ We'd love your help — whether it's a typo fix, a new plugin, or a deep core ch
 
 ## ⭐ Like what you see?
 
-**If Nexus-Editor saved you from writing yet another Markdown editor from scratch, the kindest thing you can do is hit the ⭐ button** — it helps other devs find the project, and it genuinely makes our day.
+**If Nexus-Editor saved you from writing yet another Markdown editor from scratch, the kindest thing you can do is hit the ⭐ button** — it helps other devs find the project, and it genuinely makes a difference.
 
 ### Spread the word
 
@@ -329,3 +329,6 @@ We'd love your help — whether it's a typo fix, a new plugin, or a deep core ch
 **Built with ❤️ for makers who still believe Markdown is the right format.**
 
 </div>
+
+## 使用简介
+Nexus‑Editor是一款Markdown实时编辑器，可以一边输入一边预览渲染效果。欢迎提交Issue反馈bug与新需求。
