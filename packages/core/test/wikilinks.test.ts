@@ -124,6 +124,16 @@ describe("wikilinks decorations (rendered output)", () => {
     editor.destroy();
   });
 
+  it("does not decorate an Obsidian image embed as a navigable wiki link", () => {
+    const { container, editor } = mount("line 1\n![[assets/photo.png]]\n\nend", {
+      resolve: () => "/vault/photo.png",
+    });
+    editor.setSelection(editor.getDocument().length);
+
+    expect(container.querySelector("[data-wikilink-target]")).toBeNull();
+    editor.destroy();
+  });
+
   it("does not let live preview render [[target]] as a markdown shortcut link", () => {
     const container = document.createElement("div");
     const editor = createEditor({

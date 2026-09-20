@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 const electronHarness = vi.hoisted(() => ({
   appListeners: new Map<string, Array<(...args: any[]) => void>>(),
@@ -9,6 +12,7 @@ const electronHarness = vi.hoisted(() => ({
   sessions: [] as Array<{
     readonly partition: string;
     readonly handledSchemes: Set<string>;
+    readonly protocolHandlers: Map<string, (request: Request) => Promise<Response> | Response>;
     readonly unhandle: ReturnType<typeof vi.fn>;
   }>,
   windows: [] as Array<{
@@ -124,13 +128,18 @@ vi.mock("electron", () => {
     session: {
       fromPartition: (partition: string) => {
         const handledSchemes = new Set<string>();
+        const protocolHandlers = new Map<string, (request: Request) => Promise<Response> | Response>();
         const unhandle = vi.fn((scheme: string) => handledSchemes.delete(scheme));
         const fakeSession = {
           partition,
           handledSchemes,
+          protocolHandlers,
           unhandle,
           protocol: {
-            handle: (scheme: string) => { handledSchemes.add(scheme); },
+            handle: (scheme: string, handler: (request: Request) => Promise<Response> | Response) => {
+              handledSchemes.add(scheme);
+              protocolHandlers.set(scheme, handler);
+            },
             unhandle,
           },
         };
@@ -202,6 +211,40 @@ describe("Electron main window host", () => {
     await expect(openFile(eventFor(electronHarness.windows[0]))).resolves.toBeNull();
     expect(runtime.isDestroyed()).toBe(false);
     expect(legacy.isDestroyed()).toBe(false);
+  });
+
+  it("serves and revokes a legacy Vault image through an opaque resource URL", async () => {
+    const { createWindow } = await import("../electron/main");
+    const root = await mkdtemp(path.join(os.tmpdir(), "nexus-legacy-resource-"));
+    const imagePath = path.join(root, "attachments", "Pasted image 20251017153449.png");
+    const requestedPath = path.join(root, "Pasted image 20251017153449.png");
+    const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+    await writeFile(path.join(root, "note.md"), "# Note");
+    await mkdir(path.dirname(imagePath), { recursive: true });
+    await writeFile(imagePath, bytes);
+    const window = createWindow({ hostMode: "legacy", windowId: "legacy-resource" });
+    const fake = electronHarness.windows[0];
+    const event = eventFor(fake);
+    const list = electronHarness.ipcHandlers.get("vault:list")!;
+    const createResource = electronHarness.ipcHandlers.get("vault:resource-url")!;
+    const revokeResource = electronHarness.ipcHandlers.get("vault:revoke-resource-url")!;
+
+    await list(event, root);
+    const resource = await createResource(event, requestedPath) as { url: string; registrationId: string };
+    expect(resource.url).toMatch(/^nexus-vault:\/\/resource\//);
+
+    const protocolHandler = electronHarness.sessions[0].protocolHandlers.get("nexus-vault")!;
+    const response = await protocolHandler(new Request(resource.url));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+
+    await revokeResource(event, resource.registrationId);
+    const revoked = await protocolHandler(new Request(resource.url));
+    expect(revoked.status).toBe(404);
+
+    window.destroy();
+    await rm(root, { recursive: true, force: true });
   });
 
   it("rejects an unsolicited shutdown ACK and keeps the window alive", async () => {

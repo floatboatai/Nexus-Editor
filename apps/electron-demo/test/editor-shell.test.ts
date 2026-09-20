@@ -23,6 +23,33 @@ describe("createEditorShell", () => {
     shell.destroy();
   });
 
+  it("assigns resolved image resources and disposes them when the document changes", async () => {
+    const container = document.createElement("div");
+    const dispose = vi.fn();
+    const resolveImageResource = vi.fn(async () => ({
+      url: "data:image/png;base64,AA==",
+      dispose,
+    }));
+    const shell = createEditorShell({
+      container,
+      state: createState(),
+      settings: defaultSettings(),
+      resolveImageResource,
+      onStateChange: vi.fn(),
+    });
+
+    shell.loadDocument("![Screenshot](assets/screenshot.png)");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(resolveImageResource).toHaveBeenCalledWith("assets/screenshot.png");
+    expect(container.querySelector<HTMLImageElement>("[data-live-preview-image] img")?.getAttribute("src"))
+      .toBe("data:image/png;base64,AA==");
+
+    shell.loadDocument("plain text");
+    expect(dispose).toHaveBeenCalledOnce();
+    shell.destroy();
+  });
+
   it("marks state dirty when the editor content changes", async () => {
     const container = document.createElement("div");
     const state = createState();

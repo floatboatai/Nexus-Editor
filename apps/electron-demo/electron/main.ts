@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol, session, shell } from "electron";
 import { randomUUID } from "node:crypto";
-import { readFile, writeFile, readdir, mkdir, rename, stat } from "node:fs/promises";
+import { readFile, writeFile, readdir, mkdir, rename, stat, realpath } from "node:fs/promises";
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -47,6 +47,8 @@ interface WindowRuntimeState {
   readonly windowSession: Electron.Session;
   readonly hostMode: NexusHostMode;
   activeVault: string | null;
+  readonly legacyResourceCapability: string;
+  readonly legacyResources: Map<string, string>;
   activeWatcher: FSWatcher | null;
   watchNotifyTimer: NodeJS.Timeout | null;
   shutdownTimer: NodeJS.Timeout | null;
@@ -122,6 +124,8 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
     windowSession,
     hostMode,
     activeVault: null,
+    legacyResourceCapability: randomUUID(),
+    legacyResources: new Map(),
     activeWatcher: null,
     watchNotifyTimer: null,
     shutdownTimer: null,
@@ -193,9 +197,34 @@ function registerVaultProtocol(windowProtocol: Electron.Protocol, senderId: numb
       if (segments.length !== 2) return new Response("Not found", { status: 404 });
       const [sessionCapability, token] = segments;
       const resource = await pluginVaultBroker?.readResource(senderId, sessionCapability, token);
-      if (!resource) return new Response("Not found", { status: 404 });
-      return new Response(Uint8Array.from(resource.content).buffer, {
-        headers: { "content-type": contentTypeForPath(resource.path) },
+      if (resource) {
+        return new Response(Uint8Array.from(resource.content).buffer, {
+          headers: { "content-type": contentTypeForPath(resource.path) },
+        });
+      }
+
+      const registration = windowRegistry.registrationForSenderId(senderId);
+      const state = registration?.state;
+      if (!state || state.legacyResourceCapability !== sessionCapability) {
+        return new Response("Not found", { status: 404 });
+      }
+      const requestedPath = state.legacyResources.get(token);
+      if (!requestedPath || !state.activeVault) return new Response("Not found", { status: 404 });
+
+      const absoluteRoot = await realpath(state.activeVault);
+      const absolutePath = await realpath(assertInsideVault(state, requestedPath));
+      const relative = path.relative(absoluteRoot, absolutePath);
+      if (relative.startsWith("..") || path.isAbsolute(relative)) {
+        return new Response("Not found", { status: 404 });
+      }
+      const info = await stat(absolutePath);
+      if (!info.isFile()) return new Response("Not found", { status: 404 });
+      const content = await readFile(absolutePath);
+      if (state.legacyResources.get(token) !== requestedPath) {
+        return new Response("Not found", { status: 404 });
+      }
+      return new Response(Uint8Array.from(content).buffer, {
+        headers: { "content-type": contentTypeForPath(absolutePath) },
       });
     } catch {
       return new Response("Not found", { status: 404 });
@@ -449,6 +478,7 @@ function releaseWindowResources(senderId: number): void {
   if (state.shutdownTimer) clearTimeout(state.shutdownTimer);
   state.shutdownTimer = null;
   stopWatcher(state);
+  state.legacyResources.clear();
   externalNavigationBroker?.closeSender(senderId);
   pluginVaultBroker?.closeSender(senderId);
   try {
@@ -612,6 +642,49 @@ async function scanDirectory(dir: string): Promise<VaultNode[]> {
   return nodes;
 }
 
+async function findUniqueVaultImage(root: string, basename: string): Promise<string | null> {
+  const wanted = basename.toLocaleLowerCase();
+  const matches: string[] = [];
+  const visit = async (directory: string): Promise<void> => {
+    if (matches.length > 1) return;
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") || SKIP_DIRS.has(entry.name) || entry.isSymbolicLink()) continue;
+      const child = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(child);
+      } else if (
+        entry.isFile() &&
+        entry.name.toLocaleLowerCase() === wanted &&
+        contentTypeForPath(entry.name).startsWith("image/")
+      ) {
+        matches.push(child);
+        if (matches.length > 1) return;
+      }
+    }
+  };
+  await visit(root);
+  if (matches.length > 1) {
+    throw new Error(`Ambiguous image resource: ${basename}`);
+  }
+  return matches[0] ?? null;
+}
+
+async function resolveLegacyImagePath(state: WindowRuntimeState, requestedPath: string): Promise<string> {
+  const absolute = assertInsideVault(state, requestedPath);
+  try {
+    const info = await stat(absolute);
+    if (info.isFile() && contentTypeForPath(absolute).startsWith("image/")) return absolute;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+
+  if (!state.activeVault) throw new Error("No active vault");
+  const fallback = await findUniqueVaultImage(state.activeVault, path.basename(absolute));
+  if (fallback) return assertInsideVault(state, fallback);
+  throw Object.assign(new Error(`Image resource not found: ${requestedPath}`), { code: "ENOENT" });
+}
+
 function stopWatcher(state: WindowRuntimeState): void {
   if (state.watchNotifyTimer) clearTimeout(state.watchNotifyTimer);
   state.watchNotifyTimer = null;
@@ -700,6 +773,29 @@ ipcMain.handle("vault:read", async (event, filePath: string) => {
   const abs = assertInsideVault(state, filePath);
   const content = await readFile(abs, "utf-8");
   return { path: abs, content };
+});
+
+ipcMain.handle("vault:resource-url", async (event, filePath: string) => {
+  const { state } = registrationForEvent(event);
+  const abs = await resolveLegacyImagePath(state, filePath);
+  const info = await stat(abs);
+  if (!info.isFile() || !contentTypeForPath(abs).startsWith("image/")) {
+    throw new Error("Vault resource is not a supported image file");
+  }
+  const registrationId = randomUUID();
+  state.legacyResources.set(registrationId, abs);
+  const capability = encodeURIComponent(state.legacyResourceCapability);
+  const token = encodeURIComponent(registrationId);
+  return {
+    url: `nexus-vault://resource/${capability}/${token}`,
+    registrationId,
+  };
+});
+
+ipcMain.handle("vault:revoke-resource-url", async (event, registrationId: string) => {
+  const { state } = registrationForEvent(event);
+  state.legacyResources.delete(registrationId);
+  return { ok: true };
 });
 
 // Bulk read every markdown file in the active vault — used to seed the
