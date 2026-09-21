@@ -82,6 +82,7 @@ function positionToolbarTooltip(button: HTMLElement, tooltip: HTMLElement): void
   const rect = button.getBoundingClientRect();
   tooltip.style.left = `${rect.left + rect.width / 2}px`;
   tooltip.style.top = `${rect.bottom + 8}px`;
+  tooltip.style.transform = "translateX(-50%)";
 }
 
 function installToolbarTooltip(button: HTMLButtonElement): () => void {

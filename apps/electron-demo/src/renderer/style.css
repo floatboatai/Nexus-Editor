@@ -343,3 +343,17 @@ body,
   color: var(--nexus-accent, #2563eb);
   font-weight: 500;
 }
+
+.nexus-toolbar-tooltip {
+  position: fixed;
+  z-index: 10000;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--nexus-text, #24292e);
+  color: var(--nexus-bg, #fff);
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
