@@ -12,6 +12,7 @@ import {
   toggleUnorderedList,
   insertTable,
   toggleTaskList,
+  toggleTaskChecked,
   createToolbarPlugin,
   createToolbarUI,
 } from "../src/index";
@@ -962,6 +963,135 @@ describe("toolbar UI — table and task-list buttons", () => {
 
     button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(editor.getDocument()).toBe("- [ ] todo");
+
+    toolbar.destroy();
+    editor.destroy();
+  });
+});
+
+describe("insertTable — replaces a non-empty selection", () => {
+  it("replaces the selected text with the table", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "remove this text" });
+
+    editor.setSelection(0, "remove this text".length);
+    insertTable(editor);
+
+    const doc = editor.getDocument();
+    expect(doc).not.toContain("remove this text");
+    expect(doc.startsWith("| Header 1 |")).toBe(true);
+    editor.destroy();
+  });
+
+  it("keeps surrounding content intact when replacing a mid-document selection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "before\nmiddle\nafter" });
+
+    // Select the word "middle".
+    editor.setSelection("before\n".length, "before\nmiddle".length);
+    insertTable(editor);
+
+    const doc = editor.getDocument();
+    expect(doc.startsWith("before\n")).toBe(true);
+    expect(doc.endsWith("\nafter")).toBe(true);
+    expect(doc).not.toContain("middle");
+    expect(doc).toContain("| Header 1 |");
+    editor.destroy();
+  });
+});
+
+describe("toggleTaskChecked", () => {
+  it("checks an unchecked task item", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- [ ] a" });
+
+    editor.setSelection(0, 0);
+    expect(toggleTaskChecked(editor)).toBe(true);
+    expect(editor.getDocument()).toBe("- [x] a");
+    editor.destroy();
+  });
+
+  it("unchecks a checked task item", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- [x] a" });
+
+    editor.setSelection(0, 0);
+    expect(toggleTaskChecked(editor)).toBe(true);
+    expect(editor.getDocument()).toBe("- [ ] a");
+    editor.destroy();
+  });
+
+  it("flips only the task items in a mixed selection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- [ ] a\n- [x] b\nplain" });
+
+    editor.setSelection(0, 15);
+    expect(toggleTaskChecked(editor)).toBe(true);
+    expect(editor.getDocument()).toBe("- [x] a\n- [ ] b\nplain");
+    editor.destroy();
+  });
+
+  it("is a no-op and returns false when there is no task item", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "plain text" });
+
+    editor.setSelection(0, 0);
+    expect(toggleTaskChecked(editor)).toBe(false);
+    expect(editor.getDocument()).toBe("plain text");
+    editor.destroy();
+  });
+
+  it("flips checked state as a single undo step", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- [ ] a", plugins: [createHistoryPlugin()] });
+
+    editor.setSelection(0, 0);
+    toggleTaskChecked(editor);
+    expect(editor.getDocument()).toBe("- [x] a");
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("- [ ] a");
+
+    // Exactly one history entry.
+    expect(editor.undo()).toBe(false);
+    editor.destroy();
+  });
+});
+
+describe("toolbar slash commands — task-toggle", () => {
+  it("registers task-toggle as a slash command", () => {
+    const plugin = createToolbarPlugin();
+    const ids = (plugin.slashCommands ?? []).map((c) => c.id);
+    expect(ids).toEqual(expect.arrayContaining(["task-toggle"]));
+  });
+
+  it("executes the task-toggle slash command through the editor", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- [ ] todo", plugins: [createToolbarPlugin()] });
+
+    editor.setSelection(0, 0);
+    const cmd = editor.getSlashCommands().find((c) => c.id === "task-toggle");
+    expect(cmd).toBeDefined();
+    expect(cmd?.run?.(editor)).toBe(true);
+    expect(editor.getDocument()).toBe("- [x] todo");
+    editor.destroy();
+  });
+});
+
+describe("toolbar UI — task-toggle button", () => {
+  it("renders a task-toggle button that flips the checkbox on click", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- [ ] todo" });
+    const toolbar = createToolbarUI(editor);
+    document.body.appendChild(toolbar.element);
+
+    editor.setSelection(0, 0);
+    const button = toolbar.element.querySelector<HTMLButtonElement>('[data-toolbar-action="task-toggle"]');
+    expect(button).not.toBeNull();
+    expect(button?.getAttribute("aria-label")).toBe("Toggle checkboxes");
+
+    button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(editor.getDocument()).toBe("- [x] todo");
 
     toolbar.destroy();
     editor.destroy();

@@ -191,3 +191,12 @@ export function iconTaskList(): HTMLElement {
     `<line x1="11" y1="12" x2="16" y2="12"/>`
   );
 }
+
+export function iconTaskToggle(): HTMLElement {
+  return svgIcon(
+    `<rect x="2" y="3" width="7" height="7" rx="1"/>` +
+    `<path d="M3.5 6.5l1.5 1.5 2.5-3"/>` +
+    `<path d="M12 4l2 2 4-4"/>` +
+    `<line x1="11" y1="13" x2="16" y2="13"/>`
+  );
+}

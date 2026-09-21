@@ -19,6 +19,7 @@ import {
   applyHighlight,
   insertTable,
   toggleTaskList,
+  toggleTaskChecked,
 } from "./formatting";
 import {
   iconUndo,
@@ -41,6 +42,7 @@ import {
   iconImage,
   iconTable,
   iconTaskList,
+  iconTaskToggle,
   iconFullscreen,
 } from "./icons";
 
@@ -177,6 +179,7 @@ function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
         { id: "ordered-list", title: "Ordered list", icon: iconOrderedList, action: toggleOrderedList },
         { id: "unordered-list", title: "Unordered list", icon: iconUnorderedList, action: toggleUnorderedList },
         { id: "task-list", title: "Task list", icon: iconTaskList, action: toggleTaskList },
+        { id: "task-toggle", title: "Toggle checkboxes", icon: iconTaskToggle, action: toggleTaskChecked },
       ],
     },
     {

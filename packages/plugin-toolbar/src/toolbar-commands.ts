@@ -7,6 +7,7 @@ import {
   insertTable,
   toggleBlockquote,
   toggleOrderedList,
+  toggleTaskChecked,
   toggleTaskList,
   toggleUnorderedList,
 } from "./formatting";
@@ -195,5 +196,12 @@ export const toolbarSlashCommands: SlashCommandDef[] = [
     description: "Toggle a checkbox task list on the selection",
     keywords: ["task", "todo", "checkbox", "checklist", "list"],
     run: toggleTaskList,
+  },
+  {
+    id: "task-toggle",
+    title: "Toggle checkboxes",
+    description: "Flip the checked state of task list items in the selection",
+    keywords: ["task", "checkbox", "check", "tick", "done", "todo"],
+    run: toggleTaskChecked,
   },
 ];

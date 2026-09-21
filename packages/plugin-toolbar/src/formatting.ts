@@ -247,6 +247,9 @@ function buildTableRow(cells: readonly string[]): string {
  *
  * Surrounding newlines are added only when needed, so inserting into the middle
  * of a paragraph or at the very start/end of the document stays well-formed.
+ *
+ * A non-empty selection is **replaced** by the table (its text is discarded),
+ * consistent with the other insert commands in this module.
  */
 export function insertTable(editor: EditorAPI, options: InsertTableOptions = {}): boolean {
   const cols = Math.max(1, Math.floor(options.cols ?? 3));
@@ -317,7 +320,10 @@ export function toggleTaskList(editor: EditorAPI): boolean {
         return `${task[1]}${task[4]}`;
       }
       // Not all lines are tasks yet — normalise existing items to unchecked.
-      return line.replace(TASK_MARKER, "$1$2[ ] $4");
+      // Build the replacement from the captured groups explicitly (rather than
+      // a "$1$2[ ] $4" substitution) so the transform stays readable and immune
+      // to accidental `$` characters in the surrounding text.
+      return `${task[1]}${task[2]}[ ] ${task[4]}`;
     }
 
     const list = line.match(LIST_MARKER);
@@ -327,6 +333,39 @@ export function toggleTaskList(editor: EditorAPI): boolean {
 
     const indent = line.match(/^(\s*)/)?.[1] ?? "";
     return `${indent}- [ ] ${line.slice(indent.length)}`;
+  });
+
+  return applyLines(editor, lines, newLines);
+}
+
+/**
+ * Flip the checked state of every task item intersecting the selection.
+ *
+ * `- [ ]` becomes `- [x]` and `- [x]` becomes `- [ ]` on a per-line basis.
+ * Lines that are NOT already task items (plain text, bullets, ordered lists)
+ * are left untouched, so on a selection with no task items this is a no-op and
+ * returns `false`.
+ *
+ * Rewritten in one `replaceRange` transaction so the whole flip — including the
+ * caret move — is a single undo step.
+ */
+export function toggleTaskChecked(editor: EditorAPI): boolean {
+  const doc = editor.getDocument();
+  const { anchor, head } = editor.getSelection();
+  const from = Math.min(anchor, head);
+  const to = Math.max(anchor, head);
+  const lines = getLinesInRange(doc, from, to);
+
+  if (!lines.some(({ line }) => TASK_MARKER.test(line))) {
+    return false; // nothing to flip
+  }
+
+  const newLines = lines.map(({ line }) => {
+    const task = line.match(TASK_MARKER);
+    if (!task) return line;
+    // task[3] is the existing mark: " " (unchecked) or "x"/"X" (checked).
+    const checked = task[3] === " " ? "x" : " ";
+    return `${task[1]}${task[2]}[${checked}] ${task[4]}`;
   });
 
   return applyLines(editor, lines, newLines);
