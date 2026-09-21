@@ -625,8 +625,11 @@ export class EditableTableWidget extends WidgetType {
     if (tableEnd > v.state.doc.length || v.state.doc.sliceString(this.tableFrom, tableEnd) !== this.source) {
       return;
     }
+    // Structural ops carry userEvent so plugin-history can isolate them, plus
+    // isolateHistory here so consecutive row/column ops never join via
+    // newGroupDelay even if the plugin extender is absent.
     v.dispatch({
-      changes: { from: this.tableFrom, to: this.tableFrom + this.source.length, insert: newSource },
+      changes: { from: this.tableFrom, to: tableEnd, insert: newSource },
       userEvent: TABLE_STRUCTURE_USER_EVENT,
       annotations: isolateHistory.of("full"),
     });
@@ -663,14 +666,9 @@ export class EditableTableWidget extends WidgetType {
   private addRow(): void {
     const cc = (this.node.children?.[0] as any)?.children?.length ?? 2;
     const nr = "\n| " + Array(cc).fill("  ").join(" | ") + " |";
-    const v = this.viewRef.current;
-    if (!v) return;
-    v.dispatch({
-      changes: { from: this.tableFrom + this.source.length, insert: nr },
-      userEvent: TABLE_STRUCTURE_USER_EVENT,
-      annotations: isolateHistory.of("full"),
-    });
-    this.source += nr;
+    // Route through the shared dispatch so row inserts get the same source
+    // staleness guard and undo-group isolation as other structural ops.
+    this.dispatch(this.source + nr);
   }
 
   private moveColumn(from: number, to: number, source = this.source): void {

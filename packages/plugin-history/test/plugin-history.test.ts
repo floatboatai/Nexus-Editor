@@ -258,4 +258,60 @@ describe("@floatboat/nexus-plugin-history", () => {
     editor.destroy();
     container.remove();
   });
+
+  it("treats consecutive add-row clicks as separate undo groups", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const initial = "| A |\n| --- |\n| 1 |";
+    const editor = createEditor({
+      container,
+      initialValue: initial,
+      livePreview: true,
+      plugins: [createHistoryPlugin(), createGfmPreset()]
+    });
+    const clickAddRow = () => {
+      const button = container.querySelector<HTMLButtonElement>('button[title="Add row"]');
+      if (!button) throw new Error("Expected add-row button");
+      button.click();
+    };
+
+    clickAddRow();
+    const afterFirst = editor.getDocument();
+    expect(afterFirst).not.toBe(initial);
+
+    clickAddRow();
+    const afterSecond = editor.getDocument();
+    expect(afterSecond).not.toBe(afterFirst);
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe(afterFirst);
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe(initial);
+
+    editor.destroy();
+    container.remove();
+  });
+
+  it("commits a dirty table cell before undo so the in-progress edit is reverted", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({
+      container,
+      initialValue: "| A | B |\n| --- | --- |\n| 1 | 2 |",
+      livePreview: true,
+      plugins: [createHistoryPlugin(), createGfmPreset()]
+    });
+    const cell = container.querySelectorAll<HTMLElement>("tr")[2]?.querySelectorAll<HTMLElement>(".nexus-cell")[0];
+    if (!cell) throw new Error("Expected table cell");
+
+    editCell(cell, "edited");
+    expect(editor.getDocument()).toContain("| 1 | 2 |");
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toContain("| 1 | 2 |");
+    expect(editor.getDocument()).not.toContain("edited");
+
+    editor.destroy();
+    container.remove();
+  });
 });
