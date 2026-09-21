@@ -10,6 +10,8 @@ import {
   toggleHeading,
   toggleOrderedList,
   toggleUnorderedList,
+  insertTable,
+  toggleTaskList,
   createToolbarPlugin,
   createToolbarUI,
 } from "../src/index";
@@ -603,6 +605,365 @@ describe("toggleUnorderedList — atomic undo", () => {
 
     editor.undo();
     expect(editor.getDocument()).toBe(original);
+    editor.destroy();
+  });
+});
+
+describe("insertTable", () => {
+  it("inserts a default 3x3 table with header at the document start", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "" });
+
+    editor.setSelection(0, 0);
+    insertTable(editor);
+
+    const expected = [
+      "| Header 1 | Header 2 | Header 3 |",
+      "| --- | --- | --- |",
+      "|  |  |  |",
+      "|  |  |  |",
+      "|  |  |  |",
+    ].join("\n");
+    expect(editor.getDocument()).toBe(expected);
+    editor.destroy();
+  });
+
+  it("places the caret inside the first body cell", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "" });
+
+    editor.setSelection(0, 0);
+    insertTable(editor);
+
+    const { anchor } = editor.getSelection();
+    // The caret should sit between the two spaces of the first empty cell.
+    expect(editor.getDocument()[anchor - 1]).toBe(" ");
+    expect(editor.getDocument()[anchor]).toBe(" ");
+    expect(editor.getDocument()[anchor + 1]).toBe("|");
+    editor.destroy();
+  });
+
+  it("honours cols / rows / includeHeaderRow options", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "" });
+
+    editor.setSelection(0, 0);
+    insertTable(editor, { cols: 2, rows: 1, includeHeaderRow: false });
+
+    const expected = ["| --- | --- |", "|  |  |"].join("\n");
+    expect(editor.getDocument()).toBe(expected);
+    editor.destroy();
+  });
+
+  it("emits a header row when includeHeaderRow is true and rows is 1", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "" });
+
+    editor.setSelection(0, 0);
+    insertTable(editor, { cols: 1, rows: 1, includeHeaderRow: true });
+
+    const expected = ["| Header 1 |", "| --- |", "|  |"].join("\n");
+    expect(editor.getDocument()).toBe(expected);
+    editor.destroy();
+  });
+
+  it("adds surrounding newlines when inserted into the middle of a line", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "word" });
+
+    editor.setSelection(4, 4); // end of "word"
+    insertTable(editor);
+
+    const doc = editor.getDocument();
+    const table = [
+      "| Header 1 | Header 2 | Header 3 |",
+      "| --- | --- | --- |",
+      "|  |  |  |",
+      "|  |  |  |",
+      "|  |  |  |",
+    ].join("\n");
+    expect(doc.startsWith("word\n")).toBe(true);
+    expect(doc.endsWith(table)).toBe(true);
+    editor.destroy();
+  });
+
+  it("does not add a leading newline at the very start of the document", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "word" });
+
+    editor.setSelection(0, 0);
+    insertTable(editor);
+
+    const doc = editor.getDocument();
+    const table = [
+      "| Header 1 | Header 2 | Header 3 |",
+      "| --- | --- | --- |",
+      "|  |  |  |",
+      "|  |  |  |",
+      "|  |  |  |",
+    ].join("\n");
+    // From=0 → no leading newline; the table is immediately followed by "word".
+    expect(doc.startsWith(table)).toBe(true);
+    expect(doc.endsWith("word")).toBe(true);
+    editor.destroy();
+  });
+});
+
+describe("toggleTaskList", () => {
+  it("converts a plain text line into a task item", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "buy milk" });
+
+    editor.setSelection(0, 0);
+    toggleTaskList(editor);
+
+    expect(editor.getDocument()).toBe("- [ ] buy milk");
+    editor.destroy();
+  });
+
+  it("converts an unordered list item into a task item", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- buy milk" });
+
+    editor.setSelection(0, 0);
+    toggleTaskList(editor);
+
+    expect(editor.getDocument()).toBe("- [ ] buy milk");
+    editor.destroy();
+  });
+
+  it("converts an ordered list item into a task item", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "1. buy milk" });
+
+    editor.setSelection(0, 0);
+    toggleTaskList(editor);
+
+    expect(editor.getDocument()).toBe("- [ ] buy milk");
+    editor.destroy();
+  });
+
+  it("preserves leading indentation when converting", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "  plain" });
+
+    editor.setSelection(2, 2);
+    toggleTaskList(editor);
+
+    expect(editor.getDocument()).toBe("  - [ ] plain");
+    editor.destroy();
+  });
+
+  it("removes the marker when toggling an existing task item off", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- [ ] buy milk" });
+
+    editor.setSelection(0, 0);
+    toggleTaskList(editor);
+
+    expect(editor.getDocument()).toBe("buy milk");
+    editor.destroy();
+  });
+
+  it("removes the marker from a checked task item", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- [x] buy milk" });
+
+    editor.setSelection(0, 0);
+    toggleTaskList(editor);
+
+    expect(editor.getDocument()).toBe("buy milk");
+    editor.destroy();
+  });
+
+  it("toggles every selected line into task items (multi-line)", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "a\nb\nc" });
+
+    editor.setSelection(0, 4); // covers "a\nb", leaves "c" untouched
+    toggleTaskList(editor);
+
+    expect(editor.getDocument()).toBe("- [ ] a\n- [ ] b\nc");
+    editor.destroy();
+  });
+
+  it("toggles a multi-line task list off in one pass", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- [ ] a\n- [ ] b" });
+
+    editor.setSelection(0, 13);
+    toggleTaskList(editor);
+
+    expect(editor.getDocument()).toBe("a\nb");
+    editor.destroy();
+  });
+
+  it("normalises a mixed selection to task items without removing existing ones", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- [ ] a\nb" });
+
+    editor.setSelection(0, 9);
+    toggleTaskList(editor);
+
+    expect(editor.getDocument()).toBe("- [ ] a\n- [ ] b");
+    editor.destroy();
+  });
+
+  it("normalises checked items back to unchecked within a mixed toggle", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- [x] a\nb" });
+
+    editor.setSelection(0, 9);
+    toggleTaskList(editor);
+
+    expect(editor.getDocument()).toBe("- [ ] a\n- [ ] b");
+    editor.destroy();
+  });
+
+  it("handles a reversed (head before anchor) selection", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "a\nb" });
+
+    editor.setSelection(3, 0);
+    toggleTaskList(editor);
+
+    expect(editor.getDocument()).toBe("- [ ] a\n- [ ] b");
+    editor.destroy();
+  });
+});
+
+describe("insertTable — atomic undo", () => {
+  it("insert → single undo fully restores the document", () => {
+    const container = document.createElement("div");
+    const original = "hello world";
+    const editor = createEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
+
+    editor.setSelection(0, 0);
+    insertTable(editor);
+    expect(editor.getDocument()).not.toBe(original);
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe(original);
+
+    // Exactly one history entry was created.
+    expect(editor.undo()).toBe(false);
+    editor.destroy();
+  });
+
+  it("insert → undo → redo round-trip is consistent", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "text", plugins: [createHistoryPlugin()] });
+
+    editor.setSelection(4, 4);
+    insertTable(editor);
+    const inserted = editor.getDocument();
+    expect(inserted.startsWith("text\n")).toBe(true);
+
+    editor.undo();
+    expect(editor.getDocument()).toBe("text");
+
+    expect(editor.redo()).toBe(true);
+    expect(editor.getDocument()).toBe(inserted);
+    editor.destroy();
+  });
+});
+
+describe("toggleTaskList — atomic undo", () => {
+  it("multi-line toggle → single undo restores the document", () => {
+    const container = document.createElement("div");
+    const original = "a\nb\nc";
+    const editor = createEditor({ container, initialValue: original, plugins: [createHistoryPlugin()] });
+
+    editor.setSelection(0, 4); // covers "a\nb", leaves "c" untouched
+    toggleTaskList(editor);
+    expect(editor.getDocument()).toBe("- [ ] a\n- [ ] b\nc");
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe(original);
+
+    expect(editor.undo()).toBe(false);
+    editor.destroy();
+  });
+
+  it("toggle off → undo restores the task list", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "- [ ] a\n- [ ] b", plugins: [createHistoryPlugin()] });
+
+    editor.setSelection(0, 13);
+    toggleTaskList(editor);
+    expect(editor.getDocument()).toBe("a\nb");
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("- [ ] a\n- [ ] b");
+    editor.destroy();
+  });
+});
+
+describe("toolbar slash commands — table and task list", () => {
+  it("registers table and task-list as slash commands", () => {
+    const plugin = createToolbarPlugin();
+    const ids = (plugin.slashCommands ?? []).map((c) => c.id);
+    expect(ids).toEqual(expect.arrayContaining(["table", "task-list"]));
+  });
+
+  it("executes the table slash command through the editor", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "", plugins: [createToolbarPlugin()] });
+
+    editor.setSelection(0, 0);
+    const tableCmd = editor.getSlashCommands().find((c) => c.id === "table");
+    expect(tableCmd).toBeDefined();
+    expect(tableCmd?.run?.(editor)).toBe(true);
+    expect(editor.getDocument().startsWith("| Header 1 |")).toBe(true);
+    editor.destroy();
+  });
+
+  it("executes the task-list slash command through the editor", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "todo", plugins: [createToolbarPlugin()] });
+
+    editor.setSelection(0, 0);
+    const cmd = editor.getSlashCommands().find((c) => c.id === "task-list");
+    expect(cmd).toBeDefined();
+    expect(cmd?.run?.(editor)).toBe(true);
+    expect(editor.getDocument()).toBe("- [ ] todo");
+    editor.destroy();
+  });
+});
+
+describe("toolbar UI — table and task-list buttons", () => {
+  it("renders a table button that inserts a table on click", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "" });
+    const toolbar = createToolbarUI(editor);
+    document.body.appendChild(toolbar.element);
+
+    const button = toolbar.element.querySelector<HTMLButtonElement>('[data-toolbar-action="table"]');
+    expect(button).not.toBeNull();
+    expect(button?.getAttribute("aria-label")).toBe("Insert table");
+
+    button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(editor.getDocument().startsWith("| Header 1 |")).toBe(true);
+
+    toolbar.destroy();
+    editor.destroy();
+  });
+
+  it("renders a task-list button that toggles a task item on click", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "todo" });
+    const toolbar = createToolbarUI(editor);
+    document.body.appendChild(toolbar.element);
+
+    editor.setSelection(0, 0);
+    const button = toolbar.element.querySelector<HTMLButtonElement>('[data-toolbar-action="task-list"]');
+    expect(button).not.toBeNull();
+    expect(button?.getAttribute("aria-label")).toBe("Task list");
+
+    button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(editor.getDocument()).toBe("- [ ] todo");
+
+    toolbar.destroy();
     editor.destroy();
   });
 });

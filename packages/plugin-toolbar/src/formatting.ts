@@ -208,3 +208,126 @@ export function insertHorizontalRule(editor: EditorAPI): boolean {
   editor.setSelection(anchor + hr.length);
   return true;
 }
+
+export interface InsertTableOptions {
+  /**
+   * Number of columns in the table. Clamped to at least 1.
+   */
+  cols?: number;
+  /**
+   * Number of body rows. Clamped to at least 1. The separator (delimiter) row
+   * and an optional header row are added on top of this count.
+   */
+  rows?: number;
+  /**
+   * Emit a `Header N` row above the delimiter row. Defaults to `true`.
+   */
+  includeHeaderRow?: boolean;
+}
+
+const TASK_MARKER = /^(\s*)([-*+]\s+)\[([ xX])\]\s?(.*)$/;
+const LIST_MARKER = /^(\s*)([-*+]\s+|\d+\.\s+)(.*)$/;
+
+/**
+ * Build a single GFM table row from its cell contents. Each cell is padded with
+ * a single space on both sides (e.g. `| a | b |`) which is the most readable
+ * and widely-supported variant of GFM table syntax.
+ */
+function buildTableRow(cells: readonly string[]): string {
+  return `|${cells.map((cell) => ` ${cell} `).join("|")}|`;
+}
+
+/**
+ * Insert a GitHub-Flavored Markdown table at the caret.
+ *
+ * The table is emitted as one atomic `replaceRange` transaction so the whole
+ * insertion — including the resulting caret move — collapses into a single undo
+ * step (mirrors `applyLines`). The caret is placed inside the first body cell
+ * so the user can start typing immediately.
+ *
+ * Surrounding newlines are added only when needed, so inserting into the middle
+ * of a paragraph or at the very start/end of the document stays well-formed.
+ */
+export function insertTable(editor: EditorAPI, options: InsertTableOptions = {}): boolean {
+  const cols = Math.max(1, Math.floor(options.cols ?? 3));
+  const rows = Math.max(1, Math.floor(options.rows ?? 3));
+  const includeHeader = options.includeHeaderRow ?? true;
+
+  const lines: string[] = [];
+  if (includeHeader) {
+    lines.push(buildTableRow(Array.from({ length: cols }, (_, i) => `Header ${i + 1}`)));
+  }
+  // The delimiter row is mandatory for GFM tables even when there is no header.
+  lines.push(buildTableRow(Array.from({ length: cols }, () => "---")));
+  for (let row = 0; row < rows; row++) {
+    lines.push(buildTableRow(Array.from({ length: cols }, () => "")));
+  }
+  const table = lines.join("\n");
+
+  const doc = editor.getDocument();
+  const { anchor, head } = editor.getSelection();
+  const from = Math.min(anchor, head);
+  const to = Math.max(anchor, head);
+
+  const needsLeadingNewline = from > 0 && doc[from - 1] !== "\n";
+  const needsTrailingNewline = to < doc.length && doc[to] !== "\n";
+  const leading = needsLeadingNewline ? "\n" : "";
+  const trailing = needsTrailingNewline ? "\n" : "";
+  const inserted = `${leading}${table}${trailing}`;
+
+  // Caret offset *inside* `table`, in the first cell of the first body row.
+  const firstBodyRowIndex = (includeHeader ? 1 : 0) + 1; // +1 for the delimiter row
+  let cursorInTable = 0;
+  for (let i = 0; i < firstBodyRowIndex; i++) {
+    cursorInTable += lines[i].length + 1;
+  }
+  cursorInTable += "| ".length;
+  const caretPos = from + leading.length + cursorInTable;
+
+  editor.replaceRange(from, to, inserted, { anchor: caretPos });
+  return true;
+}
+
+/**
+ * Toggle a GitHub-Flavored Markdown task list on the lines intersecting the
+ * current selection (or the line under a collapsed caret).
+ *
+ * - Every intersecting line already a task item  → the markers are removed and
+ *   the lines revert to plain text (toggle off, mirroring `toggleUnorderedList`).
+ * - Otherwise every line becomes a `- [ ]` task item, converting plain bullets,
+ *   ordered list markers, and bare text in one pass.
+ *
+ * The whole block is rewritten in a single `replaceRange` transaction so it is
+ * one undo step and the caret select the transformed block afterwards.
+ */
+export function toggleTaskList(editor: EditorAPI): boolean {
+  const doc = editor.getDocument();
+  const { anchor, head } = editor.getSelection();
+  const from = Math.min(anchor, head);
+  const to = Math.max(anchor, head);
+  const lines = getLinesInRange(doc, from, to);
+
+  const allTasks = lines.every(({ line }) => TASK_MARKER.test(line));
+
+  const newLines = lines.map(({ line }) => {
+    const task = line.match(TASK_MARKER);
+    if (task) {
+      if (allTasks) {
+        // Toggle off: drop the entire `- [ ] ` marker, keep indent + text.
+        return `${task[1]}${task[4]}`;
+      }
+      // Not all lines are tasks yet — normalise existing items to unchecked.
+      return line.replace(TASK_MARKER, "$1$2[ ] $4");
+    }
+
+    const list = line.match(LIST_MARKER);
+    if (list) {
+      return `${list[1]}- [ ] ${list[3]}`;
+    }
+
+    const indent = line.match(/^(\s*)/)?.[1] ?? "";
+    return `${indent}- [ ] ${line.slice(indent.length)}`;
+  });
+
+  return applyLines(editor, lines, newLines);
+}

@@ -17,6 +17,8 @@ import {
   insertImage,
   applyTextColor,
   applyHighlight,
+  insertTable,
+  toggleTaskList,
 } from "./formatting";
 import {
   iconUndo,
@@ -37,6 +39,8 @@ import {
   iconTextColor,
   iconHighlight,
   iconImage,
+  iconTable,
+  iconTaskList,
   iconFullscreen,
 } from "./icons";
 
@@ -165,12 +169,14 @@ function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
       buttons: [
         { id: "blockquote", title: "Blockquote", icon: iconBlockquote, action: toggleBlockquote },
         { id: "code-block", title: "Code block", icon: iconCodeBlock, action: insertCodeBlock },
+        { id: "table", title: "Insert table", icon: iconTable, action: insertTable },
       ],
     },
     {
       buttons: [
         { id: "ordered-list", title: "Ordered list", icon: iconOrderedList, action: toggleOrderedList },
         { id: "unordered-list", title: "Unordered list", icon: iconUnorderedList, action: toggleUnorderedList },
+        { id: "task-list", title: "Task list", icon: iconTaskList, action: toggleTaskList },
       ],
     },
     {

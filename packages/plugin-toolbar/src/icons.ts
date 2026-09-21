@@ -174,3 +174,20 @@ export function iconHorizontalRule(): HTMLElement {
     `<line x1="2" y1="9" x2="16" y2="9"/>`
   );
 }
+
+export function iconTable(): HTMLElement {
+  return svgIcon(
+    `<rect x="2" y="3" width="14" height="12" rx="1"/>` +
+    `<line x1="2" y1="9" x2="16" y2="9"/>` +
+    `<line x1="9" y1="3" x2="9" y2="15"/>`
+  );
+}
+
+export function iconTaskList(): HTMLElement {
+  return svgIcon(
+    `<rect x="2" y="4" width="7" height="7" rx="1"/>` +
+    `<path d="M3.5 7.5l1.5 1.5 2.5-3"/>` +
+    `<line x1="11" y1="7.5" x2="16" y2="7.5"/>` +
+    `<line x1="11" y1="12" x2="16" y2="12"/>`
+  );
+}
