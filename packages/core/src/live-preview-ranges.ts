@@ -109,6 +109,31 @@ function shouldSkipInsideWikiLink(node: Content, from: number, to: number, wikiL
   );
 }
 
+/**
+ * Trims a table range back to its last actual row.
+ *
+ * A table node runs past its own rows when the next line has no blank line
+ * between them — a line of ordinary text gets folded into the node. The widget
+ * replaces exactly this range, so that line ends up inside it: the caret cannot
+ * be placed there, and anything typed on it renders as table content. Stopping
+ * at the last line that is a row hands the line back to the document.
+ */
+function clampTableEnd(doc: string, from: number, to: number): number {
+  let cursor = from;
+  let lastRowEnd = from;
+  while (cursor < to) {
+    const lineEnd = doc.indexOf("\n", cursor);
+    const stop = lineEnd === -1 || lineEnd >= to ? to : lineEnd;
+    // GFM lets a row drop its leading and trailing pipes, so the test is
+    // "contains a pipe", not "starts with one".
+    if (!doc.slice(cursor, stop).includes("|")) break;
+    lastRowEnd = stop;
+    if (lineEnd === -1 || lineEnd >= to) break;
+    cursor = lineEnd + 1;
+  }
+  return lastRowEnd;
+}
+
 function visit(
   node: Parent | Root,
   doc: string,
@@ -124,7 +149,8 @@ function visit(
       if (shouldSkipInsideWikiLink(child, from, to, wikiLinkSpans)) continue;
 
       if (child.type === "table") {
-        ranges.push({ from, to, node: child, source: doc.slice(from, to) });
+        const tableEnd = clampTableEnd(doc, from, to);
+        ranges.push({ from, to: tableEnd, node: child, source: doc.slice(from, tableEnd) });
         continue;
       }
 

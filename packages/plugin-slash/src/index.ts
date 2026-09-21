@@ -45,7 +45,14 @@ export {
   type SlashCommandHistoryConfig,
   type SlashCommandHistoryOptions,
   type SlashCommandHistoryStorage,
+  type SlashCommandOrderConfig,
+  type SlashCommandOrderOptions,
 } from "./menu-ui";
+
+export {
+  DEFAULT_SLASH_COMMAND_ORDER_KEY,
+  type SlashCommandOrderController,
+} from "./command-order";
 
 export {
   SlashLifecyclePlugin,

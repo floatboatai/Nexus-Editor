@@ -42,9 +42,19 @@ export function iconRedo(): HTMLElement {
 }
 
 export function iconLink(): HTMLElement {
+  // Two interlocking hooks on a diagonal chain. Drawn upright and rotated so
+  // the geometry stays readable: each hook is a straight run into a
+  // half-circle cap and a straight run back, and the two hooks stop short of
+  // each other on opposite edges — that offset pair of gaps is what reads as
+  // "linked" rather than as one outlined capsule.
+  // Gaps are sized against the 1.8 stroke: a round cap adds 0.9 past each end,
+  // so a 3.0 separation is what leaves a ~1.2 gap on screen. Tighter than that
+  // and the two hooks merge into one outlined capsule.
   return svgIcon(
-    `<path d="M10 6H7a3 3 0 0 0 0 6h1"/>` +
-    `<path d="M8 12h4a3 3 0 0 0 0-6h-1"/>`
+    `<g transform="rotate(-45 9 9)">` +
+      `<path d="M10.2 6.5H11.5a2.5 2.5 0 0 1 0 5H10.8"/>` +
+      `<path d="M7.8 11.5H6.5a2.5 2.5 0 0 1 0-5H7.2"/>` +
+      `</g>`
   );
 }
 
@@ -172,5 +182,24 @@ export function iconFullscreen(): HTMLElement {
 export function iconHorizontalRule(): HTMLElement {
   return svgIcon(
     `<line x1="2" y1="9" x2="16" y2="9"/>`
+  );
+}
+
+export function iconTable(): HTMLElement {
+  return svgIcon(
+    `<rect x="2" y="3" width="14" height="12" rx="2"/>` +
+    `<line x1="2" y1="7" x2="16" y2="7"/>` +
+    `<line x1="7" y1="7" x2="7" y2="15"/>` +
+    `<line x1="11.5" y1="7" x2="11.5" y2="15"/>` +
+    `<line x1="2" y1="11" x2="16" y2="11"/>`
+  );
+}
+
+export function iconEmoji(): HTMLElement {
+  return svgIcon(
+    `<circle cx="9" cy="9" r="6.5"/>` +
+    `<circle cx="6.8" cy="7.4" r="0.5" fill="currentColor" stroke="none"/>` +
+    `<circle cx="11.2" cy="7.4" r="0.5" fill="currentColor" stroke="none"/>` +
+    `<path d="M6.3 10.6a3.3 3.3 0 0 0 5.4 0"/>`
   );
 }

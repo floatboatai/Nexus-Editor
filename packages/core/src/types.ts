@@ -68,6 +68,7 @@ export interface LivePreviewLabels {
   deleteRow?: string;
   insertColumnAfter?: string;
   insertRowBelow?: string;
+  autoFitWidth?: string;
 }
 
 export interface LivePreviewConfig {

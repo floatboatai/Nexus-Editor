@@ -37,6 +37,7 @@ const DEFAULT_LABELS: Required<LivePreviewLabels> = {
   deleteRow: "Delete row",
   insertColumnAfter: "Insert column after",
   insertRowBelow: "Insert row below",
+  autoFitWidth: "Auto-fit width",
 };
 
 function createEmptyAst(): Root {

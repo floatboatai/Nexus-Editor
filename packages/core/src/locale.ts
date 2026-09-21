@@ -12,6 +12,7 @@ export interface NexusLocale {
   alignLeft: string;
   alignCenter: string;
   alignRight: string;
+  autoFitWidth: string;
 
   // Fold
   foldCode: string;
@@ -38,6 +39,7 @@ export const enLocale: NexusLocale = {
   alignLeft: "Align left",
   alignCenter: "Align center",
   alignRight: "Align right",
+  autoFitWidth: "Auto-fit width",
   foldCode: "Fold code block",
   unfoldCode: "Unfold code block",
   foldHeading: "Fold section",
@@ -58,6 +60,7 @@ export const zhLocale: NexusLocale = {
   alignLeft: "左对齐",
   alignCenter: "居中对齐",
   alignRight: "右对齐",
+  autoFitWidth: "自适应宽度",
   foldCode: "折叠代码块",
   unfoldCode: "展开代码块",
   foldHeading: "折叠章节",

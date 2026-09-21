@@ -15,9 +15,12 @@ import {
   toggleUnorderedList,
   insertCodeBlock,
   insertImage,
+  insertTable,
+  insertEmoji,
   applyTextColor,
   applyHighlight,
 } from "./formatting";
+import { EMOJI_CATEGORIES } from "./emoji";
 import {
   iconUndo,
   iconRedo,
@@ -37,6 +40,8 @@ import {
   iconTextColor,
   iconHighlight,
   iconImage,
+  iconTable,
+  iconEmoji,
   iconFullscreen,
 } from "./icons";
 
@@ -89,6 +94,16 @@ function installToolbarTooltip(button: HTMLButtonElement): () => void {
   tooltip.className = "nexus-toolbar-tooltip";
   tooltip.id = `nexus-toolbar-tooltip-${++tooltipId}`;
   tooltip.setAttribute("role", "tooltip");
+  // The tooltip is placed from viewport coordinates (see
+  // `positionToolbarTooltip`), so it has to be positioned. Without this the
+  // `left` / `top` written there are inert and the element falls back into
+  // normal flow at the end of the document, where it is effectively invisible.
+  // Only the functional geometry lives here; colours and typography belong to
+  // the host.
+  tooltip.style.position = "fixed";
+  // `left` anchors the button's horizontal centre, so the box is pulled back by
+  // half its own width to sit centred underneath.
+  tooltip.style.transform = "translateX(-50%)";
   button.setAttribute("aria-describedby", tooltip.id);
 
   const show = () => {
@@ -181,6 +196,8 @@ function defaultGroups(options?: ToolbarUIOptions): ToolbarGroup[] {
     },
     {
       buttons: [
+        { id: "table", title: "Insert table", icon: iconTable, action: () => {} },
+        { id: "emoji", title: "Insert emoji", icon: iconEmoji, action: () => {} },
         { id: "image", title: "Insert image", icon: iconImage, action: insertImage },
         { id: "fullscreen", title: "Fullscreen", icon: iconFullscreen, action: () => options?.onFullscreen?.() },
       ],
@@ -251,6 +268,169 @@ const DROPDOWN_ITEM_STYLES = `
   white-space: nowrap;
   line-height: 1.5;
 `;
+
+const TABLE_GRID_ROWS = 10;
+const TABLE_GRID_COLS = 10;
+
+/**
+ * Table size picker: hover to grow the highlight, click to insert. Mirrors the
+ * size grids hosts like Yuque use, so the shape is chosen visually instead of
+ * by typing numbers.
+ */
+function showTableGridPicker(
+  editor: EditorAPI,
+  anchorBtn: HTMLElement,
+  onClose: () => void,
+): { destroy: () => void } {
+  const menu = document.createElement("div");
+  menu.className = "nexus-toolbar-dropdown nexus-toolbar-table-picker";
+  menu.style.cssText = DROPDOWN_STYLES;
+  menu.style.minWidth = "0";
+  menu.style.padding = "8px";
+
+  const rect = anchorBtn.getBoundingClientRect();
+  menu.style.top = rect.bottom + 4 + "px";
+  menu.style.left = rect.left + "px";
+
+  const grid = document.createElement("div");
+  grid.style.cssText =
+    `display:grid;grid-template-columns:repeat(${TABLE_GRID_COLS},16px);gap:3px;`;
+
+  const readout = document.createElement("div");
+  readout.style.cssText =
+    "margin-top:8px;text-align:center;font-size:12px;" +
+    "color:var(--nexus-text-muted,#888);font-variant-numeric:tabular-nums;";
+
+  const cells: HTMLDivElement[] = [];
+  let hoverRows = 0;
+  let hoverCols = 0;
+
+  function paint(): void {
+    for (let i = 0; i < cells.length; i++) {
+      const row = Math.floor(i / TABLE_GRID_COLS) + 1;
+      const col = (i % TABLE_GRID_COLS) + 1;
+      const inRange = row <= hoverRows && col <= hoverCols;
+      cells[i].style.background = inRange
+        ? "var(--nexus-accent,#0969da)"
+        : "transparent";
+      cells[i].style.opacity = inRange ? "0.3" : "1";
+    }
+    readout.textContent = `${hoverRows} x ${hoverCols}`;
+  }
+
+  for (let row = 1; row <= TABLE_GRID_ROWS; row++) {
+    for (let col = 1; col <= TABLE_GRID_COLS; col++) {
+      const cell = document.createElement("div");
+      cell.style.cssText =
+        "width:16px;height:12px;border:1px solid var(--nexus-border,#ddd);" +
+        "border-radius:2px;cursor:pointer;";
+      cell.addEventListener("mouseenter", () => {
+        hoverRows = row;
+        hoverCols = col;
+        paint();
+      });
+      cell.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        insertTable(editor, row, col);
+        onClose();
+      });
+      cells.push(cell);
+      grid.appendChild(cell);
+    }
+  }
+
+  // Reset the readout when the pointer leaves the grid, so the label never
+  // advertises a size the user has stopped pointing at.
+  grid.addEventListener("mouseleave", () => {
+    hoverRows = 0;
+    hoverCols = 0;
+    paint();
+  });
+
+  menu.append(grid, readout);
+  paint();
+  document.body.appendChild(menu);
+
+  return {
+    destroy() {
+      menu.remove();
+    },
+  };
+}
+
+const EMOJI_GRID_COLUMNS = 8;
+
+/**
+ * Emoji picker. The set is a curated list rather than a full Unicode
+ * dataset — see `emoji.ts` for why. Grouped by category so the panel stays
+ * scannable without needing a search field over a few dozen entries.
+ */
+function showEmojiPicker(
+  editor: EditorAPI,
+  anchorBtn: HTMLElement,
+  onClose: () => void,
+): { destroy: () => void } {
+  const menu = document.createElement("div");
+  menu.className = "nexus-toolbar-dropdown nexus-toolbar-emoji-picker";
+  menu.style.cssText = DROPDOWN_STYLES;
+  menu.style.minWidth = "0";
+  menu.style.padding = "8px";
+  menu.style.maxHeight = "280px";
+  menu.style.overflowY = "auto";
+
+  const rect = anchorBtn.getBoundingClientRect();
+  menu.style.top = rect.bottom + 4 + "px";
+  menu.style.left = rect.left + "px";
+
+  const itemCleanups: Array<() => void> = [];
+
+  for (const category of EMOJI_CATEGORIES) {
+    const heading = document.createElement("div");
+    heading.textContent = category.label;
+    heading.style.cssText =
+      "padding:6px 2px 4px;font-size:11px;font-weight:600;letter-spacing:0.04em;" +
+      "text-transform:uppercase;color:var(--nexus-text-muted,#888);";
+
+    const grid = document.createElement("div");
+    grid.style.cssText =
+      `display:grid;grid-template-columns:repeat(${EMOJI_GRID_COLUMNS},26px);gap:2px;`;
+
+    for (const emoji of category.emoji) {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "nexus-toolbar-emoji";
+      item.textContent = emoji;
+      item.setAttribute("aria-label", emoji);
+      item.style.cssText =
+        "width:26px;height:26px;padding:0;border:none;border-radius:4px;" +
+        "background:transparent;font-size:17px;line-height:1;cursor:pointer;" +
+        "display:flex;align-items:center;justify-content:center;";
+
+      const handleClick = (e: MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        insertEmoji(editor, emoji);
+        onClose();
+      };
+      item.addEventListener("click", handleClick);
+      itemCleanups.push(() => item.removeEventListener("click", handleClick));
+      grid.appendChild(item);
+    }
+
+    menu.append(heading, grid);
+  }
+
+  document.body.appendChild(menu);
+
+  return {
+    destroy() {
+      for (const fn of itemCleanups) fn();
+      itemCleanups.length = 0;
+      menu.remove();
+    },
+  };
+}
 
 /** Mount a heading dropdown onto document.body, positioned below the anchor button. */
 function showHeadingDropdown(
@@ -441,7 +621,7 @@ function showColorPicker(
 }
 
 /** IDs that trigger dropdown behavior instead of a direct action. */
-const DROPDOWN_IDS = new Set(["heading-menu", "text-color", "highlight"]);
+const DROPDOWN_IDS = new Set(["heading-menu", "text-color", "highlight", "table", "emoji"]);
 
 export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): ToolbarUI {
   const groups = options?.groups ?? defaultGroups(options);
@@ -510,6 +690,10 @@ export function createToolbarUI(editor: EditorAPI, options?: ToolbarUIOptions): 
             activeDropdown = showColorPicker(editor, button, COLOR_PALETTE, applyTextColor, closeDropdown);
           } else if (btn.id === "highlight") {
             activeDropdown = showColorPicker(editor, button, HIGHLIGHT_PALETTE, applyHighlight, closeDropdown);
+          } else if (btn.id === "table") {
+            activeDropdown = showTableGridPicker(editor, button, closeDropdown);
+          } else if (btn.id === "emoji") {
+            activeDropdown = showEmojiPicker(editor, button, closeDropdown);
           }
 
           outsideHandler = (ev: MouseEvent) => {

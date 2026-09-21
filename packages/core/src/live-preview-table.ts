@@ -564,6 +564,13 @@ export class EditableTableWidget extends WidgetType {
   private editing = false;
   private reusable = true;
   private cleanupEditingLocks: (() => void) | null = null;
+  /**
+   * Set during render, where the mounted `<table>` and its width key are in
+   * scope. Undoing a manual resize is an in-place DOM edit rather than a
+   * dispatch: the source is unchanged, so a transaction would be swallowed by
+   * `eq()` and the colgroup would survive.
+   */
+  private autoFit: (() => void) | null = null;
 
   constructor(
     private node: Table,
@@ -592,6 +599,67 @@ export class EditableTableWidget extends WidgetType {
     return estimateTableHeight(this.source);
   }
 
+  /**
+   * The table's text as it currently stands in the document.
+   *
+   * In-cell editing writes straight into the document, and `eq()` deliberately
+   * keeps the widget alive while a cell is being edited — so `this.source` can
+   * lag behind the real text. Every structural edit has to start from the
+   * document; reading the render-time copy instead produces a source that no
+   * longer matches, and `dispatch` drops it without a word.
+   */
+  private liveSource(view: EditorView): string | null {
+    const doc = view.state.doc;
+    if (this.tableFrom > doc.length) return null;
+    const first = doc.lineAt(this.tableFrom);
+    // Guard against a stale position: if this is no longer a table, nothing
+    // here is safe to overwrite.
+    if (!first.text.includes("|")) return null;
+    let end = first.to;
+    let lineNumber = first.number;
+    while (lineNumber < doc.lines) {
+      const next = doc.line(lineNumber + 1);
+      if (!next.text.trimStart().startsWith("|")) break;
+      end = next.to;
+      lineNumber += 1;
+    }
+    return doc.sliceString(this.tableFrom, end);
+  }
+
+  /**
+   * Applies a line-level edit to the table's live text in one transaction.
+   * A `null` from the transform means the table no longer has that shape.
+   */
+  private mutateTable(transform: (lines: string[]) => string[] | null): boolean {
+    const view = this.viewRef.current;
+    if (!view) return false;
+    // Commit in-cell typing first. While a cell is focused its text lives in
+    // the cell's DOM, and a structural edit written underneath it is discarded
+    // the moment that cell next syncs — the delete lands, then vanishes.
+    flushPendingTableEdits(view, true);
+    const source = this.liveSource(view);
+    if (source === null) return false;
+    const next = transform(source.split("\n"));
+    if (!next) return false;
+    const insert = next.join("\n");
+    if (insert === source) return false;
+    view.dispatch({
+      changes: { from: this.tableFrom, to: this.tableFrom + source.length, insert },
+    });
+    return true;
+  }
+
+  /**
+   * Writes `newSource` over the table range, provided the document still holds
+   * the text this widget was built from.
+   *
+   * The drag path relies on that: it captures a source that includes a cell
+   * edit which has *not* been written to the document yet, so the widget's
+   * copy is still current and the single transaction commits the cell text and
+   * the structural move together. Callers whose edit already landed in the
+   * document must go through `mutateTable` instead, which starts from the live
+   * text.
+   */
   private dispatch(newSource: string): void {
     const v = this.viewRef.current;
     if (!v) return;
@@ -599,65 +667,78 @@ export class EditableTableWidget extends WidgetType {
     if (tableEnd > v.state.doc.length || v.state.doc.sliceString(this.tableFrom, tableEnd) !== this.source) {
       return;
     }
-    v.dispatch({ changes: { from: this.tableFrom, to: this.tableFrom + this.source.length, insert: newSource } });
+    v.dispatch({ changes: { from: this.tableFrom, to: tableEnd, insert: newSource } });
   }
 
   private deleteColumn(colIdx: number): void {
-    const lines = this.source.split("\n");
-    const newLines = lines.map((line) => {
-      const cells = line.split("|").filter((_, i, a) => i > 0 && i < a.length - 1);
-      if (cells.length === 0) return line;
-      cells.splice(colIdx, 1);
-      return "|" + cells.join("|") + "|";
-    });
-    this.dispatch(newLines.join("\n"));
+    this.mutateTable((lines) =>
+      lines.map((line) => {
+        const cells = line.split("|").filter((_, i, a) => i > 0 && i < a.length - 1);
+        if (cells.length === 0) return line;
+        cells.splice(colIdx, 1);
+        return "|" + cells.join("|") + "|";
+      })
+    );
   }
 
   private deleteRow(rowIdx: number): void {
-    const lines = this.source.split("\n");
-    const dataLines: number[] = [];
-    for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dataLines.push(i);
-    const lineIdx = dataLines[rowIdx];
-    if (lineIdx === undefined) return;
-    lines.splice(lineIdx, 1);
-    this.dispatch(lines.join("\n"));
+    this.mutateTable((lines) => {
+      const dataLines: number[] = [];
+      for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dataLines.push(i);
+      const lineIdx = dataLines[rowIdx];
+      if (lineIdx === undefined) return null;
+      lines.splice(lineIdx, 1);
+      return lines;
+    });
   }
 
   private addColumn(): void {
-    const lines = this.source.split("\n");
-    const nl = lines.map((l) => SEPARATOR_RE.test(l) ? l.replace(/\|?\s*$/, " | --- |") : l.replace(/\|?\s*$/, " |  |"));
-    this.dispatch(nl.join("\n"));
+    this.mutateTable((lines) =>
+      lines.map((l) => SEPARATOR_RE.test(l) ? l.replace(/\|?\s*$/, " | --- |") : l.replace(/\|?\s*$/, " |  |"))
+    );
   }
 
   private addRow(): void {
     const cc = (this.node.children?.[0] as any)?.children?.length ?? 2;
-    const nr = "\n| " + Array(cc).fill("  ").join(" | ") + " |";
-    const v = this.viewRef.current;
-    if (!v) return;
-    v.dispatch({ changes: { from: this.tableFrom + this.source.length, insert: nr } });
+    this.mutateTable((lines) => [...lines, "| " + Array(cc).fill("  ").join(" | ") + " |"]);
   }
 
-  private moveColumn(from: number, to: number, source = this.source): void {
-    const lines = source.split("\n");
-    const nl = lines.map((line) => {
-      const p = line.split("|"), cells = p.slice(1, -1);
-      if (from >= cells.length || to >= cells.length) return line;
-      const [m] = cells.splice(from, 1);
-      cells.splice(to, 0, m);
-      return "|" + cells.join("|") + "|";
-    });
-    this.dispatch(nl.join("\n"));
+  private moveColumn(from: number, to: number, source?: string): void {
+    const transform = (lines: string[]): string[] =>
+      lines.map((line) => {
+        const p = line.split("|"), cells = p.slice(1, -1);
+        if (from >= cells.length || to >= cells.length) return line;
+        const [m] = cells.splice(from, 1);
+        cells.splice(to, 0, m);
+        return "|" + cells.join("|") + "|";
+      });
+
+    // A drag passes the source it started from so the reorder lands on the text
+    // it measured; anything else edits whatever the document now holds.
+    if (source === undefined) {
+      this.mutateTable(transform);
+      return;
+    }
+    this.dispatch(transform(source.split("\n")).join("\n"));
   }
 
-  private moveRow(from: number, to: number, source = this.source): void {
-    const lines = source.split("\n");
-    const dl: number[] = [];
-    for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dl.push(i);
-    const s = dl[from], d = dl[to];
-    if (s === undefined || d === undefined) return;
-    const [m] = lines.splice(s, 1);
-    lines.splice(d, 0, m);
-    this.dispatch(lines.join("\n"));
+  private moveRow(from: number, to: number, source?: string): void {
+    const transform = (lines: string[]): string[] | null => {
+      const dl: number[] = [];
+      for (let i = 0; i < lines.length; i++) if (!SEPARATOR_RE.test(lines[i])) dl.push(i);
+      const s = dl[from], d = dl[to];
+      if (s === undefined || d === undefined) return null;
+      const [m] = lines.splice(s, 1);
+      lines.splice(d, 0, m);
+      return lines;
+    };
+
+    if (source === undefined) {
+      this.mutateTable(transform);
+      return;
+    }
+    const next = transform(source.split("\n"));
+    if (next) this.dispatch(next.join("\n"));
   }
 
   toDOM(): HTMLElement {
@@ -761,7 +842,11 @@ export class EditableTableWidget extends WidgetType {
 
     this.cleanupEditingLocks = () => {
       sessionClosed = true;
-      dirtyRows.clear();
+      // Pending rows are deliberately left in place. A rebuild destroys the
+      // widget while the user may still be typing in a cell, and the blur
+      // microtask that writes that text back runs afterwards — clearing here
+      // is what dropped the last edit of a run. The commit path re-checks that
+      // the position still holds a table before it writes anything.
       releaseEditingLock("focus");
       releaseEditingLock("range");
       releaseEditingLock("drag");
@@ -841,13 +926,13 @@ export class EditableTableWidget extends WidgetType {
       return "| " + vals.join(" | ") + " |";
     };
 
-    function dirtySourceSnapshot(): {
+    function dirtySourceSnapshot(baseSource: string): {
       source: string;
       changed: boolean;
       firstChangedLineIdx: number | null;
       firstChangedRow: HTMLElement | null;
     } {
-      const nextSourceLines = sourceLines.slice();
+      const nextSourceLines = baseSource.split("\n");
       let changed = false;
       let firstChangedLineIdx: number | null = null;
       let firstChangedRow: HTMLElement | null = null;
@@ -884,7 +969,10 @@ export class EditableTableWidget extends WidgetType {
         clearDirtyRows();
         return { source: self.source, changed: false, valid: false };
       }
-      const snapshot = dirtySourceSnapshot();
+      // The drag path keeps its own contract: it commits the edit and the move
+      // in one transaction over the text this widget was built from, so it
+      // still bases the snapshot on `self.source`.
+      const snapshot = dirtySourceSnapshot(self.source);
       clearDirtyRows();
       return { source: snapshot.source, changed: snapshot.changed, valid: true };
     }
@@ -892,25 +980,33 @@ export class EditableTableWidget extends WidgetType {
     function syncDirtyRowsToDocument(): boolean {
       const v = self.viewRef.current;
       if (!v || dirtyRows.size === 0) return false;
-      if (!currentDocumentContainsOriginalTable(v)) {
+
+      // Commit against the document, not against the copy captured at render
+      // time. While a cell is focused the widget DOM is deliberately preserved
+      // (`eq()` returns true), so `self.source` goes stale the moment the first
+      // edit lands. Every later edit then failed a source comparison that could
+      // no longer match and was dropped in silence, stranding the text in the
+      // cell until something rebuilt the table from the document.
+      const baseSource = self.liveSource(v);
+      if (baseSource === null) {
         clearDirtyRows();
         return false;
       }
 
-      const snapshot = dirtySourceSnapshot();
+      const snapshot = dirtySourceSnapshot(baseSource);
       if (!snapshot.changed) {
         clearDirtyRows();
         return false;
       }
 
       const anchorLineIdx = snapshot.firstChangedLineIdx ?? 0;
-      const anchor = lineStartOffset(sourceLines, anchorLineIdx, self.tableFrom);
+      const anchor = lineStartOffset(baseSource.split("\n"), anchorLineIdx, self.tableFrom);
       if (snapshot.firstChangedRow) restoreRowScrollPosition(anchorLineIdx, snapshot.firstChangedRow);
       clearDirtyRows();
       v.dispatch({
         changes: {
           from: self.tableFrom,
-          to: self.tableFrom + self.source.length,
+          to: self.tableFrom + baseSource.length,
           insert: snapshot.source
         },
         selection: { anchor, head: anchor }
@@ -1502,6 +1598,34 @@ export class EditableTableWidget extends WidgetType {
       return pill;
     }
 
+    /**
+     * Trash glyph for the row/column delete buttons. Drawn rather than typed as
+     * "×": a cross reads as "dismiss", which is the wrong promise for a control
+     * that rewrites the table.
+     */
+    function createTrashIcon(): SVGElement {
+      const NS = "http://www.w3.org/2000/svg";
+      const icon = document.createElementNS(NS, "svg");
+      icon.setAttribute("viewBox", "0 0 12 12");
+      icon.setAttribute("width", "10");
+      icon.setAttribute("height", "10");
+      icon.setAttribute("fill", "none");
+      icon.setAttribute("stroke", "currentColor");
+      icon.setAttribute("stroke-width", "1.3");
+      icon.setAttribute("stroke-linecap", "round");
+      icon.setAttribute("stroke-linejoin", "round");
+      for (const d of [
+        "M2.6 3.4h6.8",
+        "M4.9 3.4V2.6a.6.6 0 0 1 .6-.6h1a.6.6 0 0 1 .6.6v.8",
+        "M3.5 3.4l.4 6.1a.8.8 0 0 0 .8.7h2.6a.8.8 0 0 0 .8-.7l.4-6.1",
+      ]) {
+        const path = document.createElementNS(NS, "path");
+        path.setAttribute("d", d);
+        icon.appendChild(path);
+      }
+      return icon;
+    }
+
     // ── Custom drag handlers (mousedown/mousemove/mouseup, no HTML5 drag) ──
 
     // Get the content area boundaries (excluding grip column)
@@ -1639,6 +1763,14 @@ export class EditableTableWidget extends WidgetType {
     const gripRow = document.createElement("tr");
     gripRow.style.cssText = "opacity:0;transition:opacity .15s;";
 
+    // Delete affordances float above their grip rather than living in the cell
+    // flow: an in-flow button would grow the grip row and shift the table every
+    // time it appeared.
+    const deleteBtnCss =
+      "position:absolute;top:-19px;width:16px;height:16px;padding:0;border:1px solid var(--nexus-border-subtle);" +
+      "border-radius:4px;background:var(--nexus-bg);color:var(--nexus-text-muted);font-size:12px;line-height:1;" +
+      "display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;";
+
     const gripSpacer = document.createElement("td");
     gripSpacer.style.cssText = "width:16px;min-width:16px;padding:0;border:none;";
     gripRow.appendChild(gripSpacer);
@@ -1667,6 +1799,32 @@ export class EditableTableWidget extends WidgetType {
         highlightColumn(colIdx);
         wrapper.focus({ preventScroll: true });
       });
+
+      // Mirrors the context menu's guard: a table with no columns is not a
+      // table, so the last one keeps its delete affordance hidden.
+      if (colCount > 1) {
+        gripCell.style.position = "relative";
+        const deleteCol = document.createElement("button");
+        deleteCol.type = "button";
+        deleteCol.className = "nexus-col-delete";
+        deleteCol.appendChild(createTrashIcon());
+        deleteCol.title = self.labels.deleteColumn;
+        deleteCol.setAttribute("aria-label", self.labels.deleteColumn);
+        deleteCol.style.cssText = deleteBtnCss + "right:2px;";
+        // The grip already owns mousedown (column drag) and click (column
+        // select). Without stopping both, pressing delete would drag or
+        // highlight the column instead of removing it.
+        deleteCol.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        });
+        deleteCol.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          self.deleteColumn(colIdx);
+        });
+        gripCell.appendChild(deleteCol);
+      }
 
       gripRow.appendChild(gripCell);
     }
@@ -1803,6 +1961,27 @@ export class EditableTableWidget extends WidgetType {
 
         rowGrip.addEventListener("mouseenter", () => { if (draggingRow < 0) rowPill.style.background = GRIP_BG_HOVER; });
         rowGrip.addEventListener("mouseleave", () => { if (draggingRow < 0) rowPill.style.background = GRIP_BG; });
+
+        rowGrip.style.position = "relative";
+        const deleteRow = document.createElement("button");
+        deleteRow.type = "button";
+        deleteRow.className = "nexus-row-delete";
+        deleteRow.appendChild(createTrashIcon());
+        deleteRow.title = self.labels.deleteRow;
+        deleteRow.setAttribute("aria-label", self.labels.deleteRow);
+        deleteRow.style.cssText = deleteBtnCss + "left:0;";
+        // Same reason as the column button: the grip owns mousedown (row drag)
+        // and click (row select), so the press must not travel any further.
+        deleteRow.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        });
+        deleteRow.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          self.deleteRow(curRowIdx);
+        });
+        rowGrip.appendChild(deleteRow);
 
         rowGrip.addEventListener("mousedown", (e) => {
           e.preventDefault();
@@ -2293,6 +2472,15 @@ export class EditableTableWidget extends WidgetType {
       applyColumnWidths(savedWidths);
     }
 
+    self.autoFit = () => {
+      tableColumnWidths.delete(widthKey);
+      // `colgroup` can only ever be a direct child of `table`, so this is the
+      // same node `:scope > colgroup` matches without relying on the selector.
+      table.querySelector("colgroup")?.remove();
+      table.style.tableLayout = "";
+      table.style.width = "";
+    };
+
     // ── "+" buttons ──
     const btnCss = "position:absolute;width:20px;height:20px;border:1px solid var(--nexus-border-subtle);" +
       "border-radius:50%;background:var(--nexus-bg);cursor:pointer;font-size:14px;line-height:1;" +
@@ -2505,6 +2693,9 @@ function showContextMenu(
   addItem(labels.deleteColumn, () => (widget as any).deleteColumn(colIdx), colCount <= 1);
   addItem(labels.insertRowBelow, () => (widget as any).addRow());
   addItem(labels.insertColumnAfter, () => (widget as any).addColumn());
+  // Undo a manual resize. The work lives on the widget because only the render
+  // closure holds the mounted `<table>` and its width key.
+  addItem(labels.autoFitWidth, () => (widget as any).autoFit?.());
 
   mountTarget.appendChild(menu);
 

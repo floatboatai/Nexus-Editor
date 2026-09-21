@@ -10,7 +10,8 @@ import {
   toggleStrikethrough,
 } from "./toolbar-commands";
 
-export { toggleBlockquote, toggleOrderedList, toggleUnorderedList, insertCodeBlock, insertImage, insertHorizontalRule, applyTextColor, applyHighlight } from "./formatting";
+export { toggleBlockquote, toggleOrderedList, toggleUnorderedList, insertCodeBlock, insertImage, insertTable, insertEmoji, insertHorizontalRule, applyTextColor, applyHighlight } from "./formatting";
+export { EMOJI_CATEGORIES, type EmojiCategory } from "./emoji";
 export { createToolbarUI } from "./toolbar-ui";
 export { colorDecorationExtension } from "./color-decoration";
 export type { ToolbarUI, ToolbarUIOptions, ToolbarButton, ToolbarGroup } from "./toolbar-ui";

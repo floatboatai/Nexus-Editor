@@ -342,7 +342,7 @@ export function createEditorShell(options: EditorShellOptions): EditorShell {
   // ancestors). Its lifecycle is tied to the shell — destroyed below.
   const slashMenu = runtimeManaged || !contributionFeatures.slashMenu
     ? null
-    : createSlashMenuUI(editor);
+    : createSlashMenuUI(editor, { reorderable: true });
 
   // Bind the wordcount plugin now that the editor is fully constructed.
   // The plugin's status-bar widget mounts on its first emission (next
