@@ -108,6 +108,7 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
     // the BrowserWindow is created, and the dock keeps bouncing until the
     // renderer reports first paint anyway.
     show: false,
+    autoHideMenuBar: true,
     backgroundColor: "#ffffff",
     webPreferences: {
       contextIsolation: true,
