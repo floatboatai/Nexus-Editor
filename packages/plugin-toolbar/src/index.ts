@@ -12,6 +12,8 @@ import {
 
 export { toggleBlockquote, toggleOrderedList, toggleUnorderedList, insertCodeBlock, insertImage, insertHorizontalRule, applyTextColor, applyHighlight } from "./formatting";
 export { createToolbarUI } from "./toolbar-ui";
+export { createBubbleMenuUI, defaultBubbleButtons } from "./bubble-menu";
+export type { BubbleMenuUI, BubbleMenuButton, BubbleMenuUIOptions } from "./bubble-menu";
 export { colorDecorationExtension } from "./color-decoration";
 export type { ToolbarUI, ToolbarUIOptions, ToolbarButton, ToolbarGroup } from "./toolbar-ui";
 export {

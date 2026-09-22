@@ -70,7 +70,7 @@ let tooltipId = 0;
  * fullscreen backdrop. So when the toolbar (or its anchor button) lives inside
  * a fullscreen element, mount overlays into that element instead.
  */
-function pickOverlayMount(anchor: HTMLElement | Document): HTMLElement {
+export function pickOverlayMount(anchor: HTMLElement | Document): HTMLElement {
   const doc = anchor instanceof Document ? anchor : anchor.ownerDocument;
   const node = anchor instanceof Document ? null : anchor;
   const fullscreenEl = doc.fullscreenElement as HTMLElement | null;
@@ -337,7 +337,7 @@ function showHeadingDropdown(
   };
 }
 
-const COLOR_PALETTE = [
+export const COLOR_PALETTE = [
   // row 1: grays + black/white
   "#000000", "#434343", "#666666", "#999999", "#b7b7b7", "#cccccc", "#d9d9d9", "#efefef", "#f3f3f3", "#ffffff",
   // row 2: saturated
@@ -348,7 +348,7 @@ const COLOR_PALETTE = [
   "#cc0000", "#e69138", "#f1c232", "#6aa84f", "#45818e", "#3c78d8", "#674ea7", "#a64d79", "#990000", "#783f04",
 ];
 
-const HIGHLIGHT_PALETTE = [
+export const HIGHLIGHT_PALETTE = [
   "#ffff00", "#00ff00", "#00ffff", "#ff9900", "#ff00ff",
   "#fce5cd", "#d9ead3", "#d0e0e3", "#cfe2f3", "#d9d2e9",
   "#fff2cc", "#b6d7a8", "#a2c4c9", "#9fc5e8", "#b4a7d6",
@@ -365,7 +365,7 @@ const COLOR_GRID_STYLES = `
   z-index: 10000;
 `;
 
-function showColorPicker(
+export function showColorPicker(
   editor: EditorAPI,
   anchorBtn: HTMLElement,
   palette: string[],

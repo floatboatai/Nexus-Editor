@@ -1,4 +1,5 @@
 export { createEditor } from "./editor";
+export { htmlToMarkdown, isRichHtml } from "./html-to-markdown";
 export {
   DynamicEditorContributionSink,
   EDITOR_PLUGIN_PRIORITY_MAX,
@@ -51,6 +52,25 @@ export {
   type WikilinksOptions,
   type WikiLinkNavigateOptions,
 } from "./wikilinks";
+export {
+  createOutlineUI,
+  type OutlineUI,
+  type OutlineUIOptions,
+} from "./outline-ui";
+export {
+  blockDragExtension,
+  findBlockRange,
+  type BlockRange,
+  type BlockDragOptions,
+} from "./block-drag";
+export {
+  exportStandaloneHTML,
+  exportWordDocument,
+  printDocument,
+  type StandaloneHTMLOptions,
+  type ExportWordOptions,
+  type PrintOptions,
+} from "./export";
 export type {
   CodeHighlightToken,
   CoreEditorChange,

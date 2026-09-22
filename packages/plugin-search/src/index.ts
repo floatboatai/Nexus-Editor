@@ -35,7 +35,134 @@ export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regexp?: boolean;
+  /**
+   * Enable fuzzy (approximate) matching. When true the query characters are
+   * matched in order but need not be contiguous, similar to VS Code's
+   * Ctrl+P file finder.
+   *
+   * Results are sorted by a continuity score: longer unbroken runs of
+   * consecutive matching characters receive a higher score. Fuzzy mode
+   * is incompatible with `regexp` and `wholeWord` — those options are
+   * ignored when `fuzzy` is enabled.
+   *
+   * @example
+   * fuzzyMatch("replacement", "repl") // matched: true, score: high
+   * fuzzyMatch("workflow",    "wkfl") // matched: true, score: lower
+   * fuzzyMatch("hello",       "xyz")  // matched: false
+   */
+  fuzzy?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Fuzzy match — lightweight inline implementation, zero external dependencies.
+// ---------------------------------------------------------------------------
+
+/**
+ * A single match range returned by `fuzzyMatch`.
+ * `from` is inclusive, `to` is exclusive (same as CM6 convention).
+ */
+export interface FuzzyMatchRange {
+  from: number;
+  to: number;
+}
+
+/**
+ * Result of a fuzzy match attempt.
+ */
+export interface FuzzyMatchResult {
+  /** Whether all query characters were found in order inside `text`. */
+  matched: boolean;
+  /**
+   * Continuity score. Higher is better. Each consecutive run of matching
+   * characters contributes `runLength * 2` to the score, so longer
+   * unbroken runs dominate over scattered single-character matches.
+   * Returns 0 when `matched` is false.
+   */
+  score: number;
+  /**
+   * Contiguous matched ranges inside `text`, in document order.
+   * Empty when `matched` is false.
+   */
+  ranges: FuzzyMatchRange[];
+}
+
+/**
+ * Perform a fuzzy (approximate) match of `query` inside `text`.
+ *
+ * Characters of `query` must appear in `text` in the same order, but do not
+ * need to be adjacent. Results are scored by the length of the longest
+ * contiguous run of matched characters so that callers can sort candidates
+ * from best to worst match.
+ *
+ * @example
+ * fuzzyMatch("workflow", "wkfl")
+ * // => { matched: true, score: 4, ranges: [{from:0,to:1},{from:4,to:5},{from:7,to:8},...] }
+ *
+ * fuzzyMatch("replacement", "repl")
+ * // => { matched: true, score: 16, ranges: [{from:0,to:4}] }
+ *
+ * fuzzyMatch("hello", "xyz")
+ * // => { matched: false, score: 0, ranges: [] }
+ */
+export function fuzzyMatch(text: string, query: string, caseSensitive = false): FuzzyMatchResult {
+  const noMatch: FuzzyMatchResult = { matched: false, score: 0, ranges: [] };
+  if (!query) return { matched: true, score: 0, ranges: [] };
+
+  const t = caseSensitive ? text : text.toLowerCase();
+  const q = caseSensitive ? query : query.toLowerCase();
+
+  if (q.length > t.length) return noMatch;
+
+  const ranges: FuzzyMatchRange[] = [];
+  let score = 0;
+  let ti = 0;
+  let qi = 0;
+  let runStart = -1;
+  let runLength = 0;
+
+  while (ti < t.length && qi < q.length) {
+    if (t[ti] === q[qi]) {
+      if (runStart < 0) {
+        // Start of a new contiguous run
+        runStart = ti;
+        runLength = 0;
+      }
+      runLength++;
+      score += runLength * 2; // longer runs score exponentially better
+      qi++;
+    } else {
+      if (runStart >= 0) {
+        // Gap — close the current run and record the range
+        ranges.push({ from: runStart, to: ti });
+        runStart = -1;
+        runLength = 0;
+      }
+    }
+    ti++;
+  }
+
+  // Close the last open run (if the match ended without a gap)
+  if (runStart >= 0) {
+    ranges.push({ from: runStart, to: ti });
+  }
+
+  const matched = qi === q.length;
+  if (!matched) return noMatch;
+
+  // Boost exact whole-word matches and prefix matches, and penalize extra length
+  if (t === q) {
+    score += 100;
+  } else if (t.startsWith(q)) {
+    score += 40;
+  }
+  // Slight penalty for length difference to favor tighter matches
+  score -= (t.length - q.length);
+
+  return { matched, score, ranges };
+}
+
+
+
 
 export interface SearchHistoryStorage {
   getItem(key: string): string | null;
@@ -650,6 +777,38 @@ export function findSearchMatches(
     return [];
   }
 
+  // --- Fuzzy path -----------------------------------------------------------
+  // Fuzzy mode is incompatible with regexp/wholeWord. It scans every
+  // word-boundary-delimited token in the document and returns those that
+  // fuzzy-match the query, sorted from best (highest score) to worst.
+  if (options.fuzzy) {
+    const caseSensitive = options.caseSensitive ?? false;
+    // Split the document into word tokens, preserving their absolute offsets.
+    // A "word" here is any run of non-whitespace characters.
+    const tokenPattern = /\S+/g;
+    const candidates: Array<{ from: number; to: number; text: string; score: number }> = [];
+
+    for (const m of doc.matchAll(tokenPattern)) {
+      const tokenText = m[0];
+      const tokenFrom = m.index ?? 0;
+      const result = fuzzyMatch(tokenText, query, caseSensitive);
+      if (result.matched) {
+        candidates.push({
+          from: tokenFrom,
+          to: tokenFrom + tokenText.length,
+          text: tokenText,
+          score: result.score,
+        });
+      }
+    }
+
+    // Sort best score first so callers can take the top-N most relevant.
+    candidates.sort((a, b) => b.score - a.score);
+
+    return candidates.map(({ from, to, text }) => ({ from, to, text }));
+  }
+
+  // --- Exact / regexp / wholeWord path (unchanged) --------------------------
   const pattern = buildSearchPattern(query, options);
   if (!pattern) {
     return [];

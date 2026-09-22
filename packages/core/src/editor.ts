@@ -26,6 +26,8 @@ import { createLivePreviewExtension } from "./live-preview";
 import { flushPendingTableEdits } from "./live-preview-table";
 import { createMarkdownLanguageSupport } from "./lezer-markdown";
 import { lezerStringToMdast, lezerTreeToMdast } from "./lezer-mdast-adapter";
+import { htmlToMarkdown, isRichHtml } from "./html-to-markdown";
+import { exportStandaloneHTML, exportWordDocument, printDocument } from "./export";
 import { markdownFoldService } from "./markdown-fold";
 import { resolveLocale } from "./locale";
 import { markdownAutoPair } from "./markdown-autopair";
@@ -302,7 +304,15 @@ export function createEditor(config: EditorConfig): EditorAPI {
       : staticallyTransformed;
   };
   const locale = resolveLocale(config.locale);
+  /**
+   * Debounce window for emitting `onChange(ast)` and `onAstChange`.
+   * Defaults to 0 (synchronous), preserving backward compatibility for
+   * consumers and tests. For large documents or typing perf optimization,
+   * pass `parseDelayMs: 150` (or similar) to debounce AST parsing.
+   */
   const parseDelayMs = config.parseDelayMs ?? 0;
+
+
   const emitter = new EventEmitter<EditorEventMap>();
   let destroyed = false;
   let destroying = false;
@@ -355,6 +365,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
     if (customParser) {
       currentAst = parseDocument(customParser, markdown);
       config.onChange?.(markdown, currentAst);
+      config.onAstChange?.(currentAst);
       emitter.emit("change", markdown, currentAst);
       return;
     }
@@ -365,6 +376,7 @@ export function createEditor(config: EditorConfig): EditorAPI {
     // User remark transformer plugins (if any) run via transformAst.
     currentAst = transformAst(lezerAstFromAnywhere(viewRef, markdown));
     config.onChange?.(markdown, currentAst);
+    config.onAstChange?.(currentAst);
     emitter.emit("change", markdown, currentAst);
   }
 
@@ -725,13 +737,28 @@ export function createEditor(config: EditorConfig): EditorAPI {
               return true;
             }
             // 默认兜底：剪贴板里有图片 / 文件时走资源上传；纯文本粘贴交回 CodeMirror。
-            if (!config.onAssetUpload || destroyed) return false;
-            const files = collectFilesFromDataTransfer(event.clipboardData);
-            if (files.length === 0) return false;
+            if (config.onAssetUpload && !destroyed) {
+              const files = collectFilesFromDataTransfer(event.clipboardData);
+              if (files.length > 0) {
+                event.preventDefault();
+                insertUploadedAssets(files);
+                return true;
+              }
+            }
 
-            event.preventDefault();
-            insertUploadedAssets(files);
-            return true;
+            // 智能富文本粘贴：若剪贴板含富文本 text/html，清洗转换为结构清晰的 GFM Markdown
+            if (config.smartPaste !== false && !destroyed && event.clipboardData) {
+              const html = event.clipboardData.getData("text/html");
+              if (html && isRichHtml(html)) {
+                const markdown = htmlToMarkdown(html);
+                if (markdown && markdown.trim().length > 0) {
+                  event.preventDefault();
+                  view.dispatch(view.state.replaceSelection(markdown));
+                  return true;
+                }
+              }
+            }
+            return false;
           },
           drop(event) {
             if (runEventHandlers(dropHandlers, event)) {
@@ -792,6 +819,15 @@ export function createEditor(config: EditorConfig): EditorAPI {
         plugins,
         (tree) => applyMarkdownTransformSnapshots(view.state, tree),
       );
+    },
+    exportStandaloneHTML(options) {
+      return exportStandaloneHTML(api, options);
+    },
+    exportWord(options) {
+      return exportWordDocument(api, options);
+    },
+    print(options) {
+      printDocument(api, options);
     },
     setTheme(theme: NexusTheme) {
       if (destroyed) return;

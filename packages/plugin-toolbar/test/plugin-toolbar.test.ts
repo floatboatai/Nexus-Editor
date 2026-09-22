@@ -12,6 +12,7 @@ import {
   toggleUnorderedList,
   createToolbarPlugin,
   createToolbarUI,
+  createBubbleMenuUI,
 } from "../src/index";
 
 describe("toggleBold", () => {
@@ -606,3 +607,63 @@ describe("toggleUnorderedList — atomic undo", () => {
     editor.destroy();
   });
 });
+
+describe("createBubbleMenuUI", () => {
+  it("mounts the bubble menu container and provides control methods", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "select some text here" });
+    const bubbleMenu = createBubbleMenuUI(editor);
+
+    expect(bubbleMenu.element).toBeDefined();
+    expect(bubbleMenu.element.classList.contains("nexus-bubble-menu")).toBe(true);
+
+    // Initial state is hidden (opacity 0)
+    expect(bubbleMenu.element.style.opacity).toBe("0");
+
+    // Can manually show and hide
+    bubbleMenu.show();
+    expect(bubbleMenu.element.style.opacity).toBe("1");
+
+    bubbleMenu.hide();
+    expect(bubbleMenu.element.style.opacity).toBe("0");
+
+    bubbleMenu.destroy();
+    expect(bubbleMenu.element.isConnected).toBe(false);
+    editor.destroy();
+  });
+
+  it("renders buttons for bold, italic, code, link and headings", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "test document" });
+    const bubbleMenu = createBubbleMenuUI(editor);
+
+    const boldBtn = bubbleMenu.element.querySelector('[data-test-id="bubble-menu-bold"]');
+    const italicBtn = bubbleMenu.element.querySelector('[data-test-id="bubble-menu-italic"]');
+    const linkBtn = bubbleMenu.element.querySelector('[data-test-id="bubble-menu-link"]');
+
+    expect(boldBtn).not.toBeNull();
+    expect(italicBtn).not.toBeNull();
+    expect(linkBtn).not.toBeNull();
+
+    bubbleMenu.destroy();
+    editor.destroy();
+  });
+
+  it("executes formatting action when a bubble button is clicked", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world" });
+    const bubbleMenu = createBubbleMenuUI(editor);
+
+    editor.setSelection(6, 11);
+    const boldBtn = bubbleMenu.element.querySelector<HTMLButtonElement>('[data-test-id="bubble-menu-bold"]');
+    expect(boldBtn).not.toBeNull();
+
+    boldBtn?.click();
+
+    expect(editor.getDocument()).toBe("hello **world**");
+
+    bubbleMenu.destroy();
+    editor.destroy();
+  });
+});
+

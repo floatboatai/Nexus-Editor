@@ -105,12 +105,43 @@ export interface EditorConfig {
    */
   multiCursor?: boolean;
   /**
+   * Automatically convert rich HTML from the clipboard into clean GFM Markdown on paste.
+   * Defaults to true. Pass `false` to disable.
+   */
+  smartPaste?: boolean;
+  /**
    * Maximum number of slash-menu entries emitted on `slashMenuChange`
    * after ranking. Default: 8. A limit of 0 keeps the menu state open
    * but emits an empty command list (useful for "no results" UIs).
    */
   slashMenuLimit?: number;
+  /**
+   * Called on every document change with the current Markdown text and the
+   * corresponding parsed AST. Both `doc` and `ast` are provided synchronously
+   * (subject to `parseDelayMs` debounce) to keep the API simple for most
+   * consumers.
+   *
+   * For high-frequency scenarios where only the raw Markdown text is needed
+   * immediately (e.g. auto-save), prefer listening to `onChange` and using
+   * `onAstChange` separately to avoid paying the AST-transform cost on every
+   * keystroke.
+   */
   onChange?: (doc: string, ast: Root) => void;
+  /**
+   * Called after the AST has been (re-)computed, subject to the `parseDelayMs`
+   * debounce. Use this when you only care about structural AST changes (e.g.
+   * outline/TOC updates, word count, lint) and do not need the raw Markdown
+   * text on every keystroke.
+   *
+   * This callback fires in addition to `onChange` — both can be used together.
+   *
+   * @example
+   * createEditor({
+   *   onChange: (doc) => debouncedSave(doc),      // fast, text only
+   *   onAstChange: (ast) => updateToc(ast),       // slower, AST-driven
+   * })
+   */
+  onAstChange?: (ast: Root) => void;
   onFocus?: () => void;
   onBlur?: () => void;
   /**
@@ -371,6 +402,9 @@ export interface EditorAPI {
   getAst(): Root;
   getTableOfContents(): TocEntry[];
   exportHTML(): string;
+  exportStandaloneHTML(options?: import("./export").StandaloneHTMLOptions): string;
+  exportWord(options?: import("./export").ExportWordOptions): string;
+  print(options?: import("./export").PrintOptions): void;
   setTheme(theme: import("./theme").NexusTheme): void;
   getSelection(): { anchor: number; head: number };
   /** All selection ranges plus the main-range index. Single-range editors return one entry. */

@@ -91,6 +91,25 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("emits onAstChange independently when document changes", () => {
+    const container = document.createElement("div");
+    const astRoots: Root[] = [];
+    const editor = createEditor({
+      container,
+      onAstChange(ast) {
+        astRoots.push(ast);
+      }
+    });
+
+    editor.setDocument("## Hello Subheading");
+
+    expect(astRoots.length).toBe(1);
+    expect(astRoots[0]?.type).toBe("root");
+    expect(astRoots[0]?.children[0]?.type).toBe("heading");
+    editor.destroy();
+  });
+
+
   it("preserves selection when setDocument is called with preserveSelection", () => {
     const container = document.createElement("div");
     const editor = createEditor({ container, initialValue: "hello world" });

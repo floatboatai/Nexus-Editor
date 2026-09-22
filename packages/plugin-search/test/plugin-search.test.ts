@@ -4,6 +4,7 @@ import { createGfmPreset } from "../../preset-gfm/src/index";
 import {
   createSearchPlugin,
   findSearchMatches,
+  fuzzyMatch,
   replaceAllMatches
 } from "../src/index";
 
@@ -887,4 +888,43 @@ describe("@floatboat/nexus-plugin-search", () => {
     editor.destroy();
     container.remove();
   });
+
+  describe("fuzzy search", () => {
+    it("matches characters in order and returns matched ranges and score", () => {
+      const result = fuzzyMatch("workflow", "wkfl");
+      expect(result.matched).toBe(true);
+      expect(result.score).toBeGreaterThan(0);
+      expect(result.ranges.length).toBeGreaterThan(0);
+    });
+
+    it("gives higher scores to contiguous runs than scattered characters", () => {
+      const contiguous = fuzzyMatch("replacement", "repl");
+      const scattered = fuzzyMatch("r_e_p_l_acement", "repl");
+      expect(contiguous.matched).toBe(true);
+      expect(scattered.matched).toBe(true);
+      expect(contiguous.score).toBeGreaterThan(scattered.score);
+    });
+
+    it("returns matched=false when characters are missing or out of order", () => {
+      expect(fuzzyMatch("hello", "xyz").matched).toBe(false);
+      // 'k' appears before 'l' in 'workflow' (wor k f l ow), so 'wolk' cannot match in order
+      expect(fuzzyMatch("workflow", "wolk").matched).toBe(false);
+    });
+
+
+
+
+
+    it("findSearchMatches with fuzzy=true returns matching words sorted by score descending", () => {
+      const doc = "replace replacement repl scattered_r_e_p_l";
+      const matches = findSearchMatches(doc, "repl", { fuzzy: true });
+      expect(matches.length).toBeGreaterThanOrEqual(3);
+      expect(matches.map((m) => m.text)).toContain("repl");
+      expect(matches.map((m) => m.text)).toContain("replace");
+      expect(matches.map((m) => m.text)).toContain("replacement");
+      // repl (exact contiguous) should be ranked first
+      expect(matches[0]?.text).toBe("repl");
+    });
+  });
 });
+
