@@ -36,7 +36,7 @@
 | 5 | `getSelectedText()` API | `core` | P0 | done | 否 | 另含原子 `replaceRange()`（单条 undo）—— 见 `openspec/changes/add-selection-api` |
 | 6 | 多光标 / 多选支持 | `core` | P1 | done | 是 | `openspec/changes/add-core-multi-cursor` — opt-in `multiCursor` 配置；live-preview 揭示与表格检查已有回归测试覆盖 |
 | 7 | AST 增强 / Markdown 扩展 | `core` + `preset-gfm` | P2 | planned | 是 | 影响序列化与所有依赖 AST 的插件 |
-| 8 | undo / redo 分组 | `plugin-history` | P1 | planned | 否 | 注意与表格交互的 `tableEditingCount` 协同；合并前需收敛多个竞品实现 |
+| 8 | undo / redo 分组 | `plugin-history` | P1 | in-progress | 否 | 表格 cell / 结构操作通过 `input.table.*` + `isolateHistory` 各成一组；打字仍走 CM6 默认 join；silent `setDocument` 不进历史；undo/redo 前 flush 未提交表格；协同 `tableEditingCount` |
 
 ## 4. 插件系统
 

@@ -1,3 +1,4 @@
+import { isolateHistory } from "@codemirror/commands";
 import { EditorView, WidgetType, runScopeHandlers } from "@codemirror/view";
 import type { Table } from "mdast";
 
@@ -5,6 +6,10 @@ import type { LivePreviewLabels } from "./types";
 import { setInputTargetProvider } from "./input-target-provider";
 
 const tableEditingCounts = new WeakMap<EditorView, number>();
+
+/** Kept in sync with plugin-history so each table action is its own undo group. */
+const TABLE_CELL_USER_EVENT = "input.table.cell";
+const TABLE_STRUCTURE_USER_EVENT = "input.table.structure";
 
 export function isTableEditing(view: EditorView | null | undefined): boolean {
   return !!view && (tableEditingCounts.get(view) ?? 0) > 0;
@@ -105,6 +110,27 @@ function describeActiveCell(): string {
 }
 
 const SEPARATOR_RE = /^\|?\s*[-:]+\s*(\|\s*[-:]+\s*)*\|?\s*$/;
+
+interface TableCellCommit {
+  lineIdx: number;
+  col: number;
+  text: string;
+}
+
+function cellsFromTableLine(line: string): string[] {
+  return line.split("|").filter((_, i, a) => i > 0 && i < a.length - 1).map((cell) => cell.trim());
+}
+
+function applyTableCellCommit(source: string, commit: TableCellCommit): string {
+  const lines = source.split("\n");
+  const line = lines[commit.lineIdx];
+  if (line === undefined || SEPARATOR_RE.test(line)) return source;
+  const cells = cellsFromTableLine(line);
+  if (commit.col < 0 || commit.col >= cells.length) return source;
+  cells[commit.col] = commit.text;
+  lines[commit.lineIdx] = "| " + cells.join(" | ") + " |";
+  return lines.join("\n");
+}
 
 // Session-scoped store of user-customised column widths. Keyed by the
 // table's header line (e.g. `| 头像 | 用户名 | 主页 |`) so widths survive
@@ -599,7 +625,15 @@ export class EditableTableWidget extends WidgetType {
     if (tableEnd > v.state.doc.length || v.state.doc.sliceString(this.tableFrom, tableEnd) !== this.source) {
       return;
     }
-    v.dispatch({ changes: { from: this.tableFrom, to: this.tableFrom + this.source.length, insert: newSource } });
+    // Structural ops carry userEvent so plugin-history can isolate them, plus
+    // isolateHistory here so consecutive row/column ops never join via
+    // newGroupDelay even if the plugin extender is absent.
+    v.dispatch({
+      changes: { from: this.tableFrom, to: tableEnd, insert: newSource },
+      userEvent: TABLE_STRUCTURE_USER_EVENT,
+      annotations: isolateHistory.of("full"),
+    });
+    this.source = newSource;
   }
 
   private deleteColumn(colIdx: number): void {
@@ -632,9 +666,9 @@ export class EditableTableWidget extends WidgetType {
   private addRow(): void {
     const cc = (this.node.children?.[0] as any)?.children?.length ?? 2;
     const nr = "\n| " + Array(cc).fill("  ").join(" | ") + " |";
-    const v = this.viewRef.current;
-    if (!v) return;
-    v.dispatch({ changes: { from: this.tableFrom + this.source.length, insert: nr } });
+    // Route through the shared dispatch so row inserts get the same source
+    // staleness guard and undo-group isolation as other structural ops.
+    this.dispatch(this.source + nr);
   }
 
   private moveColumn(from: number, to: number, source = this.source): void {
@@ -677,6 +711,7 @@ export class EditableTableWidget extends WidgetType {
     const dataLineIndices: number[] = [];
     for (let i = 0; i < sourceLines.length; i++) if (!SEPARATOR_RE.test(sourceLines[i])) dataLineIndices.push(i);
     const dirtyRows = new Map<number, HTMLElement>();
+    const pendingCellCommits: TableCellCommit[] = [];
 
     // State
     let selectedCol = -1;
@@ -869,6 +904,7 @@ export class EditableTableWidget extends WidgetType {
 
     function clearDirtyRows(): void {
       dirtyRows.clear();
+      pendingCellCommits.length = 0;
       updateSessionRegistration();
     }
 
@@ -889,12 +925,61 @@ export class EditableTableWidget extends WidgetType {
       return { source: snapshot.source, changed: snapshot.changed, valid: true };
     }
 
+    function adoptCommittedSource(next: string): void {
+      self.source = next;
+      const nextLines = next.split("\n");
+      sourceLines.length = 0;
+      sourceLines.push(...nextLines);
+    }
+
+    function dispatchTableSource(v: EditorView, next: string, userEvent: string, selection?: { anchor: number; head: number }): void {
+      v.dispatch({
+        changes: {
+          from: self.tableFrom,
+          to: self.tableFrom + self.source.length,
+          insert: next
+        },
+        userEvent,
+        annotations: isolateHistory.of("full"),
+        ...(selection ? { selection } : {}),
+      });
+      adoptCommittedSource(next);
+    }
+
+    function flushIsolatedCellCommits(v: EditorView): boolean {
+      const held = editingLocks.focus;
+      if (!held) acquireEditingLock("focus");
+      let current = self.source;
+      let changed = false;
+      const firstChangedLineIdx = pendingCellCommits[0]?.lineIdx ?? 0;
+      const firstChangedRow = dirtyRows.get(firstChangedLineIdx) ?? null;
+      if (firstChangedRow) restoreRowScrollPosition(firstChangedLineIdx, firstChangedRow);
+      for (const commit of pendingCellCommits) {
+        if (!currentDocumentContainsOriginalTable(v)) break;
+        const next = applyTableCellCommit(current, commit);
+        if (next === current) continue;
+        dispatchTableSource(v, next, TABLE_CELL_USER_EVENT);
+        current = next;
+        changed = true;
+      }
+      pendingCellCommits.length = 0;
+      dirtyRows.clear();
+      updateSessionRegistration();
+      if (!held) releaseEditingLock("focus");
+      if (changed) v.requestMeasure();
+      return changed;
+    }
+
     function syncDirtyRowsToDocument(): boolean {
       const v = self.viewRef.current;
       if (!v || dirtyRows.size === 0) return false;
       if (!currentDocumentContainsOriginalTable(v)) {
         clearDirtyRows();
         return false;
+      }
+
+      if (pendingCellCommits.length > 1) {
+        return flushIsolatedCellCommits(v);
       }
 
       const snapshot = dirtySourceSnapshot();
@@ -906,15 +991,10 @@ export class EditableTableWidget extends WidgetType {
       const anchorLineIdx = snapshot.firstChangedLineIdx ?? 0;
       const anchor = lineStartOffset(sourceLines, anchorLineIdx, self.tableFrom);
       if (snapshot.firstChangedRow) restoreRowScrollPosition(anchorLineIdx, snapshot.firstChangedRow);
-      clearDirtyRows();
-      v.dispatch({
-        changes: {
-          from: self.tableFrom,
-          to: self.tableFrom + self.source.length,
-          insert: snapshot.source
-        },
-        selection: { anchor, head: anchor }
-      });
+      dispatchTableSource(v, snapshot.source, TABLE_CELL_USER_EVENT, { anchor, head: anchor });
+      pendingCellCommits.length = 0;
+      dirtyRows.clear();
+      updateSessionRegistration();
       v.requestMeasure();
       return true;
     }
@@ -2098,6 +2178,13 @@ export class EditableTableWidget extends WidgetType {
           // before swapping raw DOM back to rich rendering so the final IME
           // candidate (or last ordinary keystroke) cannot be overwritten.
           rememberCellSourceEdit();
+          if (sourceLineIdx !== undefined) {
+            pendingCellCommits.push({
+              lineIdx: sourceLineIdx,
+              col: cellCol,
+              text: td.dataset.source ?? "",
+            });
+          }
           releaseEditingLock("focus");
           td.contentEditable = "false";
           // Restore default text-flow + width rules — we set them on
