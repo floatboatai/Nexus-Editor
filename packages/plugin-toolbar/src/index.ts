@@ -12,8 +12,10 @@ import {
 
 export { toggleBlockquote, toggleOrderedList, toggleUnorderedList, insertCodeBlock, insertImage, insertHorizontalRule, applyTextColor, applyHighlight } from "./formatting";
 export { createToolbarUI } from "./toolbar-ui";
+export { createInlineToolbarUI } from "./inline-toolbar";
 export { colorDecorationExtension } from "./color-decoration";
 export type { ToolbarUI, ToolbarUIOptions, ToolbarButton, ToolbarGroup } from "./toolbar-ui";
+export type { InlineToolbarUI, InlineToolbarUIOptions } from "./inline-toolbar";
 export {
   insertLink,
   toolbarSlashCommands,
