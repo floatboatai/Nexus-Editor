@@ -66,7 +66,7 @@
 
 | # | 功能 | 归属包 | 优先级 | 状态 | 需要 OpenSpec | 备注 |
 |---|---|---|---|---|---|---|
-| 18 | 实时协作（OT / CRDT） | 新包 `plugin-collab` | P3 | planned | 是 | 大特性，先做技术选型 design doc |
+| 18 | 实时协作（OT / CRDT） | 新包 `plugin-collab` | P3 | planned | 是 | 实现草稿及设计：`add-crdt-collaboration`；待维护者评审 |
 | 19 | 版本历史 / 快照 | `core` + 宿主存储 | P2 | planned | 是 | electron-demo 先落地参考实现 |
 | 20 | 共享注释 / @mention | 新包 `plugin-annotation` | P3 | planned | 是 | 依赖 #18 完成 |
 

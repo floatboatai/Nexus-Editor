@@ -1,4 +1,5 @@
 export { createEditor } from "./editor";
+export { editorHistory, type EditorHistory } from "./editor-history";
 export {
   DynamicEditorContributionSink,
   EDITOR_PLUGIN_PRIORITY_MAX,

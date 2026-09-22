@@ -74,3 +74,23 @@ Multiple ranges in `setSelections` require `multiCursor: true` — without the f
 ## Other config highlights
 
 See the `EditorConfig` type for the full surface: `livePreview`, `plugins`, `theme` / `setTheme`, `locale`, `readOnly`, `tabSize`, `direction`, `indentGuides`, `parseDelayMs`, `slashMenuLimit`, `onChange` / `onFocus` / `onBlur` / `onAssetUpload`.
+
+### Collaborative hosts
+
+Use [`@floatboat/nexus-plugin-collab`](../plugin-collab/README.md) to bind an editor
+to host-owned Yjs state. The core itself has no CRDT dependency.
+
+`livePreview: { tableMode: "source" }` keeps tables as editable Markdown while
+retaining preview for other nodes. The default `"widget"` mode is unchanged.
+Collaboration selects source mode because cell widgets defer their edits until blur.
+
+Low-level extensions can supply `editorHistory.of({ undo, redo })` with CodeMirror
+commands to override public `editor.undo()` / `editor.redo()`. Only one backend
+may be supplied. A backend returning `false` does not fall back to local history.
+Keyboard bindings remain the extension's responsibility.
+
+Transactions annotated `Transaction.remote.of(true)` represent already-committed
+replicated state. They bypass Nexus veto/rewriting filters and still notify update
+listeners. Use CodeMirror's `filter: false` to bypass its own filters as well.
+Local transactions continue through both filter layers. This is a consistency
+contract, not an authorization mechanism.

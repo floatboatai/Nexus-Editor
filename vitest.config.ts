@@ -4,6 +4,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: {
     alias: {
+      "@floatboat/nexus-plugin-collab": path.resolve(__dirname, "packages/plugin-collab/src/index.ts"),
       "@floatboat/nexus-core": path.resolve(__dirname, "packages/core/src/index.ts"),
       "@floatboat/nexus-plugin-api": path.resolve(__dirname, "packages/plugin-api/src/index.ts"),
       "@floatboat/nexus-plugin-runtime": path.resolve(__dirname, "packages/plugin-runtime/src/index.ts"),

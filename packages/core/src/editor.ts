@@ -15,6 +15,7 @@ import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 
 import { EventEmitter } from "./event-emitter";
+import { editorHistory } from "./editor-history";
 import { DynamicEditorContributionSink } from "./dynamic-contributions";
 import { CoreEditorTransactionPipeline } from "./transaction-pipeline";
 import {
@@ -901,11 +902,11 @@ export function createEditor(config: EditorConfig): EditorAPI {
     },
     undo() {
       if (destroyed) return false;
-      return cmUndo(view);
+      return (view.state.facet(editorHistory)?.undo ?? cmUndo)(view);
     },
     redo() {
       if (destroyed) return false;
-      return cmRedo(view);
+      return (view.state.facet(editorHistory)?.redo ?? cmRedo)(view);
     },
     focus() {
       if (destroyed) {

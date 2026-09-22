@@ -26,6 +26,7 @@ const COMPOSITION_REDECORATE_DELAY_MS = 60;
 
 interface NormalizedLivePreviewConfig {
   enabled: boolean;
+  tableMode: "widget" | "source";
   renderers: Partial<Record<LivePreviewNodeType, LivePreviewRenderer>>;
   labels: Required<LivePreviewLabels>;
 }
@@ -88,13 +89,14 @@ function normalizeConfig(
   config: boolean | LivePreviewConfig | undefined
 ): NormalizedLivePreviewConfig {
   if (!config) {
-    return { enabled: false, renderers: {}, labels: DEFAULT_LABELS };
+    return { enabled: false, tableMode: "widget", renderers: {}, labels: DEFAULT_LABELS };
   }
   if (config === true) {
-    return { enabled: true, renderers: {}, labels: DEFAULT_LABELS };
+    return { enabled: true, tableMode: "widget", renderers: {}, labels: DEFAULT_LABELS };
   }
   return {
     enabled: config.enabled ?? true,
+    tableMode: config.tableMode ?? "widget",
     renderers: config.renderers ?? {},
     labels: { ...DEFAULT_LABELS, ...config.labels }
   };
@@ -1070,6 +1072,11 @@ function buildDecorations(
 
   for (const range of ranges) {
     if (parentSpans.some(([from, to]) => range.from >= from && range.to <= to)) continue;
+
+    if (range.node.type === "table" && config.tableMode === "source") {
+      parentSpans.push([range.from, range.to]);
+      continue;
+    }
 
     if (range.node.type === "heading" && !config.renderers.heading) {
       buildHeadingDecorations(

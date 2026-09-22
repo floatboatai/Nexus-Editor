@@ -165,7 +165,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 ## 📦 Packages
 
 <details>
-<summary><b>Full package list (11 packages)</b> — click to expand</summary>
+<summary><b>Package list</b> — click to expand</summary>
 
 | Package | Description |
 |---|---|
@@ -174,6 +174,7 @@ A real Electron app with file IO, live preview, and every plugin enabled — the
 | `@floatboat/nexus-vue` | Vue 3 binding — `useEditor` composable |
 | `@floatboat/nexus-preset-gfm` | GitHub Flavored Markdown preset (tables, strikethrough, task lists) |
 | `@floatboat/nexus-plugin-history` | Undo/redo with `Ctrl+Z` / `Ctrl+Shift+Z` |
+| `@floatboat/nexus-plugin-collab` | Optional Yjs collaboration, offline merge, selective undo and remote cursors — [integration guide](./packages/plugin-collab/README.md) |
 | `@floatboat/nexus-plugin-search` | Search and replace helpers |
 | `@floatboat/nexus-plugin-slash` | Slash command detection, ranking, and a vanilla-DOM floating menu UI |
 | `@floatboat/nexus-plugin-toolbar` | Toolbar primitives for formatting commands |

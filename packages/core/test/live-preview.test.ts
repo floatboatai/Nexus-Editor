@@ -57,6 +57,27 @@ async function nextAnimationFrame(): Promise<void> {
 }
 
 describe("live preview", () => {
+  it("keeps tables in source mode while retaining heading preview", () => {
+    const container = document.createElement("div");
+    const initialValue = "# Title\n\n| A | B |\n| --- | --- |\n| x | y |\n\nOutside";
+    const editor = createEditor({
+      container, initialValue, livePreview: { tableMode: "source" },
+      plugins: [createGfmPreset()],
+    });
+    try {
+      editor.setSelection(initialValue.length);
+      expect(container.querySelector(".nexus-table-wrapper")).toBeNull();
+      expect(container.textContent).toContain("| A | B |");
+      expect(container.querySelector('[data-heading-level="1"]')).not.toBeNull();
+      const from = initialValue.indexOf("x | ");
+      editor.replaceRange(from, from + 1, "edited");
+      expect(editor.getDocument()).toContain("| edited | y |");
+      expect(container.querySelector(".nexus-table-wrapper")).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
   // ── Inline formatting ──
   // Note: inline markers are hidden when cursor is on a DIFFERENT line (line-level detection).
   // Tests use multi-line content with cursor moved to a separate line.

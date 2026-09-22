@@ -40,6 +40,30 @@ function transaction(
 }
 
 describe("core editor transaction pipeline", () => {
+  it("projects remote batches without local veto or history capture and still notifies", () => {
+    const { editor, view } = createTestEditor();
+    const filter = vi.fn(() => ({ action: "reject" as const }));
+    const listener = vi.fn();
+    editor.getContributionSink().registerTransactionFilter("local", filter);
+    editor.getContributionSink().registerUpdateListener("audit", listener);
+    const first = view.state.update({
+      changes: { from: 0, insert: "1" }, filter: false,
+      annotations: [Transaction.remote.of(true), editorTransactionOrigin.of(["remote-a"])],
+    });
+    const second = first.state.update({
+      changes: { from: 1, insert: "2" }, filter: false,
+      annotations: [Transaction.remote.of(true), editorTransactionOrigin.of(["remote-b"])],
+    });
+    view.dispatch([first, second]);
+    expect(editor.getDocument()).toBe("12abcd");
+    expect(filter).not.toHaveBeenCalled();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener.mock.calls[0][0].origin).toEqual(["remote-a", "remote-b"]);
+    editor.replaceRange(0, 0, "blocked");
+    expect(filter).toHaveBeenCalledTimes(1);
+    expect(editor.getDocument()).toBe("12abcd");
+    editor.destroy();
+  });
   it("filters before commit and only notifies listeners with the final update", () => {
     const { editor } = createTestEditor();
     const sink = editor.getContributionSink();
