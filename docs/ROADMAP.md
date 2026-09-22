@@ -66,7 +66,7 @@ Plugin-platform documentation (Chinese): [native API](./plugins/native-plugin-ap
 
 | # | Feature | Package | Priority | Status | Needs OpenSpec | Notes |
 |---|---|---|---|---|---|---|
-| 18 | Realtime collaboration (OT / CRDT) | new `plugin-collab` | P3 | planned | Yes | Large feature; start with a tech-selection design doc |
+| 18 | Realtime collaboration (OT / CRDT) | new `plugin-collab` | P3 | planned | Yes | Draft implementation and design: `add-crdt-collaboration`; pending maintainer review |
 | 19 | Version history / snapshots | `core` + host storage | P2 | planned | Yes | electron-demo lands the reference impl first |
 | 20 | Shared comments / @mention | new `plugin-annotation` | P3 | planned | Yes | Depends on #18 |
 

@@ -1,0 +1,41 @@
+{
+  "name": "@floatboat/nexus-plugin-collab",
+  "version": "0.0.14",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "check:api": "pnpm --filter @floatboat/nexus-core build && pnpm build && tsc -p tsconfig.api.json",
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "demo": "vite examples --host 127.0.0.1",
+    "build:demo": "vite build examples"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.8.1",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.41.0",
+    "@floatboat/nexus-core": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "peerDependencies": {
+    "yjs": "^13.6.27",
+    "y-protocols": "^1.0.6"
+  },
+  "devDependencies": {
+    "yjs": "^13.6.27",
+    "y-protocols": "^1.0.6",
+    "vite": "^6.3.0"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {},
+    "noEmit": true,
+    "skipLibCheck": false,
+    "types": []
+  },
+  "include": ["api/**/*.ts"]
+}

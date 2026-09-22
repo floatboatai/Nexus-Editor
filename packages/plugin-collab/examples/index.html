@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nexus collaborative Markdown</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 32px; font: 16px/1.5 system-ui, sans-serif; background: #f5f6fa; color: #182034; }
+      main { max-width: 1200px; margin: auto; }
+      h1 { margin-bottom: 8px; font-size: 28px; }
+      p { color: #526078; }
+      button { font: inherit; cursor: pointer; padding: 6px 14px; border: 1px solid #ccd2df; border-radius: 6px; background: white; }
+      button:focus-visible { outline: 3px solid #818cf8; outline-offset: 2px; }
+      .controls, header { display: flex; align-items: center; gap: 12px; }
+      .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 24px; }
+      section { min-width: 0; border: 1px solid #dce0ea; border-radius: 10px; background: white; overflow: hidden; }
+      header { padding: 12px 16px; border-bottom: 1px solid #e5e7eb; }
+      header strong { margin-right: auto; }
+      .editor { min-height: 340px; }
+      .editor .cm-editor { min-height: 340px; }
+      .editor .cm-content { padding: 24px 12px; }
+      output { font-size: 14px; color: #526078; }
+      @media (max-width: 700px) { body { padding: 16px; } .panes { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Collaborative Markdown</h1>
+      <p>Pause the connection, edit both copies, then reconnect. Both writers keep their work.</p>
+      <div class="controls">
+        <button id="connection" type="button" aria-pressed="false">Pause connection</button>
+        <output id="status" aria-live="polite">Connected · documents agree</output>
+      </div>
+      <div class="panes">
+        <section aria-label="Alice's replica">
+          <header><strong>Alice</strong><button id="alice-undo">Undo</button><button id="alice-redo">Redo</button></header>
+          <div id="alice" class="editor"></div>
+        </section>
+        <section aria-label="Bob's replica">
+          <header><strong>Bob</strong><button id="bob-undo">Undo</button><button id="bob-redo">Redo</button></header>
+          <div id="bob" class="editor"></div>
+        </section>
+      </div>
+      <p>Two independent Yjs replicas. No server, account or network request. Tables are edited as Markdown source.</p>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

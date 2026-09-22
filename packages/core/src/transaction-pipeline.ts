@@ -248,6 +248,7 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
 
   private mergeNativeBatch(state: EditorState, transactions: readonly Transaction[]): Transaction {
     if (transactions.length === 1) return transactions[0];
+    const remote = transactions.every((transaction) => transaction.annotation(Transaction.remote));
     const origins: string[] = [];
     const specs = transactions.map((transaction, index): TransactionSpec => {
       for (const origin of transaction.annotation(editorTransactionOrigin) ?? []) {
@@ -257,9 +258,10 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
         changes: transaction.changes,
         selection: transaction.selection,
         effects: transaction.effects,
-        annotations: index === transactions.length - 1 && origins.length > 0
-          ? editorTransactionOrigin.of(Object.freeze(origins))
-          : undefined,
+        annotations: index === transactions.length - 1 ? [
+          ...(origins.length > 0 ? [editorTransactionOrigin.of(Object.freeze(origins))] : []),
+          ...(remote ? [Transaction.remote.of(true), Transaction.addToHistory.of(false)] : []),
+        ] : undefined,
         scrollIntoView: transaction.scrollIntoView,
         userEvent: transaction.annotation(Transaction.userEvent),
         sequential: index > 0,
@@ -273,7 +275,11 @@ export class CoreEditorTransactionPipeline implements EditorTransactionContribut
     initial: Transaction,
     view: EditorView
   ): CoreEditorTransactionDispatchResult {
-    const filtered = this.applyFilters(initial);
+    // Replicated operations have already committed to the shared document.
+    // A local veto or rewrite would make this editor diverge from its peers.
+    const filtered: FilterPreparation = initial.annotation(Transaction.remote)
+      ? { status: "accepted", prepared: { transaction: initial, context: makeContext(this.host.editor, initial) } }
+      : this.applyFilters(initial);
     if (filtered.status === "rejected") return filtered;
 
     const { transaction, context } = filtered.prepared;

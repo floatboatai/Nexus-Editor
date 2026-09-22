@@ -165,7 +165,7 @@ pnpm dev:electron-demo
 ## 📦 包列表
 
 <details>
-<summary><b>完整包列表（11 个包）</b> —— 点击展开</summary>
+<summary><b>包列表</b> —— 点击展开</summary>
 
 | 包名 | 说明 |
 |---|---|
@@ -174,6 +174,7 @@ pnpm dev:electron-demo
 | `@floatboat/nexus-vue` | Vue 3 绑定 —— `useEditor` 组合式函数 |
 | `@floatboat/nexus-preset-gfm` | GitHub Flavored Markdown 预设（表格、删除线、任务列表） |
 | `@floatboat/nexus-plugin-history` | 撤销/重做，支持 `Ctrl+Z` / `Ctrl+Shift+Z` |
+| `@floatboat/nexus-plugin-collab` | 可选 Yjs 协作：离线合并、独立撤销和协作者光标 —— [接入指南](./packages/plugin-collab/README.md) |
 | `@floatboat/nexus-plugin-search` | 搜索替换辅助函数 |
 | `@floatboat/nexus-plugin-slash` | 斜杠命令检测、排序与 vanilla DOM 浮层菜单 UI |
 | `@floatboat/nexus-plugin-toolbar` | 工具栏基础组件与格式化命令 |

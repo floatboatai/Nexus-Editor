@@ -72,6 +72,8 @@ export interface LivePreviewLabels {
 
 export interface LivePreviewConfig {
   enabled?: boolean;
+  /** Source mode keeps table edits in document transactions (e.g. for collaboration). */
+  tableMode?: "widget" | "source";
   renderers?: Partial<Record<LivePreviewNodeType, LivePreviewRenderer>>;
   labels?: LivePreviewLabels;
 }
