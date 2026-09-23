@@ -280,6 +280,66 @@ describe("LinkIndex.getUnlinkedMentions", () => {
   });
 });
 
+describe("LinkIndex — path separator normalization", () => {
+  // Regression guard for the class of bug behind sample-vault failures on
+  // Windows: indexing must behave identically whether callers hand us `/`
+  // or `\` separated paths, and all returned paths stay `/`-normalized.
+  const files = [
+    { path: "/v/Topics/AI.md", content: "# AI" },
+    { path: "/v/Daily/Today.md", content: "See [[AI]]" },
+    { path: "/v/work/Meeting.md", content: "" },
+    { path: "/v/personal/Meeting.md", content: "" },
+  ];
+  const toWin = (f: { path: string; content: string }) => ({
+    ...f,
+    path: f.path.replace(/\//g, "\\"),
+  });
+
+  it("indexes and resolves identically for backslash-separated input paths", () => {
+    const posix = new LinkIndex();
+    const win = new LinkIndex();
+    posix.rebuild(files);
+    win.rebuild(files.map(toWin));
+
+    expect(win.getAllNoteNames()).toEqual(posix.getAllNoteNames());
+    expect(win.getAllFiles()).toEqual(posix.getAllFiles());
+    expect(win.resolve("AI", "\\v\\Daily\\Today.md")).toBe("/v/Topics/AI.md");
+    expect(win.resolve("AI", "\\v\\Daily\\Today.md")).toBe(posix.resolve("AI", "/v/Daily/Today.md"));
+    expect(win.resolve("Meeting", "\\v\\work\\Inbox.md")).toBe("/v/work/Meeting.md");
+    expect(win.getBacklinks("\\v\\Topics\\AI.md").map((h) => h.sourcePath)).toEqual([
+      "/v/Daily/Today.md",
+    ]);
+    expect(win.getUnlinkedMentions("\\v\\Topics\\AI.md")).toEqual(
+      posix.getUnlinkedMentions("/v/Topics/AI.md"),
+    );
+  });
+
+  it("normalizes backslash input across incremental updates and mixed lookups", () => {
+    const idx = new LinkIndex();
+    // Index built from `/` paths — the separator Electron hands us on POSIX —
+    // then queried with `\` paths like a Windows bridge would produce.
+    idx.rebuild(files);
+
+    expect(idx.resolve("AI", "\\v\\Daily\\Today.md")).toBe("/v/Topics/AI.md");
+    expect(idx.resolve("Meeting", "\\v\\work\\Inbox.md")).toBe("/v/work/Meeting.md");
+    expect(idx.getBacklinks("\\v\\Topics\\AI.md")).toHaveLength(1);
+
+    idx.updateFile("\\v\\Daily\\Today.md", "See [[AI]] again");
+    expect(idx.getBacklinks("\\v\\Topics\\AI.md").map((h) => h.sourcePath)).toEqual([
+      "/v/Daily/Today.md",
+    ]);
+
+    idx.renameFile("\\v\\Topics\\AI.md", "\\v\\Topics\\NewAI.md");
+    expect(idx.resolve("NewAI", "/v/Daily/Today.md")).toBe("/v/Topics/NewAI.md");
+
+    idx.removeFile("\\v\\Topics\\NewAI.md");
+    expect(idx.resolve("NewAI", "/v/Daily/Today.md")).toBeNull();
+
+    // Every path the index reports back is forward-slash normalized.
+    expect(idx.getAllFiles().every((p) => !p.includes("\\"))).toBe(true);
+  });
+});
+
 describe("LinkIndex.subscribe", () => {
   it("fires listeners on rebuild and updateFile", async () => {
     const idx = new LinkIndex();
