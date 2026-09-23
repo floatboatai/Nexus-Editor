@@ -608,6 +608,22 @@ describe("createEditor", () => {
     editor.destroy();
   });
 
+  it("replaceRange: isolateHistory keeps adjacent edits undoable separately", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({ container, initialValue: "hello world", plugins: [createHistoryPlugin()] });
+
+    editor.replaceRange(6, 11, "earth", undefined, { isolateHistory: true });
+    editor.replaceRange(6, 11, "mars", undefined, { isolateHistory: true });
+
+    expect(editor.getDocument()).toBe("hello mars");
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("hello earth");
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("hello world");
+    expect(editor.undo()).toBe(false);
+    editor.destroy();
+  });
+
   // ── HTML export ──
 
   it("exports markdown to semantic HTML", () => {

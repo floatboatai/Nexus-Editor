@@ -1,5 +1,7 @@
 import type { EditorAPI } from "@floatboat/nexus-core";
 
+const TOOLBAR_REPLACE_OPTIONS = { isolateHistory: true } as const;
+
 interface LineRange {
   lineStart: number;
   lineEnd: number;
@@ -55,7 +57,7 @@ function applyLines(editor: EditorAPI, lines: LineRange[], newLines: string[]): 
   const selection = lines.length === 1
     ? { anchor: first.lineStart + newLines[0].length }
     : { anchor: first.lineStart, head: first.lineStart + newBlock.length };
-  editor.replaceRange(first.lineStart, last.lineEnd, newBlock, selection);
+  editor.replaceRange(first.lineStart, last.lineEnd, newBlock, selection, TOOLBAR_REPLACE_OPTIONS);
   return true;
 }
 
@@ -69,9 +71,7 @@ function toggleLinePrefix(editor: EditorAPI, prefix: string): boolean {
   const line = doc.slice(lineStart, lineEnd);
 
   const newLine = line.startsWith(prefix) ? line.slice(prefix.length) : prefix + line;
-  const newDoc = doc.slice(0, lineStart) + newLine + doc.slice(lineEnd);
-  editor.setDocument(newDoc);
-  editor.setSelection(lineStart + newLine.length);
+  editor.replaceRange(lineStart, lineEnd, newLine, { anchor: lineStart + newLine.length }, TOOLBAR_REPLACE_OPTIONS);
   return true;
 }
 
@@ -135,12 +135,9 @@ export function insertCodeBlock(editor: EditorAPI): boolean {
     "```\n" + (selected || "") + "\n```" +
     (needsTrailingNewline ? "\n" : "");
 
-  const newDoc = doc.slice(0, from) + block + doc.slice(to);
-  editor.setDocument(newDoc);
-
   // Place cursor on the language line (after ```)
   const langPos = from + (needsLeadingNewline ? 1 : 0) + 3;
-  editor.setSelection(langPos);
+  editor.replaceRange(from, to, block, { anchor: langPos }, TOOLBAR_REPLACE_OPTIONS);
   return true;
 }
 
@@ -153,12 +150,9 @@ export function insertImage(editor: EditorAPI): boolean {
 
   const alt = selected || "alt text";
   const md = `![${alt}](url)`;
-  const newDoc = doc.slice(0, from) + md + doc.slice(to);
-  editor.setDocument(newDoc);
-
   // Select the "url" part
   const urlStart = from + alt.length + 4;
-  editor.setSelection(urlStart, urlStart + 3);
+  editor.replaceRange(from, to, md, { anchor: urlStart, head: urlStart + 3 }, TOOLBAR_REPLACE_OPTIONS);
   return true;
 }
 
@@ -172,10 +166,8 @@ export function applyTextColor(editor: EditorAPI, color: string): boolean {
   if (from === to) return false;
 
   const wrapped = `<span style="color:${color}">${selected}</span>`;
-  const newDoc = doc.slice(0, from) + wrapped + doc.slice(to);
-  editor.setDocument(newDoc);
   const innerStart = from + `<span style="color:${color}">`.length;
-  editor.setSelection(innerStart, innerStart + selected.length);
+  editor.replaceRange(from, to, wrapped, { anchor: innerStart, head: innerStart + selected.length }, TOOLBAR_REPLACE_OPTIONS);
   return true;
 }
 
@@ -189,10 +181,8 @@ export function applyHighlight(editor: EditorAPI, color: string): boolean {
   if (from === to) return false;
 
   const wrapped = `<mark style="background:${color}">${selected}</mark>`;
-  const newDoc = doc.slice(0, from) + wrapped + doc.slice(to);
-  editor.setDocument(newDoc);
   const innerStart = from + `<mark style="background:${color}">`.length;
-  editor.setSelection(innerStart, innerStart + selected.length);
+  editor.replaceRange(from, to, wrapped, { anchor: innerStart, head: innerStart + selected.length }, TOOLBAR_REPLACE_OPTIONS);
   return true;
 }
 
@@ -203,8 +193,6 @@ export function insertHorizontalRule(editor: EditorAPI): boolean {
   const needsLeadingNewline = anchor > 0 && doc[anchor - 1] !== "\n";
   const hr = (needsLeadingNewline ? "\n" : "") + "---\n";
 
-  const newDoc = doc.slice(0, anchor) + hr + doc.slice(anchor);
-  editor.setDocument(newDoc);
-  editor.setSelection(anchor + hr.length);
+  editor.replaceRange(anchor, anchor, hr, { anchor: anchor + hr.length }, TOOLBAR_REPLACE_OPTIONS);
   return true;
 }
