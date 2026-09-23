@@ -1,18 +1,251 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { createEditor } from "@floatboat/nexus-core";
+import { createEditor, type EditorAPI } from "@floatboat/nexus-core";
 import { createHistoryPlugin } from "@floatboat/nexus-plugin-history";
 import {
-  toggleBold,
-  toggleItalic,
-  toggleInlineCode,
+  applyHighlight,
+  applyTextColor,
+  insertCodeBlock,
+  insertHorizontalRule,
+  insertImage,
   insertLink,
+  toggleBlockquote,
+  toggleBold,
   toggleHeading,
+  toggleInlineCode,
+  toggleItalic,
   toggleOrderedList,
+  toggleStrikethrough,
   toggleUnorderedList,
   createToolbarPlugin,
   createToolbarUI,
 } from "../src/index";
+
+type AtomicCase = {
+  initial: string;
+  selection: { anchor: number; head?: number };
+  expected: string;
+  expectedSelection: { anchor: number; head?: number };
+  run: (editor: EditorAPI) => void;
+};
+
+describe("toolbar atomic transactions", () => {
+  it("preserves migrated command output, selection, and undo behavior", () => {
+    const colorPrefix = '<span style="color:red">';
+    const highlightPrefix = '<mark style="background:yellow">';
+    const cases: AtomicCase[] = [
+      {
+        initial: "hello world",
+        selection: { anchor: 6, head: 11 },
+        expected: "hello **world**",
+        expectedSelection: { anchor: 8, head: 13 },
+        run: toggleBold,
+      },
+      {
+        initial: "hello world",
+        selection: { anchor: 6, head: 11 },
+        expected: "hello *world*",
+        expectedSelection: { anchor: 7, head: 12 },
+        run: toggleItalic,
+      },
+      {
+        initial: "hello world",
+        selection: { anchor: 6, head: 11 },
+        expected: "hello ~~world~~",
+        expectedSelection: { anchor: 8, head: 13 },
+        run: toggleStrikethrough,
+      },
+      {
+        initial: "hello world",
+        selection: { anchor: 6, head: 11 },
+        expected: "hello `world`",
+        expectedSelection: { anchor: 7, head: 12 },
+        run: toggleInlineCode,
+      },
+      {
+        initial: "click here",
+        selection: { anchor: 6, head: 10 },
+        expected: "click [here](url)",
+        expectedSelection: { anchor: 13, head: 16 },
+        run: insertLink,
+      },
+      {
+        initial: "Title",
+        selection: { anchor: 2 },
+        expected: "## Title",
+        expectedSelection: { anchor: 8 },
+        run: (editor) => toggleHeading(editor, 2),
+      },
+      {
+        initial: "## Title",
+        selection: { anchor: 5 },
+        expected: "Title",
+        expectedSelection: { anchor: 5 },
+        run: (editor) => toggleHeading(editor, 2),
+      },
+      {
+        initial: "Quote",
+        selection: { anchor: 2 },
+        expected: "> Quote",
+        expectedSelection: { anchor: 7 },
+        run: toggleBlockquote,
+      },
+      {
+        initial: "> Quote",
+        selection: { anchor: 4 },
+        expected: "Quote",
+        expectedSelection: { anchor: 5 },
+        run: toggleBlockquote,
+      },
+      {
+        initial: "one\ntwo",
+        selection: { anchor: 0, head: 7 },
+        expected: "1. one\n2. two",
+        expectedSelection: { anchor: 0, head: 13 },
+        run: toggleOrderedList,
+      },
+      {
+        initial: "hello",
+        selection: { anchor: 0, head: 5 },
+        expected: "```\nhello\n```",
+        expectedSelection: { anchor: 3 },
+        run: insertCodeBlock,
+      },
+      {
+        initial: "hello",
+        selection: { anchor: 0, head: 5 },
+        expected: "![hello](url)",
+        expectedSelection: { anchor: 9, head: 12 },
+        run: insertImage,
+      },
+      {
+        initial: "hello",
+        selection: { anchor: 0, head: 5 },
+        expected: `${colorPrefix}hello</span>`,
+        expectedSelection: { anchor: colorPrefix.length, head: colorPrefix.length + 5 },
+        run: (editor) => applyTextColor(editor, "red"),
+      },
+      {
+        initial: "hello",
+        selection: { anchor: 0, head: 5 },
+        expected: `${highlightPrefix}hello</mark>`,
+        expectedSelection: { anchor: highlightPrefix.length, head: highlightPrefix.length + 5 },
+        run: (editor) => applyHighlight(editor, "yellow"),
+      },
+      {
+        initial: "Title",
+        selection: { anchor: 5 },
+        expected: "Title\n---\n",
+        expectedSelection: { anchor: 10 },
+        run: insertHorizontalRule,
+      },
+    ];
+
+    for (const testCase of cases) {
+      const container = document.createElement("div");
+      const editor = createEditor({
+        container,
+        initialValue: testCase.initial,
+        plugins: [createHistoryPlugin()],
+      });
+
+      editor.setSelection(testCase.selection.anchor, testCase.selection.head);
+      testCase.run(editor);
+      expect(editor.getDocument()).toBe(testCase.expected);
+      expect(editor.getSelection()).toEqual({
+        anchor: testCase.expectedSelection.anchor,
+        head: testCase.expectedSelection.head ?? testCase.expectedSelection.anchor,
+      });
+      expect(editor.undo()).toBe(true);
+      expect(editor.getDocument()).toBe(testCase.initial);
+      expect(editor.undo()).toBe(false);
+      editor.destroy();
+    }
+  });
+
+  it("keeps consecutive toolbar commands in separate transactions and undo entries", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "hello world",
+      plugins: [createHistoryPlugin()],
+    });
+    const updates: string[] = [];
+    editor.getContributionSink().registerUpdateListener("toolbar-history-test", (update) => {
+      if (update.changes.length > 0) updates.push(update.documentAfter);
+    });
+
+    editor.setSelection(6, 11);
+    updates.length = 0;
+    toggleBold(editor);
+    insertLink(editor);
+
+    expect(editor.getDocument()).toBe("hello **[world](url)**");
+    expect(updates).toEqual(["hello **world**", "hello **[world](url)**"]);
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("hello **world**");
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("hello world");
+    expect(editor.undo()).toBe(false);
+    editor.destroy();
+  });
+
+  it("removes inline formatting in one undoable transaction", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "hello **world**",
+      plugins: [createHistoryPlugin()],
+    });
+
+    editor.setSelection(8, 13);
+    toggleBold(editor);
+
+    expect(editor.getDocument()).toBe("hello world");
+    expect(editor.getSelection()).toEqual({ anchor: 6, head: 11 });
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("hello **world**");
+    expect(editor.undo()).toBe(false);
+    editor.destroy();
+  });
+
+  it("keeps the document, callback, and undo state correct across IME composition", async () => {
+    const container = document.createElement("div");
+    const changes: string[] = [];
+    const editor = createEditor({
+      container,
+      initialValue: "hello world",
+      onChange: (doc) => changes.push(doc),
+      plugins: [createHistoryPlugin()],
+    });
+    const content = container.querySelector<HTMLElement>(".cm-content");
+    expect(content).not.toBeNull();
+
+    vi.useFakeTimers();
+    try {
+      editor.setSelection(6, 11);
+      content?.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+      expect(editor.isComposing()).toBe(true);
+
+      toggleBold(editor);
+
+      expect(editor.getDocument()).toBe("hello **world**");
+      expect(changes).toHaveLength(0);
+
+      content?.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+      await vi.runAllTimersAsync();
+
+      expect(editor.isComposing()).toBe(false);
+      expect(changes).toContain("hello **world**");
+      expect(editor.undo()).toBe(true);
+      expect(editor.getDocument()).toBe("hello world");
+      expect(editor.undo()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      editor.destroy();
+    }
+  });
+});
 
 describe("toggleBold", () => {
   it("wraps selected text with **", () => {
@@ -491,6 +724,33 @@ describe("createToolbarUI", () => {
     button?.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }));
     expect(document.getElementById(button?.getAttribute("aria-describedby") ?? "")).toBeNull();
 
+    toolbar.destroy();
+    editor.destroy();
+  });
+
+  it("removes a heading through the Normal text menu in one undo step", () => {
+    const container = document.createElement("div");
+    const editor = createEditor({
+      container,
+      initialValue: "## Title",
+      plugins: [createHistoryPlugin()],
+    });
+    editor.setSelection(5);
+    const toolbar = createToolbarUI(editor);
+    document.body.appendChild(toolbar.element);
+
+    const headingMenu = toolbar.element.querySelector<HTMLButtonElement>('[data-toolbar-action="heading-menu"]');
+    headingMenu?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    const normalText = Array.from(document.querySelectorAll<HTMLButtonElement>(".nexus-toolbar-dropdown button"))
+      .find((button) => button.textContent === "Normal text");
+    expect(normalText).not.toBeUndefined();
+
+    normalText?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    expect(editor.getDocument()).toBe("Title");
+    expect(editor.undo()).toBe(true);
+    expect(editor.getDocument()).toBe("## Title");
+    expect(editor.undo()).toBe(false);
     toolbar.destroy();
     editor.destroy();
   });

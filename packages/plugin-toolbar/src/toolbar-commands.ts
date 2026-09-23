@@ -9,6 +9,8 @@ import {
   toggleUnorderedList,
 } from "./formatting";
 
+const TOOLBAR_REPLACE_OPTIONS = { isolateHistory: true } as const;
+
 export function toggleWrap(editor: EditorAPI, marker: string): boolean {
   const doc = editor.getDocument();
   const { anchor, head } = editor.getSelection();
@@ -19,15 +21,23 @@ export function toggleWrap(editor: EditorAPI, marker: string): boolean {
   const after = doc.slice(to, to + marker.length);
 
   if (before === marker && after === marker) {
-    editor.setDocument(
-      doc.slice(0, from - marker.length) + selected + doc.slice(to + marker.length),
+    editor.replaceRange(
+      from - marker.length,
+      to + marker.length,
+      selected,
+      { anchor: from - marker.length, head: to - marker.length },
+      TOOLBAR_REPLACE_OPTIONS,
     );
-    editor.setSelection(from - marker.length, to - marker.length);
     return true;
   }
 
-  editor.setDocument(doc.slice(0, from) + marker + selected + marker + doc.slice(to));
-  editor.setSelection(from + marker.length, to + marker.length);
+  editor.replaceRange(
+    from,
+    to,
+    marker + selected + marker,
+    { anchor: from + marker.length, head: to + marker.length },
+    TOOLBAR_REPLACE_OPTIONS,
+  );
   return true;
 }
 
@@ -56,9 +66,8 @@ export function insertLink(editor: EditorAPI): boolean {
   const linkText = selected || "link text";
   const markdown = `[${linkText}](url)`;
 
-  editor.setDocument(doc.slice(0, from) + markdown + doc.slice(to));
   const urlStart = from + linkText.length + 3;
-  editor.setSelection(urlStart, urlStart + 3);
+  editor.replaceRange(from, to, markdown, { anchor: urlStart, head: urlStart + 3 }, TOOLBAR_REPLACE_OPTIONS);
   return true;
 }
 
@@ -75,8 +84,7 @@ export function toggleHeading(editor: EditorAPI, level: number): boolean {
     ? line.slice(prefix.length)
     : prefix + (headingMatch ? line.slice(headingMatch[0].length) : line);
 
-  editor.setDocument(doc.slice(0, lineStart) + newLine + doc.slice(end));
-  editor.setSelection(lineStart + newLine.length);
+  editor.replaceRange(lineStart, end, newLine, { anchor: lineStart + newLine.length }, TOOLBAR_REPLACE_OPTIONS);
   return true;
 }
 

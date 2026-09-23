@@ -40,6 +40,8 @@ import {
   iconFullscreen,
 } from "./icons";
 
+const TOOLBAR_REPLACE_OPTIONS = { isolateHistory: true } as const;
+
 export interface ToolbarButton {
   id: string;
   title: string;
@@ -303,8 +305,7 @@ function showHeadingDropdown(
         const m = line.match(/^#{1,6}\s/);
         if (m) {
           const newLine = line.slice(m[0].length);
-          editor.setDocument(doc.slice(0, lineStart) + newLine + doc.slice(lineEnd));
-          editor.setSelection(lineStart + newLine.length);
+          editor.replaceRange(lineStart, lineEnd, newLine, { anchor: lineStart + newLine.length }, TOOLBAR_REPLACE_OPTIONS);
         }
       }
       editor.focus();

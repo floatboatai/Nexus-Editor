@@ -417,8 +417,13 @@ export interface EditorAPI {
    *   The AST is still resynced inline so `getAst()` stays consistent for
    *   immediate callers. Intended for non-user edits only (file-open, seeding).
    *   Plugin code should leave `silent` unset.
-   * - Positions (`from`, `to`, and `selection` offsets) are in pre-edit doc
-   *   coordinates — the same coordinate space as `getSelection()` returns.
+   * - `isolateHistory` prevents this edit from being merged with adjacent history
+   *   events. Toolbar commands use it so consecutive commands can be undone
+   *   independently; when omitted, it preserves the default CodeMirror grouping.
+   *
+   * - `from` and `to` are pre-edit doc coordinates. `selection` offsets are
+   *   post-edit coordinates, matching CodeMirror's transaction contract and
+   *   the final selection returned by `getSelection()`.
    * - Bounds: callers are responsible for valid offsets. CM6 throws
    *   `RangeError` on out-of-bounds values — identical trust model to
    *   `setSelection`. No double validation is performed in this layer.
@@ -431,7 +436,7 @@ export interface EditorAPI {
     to: number,
     insert: string,
     selection?: { anchor: number; head?: number },
-    opts?: { silent?: boolean }
+    opts?: { silent?: boolean; isolateHistory?: boolean }
   ): void;
   undo(): boolean;
   redo(): boolean;

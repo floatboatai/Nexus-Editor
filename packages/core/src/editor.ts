@@ -5,7 +5,7 @@ import { Annotation, EditorSelection, EditorState } from "@codemirror/state";
 // no onChange emission, no AST reparse for the onChange pipeline.
 const silentDocChange = Annotation.define<boolean>();
 import { EditorView, keymap, dropCursor, lineNumbers, type Direction } from "@codemirror/view";
-import { indentWithTab, undo as cmUndo, redo as cmRedo } from "@codemirror/commands";
+import { indentWithTab, undo as cmUndo, redo as cmRedo, isolateHistory } from "@codemirror/commands";
 import { closeBrackets } from "@codemirror/autocomplete";
 import type { Root } from "mdast";
 import type { Heading } from "mdast";
@@ -879,13 +879,17 @@ export function createEditor(config: EditorConfig): EditorAPI {
     replaceRange(from, to, insert, selection, opts) {
       if (destroyed) return;
       const silent = opts?.silent === true;
+      const annotations = [
+        ...(silent ? [silentDocChange.of(true)] : []),
+        ...(opts?.isolateHistory ? [isolateHistory.of("full")] : []),
+      ];
       view.dispatch({
         changes: { from, to, insert },
         selection: selection
           ? { anchor: selection.anchor, head: selection.head ?? selection.anchor }
           : undefined,
         scrollIntoView: true,
-        annotations: silent ? silentDocChange.of(true) : undefined,
+        annotations: annotations.length > 0 ? annotations : undefined,
       });
       if (silent) {
         const next = view.state.doc.toString();
